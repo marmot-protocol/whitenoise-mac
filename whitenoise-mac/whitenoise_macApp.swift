@@ -6,27 +6,19 @@
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct whitenoise_macApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var workspace = WorkspaceState()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(workspace)
+                .task {
+                    await workspace.bootstrap()
+                }
         }
-        .modelContainer(sharedModelContainer)
+        .windowResizability(.contentMinSize)
     }
 }
