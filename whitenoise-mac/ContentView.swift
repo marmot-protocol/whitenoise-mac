@@ -6,54 +6,48 @@
 //
 
 import SwiftUI
-import SwiftData
 
 struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var effectiveColorScheme: ColorScheme?
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
+        MessengerShellView()
+            .frame(minWidth: 940, minHeight: 620)
+            .preferredColorScheme(effectiveColorScheme)
+            .environment(\.locale, workspace.preferredLocale)
+            .tint(.accentColor)
+            .onAppear {
+                applyAppearance(workspace.appearancePreference)
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
-            .toolbar {
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
+            .onChange(of: workspace.appearancePreference) { _, preference in
+                applyAppearance(preference)
             }
-        } detail: {
-            Text("Select an item")
+            .onReceive(
+                DistributedNotificationCenter.default().publisher(
+                    for: Notification.Name("AppleInterfaceThemeChangedNotification")
+                )
+            ) { _ in
+                refreshSystemAppearance()
+            }
+    }
+
+    private func applyAppearance(_ preference: AppearancePreference) {
+        NativeAppearanceController.apply(preference)
+        effectiveColorScheme = NativeAppearanceController.preferredColorScheme(for: preference)
+
+        DispatchQueue.main.async {
+            effectiveColorScheme = NativeAppearanceController.preferredColorScheme(for: preference)
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
-        }
+    private func refreshSystemAppearance() {
+        guard workspace.appearancePreference == .system else { return }
+        effectiveColorScheme = NativeAppearanceController.preferredColorScheme(for: .system)
     }
 }
 
 #Preview {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .environment(WorkspaceState.preview())
 }
