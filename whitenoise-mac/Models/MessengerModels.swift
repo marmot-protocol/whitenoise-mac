@@ -81,6 +81,8 @@ struct MessageItem: Identifiable, Hashable {
     let senderPictureURL: String?
     let body: String
     let sentAt: Date
+    let timelineKind: UInt64
+    let isDeleted: Bool
     let isOutgoing: Bool
     let reactions: [MessageReaction]
     let replyContext: MessageReplyContext?
@@ -92,6 +94,8 @@ struct MessageItem: Identifiable, Hashable {
         senderPictureURL: String? = nil,
         body: String,
         sentAt: Date,
+        timelineKind: UInt64 = 9,
+        isDeleted: Bool = false,
         isOutgoing: Bool,
         reactions: [MessageReaction] = [],
         replyContext: MessageReplyContext? = nil
@@ -102,6 +106,8 @@ struct MessageItem: Identifiable, Hashable {
         self.senderPictureURL = senderPictureURL
         self.body = body
         self.sentAt = sentAt
+        self.timelineKind = timelineKind
+        self.isDeleted = isDeleted
         self.isOutgoing = isOutgoing
         self.reactions = reactions
         self.replyContext = replyContext

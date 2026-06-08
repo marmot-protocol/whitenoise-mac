@@ -105,6 +105,8 @@ extension MessageItem {
             senderPictureURL: senderProfile?.pictureURL,
             body: MessageItem.bodyText(plaintext: record.plaintext, deleted: record.deleted),
             sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
+            timelineKind: record.kind,
+            isDeleted: record.deleted,
             isOutgoing: record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound",
             reactions: reactions,
             replyContext: replyContext
