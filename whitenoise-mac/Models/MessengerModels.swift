@@ -129,6 +129,7 @@ enum SettingsPage: Equatable {
     case relays
     case keyPackages
     case appearance
+    case privacySecurity
     case notifications
     case developerMode
 
@@ -139,6 +140,7 @@ enum SettingsPage: Equatable {
         .relays,
         .keyPackages,
         .appearance,
+        .privacySecurity,
         .notifications,
         .developerMode
     ]
@@ -159,6 +161,8 @@ enum SettingsPage: Equatable {
             L10n.string("Key Packages")
         case .appearance:
             L10n.string("Appearance")
+        case .privacySecurity:
+            L10n.string("Privacy & Security")
         case .notifications:
             L10n.string("Notifications")
         case .developerMode:
@@ -182,6 +186,8 @@ enum SettingsPage: Equatable {
             L10n.string("Invite packages")
         case .appearance:
             L10n.string("Theme")
+        case .privacySecurity:
+            L10n.string("Telemetry and audit logs")
         case .notifications:
             L10n.string("Local alerts")
         case .developerMode:
@@ -205,6 +211,8 @@ enum SettingsPage: Equatable {
             "key"
         case .appearance:
             "circle.lefthalf.filled"
+        case .privacySecurity:
+            "lock.shield"
         case .notifications:
             "bell.badge"
         case .developerMode:
@@ -274,10 +282,23 @@ struct NotificationSettingsSnapshot: Equatable {
     )
 }
 
+struct PrivacySecuritySettingsSnapshot: Equatable {
+    var relayTelemetryEnabled: Bool
+    var relayTelemetryIntervalSeconds: UInt64
+    var auditLogUploadsEnabled: Bool
+    var hasObservabilityToken: Bool
+
+    static let defaults = PrivacySecuritySettingsSnapshot(
+        relayTelemetryEnabled: false,
+        relayTelemetryIntervalSeconds: 60,
+        auditLogUploadsEnabled: false,
+        hasObservabilityToken: false
+    )
+}
+
 enum RelaySettingsSection: String, CaseIterable, Identifiable {
     case nip65 = "NIP-65"
     case inbox = "Inbox"
-    case keyPackage = "Key packages"
 
     var id: String { rawValue }
 
@@ -287,8 +308,6 @@ enum RelaySettingsSection: String, CaseIterable, Identifiable {
             rawValue
         case .inbox:
             L10n.string("Inbox")
-        case .keyPackage:
-            L10n.string("Key Packages")
         }
     }
 
@@ -298,8 +317,6 @@ enum RelaySettingsSection: String, CaseIterable, Identifiable {
             L10n.string("Profile relay list")
         case .inbox:
             L10n.string("Message delivery relays")
-        case .keyPackage:
-            L10n.string("Key package discovery relays")
         }
     }
 }
@@ -316,19 +333,16 @@ struct ProfileDraft: Equatable {
 struct RelaySettingsSnapshot: Equatable {
     var nip65: [String]
     var inbox: [String]
-    var keyPackage: [String]
 
     static let defaults = RelaySettingsSnapshot(
         nip65: MarmotClient.seedRelays,
-        inbox: MarmotClient.seedRelays,
-        keyPackage: MarmotClient.seedRelays
+        inbox: MarmotClient.seedRelays
     )
 
     func relays(for section: RelaySettingsSection) -> [String] {
         switch section {
         case .nip65: nip65
         case .inbox: inbox
-        case .keyPackage: keyPackage
         }
     }
 
@@ -338,8 +352,6 @@ struct RelaySettingsSnapshot: Equatable {
             nip65 = relays
         case .inbox:
             inbox = relays
-        case .keyPackage:
-            keyPackage = relays
         }
     }
 }
@@ -365,11 +377,11 @@ struct KeyPackageItem: Identifiable, Equatable {
     var sourceLabel: String {
         switch (isLocal, isRelayDiscovered) {
         case (true, true):
-            "Local + relay"
+            "Local + fetched"
         case (true, false):
             "Local"
         case (false, true):
-            "Relay"
+            "Fetched"
         case (false, false):
             "Unknown"
         }
@@ -505,7 +517,7 @@ extension ChatItem {
             id: "chat-relays",
             title: "Relay Ops",
             subtitle: "5 members",
-            preview: "nos.lol and relay.primal.net both caught up on the last run.",
+            preview: "EU and US White Noise relays both caught up on the last run.",
             updatedAt: Date().addingTimeInterval(-90_000),
             avatarSeed: "chat-relays",
             pictureURL: nil,
@@ -552,7 +564,7 @@ extension MessageItem {
             MessageItem(
                 id: "m5",
                 senderName: "Relay Ops",
-                body: "Seed relays are still damus, nos.lol, and primal for the initial Marmot runtime.",
+                body: "Seed relays now point at the EU and US White Noise relays for the initial Marmot runtime.",
                 sentAt: Date().addingTimeInterval(-90_000),
                 isOutgoing: false
             )

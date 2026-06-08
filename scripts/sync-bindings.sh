@@ -31,6 +31,13 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 mkdir -p "$BUILD_DIR/headers" "$BUILD_DIR/swift" "$VENDOR_DIR/Sources/MarmotKit"
 
+ENDPOINTS_ENV="$CRATE_DIR/marmotkit-endpoints.env"
+if [[ -f "$ENDPOINTS_ENV" ]]; then
+    # Public route defaults are compiled into MarmotKit; host apps provide tokens.
+    # shellcheck source=/dev/null
+    source "$ENDPOINTS_ENV"
+fi
+
 echo "==> Building host MarmotKit artifacts from $DARKMATTER_DIR"
 (
     cd "$DARKMATTER_DIR"

@@ -16,13 +16,19 @@ protocol MarmotRuntime {
     func publishUserProfile(accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]) async throws -> UserProfileMetadataFfi
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi]
+    func auditLogSettings() throws -> AuditLogSettingsFfi
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi
+    func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi
+    func setAuditLogSettings(settings: AuditLogSettingsFfi) throws -> AuditLogSettingsFfi
+    func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi
+    func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws
+    func setRelayTelemetrySettings(settings: RelayTelemetrySettingsFfi) async throws -> RelayTelemetrySettingsFfi
+    func telemetryInstallId() throws -> String
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64
     func republishKeyPackage(accountRef: String) async throws -> UInt64
     func deleteAccountKeyPackage(accountRef: String, eventIdHex: String, relays: [String]) async throws -> UInt64
     func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
-    func setAccountKeyPackageRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws -> String
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi
@@ -43,9 +49,8 @@ protocol MarmotRuntime {
 
 final class MarmotClient: MarmotRuntime {
     static let seedRelays: [String] = [
-        "wss://relay.damus.io",
-        "wss://nos.lol",
-        "wss://relay.primal.net"
+        "wss://relay.eu.whitenoise.chat",
+        "wss://relay.us.whitenoise.chat"
     ]
 
     let marmot: Marmot
@@ -118,12 +123,40 @@ final class MarmotClient: MarmotRuntime {
         try await marmot.accountKeyPackages(accountRef: accountRef, bootstrapRelays: bootstrapRelays)
     }
 
+    func auditLogSettings() throws -> AuditLogSettingsFfi {
+        try marmot.auditLogSettings()
+    }
+
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
         try marmot.notificationSettings(accountRef: accountRef)
     }
 
+    func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi {
+        try marmot.relayTelemetrySettings()
+    }
+
+    func setAuditLogSettings(settings: AuditLogSettingsFfi) throws -> AuditLogSettingsFfi {
+        try marmot.setAuditLogSettings(settings: settings)
+    }
+
+    func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi {
+        try marmot.setAuditLogTrackerConfig(config: config)
+    }
+
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {
         try marmot.setLocalNotificationsEnabled(accountRef: accountRef, enabled: enabled)
+    }
+
+    func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws {
+        try await marmot.setRelayTelemetryRuntimeConfig(config: config)
+    }
+
+    func setRelayTelemetrySettings(settings: RelayTelemetrySettingsFfi) async throws -> RelayTelemetrySettingsFfi {
+        try await marmot.setRelayTelemetrySettings(settings: settings)
+    }
+
+    func telemetryInstallId() throws -> String {
+        try marmot.telemetryInstallId()
     }
 
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64 {
@@ -144,14 +177,6 @@ final class MarmotClient: MarmotRuntime {
 
     func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
         try await marmot.setAccountInboxRelays(
-            accountRef: accountRef,
-            relays: relays,
-            bootstrapRelays: bootstrapRelays
-        )
-    }
-
-    func setAccountKeyPackageRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
-        try await marmot.setAccountKeyPackageRelays(
             accountRef: accountRef,
             relays: relays,
             bootstrapRelays: bootstrapRelays
