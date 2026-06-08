@@ -1045,7 +1045,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func enablingPrivacySecurityUploadRequiresBuildToken() async throws {
+    @Test func enablingPrivacySecurityUploadRequiresEnvironmentToken() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -1064,7 +1064,7 @@ struct whitenoise_macTests {
 
         #expect(!runtime.storedRelayTelemetrySettings.exportEnabled)
         #expect(!runtime.storedAuditLogSettings.enabled)
-        #expect(state.lastError == "Missing OTLP_TOKEN_DARKMATTER_MAC build setting.")
+        #expect(state.lastError == "Missing OTLP_TOKEN_DARKMATTER_MAC environment variable.")
     }
 
     @MainActor
