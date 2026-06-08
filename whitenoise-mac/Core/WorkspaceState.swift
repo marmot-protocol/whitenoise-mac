@@ -280,7 +280,6 @@ final class WorkspaceState {
         selection = .settings(.accounts)
         Task {
             await reloadChats()
-            await loadSettingsData()
         }
     }
 
@@ -314,7 +313,6 @@ final class WorkspaceState {
         replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
-        Task { await loadSettingsData() }
     }
 
     func showSettingsPage(_ page: SettingsPage) {
@@ -436,7 +434,6 @@ final class WorkspaceState {
         await refreshNotificationAuthorizationStatus()
         loadNotificationSettings()
         await loadPrivacySecuritySettings()
-        await loadKeyPackages()
     }
 
     func loadKeyPackages() async {

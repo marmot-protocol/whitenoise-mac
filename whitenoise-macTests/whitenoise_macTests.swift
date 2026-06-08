@@ -955,7 +955,27 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func settingsLoadShowsPublishedKeyPackages() async throws {
+    @Test func keyPackageLoadShowsPublishedKeyPackages() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        await state.loadKeyPackages()
+
+        #expect(state.keyPackages.map(\.eventIdHex) == ["event-local", "event-fetched"])
+        #expect(state.keyPackages.first?.sourceLabel == "Local")
+        #expect(runtime.lastPackageFetchBootstrapRelays == MarmotClient.seedRelays)
+    }
+
+    @MainActor
+    @Test func settingsLoadDoesNotFetchKeyPackages() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -968,9 +988,8 @@ struct whitenoise_macTests {
         await state.bootstrap()
         await state.loadSettingsData()
 
-        #expect(state.keyPackages.map(\.eventIdHex) == ["event-local", "event-fetched"])
-        #expect(state.keyPackages.first?.sourceLabel == "Local")
-        #expect(runtime.lastPackageFetchBootstrapRelays == MarmotClient.seedRelays)
+        #expect(runtime.accountKeyPackagesCallCount == 0)
+        #expect(state.keyPackages.isEmpty)
     }
 
     @MainActor
@@ -1313,7 +1332,7 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
-        await state.loadSettingsData()
+        await state.loadKeyPackages()
         guard let fetchedPackage = state.keyPackages.last else {
             Issue.record("Expected a fetched key package")
             return
@@ -1405,6 +1424,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var lastPackageDeleteRelays: [String] = []
     private(set) var refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
+    private(set) var accountKeyPackagesCallCount = 0
     private(set) var chatListCallCount = 0
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
@@ -1564,6 +1584,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi] {
+        accountKeyPackagesCallCount += 1
         lastPackageFetchBootstrapRelays = bootstrapRelays
         return keyPackages
     }
