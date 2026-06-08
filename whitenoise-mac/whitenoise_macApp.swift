@@ -19,6 +19,7 @@ struct whitenoise_macApp: App {
                     await workspace.bootstrap()
                 }
         }
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
     }
 }
