@@ -100,7 +100,6 @@ final class WorkspaceState {
     private static let developerModeKey = "whitenoise.mac.developerMode"
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
     private static let observabilityTokenInfoKey = "OTLP_TOKEN_DARKMATTER_MAC"
-    private static let fallbackObservabilityTokenInfoKey = "OTLPTokenDarkMatterMac"
     private static let deploymentEnvironment = "production"
     private static let telemetryTenant = "whitenoise-mac"
     private static let deliveredNotificationKeyLimit = 256
@@ -108,7 +107,7 @@ final class WorkspaceState {
         L10n.string("Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
     private static var missingObservabilityTokenMessage: String {
-        L10n.string("Missing OTLP_TOKEN_DARKMATTER_MAC build setting.")
+        L10n.string("Missing OTLP_TOKEN_DARKMATTER_MAC environment variable.")
     }
 
     init(
@@ -1000,10 +999,7 @@ final class WorkspaceState {
     }
 
     private static func defaultObservabilityToken() -> String? {
-        let infoDictionaryToken = nonBlank(Bundle.main.object(forInfoDictionaryKey: observabilityTokenInfoKey) as? String)
-            ?? nonBlank(Bundle.main.object(forInfoDictionaryKey: fallbackObservabilityTokenInfoKey) as? String)
-        return infoDictionaryToken
-            ?? nonBlank(ProcessInfo.processInfo.environment[observabilityTokenInfoKey])
+        nonBlank(ProcessInfo.processInfo.environment[observabilityTokenInfoKey])
     }
 
     private static func nonBlank(_ value: String?) -> String? {

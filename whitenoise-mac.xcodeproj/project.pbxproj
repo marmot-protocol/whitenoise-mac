@@ -109,7 +109,6 @@
 				1F5D021C2FC5862E0016665B /* Sources */,
 				1F5D021D2FC5862E0016665B /* Frameworks */,
 				1F5D021E2FC5862E0016665B /* Resources */,
-				2B616D052FCF000000010001 /* Inject Observability Token */,
 			);
 			buildRules = (
 			);
@@ -251,29 +250,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		2B616D052FCF000000010001 /* Inject Observability Token */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Inject Observability Token";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -eu\nINFO_PLIST=\"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\nif [ -n \"${OTLP_TOKEN_DARKMATTER_MAC:-}\" ]; then\n    /usr/libexec/PlistBuddy -c \"Set :OTLPTokenDarkMatterMac ${OTLP_TOKEN_DARKMATTER_MAC}\" \"$INFO_PLIST\" 2>/dev/null || \\\n    /usr/libexec/PlistBuddy -c \"Add :OTLPTokenDarkMatterMac string ${OTLP_TOKEN_DARKMATTER_MAC}\" \"$INFO_PLIST\"\nelse\n    /usr/libexec/PlistBuddy -c \"Delete :OTLPTokenDarkMatterMac\" \"$INFO_PLIST\" 2>/dev/null || true\nfi\n";
-			showEnvVarsInLog = 0;
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1F5D021C2FC5862E0016665B /* Sources */ = {

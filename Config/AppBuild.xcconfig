@@ -1,3 +1,2 @@
-OTLP_TOKEN_DARKMATTER_MAC =
-
-#include? "AppSecrets.xcconfig"
+// Observability upload tokens are read from the OTLP_TOKEN_DARKMATTER_MAC
+// runtime environment variable. Do not define them in build settings.
