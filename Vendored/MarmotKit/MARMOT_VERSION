@@ -1,0 +1,10 @@
+darkmatter-sha: 38ed40b
+darkmatter-branch: master
+built-at: 2026-06-08T16:53:44Z
+uniffi-version: 0.28.3
+macos-targets: aarch64-apple-darwin
+
+Notes:
+- Regenerate with: whitenoise-mac/scripts/sync-bindings.sh
+- A "-dirty" suffix means the darkmatter working tree had uncommitted
+  changes when this bundle was built.
