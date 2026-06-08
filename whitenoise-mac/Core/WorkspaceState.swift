@@ -94,6 +94,7 @@ final class WorkspaceState {
     private var profileRefreshAccountIds = Set<String>()
     private var deliveredNotificationKeys = Set<String>()
     private var deliveredNotificationKeyOrder: [String] = []
+    private var newChatLookupGeneration = 0
 
     private static let activeAccountKey = "whitenoise.mac.activeAccountId"
     private static let developerModeKey = "whitenoise.mac.developerMode"
@@ -665,14 +666,20 @@ final class WorkspaceState {
         let query = newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let client else { return nil }
         guard !query.isEmpty else {
+            invalidateNewChatLookup()
             newChatRecipient = nil
             lastError = L10n.string("Enter an npub, profile link, or public key.")
             return nil
         }
 
         lastError = nil
+        let lookupGeneration = beginNewChatLookup()
         isResolvingNewChat = true
-        defer { isResolvingNewChat = false }
+        defer {
+            if isCurrentNewChatLookup(generation: lookupGeneration, query: query) {
+                isResolvingNewChat = false
+            }
+        }
 
         do {
             let member = try client.normalizeMemberRef(memberRef: query)
@@ -691,9 +698,15 @@ final class WorkspaceState {
                 displayName: displayName,
                 pictureURL: profile?.picture
             )
+            guard isCurrentNewChatLookup(generation: lookupGeneration, query: query) else {
+                return nil
+            }
             newChatRecipient = recipient
             return recipient
         } catch {
+            guard isCurrentNewChatLookup(generation: lookupGeneration, query: query) else {
+                return nil
+            }
             newChatRecipient = nil
             lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
             return nil
@@ -703,11 +716,13 @@ final class WorkspaceState {
     func resolveNewChatQueryIfReady() async {
         let query = newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
+            invalidateNewChatLookup()
             newChatRecipient = nil
             lastError = nil
             return
         }
         guard looksLikeMemberRef(query) else {
+            invalidateNewChatLookup()
             newChatRecipient = nil
             return
         }
@@ -1685,10 +1700,26 @@ final class WorkspaceState {
     }
 
     private func resetNewChatComposer() {
+        invalidateNewChatLookup()
         newChatQuery = ""
         newChatName = ""
         newChatDescription = ""
         newChatRecipient = nil
+    }
+
+    private func beginNewChatLookup() -> Int {
+        newChatLookupGeneration += 1
+        return newChatLookupGeneration
+    }
+
+    private func invalidateNewChatLookup() {
+        newChatLookupGeneration += 1
+        isResolvingNewChat = false
+    }
+
+    private func isCurrentNewChatLookup(generation: Int, query: String) -> Bool {
+        newChatLookupGeneration == generation
+            && newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
 
     private func insertCreatedChatIfNeeded(groupIdHex: String, title: String, avatarSeed: String, pictureURL: String?) {

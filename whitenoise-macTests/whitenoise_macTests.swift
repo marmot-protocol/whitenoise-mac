@@ -879,6 +879,63 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleNewChatRecipientLookupDoesNotReplaceCurrentResult() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let slowId = "1111111111111111111111111111111111111111111111111111111111111111"
+        let fastId = "2222222222222222222222222222222222222222222222222222222222222222"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1slow", accountIdHex: slowId, npub: "npub1slow")
+        runtime.installNormalizedMemberRef(query: "npub1fast", accountIdHex: fastId, npub: "npub1fast")
+        runtime.installProfile(
+            accountIdHex: slowId,
+            profile: UserProfileMetadataFfi(
+                name: "slow",
+                displayName: "Slow Recipient",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: fastId,
+            profile: UserProfileMetadataFfi(
+                name: "fast",
+                displayName: "Fast Recipient",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.profileRefreshDelaysByAccountId[slowId] = 150_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1slow"
+        let slowLookup = Task { @MainActor in
+            await state.resolveNewChatQueryIfReady()
+        }
+        let slowLookupStarted = await waitFor {
+            runtime.refreshedProfileIds.contains(slowId)
+        }
+        #expect(slowLookupStarted)
+
+        state.newChatQuery = "npub1fast"
+        await state.resolveNewChatQueryIfReady()
+        await slowLookup.value
+
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == fastId)
+        #expect(state.resolvedNewChatRecipient?.title == "Fast Recipient")
+    }
+
+    @MainActor
     @Test func settingsLoadUpdatesActiveAccountProfilePicture() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -1351,7 +1408,9 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var chatListCallCount = 0
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
+    var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
+    private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
     private var groupDetailsById: [String: GroupDetailsFfi] = [:]
     var notificationSettings = NotificationSettingsFfi(
         accountRef: "Desktop Account",
@@ -1395,6 +1454,9 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func normalizeMemberRef(memberRef: String) throws -> MemberRefFfi {
+        if let member = normalizedMembersByRef[memberRef] {
+            return member
+        }
         MemberRefFfi(
             memberRef: memberRef,
             accountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
@@ -1404,6 +1466,9 @@ private final class FakeMarmotRuntime: MarmotRuntime {
 
     func refreshProfile(accountIdHex: String, relays: [String]) async throws {
         refreshedProfileIds.append(accountIdHex)
+        if let delay = profileRefreshDelaysByAccountId[accountIdHex] {
+            try await Task.sleep(nanoseconds: delay)
+        }
     }
 
     func installDirectGroup(
@@ -1467,6 +1532,14 @@ private final class FakeMarmotRuntime: MarmotRuntime {
 
     func installProfile(accountIdHex: String, profile: UserProfileMetadataFfi) {
         profilesByAccountId[accountIdHex] = profile
+    }
+
+    func installNormalizedMemberRef(query: String, accountIdHex: String, npub: String) {
+        normalizedMembersByRef[query] = MemberRefFfi(
+            memberRef: query,
+            accountIdHex: accountIdHex,
+            npub: npub
+        )
     }
 
     func createIdentity(defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
