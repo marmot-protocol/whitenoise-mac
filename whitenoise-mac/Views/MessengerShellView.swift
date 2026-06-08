@@ -9,16 +9,16 @@ struct MessengerShellView: View {
             if workspace.showsMessengerChrome {
                 HStack(spacing: 0) {
                     AccountRailView()
-                    Divider()
+                    GlassSeparator()
 
                     ChatListDrawerView()
-                        .frame(width: 318, alignment: .leading)
-                        .frame(width: workspace.isChatListVisible ? 318 : 0, alignment: .leading)
+                        .frame(width: 312, alignment: .leading)
+                        .frame(width: workspace.isChatListVisible ? 312 : 0, alignment: .leading)
                         .opacity(workspace.isChatListVisible ? 1 : 0)
                         .clipped()
                         .allowsHitTesting(workspace.isChatListVisible)
 
-                    Divider()
+                    GlassSeparator()
                         .opacity(workspace.isChatListVisible ? 1 : 0)
                     DetailPaneView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -181,16 +181,18 @@ private struct AccountRailView: View {
                     .frame(width: 36, height: 36)
                     .background {
                         Circle()
-                            .fill(isSettingsSelected ? Color.accentColor.opacity(0.18) : Color.clear)
+                            .fill(isSettingsSelected ? Color.white.opacity(0.14) : Color.clear)
                     }
             }
             .buttonStyle(.plain)
-            .foregroundStyle(isSettingsSelected ? Color.accentColor : Color.secondary)
+            .foregroundStyle(isSettingsSelected ? Color.primary : Color.secondary)
             .help("Settings")
         }
         .padding(.vertical, 14)
         .frame(width: 68)
-        .background(.ultraThinMaterial)
+        .background {
+            GlassPaneBackground(opacity: 0.72)
+        }
     }
 }
 
@@ -232,15 +234,16 @@ private struct ChatListDrawerView: View {
                 .padding(.top, 18)
                 .padding(.bottom, 12)
 
-                Divider()
+                GlassSeparator(axis: .horizontal)
 
                 ScrollView {
-                    LazyVStack(spacing: 4) {
+                    LazyVStack(spacing: 2) {
                         ForEach(workspace.filteredChats) { chat in
                             ChatRowButton(chat: chat)
                         }
                     }
-                    .padding(10)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 10)
                 }
                 .overlay {
                     if workspace.filteredChats.isEmpty {
@@ -249,7 +252,9 @@ private struct ChatListDrawerView: View {
                 }
             }
         }
-        .background(.thinMaterial)
+        .background {
+            GlassPaneBackground(opacity: 0.64)
+        }
     }
 }
 
@@ -270,7 +275,7 @@ private struct SettingsListDrawerView: View {
             .padding(.top, 18)
             .padding(.bottom, 12)
 
-            Divider()
+            GlassSeparator(axis: .horizontal)
 
             ScrollView {
                 LazyVStack(spacing: 4) {
@@ -282,7 +287,9 @@ private struct SettingsListDrawerView: View {
             }
 
         }
-        .background(.thinMaterial)
+        .background {
+            GlassPaneBackground(opacity: 0.64)
+        }
     }
 
     private var activeAccountSummary: some View {
@@ -357,7 +364,7 @@ private struct SettingsSidebarRow: View {
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .background {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+                    .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
             }
         }
         .buttonStyle(.plain)
@@ -414,11 +421,12 @@ private struct ChatRowButton: View {
                         .background(Circle().fill(Color.accentColor))
                 }
             }
-            .padding(9)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.clear)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.13) : Color.clear)
             }
         }
         .buttonStyle(.plain)
@@ -465,11 +473,11 @@ private struct ConversationView: View {
 
         VStack(spacing: 0) {
             ConversationHeader(chat: chat)
-            Divider()
+            GlassSeparator(axis: .horizontal)
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 15) {
+                    LazyVStack(spacing: 12) {
                         if messages.isEmpty {
                             EmptyConversationView()
                         } else {
@@ -482,11 +490,8 @@ private struct ConversationView: View {
                             .frame(height: 1)
                             .id(bottomAnchorId)
                     }
-                    .padding(.horizontal, 30)
-                    .padding(.vertical, 24)
-                }
-                .background {
-                    Color.primary.opacity(0.025)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 22)
                 }
                 .onAppear {
                     scrollToBottom(with: proxy, animated: false)
@@ -499,7 +504,7 @@ private struct ConversationView: View {
                 }
             }
 
-            Divider()
+            GlassSeparator(axis: .horizontal)
 
             VStack(spacing: 8) {
                 if let replyDraftContext = workspace.replyDraftContext {
@@ -515,11 +520,11 @@ private struct ConversationView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .background {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(.ultraThinMaterial)
+                            Capsule(style: .continuous)
+                                .fill(Color.primary.opacity(0.055))
                                 .overlay {
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .stroke(Color.white.opacity(0.28), lineWidth: 1)
+                                    Capsule(style: .continuous)
+                                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
                                 }
                         }
 
@@ -538,7 +543,9 @@ private struct ConversationView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
-            .background(.ultraThinMaterial)
+            .background {
+                GlassToolbarBackground()
+            }
         }
         .background {
             LiquidGlassBackground()
@@ -855,7 +862,9 @@ private struct ConversationHeader: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .background {
+            GlassToolbarBackground()
+        }
     }
 }
 
@@ -865,7 +874,7 @@ private struct MessageBubble: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            if message.isOutgoing { Spacer(minLength: 80) }
+            if message.isOutgoing { Spacer(minLength: 72) }
 
             if !message.isOutgoing {
                 ProfileImageAvatarView(
@@ -926,7 +935,7 @@ private struct MessageBubble: View {
             .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
 
             if !message.isOutgoing {
-                Spacer(minLength: 80)
+                Spacer(minLength: 72)
             }
         }
         .contentShape(Rectangle())
@@ -969,15 +978,15 @@ private struct MessageBubble: View {
         if message.isOutgoing {
             shape
                 .fill(Color.accentColor)
-                .shadow(color: Color.accentColor.opacity(0.18), radius: 8, y: 3)
+                .shadow(color: Color.accentColor.opacity(0.14), radius: 5, y: 2)
         } else {
             shape
-                .fill(.regularMaterial)
+                .fill(Color.primary.opacity(0.075))
                 .overlay {
                     shape
-                        .stroke(Color.white.opacity(0.28), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
                 }
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
         }
     }
 }
@@ -2324,11 +2333,11 @@ private struct SearchField: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
+            Capsule(style: .continuous)
+                .fill(Color.primary.opacity(0.07))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                    Capsule(style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
                 }
         }
     }
@@ -2372,21 +2381,75 @@ private enum AvatarPalette {
     }
 }
 
+private struct GlassSeparator: View {
+    enum Axis {
+        case horizontal
+        case vertical
+    }
+
+    var axis: Axis = .vertical
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.095))
+            .frame(
+                width: axis == .vertical ? 1 : nil,
+                height: axis == .horizontal ? 1 : nil
+            )
+            .overlay {
+                Rectangle()
+                    .fill(Color.black.opacity(0.18))
+            }
+    }
+}
+
+private struct GlassPaneBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let opacity: Double
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.regularMaterial)
+            Color(
+                white: colorScheme == .dark ? 0.035 : 0.92
+            )
+            .opacity(opacity)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct GlassToolbarBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+            Color(
+                white: colorScheme == .dark ? 0.045 : 0.98
+            )
+            .opacity(colorScheme == .dark ? 0.58 : 0.72)
+        }
+    }
+}
+
 private struct LiquidGlassBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
             Color(
-                white: colorScheme == .dark ? 0.12 : 0.96
+                white: colorScheme == .dark ? 0.045 : 0.95
             )
             Rectangle()
-                .fill(.regularMaterial)
-                .opacity(colorScheme == .dark ? 0.62 : 0.78)
+                .fill(.thickMaterial)
+                .opacity(colorScheme == .dark ? 0.38 : 0.62)
             Color(
-                white: colorScheme == .dark ? 0.12 : 1.0
+                white: colorScheme == .dark ? 0.055 : 1.0
             )
-            .opacity(colorScheme == .dark ? 0.20 : 0.28)
+            .opacity(colorScheme == .dark ? 0.44 : 0.24)
         }
         .ignoresSafeArea()
     }
