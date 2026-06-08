@@ -493,14 +493,11 @@ private struct ConversationView: View {
                     .padding(.horizontal, 24)
                     .padding(.vertical, 22)
                 }
-                .onAppear {
-                    scrollToBottom(with: proxy, animated: false)
-                }
-                .onChange(of: chat.id) { _, _ in
-                    scrollToBottom(with: proxy, animated: false)
-                }
-                .onChange(of: messages.last?.id) { _, _ in
-                    scrollToBottom(with: proxy, animated: true)
+                .id(chat.id)
+                .defaultScrollAnchor(.bottom)
+                .onChange(of: messages.last?.id) { previousMessageId, _ in
+                    guard previousMessageId != nil, !messages.isEmpty else { return }
+                    scrollToBottom(with: proxy)
                 }
             }
 
@@ -556,13 +553,9 @@ private struct ConversationView: View {
         "conversation-bottom-\(chat.id)"
     }
 
-    private func scrollToBottom(with proxy: ScrollViewProxy, animated: Bool) {
+    private func scrollToBottom(with proxy: ScrollViewProxy) {
         DispatchQueue.main.async {
-            if animated {
-                withAnimation(.easeOut(duration: 0.22)) {
-                    proxy.scrollTo(bottomAnchorId, anchor: .bottom)
-                }
-            } else {
+            withAnimation(.easeOut(duration: 0.22)) {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
         }
@@ -955,7 +948,6 @@ private struct MessageBubble: View {
                 .font(.system(size: 15))
                 .foregroundStyle(message.isOutgoing ? .white : .primary)
                 .lineSpacing(2)
-                .textSelection(.enabled)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
