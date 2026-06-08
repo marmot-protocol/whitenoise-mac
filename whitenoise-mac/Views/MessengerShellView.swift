@@ -1229,6 +1229,8 @@ private struct SettingsPanelView: View {
                 KeyPackageSettingsView()
             case .appearance:
                 AppearanceSettingsView()
+            case .privacySecurity:
+                PrivacySecuritySettingsView()
             case .notifications:
                 NotificationsSettingsView()
             case .developerMode:
@@ -1745,6 +1747,112 @@ private struct AppearanceSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct PrivacySecuritySettingsView: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsHeader(
+                title: "Privacy & Security",
+                subtitle: "Diagnostics exports are off until you enable them."
+            )
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    PrivacySecurityToggleRow(
+                        systemImage: "waveform.path.ecg",
+                        title: "Relay telemetry",
+                        subtitle: workspace.privacySecuritySettings.relayTelemetryEnabled ? L10n.string("On") : L10n.string("Off"),
+                        isSaving: workspace.isSavingPrivacySecurity,
+                        isOn: Binding(
+                            get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
+                            set: { enabled in
+                                Task { await workspace.setRelayTelemetryEnabled(enabled) }
+                            }
+                        )
+                    )
+
+                    PrivacySecurityToggleRow(
+                        systemImage: "doc.text.magnifyingglass",
+                        title: "Audit log uploads",
+                        subtitle: workspace.privacySecuritySettings.auditLogUploadsEnabled ? L10n.string("On") : L10n.string("Off"),
+                        isSaving: workspace.isSavingPrivacySecurity,
+                        isOn: Binding(
+                            get: { workspace.privacySecuritySettings.auditLogUploadsEnabled },
+                            set: { enabled in
+                                Task { await workspace.setAuditLogUploadsEnabled(enabled) }
+                            }
+                        )
+                    )
+
+                    SettingsValueRow(
+                        title: "Upload token",
+                        value: workspace.privacySecuritySettings.hasObservabilityToken
+                            ? L10n.string("Configured")
+                            : L10n.string("Missing")
+                    )
+
+                    SettingsErrorView(error: workspace.lastError)
+                }
+                .padding(28)
+                .frame(width: 620, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct PrivacySecurityToggleRow: View {
+    let systemImage: String
+    let title: LocalizedStringKey
+    let subtitle: String
+    let isSaving: Bool
+    let isOn: Binding<Bool>
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background {
+                    Circle().fill(Color.accentColor)
+                }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(subtitle)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isSaving {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(isSaving)
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                }
+        }
     }
 }
 

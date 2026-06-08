@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import MarmotKit
 import Observation
@@ -44,6 +45,7 @@ final class WorkspaceState {
     var keyPackages: [KeyPackageItem] = []
     var notificationSettings = NotificationSettingsSnapshot.defaults
     var notificationAuthorizationStatus: LocalNotificationAuthorizationStatus = .notDetermined
+    var privacySecuritySettings = PrivacySecuritySettingsSnapshot.defaults
     var developerMode: Bool {
         didSet {
             UserDefaults.standard.set(developerMode, forKey: Self.developerModeKey)
@@ -65,6 +67,7 @@ final class WorkspaceState {
     var isPublishingKeyPackage = false
     var isRepublishingKeyPackage = false
     var isSavingNotifications = false
+    var isSavingPrivacySecurity = false
     var deletingKeyPackageId: String?
     var isNewChatComposerVisible = false
     var newChatQuery = ""
@@ -80,6 +83,7 @@ final class WorkspaceState {
     private let localNotificationCenter: any LocalNotificationCenter
     private let appActivityProvider: @MainActor () -> Bool
     private let copyTextHandler: @MainActor (String) -> Void
+    private let observabilityTokenProvider: @MainActor () -> String?
     private var client: (any MarmotRuntime)?
     private var notificationTask: Task<Void, Never>?
     private var chatListTask: Task<Void, Never>?
@@ -89,12 +93,21 @@ final class WorkspaceState {
     private var lastMarkedReadMessageIds: [String: String] = [:]
     private var profileRefreshAccountIds = Set<String>()
     private var deliveredNotificationKeys = Set<String>()
+    private var deliveredNotificationKeyOrder: [String] = []
 
     private static let activeAccountKey = "whitenoise.mac.activeAccountId"
     private static let developerModeKey = "whitenoise.mac.developerMode"
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
+    private static let observabilityTokenInfoKey = "OTLP_TOKEN_DARKMATTER_MAC"
+    private static let fallbackObservabilityTokenInfoKey = "OTLPTokenDarkMatterMac"
+    private static let deploymentEnvironment = "production"
+    private static let telemetryTenant = "whitenoise-mac"
+    private static let deliveredNotificationKeyLimit = 256
     private static var notificationPermissionGuidance: String {
         L10n.string("Open System Settings > Notifications and allow White Noise notifications, then try again.")
+    }
+    private static var missingObservabilityTokenMessage: String {
+        L10n.string("Missing OTLP_TOKEN_DARKMATTER_MAC build setting.")
     }
 
     init(
@@ -104,6 +117,7 @@ final class WorkspaceState {
         localNotificationCenter: (any LocalNotificationCenter)? = nil,
         appActivityProvider: @escaping @MainActor () -> Bool = { NSApplication.shared.isActive },
         copyTextHandler: @escaping @MainActor (String) -> Void = WorkspaceState.copyToGeneralPasteboard,
+        observabilityTokenProvider: @escaping @MainActor () -> String? = WorkspaceState.defaultObservabilityToken,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -112,6 +126,7 @@ final class WorkspaceState {
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
         self.appActivityProvider = appActivityProvider
         self.copyTextHandler = copyTextHandler
+        self.observabilityTokenProvider = observabilityTokenProvider
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearancePreferenceKey)
@@ -216,6 +231,7 @@ final class WorkspaceState {
             let summaries = try runtime.listAccounts()
             accounts = summaries.map { accountItem(from: $0) }
             restoreOrSelectFirstAccount()
+            try await configureObservabilityRuntime()
             if accounts.isEmpty {
                 phase = .onboarding
                 return
@@ -224,9 +240,11 @@ final class WorkspaceState {
             try await runtime.start()
             accounts = try runtime.listAccounts().map { accountItem(from: $0) }
             restoreOrSelectFirstAccount()
+            try await configureObservabilityRuntime()
             phase = .ready
             await refreshNotificationAuthorizationStatus()
             loadNotificationSettings()
+            await loadPrivacySecuritySettings()
             await reloadChats()
             startNotificationListener()
         } catch {
@@ -243,6 +261,8 @@ final class WorkspaceState {
         draftText = ""
         replyDraftContext = nil
         closeNewChatComposer()
+        pruneMessageCache(keeping: nil)
+        refreshObservabilityRuntime()
         selection = activeChats.first.map { .chat($0.id) }
         Task { await reloadChats() }
     }
@@ -255,6 +275,8 @@ final class WorkspaceState {
         draftText = ""
         replyDraftContext = nil
         closeNewChatComposer()
+        pruneMessageCache(keeping: nil)
+        refreshObservabilityRuntime()
         selection = .settings(.accounts)
         Task {
             await reloadChats()
@@ -268,6 +290,7 @@ final class WorkspaceState {
         draftText = ""
         replyDraftContext = nil
         closeNewChatComposer()
+        pruneMessageCache(keeping: chat.id)
         Task { await loadMessages(groupIdHex: chat.id) }
     }
 
@@ -290,6 +313,7 @@ final class WorkspaceState {
         draftText = ""
         replyDraftContext = nil
         closeNewChatComposer()
+        pruneMessageCache(keeping: nil)
         Task { await loadSettingsData() }
     }
 
@@ -323,8 +347,10 @@ final class WorkspaceState {
             try refreshAccounts(preferred: summary)
             authenticationMode = .landing
             phase = .ready
+            try await configureObservabilityRuntime()
             await refreshNotificationAuthorizationStatus()
             loadNotificationSettings()
+            await loadPrivacySecuritySettings()
             await reloadChats()
             startNotificationListener()
         } catch {
@@ -351,8 +377,10 @@ final class WorkspaceState {
             loginIdentity = ""
             authenticationMode = .landing
             phase = .ready
+            try await configureObservabilityRuntime()
             await refreshNotificationAuthorizationStatus()
             loadNotificationSettings()
+            await loadPrivacySecuritySettings()
             await reloadChats()
             startNotificationListener()
         } catch {
@@ -373,6 +401,7 @@ final class WorkspaceState {
             relayDraft = relaySettings.relays(for: selectedRelaySection)
             keyPackages = []
             notificationSettings = .defaults
+            privacySecuritySettings = .defaults
             return
         }
 
@@ -406,6 +435,7 @@ final class WorkspaceState {
 
         await refreshNotificationAuthorizationStatus()
         loadNotificationSettings()
+        await loadPrivacySecuritySettings()
         await loadKeyPackages()
     }
 
@@ -530,7 +560,7 @@ final class WorkspaceState {
         defer { deletingKeyPackageId = nil }
 
         do {
-            let relays = package.sourceRelays.isEmpty ? relaySettings.keyPackage : package.sourceRelays
+            let relays = package.sourceRelays.isEmpty ? relaySettings.nip65 : package.sourceRelays
             _ = try await client.deleteAccountKeyPackage(
                 accountRef: activeAccount.accountRef,
                 eventIdHex: package.eventIdHex,
@@ -597,12 +627,6 @@ final class WorkspaceState {
                 )
             case .inbox:
                 lists = try await client.setAccountInboxRelays(
-                    accountRef: activeAccount.accountRef,
-                    relays: relays,
-                    bootstrapRelays: MarmotClient.seedRelays
-                )
-            case .keyPackage:
-                lists = try await client.setAccountKeyPackageRelays(
                     accountRef: activeAccount.accountRef,
                     relays: relays,
                     bootstrapRelays: MarmotClient.seedRelays
@@ -737,12 +761,14 @@ final class WorkspaceState {
         defer { isRefreshing = false }
 
         do {
-            let rows = try client.chatList(
+            let subscription = try await client.subscribeChatList(
                 accountRef: activeAccount.accountRef,
                 includeArchived: false
             )
-            await applyChatRows(rows, account: activeAccount, client: client)
-            startChatListListener(account: activeAccount)
+            guard activeAccountId == activeAccount.id else { return }
+
+            await applyChatRows(subscription.snapshot(), account: activeAccount, client: client)
+            startChatListListener(account: activeAccount, subscription: subscription)
 
             if selectedChat == nil, !isShowingSettings {
                 selection = activeChats.first.map { .chat($0.id) }
@@ -784,10 +810,13 @@ final class WorkspaceState {
             )
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
 
-            messagesByChat[groupIdHex] = MessageItem.timeline(
-                from: page,
-                activeAccountIdHex: activeAccount.accountIdHex,
-                senderProfiles: senderProfiles
+            replaceMessages(
+                MessageItem.timeline(
+                    from: page,
+                    activeAccountIdHex: activeAccount.accountIdHex,
+                    senderProfiles: senderProfiles
+                ),
+                groupIdHex: groupIdHex
             )
             await markLatestVisibleMessageRead(in: page, groupIdHex: groupIdHex, account: activeAccount, client: client)
             startTimelineListener(groupIdHex: groupIdHex, account: activeAccount, subscription: subscription)
@@ -825,8 +854,6 @@ final class WorkspaceState {
                 targetMessageId: message.id,
                 emoji: emoji
             )
-            await loadMessages(groupIdHex: selectedChat.id)
-            await reloadChats()
         } catch {
             lastError = error.localizedDescription
         }
@@ -843,8 +870,6 @@ final class WorkspaceState {
             if replyDraftContext?.targetMessageId == message.id {
                 replyDraftContext = nil
             }
-            await loadMessages(groupIdHex: selectedChat.id)
-            await reloadChats()
         } catch {
             lastError = error.localizedDescription
         }
@@ -873,8 +898,6 @@ final class WorkspaceState {
             }
             draftText = ""
             replyDraftContext = nil
-            await loadMessages(groupIdHex: selectedChat.id)
-            await reloadChats()
         } catch {
             lastError = error.localizedDescription
         }
@@ -897,7 +920,7 @@ final class WorkspaceState {
         do {
             let request = localNotificationRequest(for: update)
             try await localNotificationCenter.post(request)
-            deliveredNotificationKeys.insert(update.notificationKey)
+            rememberDeliveredNotificationKey(update.notificationKey)
         } catch {
             lastError = error.localizedDescription
         }
@@ -916,6 +939,7 @@ final class WorkspaceState {
         draftText = ""
         replyDraftContext = nil
         closeNewChatComposer()
+        pruneMessageCache(keeping: groupIdHex)
         NSApplication.shared.activate(ignoringOtherApps: true)
 
         Task {
@@ -956,6 +980,92 @@ final class WorkspaceState {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    private var observabilityToken: String? {
+        Self.nonBlank(observabilityTokenProvider())
+    }
+
+    private static func defaultObservabilityToken() -> String? {
+        let infoDictionaryToken = nonBlank(Bundle.main.object(forInfoDictionaryKey: observabilityTokenInfoKey) as? String)
+            ?? nonBlank(Bundle.main.object(forInfoDictionaryKey: fallbackObservabilityTokenInfoKey) as? String)
+        return infoDictionaryToken
+            ?? nonBlank(ProcessInfo.processInfo.environment[observabilityTokenInfoKey])
+    }
+
+    private static func nonBlank(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static var appVersion: String {
+        let shortVersion = nonBlank(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
+        let buildVersion = nonBlank(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "0"
+        return "\(shortVersion)+\(buildVersion)"
+    }
+
+    private static var deviceModelIdentifier: String? {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else {
+            return nil
+        }
+
+        var value = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("hw.model", &value, &size, nil, 0) == 0 else {
+            return nil
+        }
+        return nonBlank(String(cString: value))
+    }
+
+    private func refreshObservabilityRuntime() {
+        Task { [weak self] in
+            do {
+                try await self?.configureObservabilityRuntime()
+            } catch {
+                self?.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    private func configureObservabilityRuntime() async throws {
+        guard let client else { return }
+        let token = observabilityToken
+        try await client.setRelayTelemetryRuntimeConfig(
+            config: RelayTelemetryRuntimeConfigFfi(
+                otlpEndpoint: nil,
+                authorizationBearerToken: token,
+                resource: try telemetryResource(client: client)
+            )
+        )
+        _ = try client.setAuditLogTrackerConfig(
+            config: AuditLogTrackerConfigFfi(
+                endpoint: nil,
+                authorizationBearerToken: token,
+                source: auditLogUploadSource(account: activeAccount)
+            )
+        )
+        privacySecuritySettings.hasObservabilityToken = token != nil
+    }
+
+    private func telemetryResource(client: any MarmotRuntime) throws -> RelayTelemetryResourceFfi {
+        RelayTelemetryResourceFfi(
+            serviceVersion: Self.appVersion,
+            serviceInstanceId: try client.telemetryInstallId(),
+            deploymentEnvironment: Self.deploymentEnvironment,
+            tenant: Self.telemetryTenant,
+            osType: "darwin",
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+            deviceModelIdentifier: Self.deviceModelIdentifier
+        )
+    }
+
+    private func auditLogUploadSource(account: AccountItem?) -> AuditLogUploadSourceFfi {
+        AuditLogUploadSourceFfi(
+            accountLabel: account?.displayName,
+            deviceLabel: Host.current().localizedName,
+            platform: "macOS",
+            appVersion: Self.appVersion
+        )
+    }
+
     private func loadNotificationSettings() {
         guard let client, let activeAccount else {
             notificationSettings = .defaults
@@ -967,6 +1077,76 @@ final class WorkspaceState {
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
             notificationSettings = .defaults
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func loadPrivacySecuritySettings() async {
+        guard let client else {
+            privacySecuritySettings = .defaults
+            return
+        }
+
+        do {
+            try await configureObservabilityRuntime()
+            let telemetry = try client.relayTelemetrySettings()
+            let auditLog = try client.auditLogSettings()
+            privacySecuritySettings = PrivacySecuritySettingsSnapshot(
+                relayTelemetryEnabled: telemetry.exportEnabled,
+                relayTelemetryIntervalSeconds: telemetry.exportIntervalSeconds,
+                auditLogUploadsEnabled: auditLog.enabled,
+                hasObservabilityToken: observabilityToken != nil
+            )
+        } catch {
+            privacySecuritySettings = .defaults
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setRelayTelemetryEnabled(_ enabled: Bool) async {
+        guard let client, !isSavingPrivacySecurity else { return }
+        guard enabled == false || observabilityToken != nil else {
+            lastError = Self.missingObservabilityTokenMessage
+            return
+        }
+
+        lastError = nil
+        isSavingPrivacySecurity = true
+        defer { isSavingPrivacySecurity = false }
+
+        do {
+            try await configureObservabilityRuntime()
+            let current = try client.relayTelemetrySettings()
+            let settings = RelayTelemetrySettingsFfi(
+                exportEnabled: enabled,
+                exportIntervalSeconds: current.exportIntervalSeconds
+            )
+            let stored = try await client.setRelayTelemetrySettings(settings: settings)
+            privacySecuritySettings.relayTelemetryEnabled = stored.exportEnabled
+            privacySecuritySettings.relayTelemetryIntervalSeconds = stored.exportIntervalSeconds
+            privacySecuritySettings.hasObservabilityToken = observabilityToken != nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setAuditLogUploadsEnabled(_ enabled: Bool) async {
+        guard let client, !isSavingPrivacySecurity else { return }
+        guard enabled == false || observabilityToken != nil else {
+            lastError = Self.missingObservabilityTokenMessage
+            return
+        }
+
+        lastError = nil
+        isSavingPrivacySecurity = true
+        defer { isSavingPrivacySecurity = false }
+
+        do {
+            try await configureObservabilityRuntime()
+            let stored = try client.setAuditLogSettings(settings: AuditLogSettingsFfi(enabled: enabled))
+            privacySecuritySettings.auditLogUploadsEnabled = stored.enabled
+            privacySecuritySettings.hasObservabilityToken = observabilityToken != nil
+        } catch {
             lastError = error.localizedDescription
         }
     }
@@ -996,12 +1176,19 @@ final class WorkspaceState {
         notificationTask = nil
     }
 
-    private func startChatListListener(account: AccountItem) {
+    private func startChatListListener(
+        account: AccountItem,
+        subscription: ChatListSubscription? = nil
+    ) {
         guard client != nil else { return }
         stopChatListListener()
+        guard activeAccountId == account.id else { return }
         chatListTaskAccountId = account.id
         chatListTask = Task { [weak self] in
-            await self?.runChatListListener(account: account)
+            await self?.runChatListListener(
+                account: account,
+                existingSubscription: subscription
+            )
         }
     }
 
@@ -1011,18 +1198,28 @@ final class WorkspaceState {
         chatListTaskAccountId = nil
     }
 
-    private func runChatListListener(account: AccountItem) async {
+    private func runChatListListener(
+        account: AccountItem,
+        existingSubscription: ChatListSubscription? = nil
+    ) async {
         guard let client else { return }
 
         do {
-            let subscription = try await client.subscribeChatList(
-                accountRef: account.accountRef,
-                includeArchived: false
-            )
+            let subscription: ChatListSubscription
+            if let existingSubscription {
+                subscription = existingSubscription
+            } else {
+                subscription = try await client.subscribeChatList(
+                    accountRef: account.accountRef,
+                    includeArchived: false
+                )
+                await applyChatRows(subscription.snapshot(), account: account, client: client)
+            }
 
             while !Task.isCancelled {
-                guard let row = await subscription.next() else { break }
-                await applyChatRow(row, account: account, client: client)
+                guard let update = await subscription.nextUpdate() else { break }
+                guard !Task.isCancelled else { break }
+                await applyChatListSubscriptionUpdate(update, account: account, client: client)
             }
         } catch is CancellationError {
             return
@@ -1119,6 +1316,19 @@ final class WorkspaceState {
         chatsByAccount[account.id] = sortedChatItems(chatItems)
     }
 
+    private func applyChatListSubscriptionUpdate(
+        _ update: ChatListSubscriptionUpdateFfi,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        switch update {
+        case .row(trigger: _, row: let row):
+            await applyChatRow(row, account: account, client: client)
+        case .removeRow(trigger: _, groupIdHex: let groupIdHex):
+            removeChat(groupIdHex: groupIdHex, account: account)
+        }
+    }
+
     private func applyChatRow(
         _ row: ChatListRowFfi,
         account: AccountItem,
@@ -1128,8 +1338,7 @@ final class WorkspaceState {
 
         var chats = chatsByAccount[account.id] ?? []
         if row.archived {
-            chats.removeAll { $0.id == row.groupIdHex }
-            chatsByAccount[account.id] = chats
+            removeChat(groupIdHex: row.groupIdHex, account: account)
             return
         }
 
@@ -1140,6 +1349,44 @@ final class WorkspaceState {
             chats.append(chat)
         }
         chatsByAccount[account.id] = sortedChatItems(chats)
+    }
+
+    private func removeChat(groupIdHex: String, account: AccountItem) {
+        guard activeAccountId == account.id else { return }
+
+        var chats = chatsByAccount[account.id] ?? []
+        chats.removeAll { $0.id == groupIdHex }
+        chatsByAccount[account.id] = chats
+        messagesByChat[groupIdHex] = nil
+        lastMarkedReadMessageIds[groupIdHex] = nil
+
+        guard case .chat(let selectedGroupId) = selection,
+              selectedGroupId == groupIdHex
+        else { return }
+
+        let nextChat = chats.first
+        selection = nextChat.map { .chat($0.id) }
+        pruneMessageCache(keeping: nextChat?.id)
+        if let nextChat {
+            Task { await loadMessages(groupIdHex: nextChat.id) }
+        }
+    }
+
+    private func replaceMessages(_ messages: [MessageItem], groupIdHex: String) {
+        messagesByChat = [groupIdHex: messages]
+    }
+
+    private func pruneMessageCache(keeping groupIdHex: String?) {
+        guard let groupIdHex else {
+            messagesByChat = [:]
+            return
+        }
+
+        if let messages = messagesByChat[groupIdHex] {
+            messagesByChat = [groupIdHex: messages]
+        } else {
+            messagesByChat = [:]
+        }
     }
 
     private func applyTimelinePage(
@@ -1156,10 +1403,13 @@ final class WorkspaceState {
             activeAccount: account,
             client: client
         )
-        messagesByChat[groupIdHex] = MessageItem.timeline(
-            from: page,
-            activeAccountIdHex: account.accountIdHex,
-            senderProfiles: senderProfiles
+        replaceMessages(
+            MessageItem.timeline(
+                from: page,
+                activeAccountIdHex: account.accountIdHex,
+                senderProfiles: senderProfiles
+            ),
+            groupIdHex: groupIdHex
         )
         await markLatestVisibleMessageRead(in: page, groupIdHex: groupIdHex, account: account, client: client)
     }
@@ -1236,7 +1486,9 @@ final class WorkspaceState {
 
     private func removeTimelineMessages(withIds messageIds: Set<String>, groupIdHex: String) {
         guard !messageIds.isEmpty else { return }
-        messagesByChat[groupIdHex]?.removeAll { messageIds.contains($0.id) }
+        var messages = messagesByChat[groupIdHex] ?? []
+        messages.removeAll { messageIds.contains($0.id) }
+        replaceMessages(messages, groupIdHex: groupIdHex)
         if let targetMessageId = replyDraftContext?.targetMessageId,
            messageIds.contains(targetMessageId) {
             replyDraftContext = nil
@@ -1252,10 +1504,13 @@ final class WorkspaceState {
         for message in newMessages {
             messagesById[message.id] = message
         }
-        messagesByChat[groupIdHex] = messagesById.values.sorted { lhs, rhs in
-            if lhs.sentAt != rhs.sentAt { return lhs.sentAt < rhs.sentAt }
-            return lhs.id < rhs.id
-        }
+        replaceMessages(
+            messagesById.values.sorted { lhs, rhs in
+                if lhs.sentAt != rhs.sentAt { return lhs.sentAt < rhs.sentAt }
+                return lhs.id < rhs.id
+            },
+            groupIdHex: groupIdHex
+        )
     }
 
     private func chatItem(
@@ -1317,6 +1572,16 @@ final class WorkspaceState {
         } catch {
             lastMarkedReadMessageIds[groupIdHex] = nil
             lastError = error.localizedDescription
+        }
+    }
+
+    private func rememberDeliveredNotificationKey(_ key: String) {
+        guard deliveredNotificationKeys.insert(key).inserted else { return }
+        deliveredNotificationKeyOrder.append(key)
+
+        while deliveredNotificationKeyOrder.count > Self.deliveredNotificationKeyLimit {
+            let expiredKey = deliveredNotificationKeyOrder.removeFirst()
+            deliveredNotificationKeys.remove(expiredKey)
         }
     }
 
@@ -1803,8 +2068,7 @@ private extension RelaySettingsSnapshot {
     init(lists: AccountRelayListsFfi) {
         self.init(
             nip65: lists.nip65.relays.isEmpty ? lists.defaultRelays : lists.nip65.relays,
-            inbox: lists.inbox.relays.isEmpty ? lists.defaultRelays : lists.inbox.relays,
-            keyPackage: lists.keyPackage.relays.isEmpty ? lists.defaultRelays : lists.keyPackage.relays
+            inbox: lists.inbox.relays.isEmpty ? lists.defaultRelays : lists.inbox.relays
         )
     }
 }

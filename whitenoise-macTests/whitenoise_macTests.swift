@@ -5,6 +5,7 @@
 //  Created by Jeff Gardner on 26/05/2026.
 //
 
+import Darwin
 import Testing
 import Foundation
 import MarmotKit
@@ -131,6 +132,7 @@ struct whitenoise_macTests {
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
         runtime.installMessages([
             appMessage(
                 id: "parent",
@@ -172,11 +174,24 @@ struct whitenoise_macTests {
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        runtime.installGroup(messageGroup())
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
         runtime.installMessages([
             appMessage(
                 id: "parent",
                 groupIdHex: "group",
-                sender: "Alice",
+                sender: aliceId,
                 plaintext: "The launch plan is ready.",
                 kind: 9,
                 recordedAt: 1_700_000_000
@@ -220,11 +235,24 @@ struct whitenoise_macTests {
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        runtime.installGroup(messageGroup())
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
         runtime.installMessages([
             appMessage(
                 id: "parent",
                 groupIdHex: "group",
-                sender: "Alice",
+                sender: aliceId,
                 plaintext: "The launch plan is ready.",
                 kind: 9,
                 recordedAt: 1_700_000_000
@@ -331,6 +359,130 @@ struct whitenoise_macTests {
         #expect(didApplyProjection)
         #expect(state.messagesByChat["direct-group"]?.first?.body == "Streaming…")
         #expect(state.activeChats.first?.preview == "Streaming…")
+    }
+
+    @MainActor
+    @Test func chatListUsesSubscriptionSnapshotAndTypedDeltas() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        runtime.installChatListUpdates([
+            .removeRow(trigger: .removed, groupIdHex: "group")
+        ])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didApplyRemoval = await waitFor {
+            state.activeChats.map(\.id) == ["direct-group"]
+        }
+
+        #expect(didApplyRemoval)
+        #expect(runtime.chatListCallCount == 0)
+        #expect(runtime.chatListSubscriptionCount == 1)
+    }
+
+    @MainActor
+    @Test func selectingChatsKeepsOnlyCurrentTranscriptInMemory() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        runtime.installMessages([
+            appMessage(
+                id: "group-message",
+                groupIdHex: "group",
+                sender: account.accountIdHex,
+                plaintext: "Group cache candidate",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            )
+        ], groupIdHex: "group")
+        runtime.installMessages([
+            appMessage(
+                id: "direct-message",
+                groupIdHex: "direct-group",
+                sender: account.accountIdHex,
+                plaintext: "Direct cache candidate",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            )
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let group = state.activeChats.first(where: { $0.id == "group" }),
+              let direct = state.activeChats.first(where: { $0.id == "direct-group" })
+        else {
+            Issue.record("Expected both test chats")
+            return
+        }
+
+        state.selectChat(group)
+        let didLoadGroup = await waitFor {
+            state.messagesByChat["group"]?.map(\.id) == ["group-message"]
+        }
+        #expect(didLoadGroup)
+        #expect(Set(state.messagesByChat.keys) == ["group"])
+
+        state.selectChat(direct)
+        let didLoadDirect = await waitFor {
+            state.messagesByChat["direct-group"]?.map(\.id) == ["direct-message"]
+        }
+        #expect(didLoadDirect)
+        #expect(Set(state.messagesByChat.keys) == ["direct-group"])
+    }
+
+    @MainActor
+    @Test func messageActionsDoNotRestartLiveSubscriptions() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let message = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let chatListSubscriptionCount = runtime.chatListSubscriptionCount
+        let timelineSubscriptionCount = runtime.timelineSubscriptionCount
+
+        await state.react(to: message, emoji: "👍")
+        await state.deleteMessage(message)
+
+        #expect(runtime.chatListSubscriptionCount == chatListSubscriptionCount)
+        #expect(runtime.timelineSubscriptionCount == timelineSubscriptionCount)
     }
 
     @MainActor
@@ -531,6 +683,9 @@ struct whitenoise_macTests {
         state.showSettings(.appearance)
         #expect(state.selection == .settings(.appearance))
 
+        state.showSettings(.privacySecurity)
+        #expect(state.selection == .settings(.privacySecurity))
+
         state.showSettings(.notifications)
         #expect(state.selection == .settings(.notifications))
 
@@ -542,7 +697,21 @@ struct whitenoise_macTests {
     @Test func settingsSidebarPagesStartWithProfileAndExcludeOverview() async throws {
         #expect(SettingsPage.sidebarPages.first == .profile)
         #expect(!SettingsPage.sidebarPages.contains(.overview))
+        #expect(SettingsPage.sidebarPages.contains(.privacySecurity))
         #expect(SettingsPage.sidebarPages.last == .developerMode)
+    }
+
+    @MainActor
+    @Test func defaultRelaysUseWhiteNoiseEuAndUsOnly() async throws {
+        let defaults = [
+            "wss://relay.eu.whitenoise.chat",
+            "wss://relay.us.whitenoise.chat"
+        ]
+
+        #expect(MarmotClient.seedRelays == defaults)
+        #expect(RelaySettingsSnapshot.defaults.nip65 == defaults)
+        #expect(RelaySettingsSnapshot.defaults.inbox == defaults)
+        #expect(RelaySettingsSection.allCases == [.nip65, .inbox])
     }
 
     @MainActor
@@ -666,9 +835,9 @@ struct whitenoise_macTests {
         await state.bootstrap()
         await state.loadSettingsData()
 
-        #expect(state.keyPackages.map(\.eventIdHex) == ["event-local", "event-relay"])
+        #expect(state.keyPackages.map(\.eventIdHex) == ["event-local", "event-fetched"])
         #expect(state.keyPackages.first?.sourceLabel == "Local")
-        #expect(runtime.keyPackageBootstrapRelays == MarmotClient.seedRelays)
+        #expect(runtime.lastPackageFetchBootstrapRelays == MarmotClient.seedRelays)
     }
 
     @MainActor
@@ -693,6 +862,76 @@ struct whitenoise_macTests {
         #expect(state.notificationSettings.localNotificationsEnabled)
         #expect(!state.notificationSettings.nativePushEnabled)
         #expect(state.notificationAuthorizationStatus == .authorized)
+    }
+
+    @MainActor
+    @Test func privacySecuritySettingsLoadAndPersistTelemetryAndAuditToggles() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.storedRelayTelemetrySettings = RelayTelemetrySettingsFfi(
+            exportEnabled: true,
+            exportIntervalSeconds: 120
+        )
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
+        let state = WorkspaceState(
+            observabilityTokenProvider: { "test-token" },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(state.privacySecuritySettings.relayTelemetryIntervalSeconds == 120)
+        #expect(!state.privacySecuritySettings.auditLogUploadsEnabled)
+        #expect(state.privacySecuritySettings.hasObservabilityToken)
+        #expect(runtime.relayTelemetryRuntimeConfig?.authorizationBearerToken == "test-token")
+        let telemetryResource = runtime.relayTelemetryRuntimeConfig?.resource
+        #expect(telemetryResource?.serviceVersion == expectedTelemetryServiceVersion())
+        #expect(telemetryResource?.serviceInstanceId == "test-install-id")
+        #expect(telemetryResource?.deploymentEnvironment == "production")
+        #expect(telemetryResource?.tenant == "whitenoise-mac")
+        #expect(telemetryResource?.osType == "darwin")
+        #expect(telemetryResource?.osVersion == ProcessInfo.processInfo.operatingSystemVersionString)
+        #expect(telemetryResource?.deviceModelIdentifier == expectedDeviceModelIdentifier())
+        #expect(runtime.auditLogTrackerConfig?.authorizationBearerToken == "test-token")
+        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Desktop Account")
+
+        await state.setRelayTelemetryEnabled(false)
+        await state.setAuditLogUploadsEnabled(true)
+
+        #expect(!runtime.storedRelayTelemetrySettings.exportEnabled)
+        #expect(runtime.storedRelayTelemetrySettings.exportIntervalSeconds == 120)
+        #expect(runtime.storedAuditLogSettings.enabled)
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(state.privacySecuritySettings.auditLogUploadsEnabled)
+    }
+
+    @MainActor
+    @Test func enablingPrivacySecurityUploadRequiresBuildToken() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(
+            observabilityTokenProvider: { nil },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.setRelayTelemetryEnabled(true)
+        await state.setAuditLogUploadsEnabled(true)
+
+        #expect(!runtime.storedRelayTelemetrySettings.exportEnabled)
+        #expect(!runtime.storedAuditLogSettings.enabled)
+        #expect(state.lastError == "Missing OTLP_TOKEN_DARKMATTER_MAC build setting.")
     }
 
     @MainActor
@@ -930,7 +1169,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func deletingKeyPackageUsesSourceRelaysAndRefreshes() async throws {
+    @Test func deletingKeyPackageFallsBackToNip65RelaysAndRefreshes() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -942,15 +1181,15 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         await state.loadSettingsData()
-        guard let relayPackage = state.keyPackages.last else {
-            Issue.record("Expected a relay-discovered key package")
+        guard let fetchedPackage = state.keyPackages.last else {
+            Issue.record("Expected a fetched key package")
             return
         }
-        await state.deleteKeyPackage(relayPackage)
+        await state.deleteKeyPackage(fetchedPackage)
 
-        #expect(runtime.deletedKeyPackageEventId == "event-relay")
-        #expect(runtime.deletedKeyPackageRelays == ["wss://relay-key.example"])
-        #expect(!state.keyPackages.map(\.eventIdHex).contains("event-relay"))
+        #expect(runtime.deletedPackageEventId == "event-fetched")
+        #expect(runtime.lastPackageDeleteRelays == MarmotClient.seedRelays)
+        #expect(!state.keyPackages.map(\.eventIdHex).contains("event-fetched"))
     }
 
     @MainActor
@@ -987,8 +1226,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         defaultRelays: MarmotClient.seedRelays,
         bootstrapRelays: MarmotClient.seedRelays,
         nip65: RelayListFfi(kind: 10002, relays: MarmotClient.seedRelays),
-        inbox: RelayListFfi(kind: 10050, relays: MarmotClient.seedRelays),
-        keyPackage: RelayListFfi(kind: 30443, relays: MarmotClient.seedRelays)
+        inbox: RelayListFfi(kind: 10050, relays: MarmotClient.seedRelays)
     )
     private var keyPackages = [
         AccountKeyPackageFfi(
@@ -1006,12 +1244,12 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         AccountKeyPackageFfi(
             accountRef: nil,
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-            keyPackageId: "slot-relay",
-            keyPackageRefHex: "ref-relay",
-            eventIdHex: "event-relay",
+            keyPackageId: "slot-fetched",
+            keyPackageRefHex: "ref-fetched",
+            eventIdHex: "event-fetched",
             publishedAt: 1_700_000_100,
             keyPackageBytes: 520,
-            sourceRelays: ["wss://relay-key.example"],
+            sourceRelays: [],
             local: false,
             relay: true
         )
@@ -1020,18 +1258,22 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private var messagesByGroupId: [String: [AppMessageRecordFfi]] = [:]
     private var timelinePagesByGroupId: [String: TimelinePageFfi] = [:]
     private var timelineUpdatesByGroupId: [String: [TimelineSubscriptionUpdateFfi]] = [:]
+    private var chatListUpdates: [ChatListSubscriptionUpdateFfi] = []
     private(set) var createdGroupMemberRefs: [String] = []
     private(set) var createdGroupName: String?
     private(set) var createdGroupDescription: String?
     private(set) var repliedMessage: SentReply?
     private(set) var reactedMessage: SentReaction?
     private(set) var deletedMessage: DeletedMessage?
-    private(set) var keyPackageBootstrapRelays: [String] = []
+    private(set) var lastPackageFetchBootstrapRelays: [String] = []
     private(set) var didPublishNewKeyPackage = false
     private(set) var didRepublishKeyPackage = false
-    private(set) var deletedKeyPackageEventId: String?
-    private(set) var deletedKeyPackageRelays: [String] = []
+    private(set) var deletedPackageEventId: String?
+    private(set) var lastPackageDeleteRelays: [String] = []
     private(set) var refreshedProfileIds: [String] = []
+    private(set) var chatListCallCount = 0
+    private(set) var chatListSubscriptionCount = 0
+    private(set) var timelineSubscriptionCount = 0
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var groupDetailsById: [String: GroupDetailsFfi] = [:]
     var notificationSettings = NotificationSettingsFfi(
@@ -1040,7 +1282,14 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         localNotificationsEnabled: false,
         nativePushEnabled: false
     )
+    var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
+    var storedRelayTelemetrySettings = RelayTelemetrySettingsFfi(
+        exportEnabled: false,
+        exportIntervalSeconds: 60
+    )
     private(set) var localNotificationsEnabledSet: Bool?
+    private(set) var auditLogTrackerConfig: AuditLogTrackerConfigFfi?
+    private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
 
     init(accounts: [AccountSummaryFfi], createdAccount: AccountSummaryFfi? = nil) {
         self.storedAccounts = accounts
@@ -1119,8 +1368,28 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         timelinePagesByGroupId[groupIdHex] = projectedTimeline(from: messages)
     }
 
+    func installGroup(_ group: AppGroupRecordFfi) {
+        groups = [group]
+        groupDetailsById[group.groupIdHex] = GroupDetailsFfi(group: group, members: [])
+    }
+
+    func installGroups(_ groups: [AppGroupRecordFfi]) {
+        self.groups = groups
+        for group in groups {
+            groupDetailsById[group.groupIdHex] = GroupDetailsFfi(group: group, members: [])
+        }
+    }
+
+    func installChatListUpdates(_ updates: [ChatListSubscriptionUpdateFfi]) {
+        chatListUpdates = updates
+    }
+
     func installTimelineUpdates(_ updates: [TimelineSubscriptionUpdateFfi], groupIdHex: String) {
         timelineUpdatesByGroupId[groupIdHex] = updates
+    }
+
+    func installProfile(accountIdHex: String, profile: UserProfileMetadataFfi) {
+        profilesByAccountId[accountIdHex] = profile
     }
 
     func createIdentity(defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
@@ -1145,18 +1414,49 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi] {
-        keyPackageBootstrapRelays = bootstrapRelays
+        lastPackageFetchBootstrapRelays = bootstrapRelays
         return keyPackages
+    }
+
+    func auditLogSettings() throws -> AuditLogSettingsFfi {
+        storedAuditLogSettings
     }
 
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
         notificationSettings
     }
 
+    func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi {
+        storedRelayTelemetrySettings
+    }
+
+    func setAuditLogSettings(settings: AuditLogSettingsFfi) throws -> AuditLogSettingsFfi {
+        storedAuditLogSettings = settings
+        return storedAuditLogSettings
+    }
+
+    func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi {
+        auditLogTrackerConfig = config
+        return config
+    }
+
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {
         localNotificationsEnabledSet = enabled
         notificationSettings.localNotificationsEnabled = enabled
         return notificationSettings
+    }
+
+    func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws {
+        relayTelemetryRuntimeConfig = config
+    }
+
+    func setRelayTelemetrySettings(settings: RelayTelemetrySettingsFfi) async throws -> RelayTelemetrySettingsFfi {
+        storedRelayTelemetrySettings = settings
+        return storedRelayTelemetrySettings
+    }
+
+    func telemetryInstallId() throws -> String {
+        "test-install-id"
     }
 
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64 {
@@ -1184,8 +1484,8 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func deleteAccountKeyPackage(accountRef: String, eventIdHex: String, relays: [String]) async throws -> UInt64 {
-        deletedKeyPackageEventId = eventIdHex
-        deletedKeyPackageRelays = relays
+        deletedPackageEventId = eventIdHex
+        lastPackageDeleteRelays = relays
         keyPackages.removeAll { $0.eventIdHex == eventIdHex }
         return 1
     }
@@ -1227,11 +1527,6 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         return relayLists
     }
 
-    func setAccountKeyPackageRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
-        relayLists.keyPackage = RelayListFfi(kind: relayLists.keyPackage.kind, relays: relays)
-        return relayLists
-    }
-
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
         relayLists.nip65 = RelayListFfi(kind: relayLists.nip65.kind, relays: relays)
         return relayLists
@@ -1242,13 +1537,22 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
-        groups
-            .filter { includeArchived || !$0.archived }
-            .map { chatListRow(for: $0) }
+        chatListCallCount += 1
+        return chatListRows(includeArchived: includeArchived)
     }
 
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
-        FakeChatListSubscription(rows: try chatList(accountRef: accountRef, includeArchived: includeArchived))
+        chatListSubscriptionCount += 1
+        return FakeChatListSubscription(
+            rows: chatListRows(includeArchived: includeArchived),
+            updates: chatListUpdates
+        )
+    }
+
+    private func chatListRows(includeArchived: Bool) -> [ChatListRowFfi] {
+        groups
+            .filter { includeArchived || !$0.archived }
+            .map { chatListRow(for: $0) }
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
@@ -1268,6 +1572,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription {
+        timelineSubscriptionCount += 1
         let page = try timelineMessages(
             accountRef: accountRef,
             query: TimelineMessageQueryFfi(
@@ -1396,14 +1701,17 @@ private final class FakeChatsSubscription: ChatsSubscription {
 
 private final class FakeChatListSubscription: ChatListSubscription {
     private let rows: [ChatListRowFfi]
+    private var updates: [ChatListSubscriptionUpdateFfi]
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.rows = []
+        self.updates = []
         super.init(unsafeFromRawPointer: pointer)
     }
 
-    init(rows: [ChatListRowFfi]) {
+    init(rows: [ChatListRowFfi], updates: [ChatListSubscriptionUpdateFfi] = []) {
         self.rows = rows
+        self.updates = updates
         super.init(noPointer: NoPointer())
     }
 
@@ -1413,6 +1721,11 @@ private final class FakeChatListSubscription: ChatListSubscription {
 
     override func next() async -> ChatListRowFfi? {
         nil
+    }
+
+    override func nextUpdate() async -> ChatListSubscriptionUpdateFfi? {
+        guard !updates.isEmpty else { return nil }
+        return updates.removeFirst()
     }
 }
 
@@ -1719,6 +2032,30 @@ private func notificationSettings(
     )
 }
 
+private func expectedTelemetryServiceVersion(bundle: Bundle = .main) -> String {
+    let shortVersion = nonBlank(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
+    let buildVersion = nonBlank(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "0"
+    return "\(shortVersion)+\(buildVersion)"
+}
+
+private func expectedDeviceModelIdentifier() -> String? {
+    var size = 0
+    guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else {
+        return nil
+    }
+
+    var value = [CChar](repeating: 0, count: size)
+    guard sysctlbyname("hw.model", &value, &size, nil, 0) == 0 else {
+        return nil
+    }
+    return nonBlank(String(cString: value))
+}
+
+private func nonBlank(_ value: String?) -> String? {
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed?.isEmpty == false ? trimmed : nil
+}
+
 private func notificationUpdate(
     account: AccountSummaryFfi,
     notificationKey: String,
@@ -1761,6 +2098,22 @@ private func directGroup() -> AppGroupRecordFfi {
         description: "",
         admins: [],
         relays: ["wss://relay.example"],
+        nostrGroupIdHex: "",
+        archived: false,
+        pendingConfirmation: false,
+        welcomerAccountIdHex: nil,
+        viaWelcomeMessageIdHex: nil
+    )
+}
+
+private func messageGroup() -> AppGroupRecordFfi {
+    AppGroupRecordFfi(
+        groupIdHex: "group",
+        endpoint: "",
+        name: "Test Group",
+        description: "",
+        admins: [],
+        relays: MarmotClient.seedRelays,
         nostrGroupIdHex: "",
         archived: false,
         pendingConfirmation: false,
