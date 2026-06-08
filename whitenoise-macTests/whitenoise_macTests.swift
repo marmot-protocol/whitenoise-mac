@@ -362,6 +362,82 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func olderTimelineProjectionDeltaDoesNotMoveReadMarkerBackward() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "older",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Earlier message",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            ),
+            appMessage(
+                id: "latest",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Latest message",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            )
+        ], groupIdHex: "direct-group")
+        let reprojectedOlder = timelineMessage(
+            id: "older",
+            groupIdHex: "direct-group",
+            sender: aliceId,
+            plaintext: "Earlier message edited by projection",
+            recordedAt: 1_700_000_000
+        )
+        runtime.installTimelineUpdates([
+            .projection(update: RuntimeProjectionUpdateFfi(
+                accountIdHex: account.accountIdHex,
+                accountLabel: account.label,
+                update: TimelineProjectionUpdateFfi(
+                    groupIdHex: "direct-group",
+                    messages: [],
+                    changes: [
+                        .upsert(trigger: .reactionAdded, message: reprojectedOlder)
+                    ],
+                    chatListRow: nil,
+                    chatListTrigger: .unreadChanged
+                )
+            ))
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let didApplyProjection = await waitFor {
+            state.messagesByChat["direct-group"]?.first(where: { $0.id == "older" })?.body == "Earlier message edited by projection"
+        }
+
+        #expect(didApplyProjection)
+        #expect(runtime.markedReadMessageIds == ["latest"])
+    }
+
+    @MainActor
     @Test func chatListUsesSubscriptionSnapshotAndTypedDeltas() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -1271,6 +1347,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var deletedPackageEventId: String?
     private(set) var lastPackageDeleteRelays: [String] = []
     private(set) var refreshedProfileIds: [String] = []
+    private(set) var markedReadMessageIds: [String] = []
     private(set) var chatListCallCount = 0
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
@@ -1596,7 +1673,8 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi? {
-        groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
+        markedReadMessageIds.append(messageIdHex)
+        return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
     }
 
     func messages(accountRef: String, groupIdHex: String?, limit: UInt32?) throws -> [AppMessageRecordFfi] {

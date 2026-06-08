@@ -90,7 +90,7 @@ final class WorkspaceState {
     private var chatListTaskAccountId: String?
     private var timelineTask: Task<Void, Never>?
     private var timelineTaskGroupId: String?
-    private var lastMarkedReadMessageIds: [String: String] = [:]
+    private var lastMarkedReadMarkers: [String: ReadMarker] = [:]
     private var profileRefreshAccountIds = Set<String>()
     private var deliveredNotificationKeys = Set<String>()
     private var deliveredNotificationKeyOrder: [String] = []
@@ -818,7 +818,7 @@ final class WorkspaceState {
                 ),
                 groupIdHex: groupIdHex
             )
-            await markLatestVisibleMessageRead(in: page, groupIdHex: groupIdHex, account: activeAccount, client: client)
+            await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: activeAccount, client: client)
             startTimelineListener(groupIdHex: groupIdHex, account: activeAccount, subscription: subscription)
         } catch {
             lastError = error.localizedDescription
@@ -1358,7 +1358,7 @@ final class WorkspaceState {
         chats.removeAll { $0.id == groupIdHex }
         chatsByAccount[account.id] = chats
         messagesByChat[groupIdHex] = nil
-        lastMarkedReadMessageIds[groupIdHex] = nil
+        lastMarkedReadMarkers[groupIdHex] = nil
 
         guard case .chat(let selectedGroupId) = selection,
               selectedGroupId == groupIdHex
@@ -1411,7 +1411,7 @@ final class WorkspaceState {
             ),
             groupIdHex: groupIdHex
         )
-        await markLatestVisibleMessageRead(in: page, groupIdHex: groupIdHex, account: account, client: client)
+        await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
     private func applyTimelineSubscriptionUpdate(
@@ -1476,7 +1476,7 @@ final class WorkspaceState {
                 senderProfiles: senderProfiles
             )
             mergeTimelineMessages(newMessages, groupIdHex: groupIdHex)
-            await markLatestVisibleMessageRead(in: page, groupIdHex: groupIdHex, account: account, client: client)
+            await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
         }
 
         if let row = update.chatListRow {
@@ -1549,28 +1549,32 @@ final class WorkspaceState {
     }
 
     private func markLatestVisibleMessageRead(
-        in page: TimelinePageFfi,
         groupIdHex: String,
         account: AccountItem,
         client: any MarmotRuntime
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-        guard let latest = page.messages.last(where: { $0.groupIdHex == groupIdHex && $0.kind == 9 && !$0.deleted }) else {
+        guard let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
+            message.timelineKind == 9 && !message.isDeleted
+        }) else {
             return
         }
-        guard lastMarkedReadMessageIds[groupIdHex] != latest.messageIdHex else { return }
-        lastMarkedReadMessageIds[groupIdHex] = latest.messageIdHex
+        let marker = ReadMarker(sentAt: latest.sentAt, messageId: latest.id)
+        let previousMarker = lastMarkedReadMarkers[groupIdHex]
+        guard previousMarker != marker else { return }
+        guard previousMarker.map({ $0 < marker }) ?? true else { return }
+        lastMarkedReadMarkers[groupIdHex] = marker
 
         do {
             if let row = try client.markTimelineMessageRead(
                 accountRef: account.accountRef,
                 groupIdHex: groupIdHex,
-                messageIdHex: latest.messageIdHex
+                messageIdHex: latest.id
             ) {
                 await applyChatRow(row, account: account, client: client)
             }
         } catch {
-            lastMarkedReadMessageIds[groupIdHex] = nil
+            lastMarkedReadMarkers[groupIdHex] = previousMarker
             lastError = error.localizedDescription
         }
     }
@@ -1887,6 +1891,16 @@ final class WorkspaceState {
     private var isShowingSettings: Bool {
         if case .settings = selection { return true }
         return false
+    }
+}
+
+private struct ReadMarker: Equatable, Comparable {
+    let sentAt: Date
+    let messageId: String
+
+    static func < (lhs: ReadMarker, rhs: ReadMarker) -> Bool {
+        if lhs.sentAt != rhs.sentAt { return lhs.sentAt < rhs.sentAt }
+        return lhs.messageId < rhs.messageId
     }
 }
 
