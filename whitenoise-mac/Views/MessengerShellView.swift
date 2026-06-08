@@ -852,23 +852,6 @@ private struct ConversationHeader: View {
                     .lineLimit(1)
             }
             Spacer()
-            Button {} label: {
-                Image(systemName: "info.circle.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .frame(width: 46, height: 46)
-                    .background {
-                        Circle()
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                Circle()
-                                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                            }
-                    }
-            }
-            .buttonStyle(.plain)
-            .contentShape(Circle())
-            .help("Chat info")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
