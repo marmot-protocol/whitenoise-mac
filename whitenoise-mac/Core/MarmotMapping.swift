@@ -16,7 +16,12 @@ extension AccountItem {
 }
 
 extension ChatItem {
-    init(row: ChatListRowFfi, activeAccountIdHex: String?, directPeer: ChatPeerProfile? = nil) {
+    init(
+        row: ChatListRowFfi,
+        activeAccountIdHex: String?,
+        directPeer: ChatPeerProfile? = nil,
+        groupAvatarURL: String? = nil
+    ) {
         let groupName = row.groupName.trimmingCharacters(in: .whitespacesAndNewlines)
         let peerName = directPeer?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let projectedTitle = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -53,7 +58,7 @@ extension ChatItem {
             preview: preview?.isEmpty == false ? preview! : L10n.string("No messages yet"),
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
-            pictureURL: directPeer?.pictureURL,
+            pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
             unreadCount: Int(row.unreadCount)
         )
     }
@@ -103,10 +108,15 @@ extension MessageItem {
             senderAccountIdHex: record.sender,
             senderName: MessageItem.displayName(for: record.sender, profile: senderProfile),
             senderPictureURL: senderProfile?.pictureURL,
-            body: MessageItem.bodyText(plaintext: record.plaintext, deleted: record.deleted),
+            body: MessageItem.bodyText(
+                plaintext: record.plaintext,
+                deleted: record.deleted,
+                invalidationStatus: record.invalidationStatus
+            ),
             sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
             timelineKind: record.kind,
             isDeleted: record.deleted,
+            invalidationStatus: record.invalidationStatus,
             isOutgoing: record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound",
             reactions: reactions,
             replyContext: replyContext
@@ -134,7 +144,11 @@ extension MessageItem {
             .sorted { $0.sentAt < $1.sentAt }
     }
 
-    private static func bodyText(plaintext: String, deleted: Bool) -> String {
+    private static func bodyText(plaintext: String, deleted: Bool, invalidationStatus: String? = nil) -> String {
+        if invalidationStatus != nil {
+            return L10n.string("Message did not reach the group")
+        }
+
         if deleted {
             return L10n.string("Message deleted")
         }

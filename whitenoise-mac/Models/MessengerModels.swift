@@ -83,6 +83,7 @@ struct MessageItem: Identifiable, Hashable {
     let sentAt: Date
     let timelineKind: UInt64
     let isDeleted: Bool
+    let invalidationStatus: String?
     let isOutgoing: Bool
     let reactions: [MessageReaction]
     let replyContext: MessageReplyContext?
@@ -96,6 +97,7 @@ struct MessageItem: Identifiable, Hashable {
         sentAt: Date,
         timelineKind: UInt64 = 9,
         isDeleted: Bool = false,
+        invalidationStatus: String? = nil,
         isOutgoing: Bool,
         reactions: [MessageReaction] = [],
         replyContext: MessageReplyContext? = nil
@@ -108,6 +110,7 @@ struct MessageItem: Identifiable, Hashable {
         self.sentAt = sentAt
         self.timelineKind = timelineKind
         self.isDeleted = isDeleted
+        self.invalidationStatus = invalidationStatus
         self.isOutgoing = isOutgoing
         self.reactions = reactions
         self.replyContext = replyContext
@@ -118,7 +121,10 @@ struct MessageItem: Identifiable, Hashable {
     }
 
     var statusLabel: String? {
-        isOutgoing ? L10n.string("Sent") : nil
+        if invalidationStatus != nil {
+            return L10n.string("Did not reach group")
+        }
+        return isOutgoing ? L10n.string("Sent") : nil
     }
 }
 

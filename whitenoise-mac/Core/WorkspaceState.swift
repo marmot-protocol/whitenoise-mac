@@ -1527,10 +1527,12 @@ final class WorkspaceState {
         client: any MarmotRuntime
     ) async -> ChatItem {
         var directPeer: ChatPeerProfile?
+        var groupAvatarURL: String?
         if let details = try? await client.groupDetails(
             accountRef: account.accountRef,
             groupIdHex: row.groupIdHex
         ) {
+            groupAvatarURL = firstNonBlank([details.group.avatarUrl])
             directPeer = await directPeerProfile(
                 from: details,
                 activeAccountIdHex: account.accountIdHex,
@@ -1538,7 +1540,12 @@ final class WorkspaceState {
             )
         }
 
-        return ChatItem(row: row, activeAccountIdHex: account.accountIdHex, directPeer: directPeer)
+        return ChatItem(
+            row: row,
+            activeAccountIdHex: account.accountIdHex,
+            directPeer: directPeer,
+            groupAvatarURL: groupAvatarURL
+        )
     }
 
     private func sortedChatItems(_ chatItems: [ChatItem]) -> [ChatItem] {

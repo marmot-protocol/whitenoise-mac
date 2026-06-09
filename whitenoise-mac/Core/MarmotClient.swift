@@ -32,6 +32,7 @@ protocol MarmotRuntime {
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws -> String
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi
+    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi
     func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi]
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription
     func subscribeChats(accountRef: String, includeArchived: Bool) async throws -> ChatsSubscription
@@ -202,6 +203,16 @@ final class MarmotClient: MarmotRuntime {
 
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
         try await marmot.groupDetails(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi {
+        try await marmot.updateGroupAvatarUrl(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            url: url,
+            dim: dim,
+            thumbhash: thumbhash
+        )
     }
 
     func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
