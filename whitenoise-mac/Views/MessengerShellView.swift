@@ -2059,6 +2059,23 @@ private struct SettingsHeader: View {
     }
 }
 
+private struct SettingsNativeForm<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        Form {
+            content
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
 private struct AccountsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -2529,43 +2546,30 @@ private struct AppearanceSettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(L10n.string("Theme"))
-                            .font(.callout.weight(.semibold))
-                        Picker(L10n.string("Theme"), selection: $workspace.appearancePreference) {
-                            ForEach(AppearancePreference.allCases) { preference in
-                                Text(preference.label).tag(preference)
-                            }
+            SettingsNativeForm {
+                Section("Appearance") {
+                    Picker(L10n.string("Theme"), selection: $workspace.appearancePreference) {
+                        ForEach(AppearancePreference.allCases) { preference in
+                            Text(preference.label).tag(preference)
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .frame(width: 240, alignment: .leading)
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(L10n.string("Language"))
-                            .font(.callout.weight(.semibold))
-                        Picker(L10n.string("Language"), selection: $workspace.languagePreference) {
-                            ForEach(AppLanguage.pickerChoices) { language in
-                                Text(language.displayName).tag(language)
-                            }
+                    Picker(L10n.string("Language"), selection: $workspace.languagePreference) {
+                        ForEach(AppLanguage.pickerChoices) { language in
+                            Text(language.displayName).tag(language)
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .frame(width: 240, alignment: .leading)
                     }
 
                     Text(L10n.string("System follows your Mac language. Other choices update White Noise immediately."))
-                        .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 560, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2825,8 +2829,6 @@ private struct NotificationsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
-        @Bindable var workspace = workspace
-
         VStack(spacing: 0) {
             SettingsHeader(
                 title: "Notifications",
@@ -2834,75 +2836,49 @@ private struct NotificationsSettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack(alignment: .center, spacing: 12) {
-                            Image(systemName: "bell.badge")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 30, height: 30)
-                                .background {
-                                    Circle().fill(Color.accentColor)
-                                }
+            SettingsNativeForm {
+                Section("Local Alerts") {
+                    Toggle(isOn: Binding(
+                        get: { workspace.notificationSettings.localNotificationsEnabled },
+                        set: { enabled in
+                            Task { await workspace.setLocalNotificationsEnabled(enabled) }
+                        }
+                    )) {
+                        Label("Local notifications", systemImage: "bell.badge")
+                    }
+                    .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications)
 
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text("Local notifications")
-                                    .font(.callout.weight(.semibold))
-                                Text(workspace.notificationAuthorizationStatus.label)
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-
+                    LabeledContent("Permission") {
+                        HStack(spacing: 8) {
+                            Text(workspace.notificationAuthorizationStatus.label)
+                                .foregroundStyle(.secondary)
                             if workspace.isSavingNotifications {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-
-                            Toggle("", isOn: Binding(
-                                get: { workspace.notificationSettings.localNotificationsEnabled },
-                                set: { enabled in
-                                    Task { await workspace.setLocalNotificationsEnabled(enabled) }
-                                }
-                            ))
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications)
-                        }
-
-                        if workspace.notificationAuthorizationStatus == .notDetermined {
-                            Button {
-                                Task { await workspace.requestLocalNotificationPermission() }
-                            } label: {
-                                Label("Allow Notifications", systemImage: "checkmark.circle")
-                            }
-                            .controlSize(.small)
-                        } else if workspace.notificationAuthorizationStatus == .denied {
-                            Button {
-                                workspace.openSystemNotificationSettings()
-                            } label: {
-                                Label("Open System Settings", systemImage: "gear")
-                            }
-                            .controlSize(.small)
                         }
                     }
-                    .padding(12)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                            }
-                    }
 
-                    SettingsErrorView(error: workspace.lastError)
+                    if workspace.notificationAuthorizationStatus == .notDetermined {
+                        Button {
+                            Task { await workspace.requestLocalNotificationPermission() }
+                        } label: {
+                            Label("Allow Notifications", systemImage: "checkmark.circle")
+                        }
+                    } else if workspace.notificationAuthorizationStatus == .denied {
+                        Button {
+                            workspace.openSystemNotificationSettings()
+                        } label: {
+                            Label("Open System Settings", systemImage: "gear")
+                        }
+                    }
                 }
-                .padding(28)
-                .frame(width: 620, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2922,141 +2898,52 @@ private struct DeveloperModeSettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(alignment: .center, spacing: 12) {
-                        Image(systemName: "stethoscope")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
-                            .background {
-                                Circle().fill(Color.accentColor)
-                            }
-
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Developer mode")
-                                .font(.callout.weight(.semibold))
-                            Text(workspace.developerMode ? L10n.string("On") : L10n.string("Off"))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        Toggle("", isOn: $workspace.developerMode)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                    }
-                    .padding(12)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                            }
+            SettingsNativeForm {
+                Section("Developer") {
+                    Toggle(isOn: $workspace.developerMode) {
+                        Label("Developer mode", systemImage: "stethoscope")
                     }
 
-                    HStack(alignment: .center, spacing: 12) {
-                        Image(systemName: "waveform.path.ecg")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
-                            .background {
-                                Circle().fill(Color.accentColor)
-                            }
-
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Streaming debug")
-                                .font(.callout.weight(.semibold))
-                            Text(workspace.streamingDebugEnabled ? L10n.string("On") : L10n.string("Off"))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        Toggle("", isOn: $workspace.streamingDebugMode)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .disabled(!workspace.developerMode)
+                    Toggle(isOn: $workspace.streamingDebugMode) {
+                        Label("Streaming debug", systemImage: "waveform.path.ecg")
                     }
-                    .padding(12)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                            }
+                    .disabled(!workspace.developerMode)
+
+                    LabeledContent("Streaming debug status") {
+                        Text(workspace.streamingDebugEnabled ? L10n.string("On") : L10n.string("Off"))
+                            .foregroundStyle(.secondary)
                     }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "folder")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 28, height: 28)
-
-                            Text("Storage")
-                                .font(.callout.weight(.semibold))
-                        }
-
-                        SettingsValueRow(
-                            title: "Location",
-                            value: workspace.storageRootPath
-                        )
-
-                        Button {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: workspace.storageRootPath, isDirectory: true))
-                        } label: {
-                            Label("Open Storage Folder", systemImage: "folder")
-                        }
-                        .controlSize(.small)
-                        .nativeGlassButtonStyle()
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                            }
-                    }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 28, height: 28)
-
-                            Text("Diagnostics")
-                                .font(.callout.weight(.semibold))
-                        }
-
-                        ForEach(workspace.diagnosticsInfo) { item in
-                            SettingsValueRow(title: LocalizedStringKey(item.title), value: item.value)
-                        }
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                            }
-                    }
-
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 620, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Section("Storage") {
+                    LabeledContent("Location") {
+                        Text(workspace.storageRootPath)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    Button {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: workspace.storageRootPath, isDirectory: true))
+                    } label: {
+                        Label("Open Storage Folder", systemImage: "folder")
+                    }
+                }
+
+                Section("Diagnostics") {
+                    ForEach(workspace.diagnosticsInfo) { item in
+                        LabeledContent(item.title) {
+                            Text(item.value)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
