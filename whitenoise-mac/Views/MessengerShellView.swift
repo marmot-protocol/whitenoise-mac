@@ -1004,8 +1004,11 @@ private struct GroupDetailsSheet: View {
             if let snapshot = workspace.groupDetailsSnapshot {
                 Form {
                     Section("Profile") {
-                        SettingsTextField(title: "Group name", text: $workspace.groupProfileDraftName)
-                        SettingsTextField(title: "Description", text: $workspace.groupProfileDraftDescription, lineLimit: 2...4)
+                        TextField("Group name", text: $workspace.groupProfileDraftName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Description", text: $workspace.groupProfileDraftDescription, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(2...4)
 
                         HStack(spacing: 10) {
                             Button {
@@ -1381,7 +1384,7 @@ private struct GroupImagePickerSheet: View {
                             .font(.system(size: 12, weight: .bold))
                             .frame(width: 28, height: 28)
                     }
-                    .buttonStyle(.plain)
+                    .nativeGlassButtonStyle()
                     .help("Close")
                 }
                 .padding(.horizontal, 18)
@@ -1391,12 +1394,8 @@ private struct GroupImagePickerSheet: View {
 
                 VStack(spacing: 12) {
                     HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-
                         TextField("Search Openverse", text: $workspace.groupImageSearchQuery)
-                            .textFieldStyle(.plain)
+                            .textFieldStyle(.roundedBorder)
                             .onSubmit {
                                 Task { await workspace.searchGroupImages() }
                             }
@@ -1409,22 +1408,11 @@ private struct GroupImagePickerSheet: View {
                         Button {
                             Task { await workspace.searchGroupImages() }
                         } label: {
-                            Image(systemName: "arrow.forward.circle.fill")
-                                .font(.system(size: 18, weight: .semibold))
+                            Label("Search", systemImage: "magnifyingglass")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderedProminent)
                         .disabled(workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isSearchingGroupImages)
                         .help("Search")
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.primary.opacity(0.06))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                            }
                     }
 
                     HStack {
@@ -1475,8 +1463,7 @@ private struct GroupImagePickerSheet: View {
         }
         .frame(width: 620, height: 560)
         .background {
-            Rectangle()
-                .fill(.regularMaterial)
+            LiquidGlassBackground()
         }
     }
 }
@@ -2420,32 +2407,6 @@ private struct CopyableLabeledValue: View {
                 .buttonStyle(.borderless)
                 .help("\(L10n.string("Copy")) \(value)")
             }
-        }
-    }
-}
-
-private struct SettingsTextField: View {
-    let title: LocalizedStringKey
-    @Binding var text: String
-    var lineLimit: ClosedRange<Int> = 1...1
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.callout.weight(.semibold))
-            TextField(title, text: $text, axis: lineLimit.upperBound > 1 ? .vertical : .horizontal)
-                .textFieldStyle(.plain)
-                .lineLimit(lineLimit)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 9)
-                .background {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                        }
-                }
         }
     }
 }
