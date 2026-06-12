@@ -401,11 +401,9 @@ enum LocalNotificationAuthorizationStatus: String, Equatable {
 
 struct NotificationSettingsSnapshot: Equatable {
     var localNotificationsEnabled: Bool
-    var nativePushEnabled: Bool
 
     static let defaults = NotificationSettingsSnapshot(
-        localNotificationsEnabled: false,
-        nativePushEnabled: false
+        localNotificationsEnabled: false
     )
 }
 

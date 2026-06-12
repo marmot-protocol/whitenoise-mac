@@ -109,6 +109,8 @@ final class WorkspaceState {
     var isInvitingGroupMember = false
     var isArchivingGroup = false
     var isLeavingGroup = false
+    var isExportingGroupTranscript = false
+    var groupTranscriptExportStatus: String?
     var mutatingGroupMemberId: String?
     private(set) var storageRootPath = MarmotClient.defaultStorageRootPath()
     private(set) var timelinePagingByChat: [String: TimelinePagingState] = [:]
@@ -1041,6 +1043,7 @@ final class WorkspaceState {
         lastError = nil
         groupDetailsSnapshot = nil
         groupInviteMemberQuery = ""
+        groupTranscriptExportStatus = nil
         isGroupDetailsPresented = true
         await loadGroupDetails(groupIdHex: chat.id)
     }
@@ -1056,7 +1059,43 @@ final class WorkspaceState {
         isInvitingGroupMember = false
         isArchivingGroup = false
         isLeavingGroup = false
+        isExportingGroupTranscript = false
+        groupTranscriptExportStatus = nil
         mutatingGroupMemberId = nil
+    }
+
+    func copySelectedGroupTranscriptJSON() async {
+        guard !isExportingGroupTranscript,
+              let client,
+              let activeAccount,
+              let snapshot = groupDetailsSnapshot
+        else { return }
+
+        lastError = nil
+        groupTranscriptExportStatus = nil
+        isExportingGroupTranscript = true
+        defer { isExportingGroupTranscript = false }
+
+        do {
+            let messages = try ConversationTranscriptExport.fetchAllMessages(
+                client: client,
+                accountRef: activeAccount.accountRef,
+                groupIdHex: snapshot.groupIdHex
+            )
+            let document = ConversationTranscriptExport.makeDocument(
+                groupIdHex: snapshot.groupIdHex,
+                groupName: snapshot.name,
+                messages: messages
+            )
+            let json = try ConversationTranscriptExport.encodeJSONString(document)
+            copyText(json)
+            groupTranscriptExportStatus = String(
+                format: L10n.string("Copied transcript JSON for %d events."),
+                document.eventCount
+            )
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     func reloadSelectedGroupDetails() async {
@@ -1128,6 +1167,29 @@ final class WorkspaceState {
 
     func removeGroupMember(_ member: GroupMemberItem) async {
         await mutateGroupMember(member, action: .remove)
+    }
+
+    func selfDemoteSelectedGroupAdmin() async {
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard snapshot.isSelfAdmin, !snapshot.isLastAdmin else {
+            lastError = L10n.string("Make another member an admin before stepping down.")
+            return
+        }
+
+        lastError = nil
+        mutatingGroupMemberId = snapshot.members.first(where: \.isSelf)?.id
+        defer { mutatingGroupMemberId = nil }
+
+        do {
+            let result = try await client.selfDemoteAdminDetailed(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: snapshot.groupIdHex
+            )
+            applyGroupMutationResult(result)
+            await reloadChats()
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     func setSelectedGroupArchived(_ archived: Bool) async {
@@ -2530,8 +2592,7 @@ private struct ReadMarker: Equatable, Comparable {
 private extension NotificationSettingsSnapshot {
     init(settings: NotificationSettingsFfi) {
         self.init(
-            localNotificationsEnabled: settings.localNotificationsEnabled,
-            nativePushEnabled: settings.nativePushEnabled
+            localNotificationsEnabled: settings.localNotificationsEnabled
         )
     }
 }

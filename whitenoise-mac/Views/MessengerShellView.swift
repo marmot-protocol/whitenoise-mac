@@ -229,7 +229,8 @@ private struct ChatListDrawerView: View {
                         .help("New chat")
                     }
 
-                    SearchField(text: $workspace.searchText)
+                    TextField("Search", text: $workspace.searchText)
+                        .textFieldStyle(.roundedBorder)
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 18)
@@ -237,15 +238,15 @@ private struct ChatListDrawerView: View {
 
                 GlassSeparator(axis: .horizontal)
 
-                ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(workspace.filteredChats) { chat in
-                            ChatRowButton(chat: chat)
-                        }
+                List(selection: chatSelection) {
+                    ForEach(workspace.filteredChats) { chat in
+                        ChatRowContent(chat: chat)
+                            .tag(chat.id)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 10)
                 }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
                 .overlay {
                     if workspace.filteredChats.isEmpty {
                         EmptyDrawerState()
@@ -255,6 +256,20 @@ private struct ChatListDrawerView: View {
         }
         .background {
             GlassPaneBackground(opacity: 0.64)
+        }
+    }
+
+    private var chatSelection: Binding<String?> {
+        Binding {
+            if case .chat(let chatId) = workspace.selection {
+                return chatId
+            }
+            return nil
+        } set: { chatId in
+            guard let chatId,
+                  let chat = workspace.activeChats.first(where: { $0.id == chatId })
+            else { return }
+            workspace.selectChat(chat)
         }
     }
 }
@@ -278,18 +293,31 @@ private struct SettingsListDrawerView: View {
 
             GlassSeparator(axis: .horizontal)
 
-            ScrollView {
-                LazyVStack(spacing: 4) {
-                    ForEach(SettingsPage.sidebarPages, id: \.self) { page in
-                        SettingsSidebarRow(page: page)
-                    }
+            List(selection: settingsSelection) {
+                ForEach(SettingsPage.sidebarPages, id: \.self) { page in
+                    SettingsSidebarRow(page: page)
+                        .tag(page)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
                 }
-                .padding(10)
             }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
 
         }
         .background {
             GlassPaneBackground(opacity: 0.64)
+        }
+    }
+
+    private var settingsSelection: Binding<SettingsPage?> {
+        Binding {
+            if case .settings(let page) = workspace.selection {
+                return page
+            }
+            return nil
+        } set: { page in
+            guard let page else { return }
+            workspace.showSettingsPage(page)
         }
     }
 
@@ -341,96 +369,72 @@ private struct SettingsSidebarRow: View {
     }
 
     var body: some View {
-        Button {
-            workspace.showSettingsPage(page)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: page.systemImage)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 28, height: 28)
+        HStack(spacing: 10) {
+            Image(systemName: page.systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 28, height: 28)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(page.title)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(page.sidebarSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(page.title)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(page.sidebarSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .padding(10)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.12) : Color.clear)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
     }
 }
 
-private struct ChatRowButton: View {
-    @Environment(WorkspaceState.self) private var workspace
+private struct ChatRowContent: View {
     let chat: ChatItem
 
-    private var isSelected: Bool {
-        workspace.selection == .chat(chat.id)
-    }
-
     var body: some View {
-        Button {
-            workspace.selectChat(chat)
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                ProfileImageAvatarView(
-                    seed: chat.avatarSeed,
-                    initials: chat.title,
-                    pictureURL: chat.pictureURL,
-                    size: 42,
-                    isSelected: false
-                )
+        HStack(alignment: .top, spacing: 10) {
+            ProfileImageAvatarView(
+                seed: chat.avatarSeed,
+                initials: chat.title,
+                pictureURL: chat.pictureURL,
+                size: 42,
+                isSelected: false
+            )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(chat.title)
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        Text(chat.timestampLabel)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(chat.preview)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(chat.title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(chat.timestampLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(chat.subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
                 }
-
-                if chat.unreadCount > 0 {
-                    Text("\(chat.unreadCount)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(Circle().fill(Color.accentColor))
-                }
+                Text(chat.preview)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(chat.subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.13) : Color.clear)
+
+            if chat.unreadCount > 0 {
+                Text("\(chat.unreadCount)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(Circle().fill(Color.accentColor))
             }
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 
@@ -947,6 +951,7 @@ private struct GroupDetailsSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showArchiveConfirmation = false
     @State private var showLeaveConfirmation = false
+    @State private var showSelfDemoteConfirmation = false
     let chat: ChatItem
 
     private var hasProfileChanges: Bool {
@@ -1057,12 +1062,24 @@ private struct GroupDetailsSheet: View {
 
                     Section("Group Actions") {
                         HStack(spacing: 10) {
-                            Button(role: .destructive) {
+                            Button(role: snapshot.archived ? nil : .destructive) {
                                 showArchiveConfirmation = true
                             } label: {
-                                Label(workspace.isArchivingGroup ? L10n.string("Archiving...") : L10n.string("Archive Group"), systemImage: "archivebox")
+                                Label(
+                                    archiveButtonTitle(snapshot: snapshot),
+                                    systemImage: snapshot.archived ? "tray.and.arrow.up" : "archivebox"
+                                )
                             }
-                            .disabled(workspace.isArchivingGroup || snapshot.archived)
+                            .disabled(workspace.isArchivingGroup)
+
+                            if snapshot.isSelfAdmin {
+                                Button(role: .destructive) {
+                                    showSelfDemoteConfirmation = true
+                                } label: {
+                                    Label("Step Down as Admin", systemImage: "star.slash")
+                                }
+                                .disabled(workspace.mutatingGroupMemberId != nil || snapshot.isLastAdmin)
+                            }
 
                             Button(role: .destructive) {
                                 showLeaveConfirmation = true
@@ -1078,11 +1095,35 @@ private struct GroupDetailsSheet: View {
                             Text("Demote yourself from admin before leaving this group.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
+                        } else if snapshot.isLastAdmin {
+                            Text("Make another member an admin before stepping down or leaving.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
                     if workspace.developerMode {
                         Section("Developer") {
+                            HStack(spacing: 10) {
+                                Button {
+                                    Task { await workspace.copySelectedGroupTranscriptJSON() }
+                                } label: {
+                                    Label(
+                                        workspace.isExportingGroupTranscript
+                                            ? L10n.string("Copying Transcript...")
+                                            : L10n.string("Copy Transcript JSON"),
+                                        systemImage: "doc.on.doc"
+                                    )
+                                }
+                                .disabled(workspace.isExportingGroupTranscript)
+
+                                if let status = workspace.groupTranscriptExportStatus {
+                                    Label(status, systemImage: "checkmark.circle")
+                                        .font(.callout)
+                                        .foregroundStyle(.green)
+                                }
+                            }
+
                             GroupDiagnosticsValueRow(title: "Group ID", value: snapshot.groupIdHex)
                             GroupDiagnosticsValueRow(title: "Nostr group ID", value: snapshot.nostrGroupIdHex)
                             GroupDiagnosticsValueRow(title: "Endpoint", value: snapshot.endpoint)
@@ -1116,16 +1157,30 @@ private struct GroupDetailsSheet: View {
             LiquidGlassBackground()
         }
         .confirmationDialog(
-            "Archive this group?",
+            archiveConfirmationTitle,
             isPresented: $showArchiveConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Archive Group", role: .destructive) {
-                Task { await workspace.setSelectedGroupArchived(true) }
+            if let snapshot = workspace.groupDetailsSnapshot {
+                Button(snapshot.archived ? "Unarchive Group" : "Archive Group", role: snapshot.archived ? nil : .destructive) {
+                    Task { await workspace.setSelectedGroupArchived(!snapshot.archived) }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Archived groups are hidden from the active chat list.")
+        }
+        .confirmationDialog(
+            "Step down as admin?",
+            isPresented: $showSelfDemoteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Step Down", role: .destructive) {
+                Task { await workspace.selfDemoteSelectedGroupAdmin() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll stay in the group, but another admin will need to restore your admin status.")
         }
         .confirmationDialog(
             "Leave this group?",
@@ -1139,6 +1194,20 @@ private struct GroupDetailsSheet: View {
         } message: {
             Text("You will no longer receive messages from this group on this account.")
         }
+    }
+
+    private var archiveConfirmationTitle: String {
+        if workspace.groupDetailsSnapshot?.archived == true {
+            return L10n.string("Unarchive this group?")
+        }
+        return L10n.string("Archive this group?")
+    }
+
+    private func archiveButtonTitle(snapshot: GroupDetailsSnapshot) -> String {
+        if workspace.isArchivingGroup {
+            return snapshot.archived ? L10n.string("Unarchiving...") : L10n.string("Archiving...")
+        }
+        return snapshot.archived ? L10n.string("Unarchive Group") : L10n.string("Archive Group")
     }
 }
 
@@ -3221,30 +3290,6 @@ private struct RelayRow: View {
         .padding(.vertical, 9)
         .overlay(alignment: .bottom) {
             Divider()
-        }
-    }
-}
-
-private struct SearchField: View {
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-            TextField("Search", text: $text)
-                .textFieldStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background {
-            Capsule(style: .continuous)
-                .fill(Color.primary.opacity(0.07))
-                .overlay {
-                    Capsule(style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                }
         }
     }
 }
