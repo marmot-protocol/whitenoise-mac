@@ -2588,121 +2588,103 @@ private struct PrivacySecuritySettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    PrivacySecurityToggleRow(
-                        systemImage: "waveform.path.ecg",
-                        title: "Anonymous Telemetry",
-                        subtitle: workspace.privacySecuritySettings.relayTelemetryEnabled ? L10n.string("On") : L10n.string("Off"),
-                        isSaving: workspace.isSavingPrivacySecurity,
-                        isOn: Binding(
-                            get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
-                            set: { enabled in
-                                Task { await workspace.setRelayTelemetryEnabled(enabled) }
-                            }
-                        )
-                    )
-
-                    PrivacySecurityToggleRow(
-                        systemImage: "doc.text.magnifyingglass",
-                        title: "Audit Logging",
-                        subtitle: workspace.privacySecuritySettings.auditLoggingEnabled ? L10n.string("On") : L10n.string("Off"),
-                        isSaving: workspace.isSavingPrivacySecurity,
-                        isOn: Binding(
-                            get: { workspace.privacySecuritySettings.auditLoggingEnabled },
-                            set: { enabled in
-                                Task { await workspace.setAuditLoggingEnabled(enabled) }
-                            }
-                        )
-                    )
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        SettingsValueRow(
-                            title: "Telemetry token",
-                            value: workspace.privacySecuritySettings.telemetryCredentialsAvailable
-                                ? L10n.string("Configured")
-                                : L10n.string("Missing")
-                        )
-                        SettingsValueRow(
-                            title: "Audit token",
-                            value: workspace.privacySecuritySettings.auditLogCredentialsAvailable
-                                ? L10n.string("Configured")
-                                : L10n.string("Missing")
-                        )
+            SettingsNativeForm {
+                Section("Data Sharing") {
+                    Toggle(isOn: Binding(
+                        get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
+                        set: { enabled in
+                            Task { await workspace.setRelayTelemetryEnabled(enabled) }
+                        }
+                    )) {
+                        Label("Anonymous Telemetry", systemImage: "waveform.path.ecg")
                     }
-                    .padding(12)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .disabled(workspace.isSavingPrivacySecurity)
 
-                    VStack(alignment: .leading, spacing: 12) {
+                    Toggle(isOn: Binding(
+                        get: { workspace.privacySecuritySettings.auditLoggingEnabled },
+                        set: { enabled in
+                            Task { await workspace.setAuditLoggingEnabled(enabled) }
+                        }
+                    )) {
+                        Label("Audit Logging", systemImage: "doc.text.magnifyingglass")
+                    }
+                    .disabled(workspace.isSavingPrivacySecurity)
+
+                    LabeledContent("Telemetry token") {
+                        Text(workspace.privacySecuritySettings.telemetryCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing"))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LabeledContent("Audit token") {
+                        Text(workspace.privacySecuritySettings.auditLogCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing"))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if workspace.isSavingPrivacySecurity {
                         HStack(spacing: 10) {
-                            Label("Audit Log Files", systemImage: "doc.text")
-                                .font(.callout.weight(.semibold))
-
-                            Spacer()
-
-                            if workspace.isLoadingAuditLogFiles {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-
-                            Button {
-                                Task { await workspace.loadAuditLogFiles() }
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                                    .frame(width: 26, height: 26)
-                            }
-                            .nativeGlassButtonStyle()
-                            .help("Refresh audit logs")
-                            .disabled(workspace.isLoadingAuditLogFiles)
-                        }
-
-                        if workspace.auditLogFiles.isEmpty {
-                            ContentUnavailableView("No audit logs", systemImage: "doc.text.magnifyingglass")
-                                .frame(minHeight: 150)
-                        } else {
-                            VStack(spacing: 8) {
-                                ForEach(workspace.auditLogFiles, id: \.path) { file in
-                                    AuditLogFileRow(file: file)
-                                }
-                            }
-                        }
-
-                        HStack(spacing: 10) {
-                            Button {
-                                Task { await workspace.uploadAuditLogFiles() }
-                            } label: {
-                                Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(
-                                workspace.isUploadingAuditLogFiles
-                                    || !workspace.privacySecuritySettings.auditLogCredentialsAvailable
-                            )
-
-                            Button(role: .destructive) {
-                                showDeleteAuditLogsConfirmation = true
-                            } label: {
-                                Label(workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"), systemImage: "trash")
-                            }
-                            .disabled(workspace.auditLogFiles.isEmpty || workspace.isDeletingAuditLogFiles)
-
-                            Spacer()
-                        }
-
-                        if let auditLogUploadStatus = workspace.auditLogUploadStatus {
-                            Label(auditLogUploadStatus, systemImage: "checkmark.seal")
-                                .font(.callout)
-                                .foregroundStyle(.green)
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Saving...")
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .padding(12)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 620, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Section("Audit Log Files") {
+                    HStack {
+                        if workspace.isLoadingAuditLogFiles {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+
+                        Button {
+                            Task { await workspace.loadAuditLogFiles() }
+                        } label: {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(workspace.isLoadingAuditLogFiles)
+                    }
+
+                    if workspace.auditLogFiles.isEmpty {
+                        ContentUnavailableView("No audit logs", systemImage: "doc.text.magnifyingglass")
+                            .frame(minHeight: 150)
+                    } else {
+                        ForEach(workspace.auditLogFiles, id: \.path) { file in
+                            AuditLogFileRow(file: file)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await workspace.uploadAuditLogFiles() }
+                        } label: {
+                            Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            workspace.isUploadingAuditLogFiles
+                                || !workspace.privacySecuritySettings.auditLogCredentialsAvailable
+                        )
+
+                        Button(role: .destructive) {
+                            showDeleteAuditLogsConfirmation = true
+                        } label: {
+                            Label(workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"), systemImage: "trash")
+                        }
+                        .disabled(workspace.auditLogFiles.isEmpty || workspace.isDeletingAuditLogFiles)
+                    }
+
+                    if let auditLogUploadStatus = workspace.auditLogUploadStatus {
+                        Label(auditLogUploadStatus, systemImage: "checkmark.seal")
+                            .foregroundStyle(.green)
+                    }
+                }
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2752,8 +2734,7 @@ private struct AuditLogFileRow: View {
                 .truncationMode(.middle)
                 .textSelection(.enabled)
         }
-        .padding(10)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.vertical, 4)
     }
 
     private var details: String {
@@ -2773,55 +2754,6 @@ private struct AuditLogFileRow: View {
         let capped = String(ref.prefix(64))
         guard capped.count > 14 else { return capped }
         return "\(capped.prefix(8))...\(capped.suffix(6))"
-    }
-}
-
-private struct PrivacySecurityToggleRow: View {
-    let systemImage: String
-    let title: LocalizedStringKey
-    let subtitle: String
-    let isSaving: Bool
-    let isOn: Binding<Bool>
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background {
-                    Circle().fill(Color.accentColor)
-                }
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title)
-                    .font(.callout.weight(.semibold))
-                Text(subtitle)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if isSaving {
-                ProgressView()
-                    .controlSize(.small)
-            }
-
-            Toggle("", isOn: isOn)
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .disabled(isSaving)
-        }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                }
-        }
     }
 }
 
