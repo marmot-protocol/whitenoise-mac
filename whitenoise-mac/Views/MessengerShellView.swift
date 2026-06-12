@@ -2895,68 +2895,56 @@ private struct RelaySettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Relay list")
-                            .font(.callout.weight(.semibold))
-
-                        Picker("Relay list", selection: $workspace.selectedRelaySection) {
-                            ForEach(RelaySettingsSection.allCases) { section in
-                                Text(section.label).tag(section)
-                            }
+            SettingsNativeForm {
+                Section("Relay List") {
+                    Picker("Relay list", selection: $workspace.selectedRelaySection) {
+                        ForEach(RelaySettingsSection.allCases) { section in
+                            Text(section.label).tag(section)
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .onChange(of: workspace.selectedRelaySection) { _, section in
-                            workspace.selectRelaySection(section)
-                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: workspace.selectedRelaySection) { _, section in
+                        workspace.selectRelaySection(section)
                     }
 
                     Text(workspace.selectedRelaySection.description)
-                        .font(.callout)
                         .foregroundStyle(.secondary)
+                }
 
+                Section {
                     RelayDiagnosticsView(settings: workspace.relaySettings)
+                }
 
-                    VStack(spacing: 0) {
-                        if workspace.relayDraft.isEmpty {
-                            ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
-                                .frame(minHeight: 160)
-                        } else {
-                            ForEach(workspace.relayDraft, id: \.self) { relay in
-                                RelayRow(url: relay) {
-                                    workspace.removeRelayDraftURL(relay)
-                                }
+                Section("Relays") {
+                    if workspace.relayDraft.isEmpty {
+                        ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
+                            .frame(minHeight: 160)
+                    } else {
+                        ForEach(workspace.relayDraft, id: \.self) { relay in
+                            RelayRow(url: relay) {
+                                workspace.removeRelayDraftURL(relay)
                             }
                         }
                     }
+                }
 
+                Section("Add Relay") {
                     HStack(spacing: 8) {
                         TextField("wss://relay.example", text: $workspace.newRelayURL)
-                            .textFieldStyle(.plain)
                             .onSubmit {
                                 workspace.addRelayDraftURL()
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 9)
-                            .background {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                                    }
                             }
 
                         Button {
                             workspace.addRelayDraftURL()
                         } label: {
-                            Image(systemName: "plus")
+                            Label("Add", systemImage: "plus")
                         }
                         .help("Add relay")
                     }
+                }
 
+                Section {
                     HStack(spacing: 10) {
                         Button {
                             Task { await workspace.saveRelaySettings() }
@@ -2980,12 +2968,13 @@ private struct RelaySettingsView: View {
 
                         Spacer()
                     }
-
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 680, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -3019,15 +3008,7 @@ private struct RelayDiagnosticsView: View {
                     .foregroundStyle(.orange)
             }
         }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                }
-        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -3082,8 +3063,8 @@ private struct KeyPackageSettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+            SettingsNativeForm {
+                Section {
                     HStack(spacing: 10) {
                         Button {
                             Task { await workspace.publishNewKeyPackage() }
@@ -3107,26 +3088,27 @@ private struct KeyPackageSettingsView: View {
 
                         Spacer()
                     }
+                }
 
+                Section("Published Key Packages") {
                     if workspace.keyPackages.isEmpty {
                         ContentUnavailableView("No key packages", systemImage: "key.slash")
                             .frame(minHeight: 220)
                     } else {
-                        VStack(spacing: 10) {
-                            ForEach(workspace.keyPackages) { package in
-                                KeyPackageRow(package: package) {
-                                    Task { await workspace.deleteKeyPackage(package) }
-                                }
-                                .disabled(workspace.deletingKeyPackageId == package.id)
+                        ForEach(workspace.keyPackages) { package in
+                            KeyPackageRow(package: package) {
+                                Task { await workspace.deleteKeyPackage(package) }
                             }
+                            .disabled(workspace.deletingKeyPackageId == package.id)
                         }
                     }
-
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 760, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -3198,15 +3180,7 @@ private struct KeyPackageRow: View {
                 .padding(.leading, 42)
             }
         }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                }
-        }
+        .padding(.vertical, 4)
     }
 
     private func keyValue(_ title: String, _ value: String) -> some View {
@@ -3246,10 +3220,7 @@ private struct RelayRow: View {
             .foregroundStyle(.secondary)
             .help("Remove relay")
         }
-        .padding(.vertical, 9)
-        .overlay(alignment: .bottom) {
-            Divider()
-        }
+        .padding(.vertical, 4)
     }
 }
 
