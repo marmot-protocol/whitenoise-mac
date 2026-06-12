@@ -50,6 +50,33 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removeActiveAccountCallsRuntimeAndSelectsNextAccount() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.removeActiveAccount()
+
+        #expect(runtime.removedAccountRefs == ["Desktop Account"])
+        #expect(state.accounts.map(\.id) == ["Backup Account"])
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(state.selection == .settings(.accounts))
+    }
+
+    @MainActor
     @Test func bootstrappingStateDoesNotShowMessengerChrome() async throws {
         let state = WorkspaceState(clientFactory: {
             FakeMarmotRuntime(accounts: [])
@@ -1256,6 +1283,76 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func telemetryBuildConfigUsesSeparateMacBuildSettings() async throws {
+        let config = TelemetryBuildConfig.current(
+            infoDictionary: [
+                "DarkmatterTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
+                "DarkmatterTelemetryBearerToken": "otlp-token",
+                "DarkmatterAuditLogBearerToken": "audit-token",
+                "DarkmatterTelemetryEnvironment": "production",
+                "CFBundleShortVersionString": "2026.6",
+                "CFBundleVersion": "12"
+            ],
+            environment: [:],
+            osVersion: "Version 26.0",
+            deviceModelIdentifier: "Mac15,3"
+        )
+
+        #expect(config.otlpEndpoint == "https://collector.example/v1/metrics")
+        #expect(config.bearerToken == "otlp-token")
+        #expect(config.auditLogBearerToken == "audit-token")
+        #expect(config.deploymentEnvironment == "production")
+        #expect(config.serviceVersion == "2026.6+12")
+        #expect(config.osVersion == "Version 26.0")
+        #expect(config.deviceModelIdentifier == "Mac15,3")
+
+        let runtimeConfig = config.runtimeConfig(installId: "install-id")
+        #expect(runtimeConfig.authorizationBearerToken == "otlp-token")
+        #expect(runtimeConfig.resource?.serviceVersion == "2026.6+12")
+        #expect(runtimeConfig.resource?.serviceInstanceId == "install-id")
+        #expect(runtimeConfig.resource?.deploymentEnvironment == "production")
+        #expect(runtimeConfig.resource?.tenant == "whitenoise-mac")
+        #expect(runtimeConfig.resource?.osType == "darwin")
+        #expect(runtimeConfig.resource?.osVersion == "Version 26.0")
+        #expect(runtimeConfig.resource?.deviceModelIdentifier == "Mac15,3")
+
+        let auditConfig = config.auditTrackerConfig(accountLabel: "Desktop Account")
+        #expect(auditConfig.authorizationBearerToken == "audit-token")
+        #expect(auditConfig.source.accountLabel == "Desktop Account")
+        #expect(auditConfig.source.deviceLabel == "Mac15,3")
+        #expect(auditConfig.source.platform == "macOS")
+        #expect(auditConfig.source.appVersion == "2026.6+12")
+    }
+
+    @MainActor
+    @Test func telemetryBuildConfigIgnoresUnresolvedBuildSettingsAndUsesEnvironmentFallbacks() async throws {
+        let config = TelemetryBuildConfig.current(
+            infoDictionary: [
+                "DarkmatterTelemetryOTLPEndpoint": "$(DARKMATTER_OTLP_ENDPOINT)",
+                "DarkmatterTelemetryBearerToken": "$(DARKMATTER_OTLP_BEARER_TOKEN)",
+                "DarkmatterAuditLogBearerToken": "$(DARKMATTER_AUDIT_LOG_BEARER_TOKEN)",
+                "DarkmatterTelemetryEnvironment": "$(DARKMATTER_TELEMETRY_ENVIRONMENT)",
+                "CFBundleShortVersionString": "1.2.3",
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)"
+            ],
+            environment: [
+                "DARKMATTER_OTLP_ENDPOINT": "https://env.example/v1/metrics",
+                "OTLP_TOKEN_DARKMATTER_MAC": "env-otlp-token",
+                "AUDIT_LOG_TOKEN_DARKMATTER_MAC": "env-audit-token",
+                "DARKMATTER_TELEMETRY_ENVIRONMENT": "staging"
+            ],
+            osVersion: "Version 26.0",
+            deviceModelIdentifier: nil
+        )
+
+        #expect(config.otlpEndpoint == "https://env.example/v1/metrics")
+        #expect(config.bearerToken == "env-otlp-token")
+        #expect(config.auditLogBearerToken == "env-audit-token")
+        #expect(config.deploymentEnvironment == "staging")
+        #expect(config.serviceVersion == "1.2.3")
+    }
+
+    @MainActor
     @Test func privacySecuritySettingsLoadAndPersistTelemetryAndAuditToggles() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -1269,8 +1366,23 @@ struct whitenoise_macTests {
             exportIntervalSeconds: 120
         )
         runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
+        runtime.storedAuditLogFiles = [
+            AuditLogFileFfi(
+                accountRef: account.label,
+                path: "/tmp/audit-1.jsonl",
+                fileName: "audit-1.jsonl",
+                sizeBytes: 512,
+                modifiedAtMs: 1_800_000_000_000
+            )
+        ]
         let state = WorkspaceState(
-            observabilityTokenProvider: { "test-token" },
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(
+                    telemetryToken: "otlp-token",
+                    auditToken: "audit-token",
+                    environment: "production"
+                )
+            },
             clientFactory: { runtime }
         )
 
@@ -1278,9 +1390,11 @@ struct whitenoise_macTests {
 
         #expect(state.privacySecuritySettings.relayTelemetryEnabled)
         #expect(state.privacySecuritySettings.relayTelemetryIntervalSeconds == 120)
-        #expect(!state.privacySecuritySettings.auditLogUploadsEnabled)
-        #expect(state.privacySecuritySettings.hasObservabilityToken)
-        #expect(runtime.relayTelemetryRuntimeConfig?.authorizationBearerToken == "test-token")
+        #expect(!state.privacySecuritySettings.auditLoggingEnabled)
+        #expect(state.privacySecuritySettings.telemetryCredentialsAvailable)
+        #expect(state.privacySecuritySettings.auditLogCredentialsAvailable)
+        #expect(state.auditLogFiles.count == 1)
+        #expect(runtime.relayTelemetryRuntimeConfig?.authorizationBearerToken == "otlp-token")
         let telemetryResource = runtime.relayTelemetryRuntimeConfig?.resource
         #expect(telemetryResource?.serviceVersion == expectedTelemetryServiceVersion())
         #expect(telemetryResource?.serviceInstanceId == "test-install-id")
@@ -1289,21 +1403,21 @@ struct whitenoise_macTests {
         #expect(telemetryResource?.osType == "darwin")
         #expect(telemetryResource?.osVersion == ProcessInfo.processInfo.operatingSystemVersionString)
         #expect(telemetryResource?.deviceModelIdentifier == expectedDeviceModelIdentifier())
-        #expect(runtime.auditLogTrackerConfig?.authorizationBearerToken == "test-token")
+        #expect(runtime.auditLogTrackerConfig?.authorizationBearerToken == "audit-token")
         #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Desktop Account")
 
         await state.setRelayTelemetryEnabled(false)
-        await state.setAuditLogUploadsEnabled(true)
+        await state.setAuditLoggingEnabled(true)
 
         #expect(!runtime.storedRelayTelemetrySettings.exportEnabled)
         #expect(runtime.storedRelayTelemetrySettings.exportIntervalSeconds == 120)
         #expect(runtime.storedAuditLogSettings.enabled)
         #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
-        #expect(state.privacySecuritySettings.auditLogUploadsEnabled)
+        #expect(state.privacySecuritySettings.auditLoggingEnabled)
     }
 
     @MainActor
-    @Test func enablingPrivacySecurityUploadRequiresEnvironmentToken() async throws {
+    @Test func enablingPrivacySecurityTogglesRequireConfiguredTokens() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -1312,17 +1426,75 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         let state = WorkspaceState(
-            observabilityTokenProvider: { nil },
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(telemetryToken: nil, auditToken: nil)
+            },
             clientFactory: { runtime }
         )
 
         await state.bootstrap()
-        await state.setRelayTelemetryEnabled(true)
-        await state.setAuditLogUploadsEnabled(true)
 
+        await state.setRelayTelemetryEnabled(true)
         #expect(!runtime.storedRelayTelemetrySettings.exportEnabled)
+        #expect(state.lastError == "Telemetry credentials are not configured for this build.")
+
+        await state.setAuditLoggingEnabled(true)
+
         #expect(!runtime.storedAuditLogSettings.enabled)
-        #expect(state.lastError == "Missing OTLP_TOKEN_DARKMATTER_MAC environment variable.")
+        #expect(state.lastError == "Audit log credentials are not configured for this build.")
+    }
+
+    @MainActor
+    @Test func auditLogFileActionsRefreshDeleteAndUploadThroughRuntime() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true)
+        runtime.storedAuditLogFiles = [
+            AuditLogFileFfi(
+                accountRef: account.label,
+                path: "/tmp/audit-1.jsonl",
+                fileName: "audit-1.jsonl",
+                sizeBytes: 123,
+                modifiedAtMs: nil
+            ),
+            AuditLogFileFfi(
+                accountRef: account.label,
+                path: "/tmp/audit-2.jsonl",
+                fileName: "audit-2.jsonl",
+                sizeBytes: 456,
+                modifiedAtMs: nil
+            )
+        ]
+        runtime.nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(
+            enabled: true,
+            uploaded: [
+                AuditLogUploadResultFfi(path: "/tmp/audit-1.jsonl", status: 200, bytesSent: 123),
+                AuditLogUploadResultFfi(path: "/tmp/audit-2.jsonl", status: 200, bytesSent: 456)
+            ],
+            skippedReason: nil
+        )
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(telemetryToken: "otlp-token", auditToken: "audit-token")
+            },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.auditLogFiles.count == 2)
+
+        await state.uploadAuditLogFiles()
+        #expect(runtime.didPostAuditLogTrackerUpdate)
+        #expect(state.auditLogUploadStatus == "Uploaded 2 audit log files (579 bytes).")
+
+        await state.deleteAllAuditLogFiles()
+        #expect(runtime.deletedAuditLogFilePaths == ["/tmp/audit-1.jsonl", "/tmp/audit-2.jsonl"])
+        #expect(state.auditLogFiles.isEmpty)
     }
 
     @MainActor
@@ -1694,13 +1866,22 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         nativePushEnabled: false
     )
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
+    var storedAuditLogFiles: [AuditLogFileFfi] = []
+    var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(
+        enabled: true,
+        uploaded: [],
+        skippedReason: nil
+    )
     var storedRelayTelemetrySettings = RelayTelemetrySettingsFfi(
         exportEnabled: false,
         exportIntervalSeconds: 60
     )
     private(set) var localNotificationsEnabledSet: Bool?
     private(set) var auditLogTrackerConfig: AuditLogTrackerConfigFfi?
+    private(set) var deletedAuditLogFilePaths: [String] = []
+    private(set) var didPostAuditLogTrackerUpdate = false
     private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
+    private(set) var removedAccountRefs: [String] = []
 
     init(accounts: [AccountSummaryFfi], createdAccount: AccountSummaryFfi? = nil) {
         self.storedAccounts = accounts
@@ -1844,12 +2025,27 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         return keyPackages
     }
 
+    func auditLogFiles() throws -> [AuditLogFileFfi] {
+        storedAuditLogFiles
+    }
+
     func auditLogSettings() throws -> AuditLogSettingsFfi {
         storedAuditLogSettings
     }
 
+    func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi {
+        deletedAuditLogFilePaths.append(path)
+        storedAuditLogFiles.removeAll { $0.path == path }
+        return AuditLogDeleteResultFfi(stillRecording: storedAuditLogSettings.enabled)
+    }
+
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
         notificationSettings
+    }
+
+    func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi {
+        didPostAuditLogTrackerUpdate = true
+        return nextAuditLogTrackerUpdate
     }
 
     func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi {
@@ -1883,6 +2079,11 @@ private final class FakeMarmotRuntime: MarmotRuntime {
 
     func telemetryInstallId() throws -> String {
         "test-install-id"
+    }
+
+    func removeAccount(accountRef: String) async throws {
+        removedAccountRefs.append(accountRef)
+        storedAccounts.removeAll { $0.label == accountRef }
     }
 
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64 {
@@ -2542,6 +2743,25 @@ private func notificationSettings(
         accountIdHex: account.accountIdHex,
         localNotificationsEnabled: localEnabled,
         nativePushEnabled: nativeEnabled
+    )
+}
+
+private func telemetryBuildConfig(
+    telemetryToken: String? = "otlp-token",
+    auditToken: String? = "audit-token",
+    environment: String = "production",
+    serviceVersion: String = expectedTelemetryServiceVersion(),
+    osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString,
+    deviceModelIdentifier: String? = expectedDeviceModelIdentifier()
+) -> TelemetryBuildConfig {
+    TelemetryBuildConfig(
+        otlpEndpoint: TelemetryBuildConfig.defaultOtlpEndpoint,
+        bearerToken: telemetryToken,
+        auditLogBearerToken: auditToken,
+        deploymentEnvironment: environment,
+        serviceVersion: serviceVersion,
+        osVersion: osVersion,
+        deviceModelIdentifier: deviceModelIdentifier
     )
 }
 

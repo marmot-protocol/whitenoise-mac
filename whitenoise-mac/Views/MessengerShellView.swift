@@ -1,4 +1,5 @@
 import AppKit
+import MarmotKit
 import SwiftUI
 
 struct MessengerShellView: View {
@@ -1596,7 +1597,7 @@ private struct SettingsHeader: View {
                             .font(.system(size: 14, weight: .semibold))
                             .frame(width: 28, height: 28)
                     }
-                    .buttonStyle(.plain)
+                    .nativeGlassButtonStyle()
                     .help("Back to settings")
                 }
 
@@ -1805,6 +1806,7 @@ private struct CopyableSettingsValueRow: View {
                 Label("Copy", systemImage: "doc.on.doc")
             }
             .controlSize(.small)
+            .nativeGlassButtonStyle()
             .help("\(L10n.string("Copy")) \(title)")
         }
         .padding(12)
@@ -1916,6 +1918,7 @@ private struct ProfileSettingsView: View {
 
 private struct IdentityKeysSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var showRemoveAccountConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1988,6 +1991,31 @@ private struct IdentityKeysSettingsView: View {
                                         .stroke(Color.white.opacity(0.22), lineWidth: 1)
                                 }
                         }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Account Removal")
+                                .font(.callout.weight(.semibold))
+                            Text("Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Button(role: .destructive) {
+                                showRemoveAccountConfirmation = true
+                            } label: {
+                                Label(workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
+                            }
+                            .disabled(workspace.isRemovingAccount)
+                        }
+                        .padding(12)
+                        .background {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color.red.opacity(0.22), lineWidth: 1)
+                                }
+                        }
                     } else {
                         ContentUnavailableView("No active account", systemImage: "person.crop.circle.badge.exclamationmark")
                             .frame(minHeight: 220)
@@ -2001,6 +2029,25 @@ private struct IdentityKeysSettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .confirmationDialog(
+            removeAccountTitle,
+            isPresented: $showRemoveAccountConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Account", role: .destructive) {
+                Task { await workspace.removeActiveAccount() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the selected account from this Mac.")
+        }
+    }
+
+    private var removeAccountTitle: String {
+        if let account = workspace.activeAccount {
+            return String(format: L10n.string("Remove %@?"), account.displayName)
+        }
+        return L10n.string("Remove account?")
     }
 }
 
@@ -2088,12 +2135,13 @@ private struct AppearanceSettingsView: View {
 
 private struct PrivacySecuritySettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var showDeleteAuditLogsConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
             SettingsHeader(
                 title: "Privacy & Security",
-                subtitle: "Diagnostics exports are off until you enable them."
+                subtitle: "Telemetry and audit logs stay off until you enable them."
             )
             Divider()
 
@@ -2101,7 +2149,7 @@ private struct PrivacySecuritySettingsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     PrivacySecurityToggleRow(
                         systemImage: "waveform.path.ecg",
-                        title: "Relay telemetry",
+                        title: "Anonymous Telemetry",
                         subtitle: workspace.privacySecuritySettings.relayTelemetryEnabled ? L10n.string("On") : L10n.string("Off"),
                         isSaving: workspace.isSavingPrivacySecurity,
                         isOn: Binding(
@@ -2114,23 +2162,98 @@ private struct PrivacySecuritySettingsView: View {
 
                     PrivacySecurityToggleRow(
                         systemImage: "doc.text.magnifyingglass",
-                        title: "Audit log uploads",
-                        subtitle: workspace.privacySecuritySettings.auditLogUploadsEnabled ? L10n.string("On") : L10n.string("Off"),
+                        title: "Audit Logging",
+                        subtitle: workspace.privacySecuritySettings.auditLoggingEnabled ? L10n.string("On") : L10n.string("Off"),
                         isSaving: workspace.isSavingPrivacySecurity,
                         isOn: Binding(
-                            get: { workspace.privacySecuritySettings.auditLogUploadsEnabled },
+                            get: { workspace.privacySecuritySettings.auditLoggingEnabled },
                             set: { enabled in
-                                Task { await workspace.setAuditLogUploadsEnabled(enabled) }
+                                Task { await workspace.setAuditLoggingEnabled(enabled) }
                             }
                         )
                     )
 
-                    SettingsValueRow(
-                        title: "Upload token",
-                        value: workspace.privacySecuritySettings.hasObservabilityToken
-                            ? L10n.string("Configured")
-                            : L10n.string("Missing")
-                    )
+                    VStack(alignment: .leading, spacing: 10) {
+                        SettingsValueRow(
+                            title: "Telemetry token",
+                            value: workspace.privacySecuritySettings.telemetryCredentialsAvailable
+                                ? L10n.string("Configured")
+                                : L10n.string("Missing")
+                        )
+                        SettingsValueRow(
+                            title: "Audit token",
+                            value: workspace.privacySecuritySettings.auditLogCredentialsAvailable
+                                ? L10n.string("Configured")
+                                : L10n.string("Missing")
+                        )
+                    }
+                    .padding(12)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Label("Audit Log Files", systemImage: "doc.text")
+                                .font(.callout.weight(.semibold))
+
+                            Spacer()
+
+                            if workspace.isLoadingAuditLogFiles {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+
+                            Button {
+                                Task { await workspace.loadAuditLogFiles() }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .frame(width: 26, height: 26)
+                            }
+                            .nativeGlassButtonStyle()
+                            .help("Refresh audit logs")
+                            .disabled(workspace.isLoadingAuditLogFiles)
+                        }
+
+                        if workspace.auditLogFiles.isEmpty {
+                            ContentUnavailableView("No audit logs", systemImage: "doc.text.magnifyingglass")
+                                .frame(minHeight: 150)
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(workspace.auditLogFiles, id: \.path) { file in
+                                    AuditLogFileRow(file: file)
+                                }
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            Button {
+                                Task { await workspace.uploadAuditLogFiles() }
+                            } label: {
+                                Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(
+                                workspace.isUploadingAuditLogFiles
+                                    || !workspace.privacySecuritySettings.auditLogCredentialsAvailable
+                            )
+
+                            Button(role: .destructive) {
+                                showDeleteAuditLogsConfirmation = true
+                            } label: {
+                                Label(workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"), systemImage: "trash")
+                            }
+                            .disabled(workspace.auditLogFiles.isEmpty || workspace.isDeletingAuditLogFiles)
+
+                            Spacer()
+                        }
+
+                        if let auditLogUploadStatus = workspace.auditLogUploadStatus {
+                            Label(auditLogUploadStatus, systemImage: "checkmark.seal")
+                                .font(.callout)
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    .padding(12)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
                     SettingsErrorView(error: workspace.lastError)
                 }
@@ -2140,6 +2263,73 @@ private struct PrivacySecuritySettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .task {
+            await workspace.loadAuditLogFiles()
+        }
+        .confirmationDialog(
+            "Delete all audit logs?",
+            isPresented: $showDeleteAuditLogsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete All Audit Logs", role: .destructive) {
+                Task { await workspace.deleteAllAuditLogFiles() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes every local audit JSONL file on this Mac.")
+        }
+    }
+}
+
+private struct AuditLogFileRow: View {
+    let file: AuditLogFileFfi
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(file.fileName)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(byteCount(file.sizeBytes))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(details)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Text(file.path)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var details: String {
+        var parts = [shortAccountRef(file.accountRef)]
+        if let modifiedAtMs = file.modifiedAtMs {
+            let date = Date(timeIntervalSince1970: TimeInterval(modifiedAtMs) / 1_000)
+            parts.append(date.formatted(date: .abbreviated, time: .shortened))
+        }
+        return parts.joined(separator: " - ")
+    }
+
+    private func byteCount(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
+    }
+
+    private func shortAccountRef(_ ref: String) -> String {
+        let capped = String(ref.prefix(64))
+        guard capped.count > 14 else { return capped }
+        return "\(capped.prefix(8))...\(capped.suffix(6))"
     }
 }
 
@@ -2350,6 +2540,33 @@ private struct DeveloperModeSettingsView: View {
                             Label("Open Storage Folder", systemImage: "folder")
                         }
                         .controlSize(.small)
+                        .nativeGlassButtonStyle()
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                            }
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 28, height: 28)
+
+                            Text("Diagnostics")
+                                .font(.callout.weight(.semibold))
+                        }
+
+                        ForEach(workspace.diagnosticsInfo) { item in
+                            SettingsValueRow(title: LocalizedStringKey(item.title), value: item.value)
+                        }
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2783,6 +3000,15 @@ private struct LiquidGlassBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        if #available(macOS 26.0, *) {
+            background
+                .backgroundExtensionEffect()
+        } else {
+            background
+        }
+    }
+
+    private var background: some View {
         ZStack {
             Color(
                 white: colorScheme == .dark ? 0.045 : 0.95
@@ -2796,6 +3022,17 @@ private struct LiquidGlassBackground: View {
             .opacity(colorScheme == .dark ? 0.44 : 0.24)
         }
         .ignoresSafeArea()
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func nativeGlassButtonStyle() -> some View {
+        if #available(macOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.bordered)
+        }
     }
 }
 

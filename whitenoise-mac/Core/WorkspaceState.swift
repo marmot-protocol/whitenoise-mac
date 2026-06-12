@@ -1,5 +1,4 @@
 import AppKit
-import Darwin
 import Foundation
 import MarmotKit
 import Observation
@@ -58,6 +57,8 @@ final class WorkspaceState {
     var notificationSettings = NotificationSettingsSnapshot.defaults
     var notificationAuthorizationStatus: LocalNotificationAuthorizationStatus = .notDetermined
     var privacySecuritySettings = PrivacySecuritySettingsSnapshot.defaults
+    var auditLogFiles: [AuditLogFileFfi] = []
+    var auditLogUploadStatus: String?
     var developerMode: Bool {
         didSet {
             UserDefaults.standard.set(developerMode, forKey: Self.developerModeKey)
@@ -75,11 +76,15 @@ final class WorkspaceState {
     }
     var isLoadingSettings = false
     var isSavingProfile = false
+    var isRemovingAccount = false
     var isSavingRelays = false
     var isPublishingKeyPackage = false
     var isRepublishingKeyPackage = false
     var isSavingNotifications = false
     var isSavingPrivacySecurity = false
+    var isLoadingAuditLogFiles = false
+    var isDeletingAuditLogFiles = false
+    var isUploadingAuditLogFiles = false
     var deletingKeyPackageId: String?
     var isNewChatComposerVisible = false
     var newChatQuery = ""
@@ -101,7 +106,7 @@ final class WorkspaceState {
     private let localNotificationCenter: any LocalNotificationCenter
     private let appActivityProvider: @MainActor () -> Bool
     private let copyTextHandler: @MainActor (String) -> Void
-    private let observabilityTokenProvider: @MainActor () -> String?
+    private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     private let groupImageSearchClient: any GroupImageSearchClient
     private var client: (any MarmotRuntime)?
     private var notificationTask: Task<Void, Never>?
@@ -118,18 +123,11 @@ final class WorkspaceState {
     private static let activeAccountKey = "whitenoise.mac.activeAccountId"
     private static let developerModeKey = "whitenoise.mac.developerMode"
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
-    private static let observabilityTokenInfoKey = "OTLP_TOKEN_DARKMATTER_MAC"
-    private static let deploymentEnvironment = "production"
-    private static let telemetryTenant = "whitenoise-mac"
     private static let deliveredNotificationKeyLimit = 256
     private static let timelinePageLimit: UInt32 = 100
     private static var notificationPermissionGuidance: String {
         L10n.string("Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
-    private static var missingObservabilityTokenMessage: String {
-        L10n.string("Missing OTLP_TOKEN_DARKMATTER_MAC environment variable.")
-    }
-
     init(
         accounts: [AccountItem] = [],
         chatsByAccount: [String: [ChatItem]] = [:],
@@ -137,7 +135,7 @@ final class WorkspaceState {
         localNotificationCenter: (any LocalNotificationCenter)? = nil,
         appActivityProvider: @escaping @MainActor () -> Bool = { NSApplication.shared.isActive },
         copyTextHandler: @escaping @MainActor (String) -> Void = WorkspaceState.copyToGeneralPasteboard,
-        observabilityTokenProvider: @escaping @MainActor () -> String? = WorkspaceState.defaultObservabilityToken,
+        telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = { TelemetryBuildConfig.current() },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
@@ -147,7 +145,7 @@ final class WorkspaceState {
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
         self.appActivityProvider = appActivityProvider
         self.copyTextHandler = copyTextHandler
-        self.observabilityTokenProvider = observabilityTokenProvider
+        self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
@@ -220,6 +218,27 @@ final class WorkspaceState {
 
     var marmotBuildSummary: String {
         "\(MarmotKitVersion.darkmatterSHA) / \(MarmotKitVersion.builtAt)"
+    }
+
+    var diagnosticsInfo: [DiagnosticsInfoItem] {
+        let config = telemetryBuildConfig
+        return [
+            DiagnosticsInfoItem(title: L10n.string("Tenant"), value: TelemetryBuildConfig.tenant),
+            DiagnosticsInfoItem(title: L10n.string("Deployment"), value: config.deploymentEnvironment),
+            DiagnosticsInfoItem(title: L10n.string("Service version"), value: config.serviceVersion),
+            DiagnosticsInfoItem(title: L10n.string("OTLP endpoint"), value: config.otlpEndpoint),
+            DiagnosticsInfoItem(
+                title: L10n.string("Telemetry token"),
+                value: config.telemetryCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing")
+            ),
+            DiagnosticsInfoItem(
+                title: L10n.string("Audit token"),
+                value: config.auditLogCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing")
+            ),
+            DiagnosticsInfoItem(title: L10n.string("OS"), value: config.osVersion),
+            DiagnosticsInfoItem(title: L10n.string("Device model"), value: config.deviceModelIdentifier ?? L10n.string("Unknown")),
+            DiagnosticsInfoItem(title: L10n.string("Marmot"), value: marmotBuildSummary)
+        ]
     }
 
     var canSend: Bool {
@@ -408,6 +427,47 @@ final class WorkspaceState {
             await loadPrivacySecuritySettings()
             await reloadChats()
             startNotificationListener()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func removeActiveAccount() async {
+        guard let client, let activeAccount, !isRemovingAccount else { return }
+
+        lastError = nil
+        isRemovingAccount = true
+        defer { isRemovingAccount = false }
+
+        let removedAccountId = activeAccount.id
+        do {
+            stopTimelineListener()
+            stopChatListListener()
+            try await client.removeAccount(accountRef: activeAccount.accountRef)
+            accounts = try client.listAccounts().map { accountItem(from: $0) }
+            chatsByAccount[removedAccountId] = nil
+            messagesByChat.removeAll()
+            timelinePagingByChat.removeAll()
+            profileDraft = ProfileDraft()
+            keyPackages = []
+            auditLogFiles = []
+            auditLogUploadStatus = nil
+
+            if accounts.isEmpty {
+                activeAccountId = nil
+                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
+                selection = nil
+                phase = .onboarding
+                notificationSettings = .defaults
+                privacySecuritySettings = .defaults
+                return
+            }
+
+            restoreOrSelectFirstAccount()
+            selection = .settings(.accounts)
+            try await configureObservabilityRuntime()
+            await loadSettingsData()
+            await reloadChats()
         } catch {
             lastError = error.localizedDescription
         }
@@ -1132,36 +1192,8 @@ final class WorkspaceState {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    private var observabilityToken: String? {
-        Self.nonBlank(observabilityTokenProvider())
-    }
-
-    private static func defaultObservabilityToken() -> String? {
-        nonBlank(ProcessInfo.processInfo.environment[observabilityTokenInfoKey])
-    }
-
-    private static func nonBlank(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private static var appVersion: String {
-        let shortVersion = nonBlank(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
-        let buildVersion = nonBlank(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "0"
-        return "\(shortVersion)+\(buildVersion)"
-    }
-
-    private static var deviceModelIdentifier: String? {
-        var size = 0
-        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else {
-            return nil
-        }
-
-        var value = [CChar](repeating: 0, count: size)
-        guard sysctlbyname("hw.model", &value, &size, nil, 0) == 0 else {
-            return nil
-        }
-        return nonBlank(String(cString: value))
+    private var telemetryBuildConfig: TelemetryBuildConfig {
+        telemetryBuildConfigProvider()
     }
 
     private func refreshObservabilityRuntime() {
@@ -1176,43 +1208,15 @@ final class WorkspaceState {
 
     private func configureObservabilityRuntime() async throws {
         guard let client else { return }
-        let token = observabilityToken
+        let config = telemetryBuildConfig
         try await client.setRelayTelemetryRuntimeConfig(
-            config: RelayTelemetryRuntimeConfigFfi(
-                otlpEndpoint: nil,
-                authorizationBearerToken: token,
-                resource: try telemetryResource(client: client)
-            )
+            config: config.runtimeConfig(installId: try client.telemetryInstallId())
         )
         _ = try client.setAuditLogTrackerConfig(
-            config: AuditLogTrackerConfigFfi(
-                endpoint: nil,
-                authorizationBearerToken: token,
-                source: auditLogUploadSource(account: activeAccount)
-            )
+            config: config.auditTrackerConfig(accountLabel: activeAccount?.displayName)
         )
-        privacySecuritySettings.hasObservabilityToken = token != nil
-    }
-
-    private func telemetryResource(client: any MarmotRuntime) throws -> RelayTelemetryResourceFfi {
-        RelayTelemetryResourceFfi(
-            serviceVersion: Self.appVersion,
-            serviceInstanceId: try client.telemetryInstallId(),
-            deploymentEnvironment: Self.deploymentEnvironment,
-            tenant: Self.telemetryTenant,
-            osType: "darwin",
-            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            deviceModelIdentifier: Self.deviceModelIdentifier
-        )
-    }
-
-    private func auditLogUploadSource(account: AccountItem?) -> AuditLogUploadSourceFfi {
-        AuditLogUploadSourceFfi(
-            accountLabel: account?.displayName,
-            deviceLabel: Host.current().localizedName,
-            platform: "macOS",
-            appVersion: Self.appVersion
-        )
+        privacySecuritySettings.telemetryCredentialsAvailable = config.telemetryCredentialsAvailable
+        privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable
     }
 
     private func loadNotificationSettings() {
@@ -1240,22 +1244,27 @@ final class WorkspaceState {
             try await configureObservabilityRuntime()
             let telemetry = try client.relayTelemetrySettings()
             let auditLog = try client.auditLogSettings()
+            let config = telemetryBuildConfig
             privacySecuritySettings = PrivacySecuritySettingsSnapshot(
                 relayTelemetryEnabled: telemetry.exportEnabled,
                 relayTelemetryIntervalSeconds: telemetry.exportIntervalSeconds,
-                auditLogUploadsEnabled: auditLog.enabled,
-                hasObservabilityToken: observabilityToken != nil
+                auditLoggingEnabled: auditLog.enabled,
+                telemetryCredentialsAvailable: config.telemetryCredentialsAvailable,
+                auditLogCredentialsAvailable: config.auditLogCredentialsAvailable
             )
+            await loadAuditLogFiles()
         } catch {
             privacySecuritySettings = .defaults
+            auditLogFiles = []
             lastError = error.localizedDescription
         }
     }
 
     func setRelayTelemetryEnabled(_ enabled: Bool) async {
         guard let client, !isSavingPrivacySecurity else { return }
-        guard enabled == false || observabilityToken != nil else {
-            lastError = Self.missingObservabilityTokenMessage
+        let config = telemetryBuildConfig
+        guard enabled == false || config.telemetryCredentialsAvailable else {
+            lastError = TelemetrySettingsActionError.telemetryNotConfigured.localizedDescription
             return
         }
 
@@ -1273,16 +1282,17 @@ final class WorkspaceState {
             let stored = try await client.setRelayTelemetrySettings(settings: settings)
             privacySecuritySettings.relayTelemetryEnabled = stored.exportEnabled
             privacySecuritySettings.relayTelemetryIntervalSeconds = stored.exportIntervalSeconds
-            privacySecuritySettings.hasObservabilityToken = observabilityToken != nil
+            privacySecuritySettings.telemetryCredentialsAvailable = telemetryBuildConfig.telemetryCredentialsAvailable
         } catch {
             lastError = error.localizedDescription
         }
     }
 
-    func setAuditLogUploadsEnabled(_ enabled: Bool) async {
+    func setAuditLoggingEnabled(_ enabled: Bool) async {
         guard let client, !isSavingPrivacySecurity else { return }
-        guard enabled == false || observabilityToken != nil else {
-            lastError = Self.missingObservabilityTokenMessage
+        let config = telemetryBuildConfig
+        guard enabled == false || config.auditLogCredentialsAvailable else {
+            lastError = TelemetrySettingsActionError.auditLogNotConfigured.localizedDescription
             return
         }
 
@@ -1293,11 +1303,85 @@ final class WorkspaceState {
         do {
             try await configureObservabilityRuntime()
             let stored = try await client.setAuditLogSettings(settings: AuditLogSettingsFfi(enabled: enabled))
-            privacySecuritySettings.auditLogUploadsEnabled = stored.enabled
-            privacySecuritySettings.hasObservabilityToken = observabilityToken != nil
+            privacySecuritySettings.auditLoggingEnabled = stored.enabled
+            privacySecuritySettings.auditLogCredentialsAvailable = telemetryBuildConfig.auditLogCredentialsAvailable
+            await loadAuditLogFiles()
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    func loadAuditLogFiles() async {
+        guard let client else {
+            auditLogFiles = []
+            return
+        }
+
+        isLoadingAuditLogFiles = true
+        defer { isLoadingAuditLogFiles = false }
+
+        do {
+            auditLogFiles = try client.auditLogFiles()
+        } catch {
+            auditLogFiles = []
+            lastError = error.localizedDescription
+        }
+    }
+
+    func deleteAllAuditLogFiles() async {
+        guard let client, !isDeletingAuditLogFiles else { return }
+
+        isDeletingAuditLogFiles = true
+        lastError = nil
+        auditLogUploadStatus = nil
+        defer { isDeletingAuditLogFiles = false }
+
+        do {
+            for file in auditLogFiles {
+                _ = try await client.deleteAuditLogFile(path: file.path)
+            }
+            await loadAuditLogFiles()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func uploadAuditLogFiles() async {
+        guard let client, !isUploadingAuditLogFiles else { return }
+        let config = telemetryBuildConfig
+        guard config.auditLogCredentialsAvailable else {
+            lastError = TelemetrySettingsActionError.auditLogNotConfigured.localizedDescription
+            return
+        }
+
+        isUploadingAuditLogFiles = true
+        lastError = nil
+        auditLogUploadStatus = nil
+        defer { isUploadingAuditLogFiles = false }
+
+        do {
+            try await configureObservabilityRuntime()
+            let result = try await client.postAuditLogTrackerUpdate()
+            auditLogUploadStatus = Self.auditLogUploadStatusMessage(result)
+            await loadAuditLogFiles()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private static func auditLogUploadStatusMessage(_ result: AuditLogTrackerUpdateResultFfi) -> String {
+        if let skippedReason = result.skippedReason, !skippedReason.isEmpty {
+            return String(format: L10n.string("Audit upload skipped: %@"), skippedReason)
+        }
+        guard !result.uploaded.isEmpty else {
+            return L10n.string("No audit logs uploaded.")
+        }
+        let totalBytes = result.uploaded.reduce(UInt64(0)) { $0 + $1.bytesSent }
+        return String(
+            format: L10n.string("Uploaded %d audit log files (%@)."),
+            result.uploaded.count,
+            ByteCountFormatter.string(fromByteCount: Int64(clamping: totalBytes), countStyle: .file)
+        )
     }
 
     private func startNotificationListener() {
