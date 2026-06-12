@@ -2089,79 +2089,55 @@ private struct AccountsSettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(spacing: 10) {
-                        ForEach(workspace.accounts) { account in
-                            AccountSettingsRow(
-                                account: account,
-                                isActive: account.id == workspace.activeAccountId
-                            ) {
-                                workspace.selectAccountFromSettings(account)
-                            }
+            SettingsNativeForm {
+                Section("Accounts") {
+                    ForEach(workspace.accounts) { account in
+                        AccountSettingsRow(
+                            account: account,
+                            isActive: account.id == workspace.activeAccountId
+                        ) {
+                            workspace.selectAccountFromSettings(account)
                         }
                     }
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Add Account")
-                            .font(.callout.weight(.semibold))
-
-                        SecureField("nsec", text: $workspace.loginIdentity)
-                            .textFieldStyle(.plain)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 9)
-                            .background {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                                    }
-                            }
-                            .disabled(workspace.isAuthenticating)
-
-                        HStack(spacing: 10) {
-                            Button {
-                                Task {
-                                    await workspace.login()
-                                    workspace.showSettingsPage(.accounts)
-                                }
-                            } label: {
-                                Label(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"), systemImage: "key")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
-
-                            Button {
-                                workspace.loginIdentity = ""
-                                Task {
-                                    await workspace.signUp()
-                                    workspace.showSettingsPage(.accounts)
-                                }
-                            } label: {
-                                Label(workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"), systemImage: "plus.circle")
-                            }
-                            .disabled(workspace.isAuthenticating)
-
-                            Spacer()
-                        }
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                            }
-                    }
-
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 620, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Section("Add Account") {
+                    SecureField("nsec", text: $workspace.loginIdentity)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(workspace.isAuthenticating)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task {
+                                await workspace.login()
+                                workspace.showSettingsPage(.accounts)
+                            }
+                        } label: {
+                            Label(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"), systemImage: "key")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
+
+                        Button {
+                            workspace.loginIdentity = ""
+                            Task {
+                                await workspace.signUp()
+                                workspace.showSettingsPage(.accounts)
+                            }
+                        } label: {
+                            Label(workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"), systemImage: "plus.circle")
+                        }
+                        .disabled(workspace.isAuthenticating)
+
+                        Spacer()
+                    }
+                }
+
+                if let error = workspace.lastError {
+                    Section("Status") {
+                        SettingsErrorView(error: error)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2203,22 +2179,13 @@ private struct AccountSettingsRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 if isActive {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
+                    Label("Active", systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
                 }
             }
-            .padding(12)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isActive ? Color.accentColor.opacity(0.12) : Color.clear)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                    }
-            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
