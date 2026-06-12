@@ -99,6 +99,17 @@ final class WorkspaceState {
     var groupImageResults: [GroupImageSearchResult] = []
     var isSearchingGroupImages = false
     var isSavingGroupImage = false
+    var isGroupDetailsPresented = false
+    var groupDetailsSnapshot: GroupDetailsSnapshot?
+    var groupProfileDraftName = ""
+    var groupProfileDraftDescription = ""
+    var groupInviteMemberQuery = ""
+    var isLoadingGroupDetails = false
+    var isSavingGroupProfile = false
+    var isInvitingGroupMember = false
+    var isArchivingGroup = false
+    var isLeavingGroup = false
+    var mutatingGroupMemberId: String?
     private(set) var storageRootPath = MarmotClient.defaultStorageRootPath()
     private(set) var timelinePagingByChat: [String: TimelinePagingState] = [:]
 
@@ -1025,9 +1036,151 @@ final class WorkspaceState {
         }
     }
 
+    func showGroupDetails(for chat: ChatItem) async {
+        guard !chat.isDirect else { return }
+        lastError = nil
+        groupDetailsSnapshot = nil
+        groupInviteMemberQuery = ""
+        isGroupDetailsPresented = true
+        await loadGroupDetails(groupIdHex: chat.id)
+    }
+
+    func closeGroupDetails() {
+        isGroupDetailsPresented = false
+        groupDetailsSnapshot = nil
+        groupProfileDraftName = ""
+        groupProfileDraftDescription = ""
+        groupInviteMemberQuery = ""
+        isLoadingGroupDetails = false
+        isSavingGroupProfile = false
+        isInvitingGroupMember = false
+        isArchivingGroup = false
+        isLeavingGroup = false
+        mutatingGroupMemberId = nil
+    }
+
+    func reloadSelectedGroupDetails() async {
+        guard let selectedChat, !selectedChat.isDirect else { return }
+        await loadGroupDetails(groupIdHex: selectedChat.id)
+    }
+
+    func saveGroupProfile() async {
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        let trimmedName = groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDescription = groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            lastError = L10n.string("Group name cannot be empty.")
+            return
+        }
+
+        lastError = nil
+        isSavingGroupProfile = true
+        defer { isSavingGroupProfile = false }
+
+        do {
+            _ = try await client.updateGroupProfile(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: snapshot.groupIdHex,
+                name: trimmedName,
+                description: trimmedDescription
+            )
+            await reloadChats()
+            await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func inviteMemberToSelectedGroup() async {
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        let query = groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard looksLikeMemberRef(query) else {
+            lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
+            return
+        }
+
+        lastError = nil
+        isInvitingGroupMember = true
+        defer { isInvitingGroupMember = false }
+
+        do {
+            let normalized = try client.normalizeMemberRef(memberRef: query)
+            let result = try await client.inviteMembersDetailed(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: snapshot.groupIdHex,
+                memberRefs: [normalized.npub]
+            )
+            groupInviteMemberQuery = ""
+            applyGroupMutationResult(result)
+            await reloadChats()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func promoteGroupMember(_ member: GroupMemberItem) async {
+        await mutateGroupMember(member, action: .promote)
+    }
+
+    func demoteGroupMember(_ member: GroupMemberItem) async {
+        await mutateGroupMember(member, action: .demote)
+    }
+
+    func removeGroupMember(_ member: GroupMemberItem) async {
+        await mutateGroupMember(member, action: .remove)
+    }
+
+    func setSelectedGroupArchived(_ archived: Bool) async {
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        lastError = nil
+        isArchivingGroup = true
+        defer { isArchivingGroup = false }
+
+        do {
+            _ = try client.setGroupArchived(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: snapshot.groupIdHex,
+                archived: archived
+            )
+            if archived {
+                closeGroupDetails()
+            }
+            await reloadChats()
+            if !archived {
+                await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func leaveSelectedGroup() async {
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard snapshot.canLeave, !snapshot.requiresSelfDemoteBeforeLeave else {
+            lastError = L10n.string("Demote yourself from admin before leaving this group.")
+            return
+        }
+
+        lastError = nil
+        isLeavingGroup = true
+        defer { isLeavingGroup = false }
+
+        do {
+            _ = try await client.leaveGroup(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: snapshot.groupIdHex
+            )
+            closeGroupDetails()
+            await reloadChats()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func showGroupImagePicker(for chat: ChatItem) {
         guard !chat.isDirect else { return }
         lastError = nil
+        closeGroupDetails()
         groupImageSearchQuery = chat.title
         groupImageResults = []
         isGroupImagePickerPresented = true
@@ -1085,6 +1238,130 @@ final class WorkspaceState {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    private func loadGroupDetails(groupIdHex: String) async {
+        guard let client, let activeAccount else { return }
+        guard selectedChat?.id == groupIdHex else { return }
+
+        isLoadingGroupDetails = true
+        defer { isLoadingGroupDetails = false }
+
+        do {
+            let details = try await client.groupDetails(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            let managementState = try await client.groupManagementState(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            guard selectedChat?.id == groupIdHex else { return }
+            applyGroupDetails(details, managementState: managementState)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        lastError = nil
+        mutatingGroupMemberId = member.id
+        defer { mutatingGroupMemberId = nil }
+
+        do {
+            let result: GroupMutationResultFfi
+            switch action {
+            case .promote:
+                result = try await client.promoteAdminDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: snapshot.groupIdHex,
+                    memberRef: member.npub
+                )
+            case .demote:
+                if member.isSelf {
+                    result = try await client.selfDemoteAdminDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: snapshot.groupIdHex
+                    )
+                } else {
+                    result = try await client.demoteAdminDetailed(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: snapshot.groupIdHex,
+                        memberRef: member.npub
+                    )
+                }
+            case .remove:
+                result = try await client.removeMembersDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: snapshot.groupIdHex,
+                    memberRefs: [member.npub]
+                )
+            }
+            applyGroupMutationResult(result)
+            await reloadChats()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func applyGroupMutationResult(_ result: GroupMutationResultFfi) {
+        applyGroupDetails(result.details, managementState: result.managementState)
+    }
+
+    private func applyGroupDetails(
+        _ details: GroupDetailsFfi,
+        managementState: GroupManagementStateFfi
+    ) {
+        let snapshot = groupDetailsSnapshot(from: details, managementState: managementState)
+        groupDetailsSnapshot = snapshot
+        groupProfileDraftName = snapshot.name
+        groupProfileDraftDescription = snapshot.description
+    }
+
+    private func groupDetailsSnapshot(
+        from details: GroupDetailsFfi,
+        managementState: GroupManagementStateFfi
+    ) -> GroupDetailsSnapshot {
+        let actionByMemberId = Dictionary(
+            uniqueKeysWithValues: managementState.memberActions.map { ($0.memberIdHex, $0) }
+        )
+        let members = details.members
+            .map { member in
+                let action = actionByMemberId[member.memberIdHex]
+                return GroupMemberItem(
+                    id: member.memberIdHex,
+                    displayName: firstNonBlank([member.displayName, member.account])
+                        ?? DisplayText.short(member.npub, head: 12, tail: 8),
+                    npub: member.npub,
+                    accountLabel: member.account,
+                    isLocal: member.local,
+                    isAdmin: member.isAdmin,
+                    isSelf: member.isSelf,
+                    canRemove: action?.canRemove ?? false,
+                    canPromote: action?.canPromote ?? false,
+                    canDemote: action?.canDemote ?? false
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.isSelf != rhs.isSelf { return lhs.isSelf }
+                if lhs.isAdmin != rhs.isAdmin { return lhs.isAdmin }
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+
+        return GroupDetailsSnapshot(
+            groupIdHex: details.group.groupIdHex,
+            name: firstNonBlank([details.group.name]) ?? L10n.string("Unnamed group"),
+            description: details.group.description,
+            avatarURL: firstNonBlank([details.group.avatarUrl]),
+            archived: details.group.archived,
+            members: members,
+            isSelfAdmin: managementState.isSelfAdmin,
+            isLastAdmin: managementState.isLastAdmin,
+            canInvite: managementState.canInvite,
+            canLeave: managementState.canLeave,
+            requiresSelfDemoteBeforeLeave: managementState.requiresSelfDemoteBeforeLeave
+        )
     }
 
     func sendDraft() async {
@@ -2226,6 +2503,12 @@ final class WorkspaceState {
         if case .settings = selection { return true }
         return false
     }
+}
+
+private enum GroupMemberMutationAction {
+    case promote
+    case demote
+    case remove
 }
 
 private struct ReadMarker: Equatable, Comparable {

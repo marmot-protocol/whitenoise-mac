@@ -993,6 +993,140 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupDetailsProfileSaveAndInviteUseBindings() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1newmember",
+            accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
+            npub: "npub1newmember"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.showGroupDetails(for: groupChat)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot?.name == "Test Group")
+        #expect(state.groupDetailsSnapshot?.members.count == 3)
+        #expect(state.groupDetailsSnapshot?.canInvite == true)
+
+        state.groupProfileDraftName = "Renamed Group"
+        state.groupProfileDraftDescription = "Planning room"
+        await state.saveGroupProfile()
+
+        #expect(runtime.updatedGroupProfile == UpdatedGroupProfile(
+            groupIdHex: "group",
+            name: "Renamed Group",
+            description: "Planning room"
+        ))
+        #expect(state.groupDetailsSnapshot?.name == "Renamed Group")
+        #expect(state.activeChats.first?.title == "Renamed Group")
+
+        state.groupInviteMemberQuery = "npub1newmember"
+        await state.inviteMemberToSelectedGroup()
+
+        #expect(runtime.invitedMemberRefs == ["npub1newmember"])
+        #expect(state.groupInviteMemberQuery.isEmpty)
+        #expect(state.groupDetailsSnapshot?.members.contains { $0.npub == "npub1newmember" } == true)
+    }
+
+    @MainActor
+    @Test func groupDetailsMemberAdminActionsUseDetailedMutations() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.showGroupDetails(for: groupChat)
+        guard let member = state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }) else {
+            Issue.record("Expected another member")
+            return
+        }
+
+        await state.promoteGroupMember(member)
+        #expect(runtime.promotedAdminRef == "npub1alice")
+        #expect(state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id })?.isAdmin == true)
+
+        guard let promotedMember = state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id }) else {
+            Issue.record("Expected promoted member")
+            return
+        }
+        await state.demoteGroupMember(promotedMember)
+        #expect(runtime.demotedAdminRef == "npub1alice")
+        #expect(state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id })?.isAdmin == false)
+
+        guard let demotedMember = state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id }) else {
+            Issue.record("Expected demoted member")
+            return
+        }
+        await state.removeGroupMember(demotedMember)
+        #expect(runtime.removedMemberRefs == ["npub1alice"])
+        #expect(state.groupDetailsSnapshot?.members.contains { $0.id == member.id } == false)
+    }
+
+    @MainActor
+    @Test func groupDetailsArchiveAndLeaveRefreshChatList() async throws {
+        let account = desktopAccount()
+        let archiveRuntime = FakeMarmotRuntime(accounts: [account])
+        archiveRuntime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let archiveState = WorkspaceState(clientFactory: { archiveRuntime })
+
+        await archiveState.bootstrap()
+        guard let archiveChat = archiveState.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await archiveState.showGroupDetails(for: archiveChat)
+        await archiveState.setSelectedGroupArchived(true)
+
+        #expect(archiveRuntime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: true))
+        #expect(!archiveState.isGroupDetailsPresented)
+        #expect(archiveState.activeChats.isEmpty)
+
+        let leaveRuntime = FakeMarmotRuntime(accounts: [account])
+        let leaveDetails = groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
+        leaveRuntime.installGroupDetails(
+            leaveDetails,
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: false,
+                isLastAdmin: false,
+                canInvite: false,
+                canLeave: true,
+                requiresSelfDemoteBeforeLeave: false,
+                memberActions: []
+            )
+        )
+        let leaveState = WorkspaceState(clientFactory: { leaveRuntime })
+
+        await leaveState.bootstrap()
+        guard let leaveChat = leaveState.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await leaveState.showGroupDetails(for: leaveChat)
+        await leaveState.leaveSelectedGroup()
+
+        #expect(leaveRuntime.leftGroupIdHex == "group")
+        #expect(!leaveState.isGroupDetailsPresented)
+        #expect(leaveState.activeChats.isEmpty)
+    }
+
+    @MainActor
     @Test func settingsSelectionUsesDetailPaneWithoutChangingAccount() async throws {
         let state = WorkspaceState.preview()
         let accountId = state.activeAccountId
@@ -1843,6 +1977,14 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var reactedMessage: SentReaction?
     private(set) var deletedMessage: DeletedMessage?
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
+    private(set) var updatedGroupProfile: UpdatedGroupProfile?
+    private(set) var archivedGroup: ArchivedGroup?
+    private(set) var leftGroupIdHex: String?
+    private(set) var invitedMemberRefs: [String] = []
+    private(set) var promotedAdminRef: String?
+    private(set) var demotedAdminRef: String?
+    private(set) var selfDemotedGroupIdHex: String?
+    private(set) var removedMemberRefs: [String] = []
     private(set) var lastPackageFetchBootstrapRelays: [String] = []
     private(set) var didPublishNewKeyPackage = false
     private(set) var didRepublishKeyPackage = false
@@ -1859,6 +2001,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
     private var groupDetailsById: [String: GroupDetailsFfi] = [:]
+    private var groupManagementStateById: [String: GroupManagementStateFfi] = [:]
     var notificationSettings = NotificationSettingsFfi(
         accountRef: "Desktop Account",
         accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -1936,7 +2079,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     ) {
         groups = [group]
         profilesByAccountId[otherAccountIdHex] = otherProfile
-        groupDetailsById[group.groupIdHex] = GroupDetailsFfi(
+        let details = GroupDetailsFfi(
             group: group,
             members: [
                 GroupMemberDetailsFfi(
@@ -1959,6 +2102,8 @@ private final class FakeMarmotRuntime: MarmotRuntime {
                 )
             ]
         )
+        groupDetailsById[group.groupIdHex] = details
+        groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
     }
 
     func installMessages(_ messages: [AppMessageRecordFfi], groupIdHex: String) {
@@ -1968,14 +2113,24 @@ private final class FakeMarmotRuntime: MarmotRuntime {
 
     func installGroup(_ group: AppGroupRecordFfi) {
         groups = [group]
-        groupDetailsById[group.groupIdHex] = GroupDetailsFfi(group: group, members: [])
+        let details = GroupDetailsFfi(group: group, members: [])
+        groupDetailsById[group.groupIdHex] = details
+        groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
     }
 
     func installGroups(_ groups: [AppGroupRecordFfi]) {
         self.groups = groups
         for group in groups {
-            groupDetailsById[group.groupIdHex] = GroupDetailsFfi(group: group, members: [])
+            let details = GroupDetailsFfi(group: group, members: [])
+            groupDetailsById[group.groupIdHex] = details
+            groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
         }
+    }
+
+    func installGroupDetails(_ details: GroupDetailsFfi, managementState: GroupManagementStateFfi? = nil) {
+        groups = [details.group]
+        groupDetailsById[details.group.groupIdHex] = details
+        groupManagementStateById[details.group.groupIdHex] = managementState ?? defaultGroupManagementState(for: details)
     }
 
     func installChatListUpdates(_ updates: [ChatListSubscriptionUpdateFfi]) {
@@ -2140,6 +2295,11 @@ private final class FakeMarmotRuntime: MarmotRuntime {
                 viaWelcomeMessageIdHex: nil
             )
         ]
+        if let group = groups.first {
+            let details = GroupDetailsFfi(group: group, members: [])
+            groupDetailsById[group.groupIdHex] = details
+            groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
+        }
         return "created-group"
     }
 
@@ -2151,6 +2311,108 @@ private final class FakeMarmotRuntime: MarmotRuntime {
             throw FakeMarmotRuntimeError.unused
         }
         return GroupDetailsFfi(group: group, members: [])
+    }
+
+    func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi {
+        if let state = groupManagementStateById[groupIdHex] {
+            return state
+        }
+        let details = try await groupDetails(accountRef: accountRef, groupIdHex: groupIdHex)
+        let state = defaultGroupManagementState(for: details)
+        groupManagementStateById[groupIdHex] = state
+        return state
+    }
+
+    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+        invitedMemberRefs = memberRefs
+        guard var details = groupDetailsById[groupIdHex] else {
+            throw FakeMarmotRuntimeError.unused
+        }
+
+        for memberRef in memberRefs {
+            let normalized = normalizedMembersByRef.values.first { member in
+                member.memberRef == memberRef || member.npub == memberRef || member.accountIdHex == memberRef
+            }
+            let memberIdHex = normalized?.accountIdHex ?? memberRef
+            guard !details.members.contains(where: { $0.memberIdHex == memberIdHex }) else { continue }
+            details.members.append(
+                GroupMemberDetailsFfi(
+                    memberIdHex: memberIdHex,
+                    account: nil,
+                    local: false,
+                    isAdmin: false,
+                    isSelf: false,
+                    npub: normalized?.npub ?? memberRef,
+                    displayName: nil
+                )
+            )
+        }
+        groupDetailsById[groupIdHex] = details
+        groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+        return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-invite")
+    }
+
+    func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+        leftGroupIdHex = groupIdHex
+        groups.removeAll { $0.groupIdHex == groupIdHex }
+        groupDetailsById[groupIdHex] = nil
+        groupManagementStateById[groupIdHex] = nil
+        return SendSummaryFfi(published: 1, messageIds: ["group-leave"])
+    }
+
+    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+        promotedAdminRef = memberRef
+        updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
+            member.isAdmin = true
+        }
+        return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-promote")
+    }
+
+    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+        demotedAdminRef = memberRef
+        updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
+            member.isAdmin = false
+        }
+        return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-demote")
+    }
+
+    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+        removedMemberRefs = memberRefs
+        guard var details = groupDetailsById[groupIdHex] else {
+            throw FakeMarmotRuntimeError.unused
+        }
+        details.members.removeAll { member in
+            memberRefs.contains { memberMatches(member, ref: $0) }
+        }
+        groupDetailsById[groupIdHex] = details
+        groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+        return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-remove")
+    }
+
+    func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+        selfDemotedGroupIdHex = groupIdHex
+        guard var details = groupDetailsById[groupIdHex] else {
+            throw FakeMarmotRuntimeError.unused
+        }
+        if let index = details.members.firstIndex(where: \.isSelf) {
+            details.members[index].isAdmin = false
+        }
+        groupDetailsById[groupIdHex] = details
+        groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+        return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-self-demote")
+    }
+
+    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) throws -> AppGroupRecordFfi {
+        archivedGroup = ArchivedGroup(groupIdHex: groupIdHex, archived: archived)
+        guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
+            throw FakeMarmotRuntimeError.unused
+        }
+        groups[index].archived = archived
+        if var details = groupDetailsById[groupIdHex] {
+            details.group.archived = archived
+            groupDetailsById[groupIdHex] = details
+        }
+        return groups[index]
     }
 
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi {
@@ -2170,6 +2432,31 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         }
 
         return SendSummaryFfi(published: 1, messageIds: ["group-avatar"])
+    }
+
+    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi {
+        updatedGroupProfile = UpdatedGroupProfile(groupIdHex: groupIdHex, name: name, description: description)
+
+        if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+            if let name {
+                groups[index].name = name
+            }
+            if let description {
+                groups[index].description = description
+            }
+        }
+
+        if var details = groupDetailsById[groupIdHex] {
+            if let name {
+                details.group.name = name
+            }
+            if let description {
+                details.group.description = description
+            }
+            groupDetailsById[groupIdHex] = details
+        }
+
+        return SendSummaryFfi(published: 1, messageIds: ["group-profile"])
     }
 
     func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
@@ -2203,6 +2490,62 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         groups
             .filter { includeArchived || !$0.archived }
             .map { chatListRow(for: $0) }
+    }
+
+    private func groupMutationResult(groupIdHex: String, messageId: String) throws -> GroupMutationResultFfi {
+        guard let details = groupDetailsById[groupIdHex] else {
+            throw FakeMarmotRuntimeError.unused
+        }
+        let managementState = groupManagementStateById[groupIdHex] ?? defaultGroupManagementState(for: details)
+        return GroupMutationResultFfi(
+            summary: SendSummaryFfi(published: 1, messageIds: [messageId]),
+            details: details,
+            managementState: managementState
+        )
+    }
+
+    private func updateMember(
+        groupIdHex: String,
+        matching memberRef: String,
+        update: (inout GroupMemberDetailsFfi) -> Void
+    ) {
+        guard var details = groupDetailsById[groupIdHex],
+              let index = details.members.firstIndex(where: { memberMatches($0, ref: memberRef) })
+        else { return }
+
+        update(&details.members[index])
+        groupDetailsById[groupIdHex] = details
+        groupManagementStateById[groupIdHex] = defaultGroupManagementState(for: details)
+    }
+
+    private func memberMatches(_ member: GroupMemberDetailsFfi, ref: String) -> Bool {
+        member.memberIdHex == ref || member.npub == ref || member.account == ref
+    }
+
+    private func defaultGroupManagementState(for details: GroupDetailsFfi) -> GroupManagementStateFfi {
+        let selfMember = details.members.first(where: \.isSelf)
+        let adminCount = details.members.filter(\.isAdmin).count
+        let selfIsAdmin = selfMember?.isAdmin ?? true
+        let memberActions = details.members.map { member in
+            GroupMemberActionStateFfi(
+                memberIdHex: member.memberIdHex,
+                isSelf: member.isSelf,
+                isAdmin: member.isAdmin,
+                canRemove: selfIsAdmin && !member.isSelf,
+                canPromote: selfIsAdmin && !member.isAdmin,
+                canDemote: selfIsAdmin && member.isAdmin && (!member.isSelf || adminCount > 1)
+            )
+        }
+
+        return GroupManagementStateFfi(
+            myAccountIdHex: selfMember?.memberIdHex ?? storedAccounts.first?.accountIdHex ?? "",
+            isSelfAdmin: selfIsAdmin,
+            isLastAdmin: selfIsAdmin && adminCount <= 1,
+            canInvite: selfIsAdmin,
+            canLeave: !selfIsAdmin || adminCount > 1,
+            requiresSelfDemoteBeforeLeave: selfIsAdmin,
+            memberActions: memberActions
+        )
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
@@ -2336,6 +2679,17 @@ private struct UpdatedGroupAvatar: Equatable {
     let url: String?
     let dim: String?
     let thumbhash: String?
+}
+
+private struct UpdatedGroupProfile: Equatable {
+    let groupIdHex: String
+    let name: String?
+    let description: String?
+}
+
+private struct ArchivedGroup: Equatable {
+    let groupIdHex: String
+    let archived: Bool
 }
 
 private final class FakeChatsSubscription: ChatsSubscription {
@@ -2820,6 +3174,56 @@ private func notificationUpdate(
         previewText: previewText,
         timestampMs: 1_700_000_000_000,
         isFromSelf: isFromSelf
+    )
+}
+
+private func desktopAccount() -> AccountSummaryFfi {
+    AccountSummaryFfi(
+        label: "Desktop Account",
+        accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        localSigning: true,
+        running: true
+    )
+}
+
+private func groupDetailsFixture(
+    selfAccountIdHex: String,
+    selfIsAdmin: Bool = true
+) -> GroupDetailsFfi {
+    var group = messageGroup()
+    group.description = "Original room"
+    group.admins = selfIsAdmin ? [selfAccountIdHex] : []
+    return GroupDetailsFfi(
+        group: group,
+        members: [
+            GroupMemberDetailsFfi(
+                memberIdHex: selfAccountIdHex,
+                account: "Desktop Account",
+                local: true,
+                isAdmin: selfIsAdmin,
+                isSelf: true,
+                npub: "npub1self",
+                displayName: "Desktop Account"
+            ),
+            GroupMemberDetailsFfi(
+                memberIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                account: nil,
+                local: false,
+                isAdmin: false,
+                isSelf: false,
+                npub: "npub1alice",
+                displayName: "Alice"
+            ),
+            GroupMemberDetailsFfi(
+                memberIdHex: "bob1234567890bob1234567890bob1234567890bob1234567890bob1",
+                account: nil,
+                local: false,
+                isAdmin: false,
+                isSelf: false,
+                npub: "npub1bob",
+                displayName: "Bob"
+            )
+        ]
     )
 }
 

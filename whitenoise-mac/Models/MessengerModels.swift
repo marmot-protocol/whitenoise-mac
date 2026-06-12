@@ -79,6 +79,51 @@ struct ChatPeerProfile: Hashable {
     let pictureURL: String?
 }
 
+struct GroupMemberItem: Identifiable, Hashable {
+    let id: String
+    let displayName: String
+    let npub: String
+    let accountLabel: String?
+    let isLocal: Bool
+    let isAdmin: Bool
+    let isSelf: Bool
+    let canRemove: Bool
+    let canPromote: Bool
+    let canDemote: Bool
+
+    var initials: String {
+        DisplayText.initials(for: displayName, fallback: id)
+    }
+
+    var detailLabel: String {
+        if isSelf {
+            return L10n.string("You")
+        }
+        if let accountLabel, !accountLabel.isEmpty {
+            return accountLabel
+        }
+        return DisplayText.short(npub, head: 12, tail: 8)
+    }
+}
+
+struct GroupDetailsSnapshot: Hashable {
+    let groupIdHex: String
+    let name: String
+    let description: String
+    let avatarURL: String?
+    let archived: Bool
+    let members: [GroupMemberItem]
+    let isSelfAdmin: Bool
+    let isLastAdmin: Bool
+    let canInvite: Bool
+    let canLeave: Bool
+    let requiresSelfDemoteBeforeLeave: Bool
+
+    var memberCountLabel: String {
+        String(format: L10n.string("%d members"), members.count)
+    }
+}
+
 struct MessageReaction: Identifiable, Hashable {
     let emoji: String
     let count: Int

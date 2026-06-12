@@ -36,7 +36,16 @@ protocol MarmotRuntime {
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws -> String
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi
+    func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi
+    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi
+    func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi
+    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi
+    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi
+    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi
+    func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
+    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) throws -> AppGroupRecordFfi
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi
+    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi
     func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi]
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription
     func subscribeChats(accountRef: String, includeArchived: Bool) async throws -> ChatsSubscription
@@ -225,6 +234,54 @@ final class MarmotClient: MarmotRuntime {
         try await marmot.groupDetails(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
+    func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi {
+        try await marmot.groupManagementState(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+        try await marmot.inviteMembersDetailed(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            memberRefs: memberRefs
+        )
+    }
+
+    func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+        try await marmot.leaveGroup(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+        try await marmot.promoteAdminDetailed(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            memberRef: memberRef
+        )
+    }
+
+    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+        try await marmot.demoteAdminDetailed(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            memberRef: memberRef
+        )
+    }
+
+    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+        try await marmot.removeMembersDetailed(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            memberRefs: memberRefs
+        )
+    }
+
+    func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+        try await marmot.selfDemoteAdminDetailed(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) throws -> AppGroupRecordFfi {
+        try marmot.setGroupArchived(accountRef: accountRef, groupIdHex: groupIdHex, archived: archived)
+    }
+
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi {
         try await marmot.updateGroupAvatarUrl(
             accountRef: accountRef,
@@ -232,6 +289,15 @@ final class MarmotClient: MarmotRuntime {
             url: url,
             dim: dim,
             thumbhash: thumbhash
+        )
+    }
+
+    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi {
+        try await marmot.updateGroupProfile(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            name: name,
+            description: description
         )
     }
 
