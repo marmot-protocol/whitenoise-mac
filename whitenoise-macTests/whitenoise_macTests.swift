@@ -848,6 +848,51 @@ struct whitenoise_macTests {
         #expect(copiedText == "public-key-value")
     }
 
+    @Test func conversationTranscriptExportEncodesTimelineEventFieldsInOrder() throws {
+        let firstId = String(repeating: "1", count: 64)
+        let secondId = String(repeating: "2", count: 64)
+        let records = [
+            timelineMessage(
+                id: secondId,
+                groupIdHex: "group",
+                sender: String(repeating: "a", count: 64),
+                plaintext: "final answer",
+                kind: 9,
+                tags: [MessageTagFfi(values: ["stream", "abcd"])],
+                recordedAt: 2,
+                agentTextStreamJson: #"{"status":"finalized"}"#
+            ),
+            timelineMessage(
+                id: firstId,
+                groupIdHex: "group",
+                sender: String(repeating: "b", count: 64),
+                plaintext: "started",
+                kind: 1311,
+                tags: [MessageTagFfi(values: ["stream", "abcd"])],
+                recordedAt: 1,
+                agentTextStreamJson: #"{"status":"started"}"#
+            )
+        ]
+
+        let document = ConversationTranscriptExport.makeDocument(
+            groupIdHex: "group",
+            groupName: "Hermes 2",
+            messages: records,
+            exportedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        #expect(document.eventCount == 2)
+        #expect(document.events.map(\.messageIdHex) == [firstId, secondId])
+        #expect(document.events[0].kind == 1311)
+        #expect(document.events[1].content == "final answer")
+        #expect(document.events[1].agentTextStreamJson == #"{"status":"finalized"}"#)
+
+        let data = try ConversationTranscriptExport.encodeJSON(document)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["group_name"] as? String == "Hermes 2")
+        #expect((json["events"] as? [[String: Any]])?.count == 2)
+    }
+
     @MainActor
     @Test func directChatUsesOtherMemberProfileForTitleAndAvatar() async throws {
         let account = AccountSummaryFfi(
@@ -1127,6 +1172,81 @@ struct whitenoise_macTests {
         #expect(leaveRuntime.leftGroupIdHex == "group")
         #expect(!leaveState.isGroupDetailsPresented)
         #expect(leaveState.activeChats.isEmpty)
+    }
+
+    @MainActor
+    @Test func groupDetailsSelfDemoteUsesDetailedMutation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(
+            selfAccountIdHex: account.accountIdHex,
+            otherIsAdmin: true
+        ))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.showGroupDetails(for: groupChat)
+        #expect(state.groupDetailsSnapshot?.isSelfAdmin == true)
+        #expect(state.groupDetailsSnapshot?.isLastAdmin == false)
+
+        await state.selfDemoteSelectedGroupAdmin()
+
+        #expect(runtime.selfDemotedGroupIdHex == "group")
+        #expect(state.groupDetailsSnapshot?.isSelfAdmin == false)
+        #expect(state.groupDetailsSnapshot?.members.first(where: \.isSelf)?.isAdmin == false)
+    }
+
+    @MainActor
+    @Test func groupDetailsTranscriptExportCopiesPagedTimelineJSON() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installMessages(
+            (0..<205).map { index in
+                appMessage(
+                    id: String(format: "%064x", index + 1),
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "message \(index)",
+                    kind: 9,
+                    recordedAt: UInt64(index + 1)
+                )
+            },
+            groupIdHex: "group"
+        )
+
+        var copiedText = ""
+        let state = WorkspaceState(
+            copyTextHandler: { copiedText = $0 },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.showGroupDetails(for: groupChat)
+        await state.copySelectedGroupTranscriptJSON()
+
+        let data = Data(copiedText.utf8)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let events = try #require(json["events"] as? [[String: Any]])
+        #expect(json["group_id_hex"] as? String == "group")
+        #expect(json["group_name"] as? String == "Test Group")
+        #expect(json["event_count"] as? Int == 205)
+        #expect(events.first?["content"] as? String == "message 0")
+        #expect(events.last?["content"] as? String == "message 204")
+        #expect(runtime.timelineMessageQueries.count >= 2)
+        #expect(runtime.timelineMessageQueries.first?.limit == ConversationTranscriptExport.pageLimit)
+        #expect(runtime.timelineMessageQueries.dropFirst().first?.before != nil)
+        #expect(state.groupTranscriptExportStatus == "Copied transcript JSON for 205 events.")
     }
 
     @MainActor
@@ -1415,7 +1535,6 @@ struct whitenoise_macTests {
         await state.loadSettingsData()
 
         #expect(state.notificationSettings.localNotificationsEnabled)
-        #expect(!state.notificationSettings.nativePushEnabled)
         #expect(state.notificationAuthorizationStatus == .authorized)
     }
 
@@ -3092,14 +3211,13 @@ private func waitFor(_ predicate: @MainActor () -> Bool) async -> Bool {
 
 private func notificationSettings(
     for account: AccountSummaryFfi,
-    localEnabled: Bool,
-    nativeEnabled: Bool = false
+    localEnabled: Bool
 ) -> NotificationSettingsFfi {
     NotificationSettingsFfi(
         accountRef: account.label,
         accountIdHex: account.accountIdHex,
         localNotificationsEnabled: localEnabled,
-        nativePushEnabled: nativeEnabled
+        nativePushEnabled: false
     )
 }
 
@@ -3191,11 +3309,16 @@ private func desktopAccount() -> AccountSummaryFfi {
 
 private func groupDetailsFixture(
     selfAccountIdHex: String,
-    selfIsAdmin: Bool = true
+    selfIsAdmin: Bool = true,
+    otherIsAdmin: Bool = false
 ) -> GroupDetailsFfi {
     var group = messageGroup()
     group.description = "Original room"
-    group.admins = selfIsAdmin ? [selfAccountIdHex] : []
+    let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+    group.admins = [
+        selfIsAdmin ? selfAccountIdHex : nil,
+        otherIsAdmin ? aliceIdHex : nil
+    ].compactMap(\.self)
     return GroupDetailsFfi(
         group: group,
         members: [
@@ -3209,10 +3332,10 @@ private func groupDetailsFixture(
                 displayName: "Desktop Account"
             ),
             GroupMemberDetailsFfi(
-                memberIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                memberIdHex: aliceIdHex,
                 account: nil,
                 local: false,
-                isAdmin: false,
+                isAdmin: otherIsAdmin,
                 isSelf: false,
                 npub: "npub1alice",
                 displayName: "Alice"
