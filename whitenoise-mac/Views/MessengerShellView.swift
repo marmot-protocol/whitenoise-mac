@@ -1081,6 +1081,23 @@ private struct GroupDetailsSheet: View {
                         }
                     }
 
+                    if workspace.developerMode {
+                        Section("Developer") {
+                            GroupDiagnosticsValueRow(title: "Group ID", value: snapshot.groupIdHex)
+                            GroupDiagnosticsValueRow(title: "Nostr group ID", value: snapshot.nostrGroupIdHex)
+                            GroupDiagnosticsValueRow(title: "Endpoint", value: snapshot.endpoint)
+                            GroupDiagnosticsValueRow(title: "Avatar URL", value: snapshot.avatarURL ?? "")
+                            GroupDiagnosticsValueRow(title: "Avatar dimension", value: snapshot.avatarDimension ?? "")
+                            GroupDiagnosticsValueRow(title: "Relays", value: snapshot.relays.joined(separator: "\n"), lineLimit: 4)
+                            GroupDiagnosticsValueRow(title: "Admins", value: snapshot.adminIds.joined(separator: "\n"), lineLimit: 4)
+                            GroupDiagnosticsValueRow(title: "Self admin", value: snapshot.isSelfAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(title: "Last admin", value: snapshot.isLastAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(title: "Can invite", value: snapshot.canInvite ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(title: "Can leave", value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(title: "Pending confirmation", value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                        }
+                    }
+
                     SettingsErrorView(error: workspace.lastError)
                 }
                 .formStyle(.grouped)
@@ -1121,6 +1138,46 @@ private struct GroupDetailsSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You will no longer receive messages from this group on this account.")
+        }
+    }
+}
+
+private struct GroupDiagnosticsValueRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let title: String
+    let value: String
+    var lineLimit = 2
+    var copyable = true
+
+    private var displayValue: String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? L10n.string("None") : trimmed
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+
+                Text(displayValue)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(lineLimit)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if copyable && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    workspace.copyText(value)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .frame(width: 24, height: 24)
+                }
+                .nativeGlassButtonStyle()
+                .help("\(L10n.string("Copy")) \(title)")
+            }
         }
     }
 }
