@@ -909,6 +909,16 @@ private struct ConversationHeader: View {
 
             if !chat.isDirect {
                 Button {
+                    Task { await workspace.showGroupDetails(for: chat) }
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .help("Group details")
+
+                Button {
                     workspace.showGroupImagePicker(for: chat)
                 } label: {
                     Image(systemName: "photo.badge.plus")
@@ -924,8 +934,286 @@ private struct ConversationHeader: View {
         .background {
             GlassToolbarBackground()
         }
+        .sheet(isPresented: $workspace.isGroupDetailsPresented) {
+            GroupDetailsSheet(chat: chat)
+        }
         .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
             GroupImagePickerSheet()
+        }
+    }
+}
+
+private struct GroupDetailsSheet: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var showArchiveConfirmation = false
+    @State private var showLeaveConfirmation = false
+    let chat: ChatItem
+
+    private var hasProfileChanges: Bool {
+        guard let snapshot = workspace.groupDetailsSnapshot else { return false }
+        return workspace.groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines) != snapshot.name
+            || workspace.groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines) != snapshot.description
+    }
+
+    var body: some View {
+        @Bindable var workspace = workspace
+
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                ProfileImageAvatarView(
+                    seed: chat.avatarSeed,
+                    initials: chat.title,
+                    pictureURL: workspace.groupDetailsSnapshot?.avatarURL ?? chat.pictureURL,
+                    size: 48,
+                    isSelected: false
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(workspace.groupDetailsSnapshot?.name ?? chat.title)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text(workspace.groupDetailsSnapshot?.memberCountLabel ?? "Group details")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if workspace.isLoadingGroupDetails {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Button {
+                    workspace.closeGroupDetails()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .nativeGlassButtonStyle()
+                .help("Close")
+            }
+            .padding(20)
+
+            GlassSeparator(axis: .horizontal)
+
+            if let snapshot = workspace.groupDetailsSnapshot {
+                Form {
+                    Section("Profile") {
+                        SettingsTextField(title: "Group name", text: $workspace.groupProfileDraftName)
+                        SettingsTextField(title: "Description", text: $workspace.groupProfileDraftDescription, lineLimit: 2...4)
+
+                        HStack(spacing: 10) {
+                            Button {
+                                workspace.closeGroupDetails()
+                                workspace.showGroupImagePicker(for: chat)
+                            } label: {
+                                Label("Search Web Image", systemImage: "photo.badge.plus")
+                            }
+                            .disabled(workspace.isSavingGroupImage)
+
+                            Spacer()
+
+                            Button {
+                                Task { await workspace.saveGroupProfile() }
+                            } label: {
+                                Label(workspace.isSavingGroupProfile ? L10n.string("Saving...") : L10n.string("Save"), systemImage: "checkmark.circle")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
+                        }
+                    }
+
+                    Section("Members") {
+                        if snapshot.members.isEmpty {
+                            ContentUnavailableView("No members", systemImage: "person.2.slash")
+                                .frame(minHeight: 120)
+                        } else {
+                            ForEach(snapshot.members) { member in
+                                GroupMemberRow(member: member)
+                            }
+                        }
+                    }
+
+                    if snapshot.canInvite {
+                        Section("Invite") {
+                            HStack(spacing: 10) {
+                                TextField("npub, profile link, or hex public key", text: $workspace.groupInviteMemberQuery)
+                                    .textFieldStyle(.roundedBorder)
+
+                                Button {
+                                    Task { await workspace.inviteMemberToSelectedGroup() }
+                                } label: {
+                                    Label(workspace.isInvitingGroupMember ? L10n.string("Inviting...") : L10n.string("Invite"), systemImage: "person.badge.plus")
+                                }
+                                .disabled(
+                                    workspace.isInvitingGroupMember
+                                        || workspace.groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                )
+                            }
+                        }
+                    }
+
+                    Section("Group Actions") {
+                        HStack(spacing: 10) {
+                            Button(role: .destructive) {
+                                showArchiveConfirmation = true
+                            } label: {
+                                Label(workspace.isArchivingGroup ? L10n.string("Archiving...") : L10n.string("Archive Group"), systemImage: "archivebox")
+                            }
+                            .disabled(workspace.isArchivingGroup || snapshot.archived)
+
+                            Button(role: .destructive) {
+                                showLeaveConfirmation = true
+                            } label: {
+                                Label(workspace.isLeavingGroup ? L10n.string("Leaving...") : L10n.string("Leave Group"), systemImage: "rectangle.portrait.and.arrow.right")
+                            }
+                            .disabled(workspace.isLeavingGroup || !snapshot.canLeave || snapshot.requiresSelfDemoteBeforeLeave)
+
+                            Spacer()
+                        }
+
+                        if snapshot.requiresSelfDemoteBeforeLeave {
+                            Text("Demote yourself from admin before leaving this group.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    SettingsErrorView(error: workspace.lastError)
+                }
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+            } else {
+                ContentUnavailableView("Group details unavailable", systemImage: "person.2")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .bottom) {
+                        SettingsErrorView(error: workspace.lastError)
+                            .padding()
+                    }
+            }
+        }
+        .frame(width: 620, height: 720)
+        .background {
+            LiquidGlassBackground()
+        }
+        .confirmationDialog(
+            "Archive this group?",
+            isPresented: $showArchiveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Archive Group", role: .destructive) {
+                Task { await workspace.setSelectedGroupArchived(true) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Archived groups are hidden from the active chat list.")
+        }
+        .confirmationDialog(
+            "Leave this group?",
+            isPresented: $showLeaveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Leave Group", role: .destructive) {
+                Task { await workspace.leaveSelectedGroup() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You will no longer receive messages from this group on this account.")
+        }
+    }
+}
+
+private struct GroupMemberRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var showRemoveConfirmation = false
+    let member: GroupMemberItem
+
+    private var isMutating: Bool {
+        workspace.mutatingGroupMemberId == member.id
+    }
+
+    private var hasActions: Bool {
+        member.canPromote || member.canDemote || member.canRemove
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AvatarView(seed: member.id, initials: member.initials, size: 34, isSelected: false)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(member.displayName)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+
+                    if member.isAdmin {
+                        Text("Admin")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+
+                    if member.isSelf {
+                        Text("You")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Text(member.detailLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if isMutating {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            if hasActions {
+                Menu {
+                    if member.canPromote {
+                        Button("Make Admin") {
+                            Task { await workspace.promoteGroupMember(member) }
+                        }
+                    }
+
+                    if member.canDemote {
+                        Button(member.isSelf ? "Demote Myself" : "Remove Admin") {
+                            Task { await workspace.demoteGroupMember(member) }
+                        }
+                    }
+
+                    if member.canRemove {
+                        Button("Remove Member", role: .destructive) {
+                            showRemoveConfirmation = true
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .frame(width: 28, height: 28)
+                }
+                .menuStyle(.borderlessButton)
+                .disabled(workspace.mutatingGroupMemberId != nil)
+            }
+        }
+        .confirmationDialog(
+            "Remove this member?",
+            isPresented: $showRemoveConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Member", role: .destructive) {
+                Task { await workspace.removeGroupMember(member) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes \(member.displayName) from the group.")
         }
     }
 }
