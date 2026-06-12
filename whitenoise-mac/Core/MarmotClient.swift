@@ -19,7 +19,7 @@ protocol MarmotRuntime {
     func auditLogSettings() throws -> AuditLogSettingsFfi
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi
     func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi
-    func setAuditLogSettings(settings: AuditLogSettingsFfi) throws -> AuditLogSettingsFfi
+    func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws
@@ -136,8 +136,8 @@ final class MarmotClient: MarmotRuntime {
         try marmot.relayTelemetrySettings()
     }
 
-    func setAuditLogSettings(settings: AuditLogSettingsFfi) throws -> AuditLogSettingsFfi {
-        try marmot.setAuditLogSettings(settings: settings)
+    func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi {
+        try await marmot.setAuditLogSettings(settings: settings)
     }
 
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi {

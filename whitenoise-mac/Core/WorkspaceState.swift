@@ -77,6 +77,11 @@ final class WorkspaceState {
     var replyDraftContext: MessageReplyContext?
     var isResolvingNewChat = false
     var isCreatingChat = false
+    var isGroupImagePickerPresented = false
+    var groupImageSearchQuery = ""
+    var groupImageResults: [GroupImageSearchResult] = []
+    var isSearchingGroupImages = false
+    var isSavingGroupImage = false
     private(set) var storageRootPath = MarmotClient.defaultStorageRootPath()
 
     private let clientFactory: @MainActor () throws -> any MarmotRuntime
@@ -84,6 +89,7 @@ final class WorkspaceState {
     private let appActivityProvider: @MainActor () -> Bool
     private let copyTextHandler: @MainActor (String) -> Void
     private let observabilityTokenProvider: @MainActor () -> String?
+    private let groupImageSearchClient: any GroupImageSearchClient
     private var client: (any MarmotRuntime)?
     private var notificationTask: Task<Void, Never>?
     private var chatListTask: Task<Void, Never>?
@@ -118,6 +124,7 @@ final class WorkspaceState {
         appActivityProvider: @escaping @MainActor () -> Bool = { NSApplication.shared.isActive },
         copyTextHandler: @escaping @MainActor (String) -> Void = WorkspaceState.copyToGeneralPasteboard,
         observabilityTokenProvider: @escaping @MainActor () -> String? = WorkspaceState.defaultObservabilityToken,
+        groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -127,6 +134,7 @@ final class WorkspaceState {
         self.appActivityProvider = appActivityProvider
         self.copyTextHandler = copyTextHandler
         self.observabilityTokenProvider = observabilityTokenProvider
+        self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearancePreferenceKey)
@@ -837,6 +845,7 @@ final class WorkspaceState {
     }
 
     func startReply(to message: MessageItem) {
+        guard message.supportsChatActions else { return }
         replyDraftContext = MessageReplyContext(
             targetMessageId: message.id,
             senderName: message.senderName,
@@ -857,6 +866,7 @@ final class WorkspaceState {
     }
 
     func react(to message: MessageItem, emoji: String) async {
+        guard message.supportsChatActions else { return }
         guard let client, let activeAccount, let selectedChat else { return }
         do {
             _ = try await client.reactToMessage(
@@ -871,6 +881,7 @@ final class WorkspaceState {
     }
 
     func deleteMessage(_ message: MessageItem) async {
+        guard message.supportsChatActions else { return }
         guard let client, let activeAccount, let selectedChat else { return }
         do {
             _ = try await client.deleteMessage(
@@ -881,6 +892,68 @@ final class WorkspaceState {
             if replyDraftContext?.targetMessageId == message.id {
                 replyDraftContext = nil
             }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func showGroupImagePicker(for chat: ChatItem) {
+        guard !chat.isDirect else { return }
+        lastError = nil
+        groupImageSearchQuery = chat.title
+        groupImageResults = []
+        isGroupImagePickerPresented = true
+    }
+
+    func closeGroupImagePicker() {
+        isGroupImagePickerPresented = false
+        groupImageResults = []
+        isSearchingGroupImages = false
+        isSavingGroupImage = false
+    }
+
+    func searchGroupImages() async {
+        let query = groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            groupImageResults = []
+            return
+        }
+
+        lastError = nil
+        isSearchingGroupImages = true
+        defer { isSearchingGroupImages = false }
+
+        do {
+            groupImageResults = try await groupImageSearchClient.searchImages(query: query)
+        } catch {
+            groupImageResults = []
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setGroupImage(_ result: GroupImageSearchResult) async {
+        await updateSelectedGroupImage(url: result.imageURL, dim: result.dimension)
+    }
+
+    func clearGroupImage() async {
+        await updateSelectedGroupImage(url: nil, dim: nil)
+    }
+
+    private func updateSelectedGroupImage(url: String?, dim: String?) async {
+        guard let client, let activeAccount, let selectedChat, !selectedChat.isDirect else { return }
+        isSavingGroupImage = true
+        defer { isSavingGroupImage = false }
+
+        do {
+            _ = try await client.updateGroupAvatarUrl(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: selectedChat.id,
+                url: url,
+                dim: dim,
+                thumbhash: nil
+            )
+            await reloadChats()
+            closeGroupImagePicker()
         } catch {
             lastError = error.localizedDescription
         }
@@ -1151,7 +1224,7 @@ final class WorkspaceState {
 
         do {
             try await configureObservabilityRuntime()
-            let stored = try client.setAuditLogSettings(settings: AuditLogSettingsFfi(enabled: enabled))
+            let stored = try await client.setAuditLogSettings(settings: AuditLogSettingsFfi(enabled: enabled))
             privacySecuritySettings.auditLogUploadsEnabled = stored.enabled
             privacySecuritySettings.hasObservabilityToken = observabilityToken != nil
         } catch {
@@ -1736,7 +1809,8 @@ final class WorkspaceState {
                 updatedAt: nil,
                 avatarSeed: avatarSeed,
                 pictureURL: pictureURL,
-                unreadCount: 0
+                unreadCount: 0,
+                isDirect: true
             ),
             at: 0
         )
@@ -2067,6 +2141,142 @@ private extension UNAuthorizationStatus {
             .ephemeral
         @unknown default:
             .denied
+        }
+    }
+}
+
+struct GroupImageSearchResult: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let imageURL: String
+    let thumbnailURL: String?
+    let creator: String?
+    let license: String?
+    let attribution: String?
+    let sourceURL: String?
+    let width: Int?
+    let height: Int?
+
+    var dimension: String? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return "\(width)x\(height)"
+    }
+
+    var creditLine: String {
+        let creatorText = creator?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let licenseText = license?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        switch (creatorText?.isEmpty == false ? creatorText : nil, licenseText?.isEmpty == false ? licenseText : nil) {
+        case let (creator?, license?):
+            return "\(creator) · \(license.uppercased())"
+        case let (creator?, nil):
+            return creator
+        case let (nil, license?):
+            return license.uppercased()
+        default:
+            return L10n.string("Openverse")
+        }
+    }
+}
+
+protocol GroupImageSearchClient {
+    func searchImages(query: String) async throws -> [GroupImageSearchResult]
+}
+
+struct OpenverseGroupImageSearchClient: GroupImageSearchClient, Sendable {
+    private let endpoint = URL(string: "https://api.openverse.org/v1/images/")!
+
+    func searchImages(query: String) async throws -> [GroupImageSearchResult] {
+        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "page_size", value: "24"),
+            URLQueryItem(name: "mature", value: "false")
+        ]
+
+        guard let url = components?.url else { throw GroupImageSearchError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.setValue("WhiteNoiseMac/1.0", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GroupImageSearchError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw GroupImageSearchError.requestFailed(statusCode: httpResponse.statusCode)
+        }
+
+        let decoded = try JSONDecoder().decode(OpenverseImageSearchResponse.self, from: data)
+        return decoded.results.compactMap(\.groupImageSearchResult)
+    }
+}
+
+private struct OpenverseImageSearchResponse: Decodable {
+    let results: [OpenverseImageRecord]
+}
+
+private struct OpenverseImageRecord: Decodable {
+    let id: String
+    let title: String?
+    let url: String?
+    let thumbnail: String?
+    let creator: String?
+    let license: String?
+    let attribution: String?
+    let foreignLandingURL: String?
+    let width: Int?
+    let height: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case url
+        case thumbnail
+        case creator
+        case license
+        case attribution
+        case foreignLandingURL = "foreign_landing_url"
+        case width
+        case height
+    }
+
+    var groupImageSearchResult: GroupImageSearchResult? {
+        guard let url = url?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !url.isEmpty,
+              let parsedURL = URL(string: url),
+              ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
+        else { return nil }
+
+        let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return GroupImageSearchResult(
+            id: id,
+            title: title?.isEmpty == false ? title! : L10n.string("Untitled image"),
+            imageURL: url,
+            thumbnailURL: thumbnail?.nilIfBlank,
+            creator: creator?.nilIfBlank,
+            license: license?.nilIfBlank,
+            attribution: attribution?.nilIfBlank,
+            sourceURL: foreignLandingURL?.nilIfBlank,
+            width: width,
+            height: height
+        )
+    }
+}
+
+private enum GroupImageSearchError: LocalizedError {
+    case invalidURL
+    case invalidResponse
+    case requestFailed(statusCode: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return L10n.string("Could not build the image search URL.")
+        case .invalidResponse:
+            return L10n.string("The image search service returned an invalid response.")
+        case .requestFailed(let statusCode):
+            return String(format: L10n.string("Image search failed with HTTP status %d."), statusCode)
         }
     }
 }

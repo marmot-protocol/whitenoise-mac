@@ -482,7 +482,7 @@ private struct ConversationView: View {
                             EmptyConversationView()
                         } else {
                             ForEach(messages) { message in
-                                MessageBubble(message: message)
+                                ConversationMessageRow(message: message)
                             }
                         }
 
@@ -831,9 +831,12 @@ private struct ProfileImageAvatarView: View {
 }
 
 private struct ConversationHeader: View {
+    @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
 
     var body: some View {
+        @Bindable var workspace = workspace
+
         HStack(spacing: 12) {
             ProfileImageAvatarView(
                 seed: chat.avatarSeed,
@@ -852,16 +855,300 @@ private struct ConversationHeader: View {
                     .lineLimit(1)
             }
             Spacer()
+
+            if !chat.isDirect {
+                Button {
+                    workspace.showGroupImagePicker(for: chat)
+                } label: {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.plain)
+                .help("Set group image")
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .background {
             GlassToolbarBackground()
         }
+        .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
+            GroupImagePickerSheet()
+        }
+    }
+}
+
+private struct GroupImagePickerSheet: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 132, maximum: 168), spacing: 12)
+    ]
+
+    var body: some View {
+        @Bindable var workspace = workspace
+
+        VStack(spacing: 0) {
+            if let chat = workspace.selectedChat {
+                HStack(spacing: 12) {
+                    ProfileImageAvatarView(
+                        seed: chat.avatarSeed,
+                        initials: chat.title,
+                        pictureURL: chat.pictureURL,
+                        size: 46,
+                        isSelected: false
+                    )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(chat.title)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text("Group image")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        workspace.closeGroupImagePicker()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close")
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 16)
+
+                Divider()
+
+                VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        TextField("Search Openverse", text: $workspace.groupImageSearchQuery)
+                            .textFieldStyle(.plain)
+                            .onSubmit {
+                                Task { await workspace.searchGroupImages() }
+                            }
+
+                        if workspace.isSearchingGroupImages {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+
+                        Button {
+                            Task { await workspace.searchGroupImages() }
+                        } label: {
+                            Image(systemName: "arrow.forward.circle.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isSearchingGroupImages)
+                        .help("Search")
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                            }
+                    }
+
+                    HStack {
+                        SettingsErrorView(error: workspace.lastError)
+                        Spacer()
+
+                        if chat.pictureURL != nil {
+                            Button {
+                                Task { await workspace.clearGroupImage() }
+                            } label: {
+                                Label("Clear", systemImage: "xmark.circle")
+                            }
+                            .controlSize(.small)
+                            .disabled(workspace.isSavingGroupImage)
+                        }
+                    }
+                    .frame(minHeight: 24)
+
+                    ScrollView {
+                        if workspace.groupImageResults.isEmpty {
+                            VStack(spacing: 10) {
+                                Image(systemName: "photo.on.rectangle.angled")
+                                    .font(.system(size: 28, weight: .light))
+                                    .foregroundStyle(.secondary)
+                                Text(workspace.isSearchingGroupImages ? "Searching" : "No images")
+                                    .font(.callout.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 300)
+                        } else {
+                            LazyVGrid(columns: columns, spacing: 12) {
+                                ForEach(workspace.groupImageResults) { result in
+                                    Button {
+                                        Task { await workspace.setGroupImage(result) }
+                                    } label: {
+                                        GroupImageResultTile(result: result)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(workspace.isSavingGroupImage)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+                .padding(18)
+            }
+        }
+        .frame(width: 620, height: 560)
+        .background {
+            Rectangle()
+                .fill(.regularMaterial)
+        }
+    }
+}
+
+private struct GroupImageResultTile: View {
+    let result: GroupImageSearchResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.07))
+
+                if let imageURL = result.previewURL {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .controlSize(.small)
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            Image(systemName: "photo")
+                                .font(.system(size: 24, weight: .light))
+                                .foregroundStyle(.secondary)
+                        @unknown default:
+                            EmptyView()
+                        }
+                    }
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 24, weight: .light))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .aspectRatio(1.18, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            Text(result.title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(result.creditLine)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(8)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct ConversationMessageRow: View {
+    let message: MessageItem
+
+    var body: some View {
+        if message.presentation.isChatBubble {
+            MessageBubble(message: message)
+        } else {
+            TimelineNoticeRow(message: message)
+        }
+    }
+}
+
+private struct TimelineNoticeRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let message: MessageItem
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 24)
+
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: message.presentation.systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+
+                Text(message.body)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(3)
+                    .multilineTextAlignment(.center)
+
+                Text(message.timeLabel)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(Color.primary.opacity(0.055))
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    }
+            }
+            .frame(maxWidth: 520)
+            .contextMenu {
+                Button {
+                    workspace.copyText(of: message)
+                } label: {
+                    Label("Copy Text", systemImage: "doc.on.doc")
+                }
+            }
+
+            Spacer(minLength: 24)
+        }
+    }
+}
+
+private extension GroupImageSearchResult {
+    var previewURL: URL? {
+        if let thumbnailURL, let url = URL(string: thumbnailURL) {
+            return url
+        }
+        return URL(string: imageURL)
     }
 }
 
 private struct MessageBubble: View {
+    @Environment(WorkspaceState.self) private var workspace
     @State private var isHovering = false
     let message: MessageItem
 
@@ -889,13 +1176,13 @@ private struct MessageBubble: View {
                 }
 
                 HStack(alignment: .center, spacing: 8) {
-                    if message.isOutgoing {
+                    if message.isOutgoing, message.supportsChatActions {
                         MessageInlineActions(message: message, isVisible: isHovering)
                     }
 
                     bubbleContent
 
-                    if !message.isOutgoing {
+                    if !message.isOutgoing, message.supportsChatActions {
                         MessageInlineActions(message: message, isVisible: isHovering)
                     }
                 }
@@ -933,7 +1220,15 @@ private struct MessageBubble: View {
         }
         .contentShape(Rectangle())
         .contextMenu {
-            MessageOverflowMenuItems(message: message)
+            if message.supportsChatActions {
+                MessageOverflowMenuItems(message: message)
+            } else {
+                Button {
+                    workspace.copyText(of: message)
+                } label: {
+                    Label("Copy Text", systemImage: "doc.on.doc")
+                }
+            }
         }
         .onHover { isHovering = $0 }
     }
