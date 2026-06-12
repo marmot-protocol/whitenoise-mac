@@ -1568,19 +1568,25 @@ private struct TimelineNoticeRow: View {
         HStack {
             Spacer(minLength: 24)
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: message.presentation.systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
+            VStack(spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: message.presentation.systemImage)
+                        .font(.system(size: 12, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
 
-                Text(message.body)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(3)
-                    .multilineTextAlignment(.center)
+                    Text(message.body)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(3)
+                        .multilineTextAlignment(.center)
 
-                Text(message.timeLabel)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    Text(message.timeLabel)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+
+                if workspace.streamingDebugEnabled {
+                    MessageDebugMetadataView(message: message, isOutgoing: false)
+                }
             }
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
@@ -1690,6 +1696,10 @@ private struct MessageBubble: View {
 
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if workspace.streamingDebugEnabled {
+                MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
+            }
+
             if let replyContext = message.replyContext {
                 MessageReplyContextView(context: replyContext, isOutgoing: message.isOutgoing)
             }
@@ -1741,6 +1751,23 @@ private struct MessageBubble: View {
                 }
                 .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
         }
+    }
+}
+
+private struct MessageDebugMetadataView: View {
+    let message: MessageItem
+    let isOutgoing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(message.debugTitle)
+                .font(.caption2.weight(.semibold).monospaced())
+            Text(message.debugDetail)
+                .font(.caption2.monospaced())
+                .lineLimit(1)
+        }
+        .foregroundStyle(isOutgoing ? Color.white.opacity(0.74) : Color.primary.opacity(0.52))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -2921,6 +2948,40 @@ private struct DeveloperModeSettingsView: View {
                         Toggle("", isOn: $workspace.developerMode)
                             .toggleStyle(.switch)
                             .labelsHidden()
+                    }
+                    .padding(12)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(.ultraThinMaterial)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                            }
+                    }
+
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background {
+                                Circle().fill(Color.accentColor)
+                            }
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Streaming debug")
+                                .font(.callout.weight(.semibold))
+                            Text(workspace.streamingDebugEnabled ? L10n.string("On") : L10n.string("Off"))
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Toggle("", isOn: $workspace.streamingDebugMode)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .disabled(!workspace.developerMode)
                     }
                     .padding(12)
                     .background {

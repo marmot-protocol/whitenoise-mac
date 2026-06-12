@@ -64,6 +64,14 @@ final class WorkspaceState {
             UserDefaults.standard.set(developerMode, forKey: Self.developerModeKey)
         }
     }
+    var streamingDebugMode: Bool {
+        didSet {
+            UserDefaults.standard.set(streamingDebugMode, forKey: Self.streamingDebugModeKey)
+        }
+    }
+    var streamingDebugEnabled: Bool {
+        developerMode && streamingDebugMode
+    }
     var appearancePreference: AppearancePreference {
         didSet {
             UserDefaults.standard.set(appearancePreference.rawValue, forKey: Self.appearancePreferenceKey)
@@ -135,6 +143,7 @@ final class WorkspaceState {
 
     private static let activeAccountKey = "whitenoise.mac.activeAccountId"
     private static let developerModeKey = "whitenoise.mac.developerMode"
+    private static let streamingDebugModeKey = "whitenoise.mac.streamingDebugMode"
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
     private static let deliveredNotificationKeyLimit = 256
     private static let timelinePageLimit: UInt32 = 100
@@ -162,6 +171,7 @@ final class WorkspaceState {
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
+        self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearancePreferenceKey)
         self.appearancePreference = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
         let storedLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)

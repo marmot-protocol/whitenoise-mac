@@ -176,6 +176,23 @@ enum MessagePresentation: Hashable {
             return "questionmark.bubble"
         }
     }
+
+    var debugLabel: String {
+        switch self {
+        case .chat:
+            return "chat"
+        case .agentStreamStart:
+            return "agent-stream-start"
+        case .agentActivity:
+            return "agent-activity"
+        case .agentOperation:
+            return "agent-operation"
+        case .groupSystem:
+            return "group-system"
+        case .unsupported:
+            return "unsupported"
+        }
+    }
 }
 
 struct MessageItem: Identifiable, Hashable {
@@ -236,6 +253,14 @@ struct MessageItem: Identifiable, Hashable {
             return L10n.string("Did not reach group")
         }
         return isOutgoing ? L10n.string("Sent") : nil
+    }
+
+    var debugTitle: String {
+        "kind \(timelineKind) - \(presentation.debugLabel)"
+    }
+
+    var debugDetail: String {
+        "\(DisplayText.short(id, head: 10, tail: 8)) - \(timelineAt)"
     }
 
     var supportsChatActions: Bool {
