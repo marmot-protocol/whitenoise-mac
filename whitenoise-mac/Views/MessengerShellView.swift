@@ -2224,59 +2224,6 @@ private struct AccountSettingsRow: View {
     }
 }
 
-private struct SettingsValueRow: View {
-    let title: LocalizedStringKey
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.callout.weight(.semibold))
-            Text(value)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-        }
-    }
-}
-
-private struct CopyableSettingsValueRow: View {
-    let title: String
-    let value: String
-    let copy: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.callout.weight(.semibold))
-                Text(value)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Button(action: copy) {
-                Label("Copy", systemImage: "doc.on.doc")
-            }
-            .controlSize(.small)
-            .nativeGlassButtonStyle()
-            .help("\(L10n.string("Copy")) \(title)")
-        }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                }
-        }
-    }
-}
-
 private struct SettingsErrorView: View {
     let error: String?
 
@@ -2303,9 +2250,9 @@ private struct ProfileSettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let account = workspace.activeAccount {
+            SettingsNativeForm {
+                if let account = workspace.activeAccount {
+                    Section("Preview") {
                         HStack(spacing: 12) {
                             ProfileImageAvatarView(
                                 seed: account.accountIdHex,
@@ -2325,16 +2272,20 @@ private struct ProfileSettingsView: View {
                                     .textSelection(.enabled)
                             }
                         }
-                        .padding(.bottom, 4)
                     }
+                }
 
-                    SettingsTextField(title: "Display name", text: $workspace.profileDraft.displayName)
-                    SettingsTextField(title: "Name", text: $workspace.profileDraft.name)
-                    SettingsTextField(title: "About", text: $workspace.profileDraft.about, lineLimit: 3...5)
-                    SettingsTextField(title: "Picture URL", text: $workspace.profileDraft.picture)
-                    SettingsTextField(title: "NIP-05", text: $workspace.profileDraft.nip05)
-                    SettingsTextField(title: "Lightning address", text: $workspace.profileDraft.lud16)
+                Section("Profile") {
+                    TextField("Display name", text: $workspace.profileDraft.displayName)
+                    TextField("Name", text: $workspace.profileDraft.name)
+                    TextField("About", text: $workspace.profileDraft.about, axis: .vertical)
+                        .lineLimit(3...5)
+                    TextField("Picture URL", text: $workspace.profileDraft.picture)
+                    TextField("NIP-05", text: $workspace.profileDraft.nip05)
+                    TextField("Lightning address", text: $workspace.profileDraft.lud16)
+                }
 
+                Section {
                     HStack {
                         Button {
                             Task { await workspace.saveProfile() }
@@ -2351,13 +2302,13 @@ private struct ProfileSettingsView: View {
 
                         Spacer()
                     }
-                    .padding(.top, 4)
-
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 620, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2384,9 +2335,9 @@ private struct IdentityKeysSettingsView: View {
             )
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if let account = workspace.activeAccount {
+            SettingsNativeForm {
+                if let account = workspace.activeAccount {
+                    Section("Account") {
                         HStack(spacing: 12) {
                             ProfileImageAvatarView(
                                 seed: account.accountIdHex,
@@ -2405,83 +2356,58 @@ private struct IdentityKeysSettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.bottom, 2)
+                    }
 
+                    Section("Public Identity") {
                         if let npub = account.npub?.trimmingCharacters(in: .whitespacesAndNewlines), !npub.isEmpty {
-                            CopyableSettingsValueRow(
-                                title: L10n.string("npub"),
-                                value: npub
-                            ) {
+                            CopyableLabeledValue(title: "npub", value: npub) {
                                 workspace.copyText(npub)
                             }
                         }
 
-                        CopyableSettingsValueRow(
-                            title: L10n.string("Public key"),
-                            value: account.accountIdHex
-                        ) {
+                        CopyableLabeledValue(title: "Public key", value: account.accountIdHex) {
                             workspace.copyText(account.accountIdHex)
                         }
+                    }
 
-                        HStack(alignment: .top, spacing: 12) {
-                            SettingsValueRow(
-                                title: "Private key",
-                                value: account.localSigning ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac")
-                            )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                            Button {
-                            } label: {
-                                Label("Copy Private Key", systemImage: "key")
-                            }
-                            .controlSize(.small)
-                            .disabled(true)
-                            .help("Private-key export is not exposed by MarmotKit in this build")
-                        }
-                        .padding(12)
-                        .background {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                                }
-                        }
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Account Removal")
-                                .font(.callout.weight(.semibold))
-                            Text("Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.")
-                                .font(.callout)
+                    Section("Private Key") {
+                        LabeledContent("Private key") {
+                            Text(account.localSigning ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac"))
                                 .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
+                        }
 
-                            Button(role: .destructive) {
-                                showRemoveAccountConfirmation = true
-                            } label: {
-                                Label(workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
-                            }
-                            .disabled(workspace.isRemovingAccount)
+                        Button {
+                        } label: {
+                            Label("Copy Private Key", systemImage: "key")
                         }
-                        .padding(12)
-                        .background {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                        .stroke(Color.red.opacity(0.22), lineWidth: 1)
-                                }
+                        .disabled(true)
+                        .help("Private-key export is not exposed by MarmotKit in this build")
+                    }
+
+                    Section("Account Removal") {
+                        Text("Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.")
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Button(role: .destructive) {
+                            showRemoveAccountConfirmation = true
+                        } label: {
+                            Label(workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
                         }
-                    } else {
+                        .disabled(workspace.isRemovingAccount)
+                    }
+                } else {
+                    Section {
                         ContentUnavailableView("No active account", systemImage: "person.crop.circle.badge.exclamationmark")
                             .frame(minHeight: 220)
                     }
-
-                    SettingsErrorView(error: workspace.lastError)
                 }
-                .padding(28)
-                .frame(width: 680, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if workspace.lastError != nil {
+                    Section {
+                        SettingsErrorView(error: workspace.lastError)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2504,6 +2430,30 @@ private struct IdentityKeysSettingsView: View {
             return String(format: L10n.string("Remove %@?"), account.displayName)
         }
         return L10n.string("Remove account?")
+    }
+}
+
+private struct CopyableLabeledValue: View {
+    let title: LocalizedStringKey
+    let value: String
+    let copy: () -> Void
+
+    var body: some View {
+        LabeledContent(title) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(value)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+
+                Button(action: copy) {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .help("\(L10n.string("Copy")) \(value)")
+            }
+        }
     }
 }
 
