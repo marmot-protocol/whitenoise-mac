@@ -130,6 +130,7 @@ extension MessageItem {
                 invalidationStatus: record.invalidationStatus
             ),
             sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
+            timelineAt: record.timelineAt,
             timelineKind: record.kind,
             isDeleted: record.deleted,
             invalidationStatus: record.invalidationStatus,
