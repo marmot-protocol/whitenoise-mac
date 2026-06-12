@@ -1301,6 +1301,42 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func streamingDebugRequiresDeveloperMode() async throws {
+        let defaults = UserDefaults.standard
+        let previousDeveloperMode = defaults.object(forKey: "whitenoise.mac.developerMode")
+        let previousStreamingDebugMode = defaults.object(forKey: "whitenoise.mac.streamingDebugMode")
+        defer {
+            restoreDefault(previousDeveloperMode, forKey: "whitenoise.mac.developerMode")
+            restoreDefault(previousStreamingDebugMode, forKey: "whitenoise.mac.streamingDebugMode")
+        }
+
+        let state = WorkspaceState.preview()
+        state.developerMode = false
+        state.streamingDebugMode = true
+        #expect(!state.streamingDebugEnabled)
+
+        state.developerMode = true
+        #expect(state.streamingDebugEnabled)
+    }
+
+    @MainActor
+    @Test func messageDebugMetadataSummarizesTimelineKindAndId() async throws {
+        let message = MessageItem(
+            id: "abcdef0123456789abcdef0123456789",
+            senderName: "Agent",
+            body: "Working",
+            sentAt: Date(timeIntervalSince1970: 1_800),
+            timelineAt: 1_234,
+            timelineKind: 12_345,
+            isOutgoing: false,
+            presentation: .agentOperation
+        )
+
+        #expect(message.debugTitle == "kind 12345 - agent-operation")
+        #expect(message.debugDetail.hasSuffix(" - 1234"))
+    }
+
+    @MainActor
     @Test func defaultRelaysUseWhiteNoiseEuAndUsOnly() async throws {
         let defaults = [
             "wss://relay.eu.whitenoise.chat",
@@ -3524,4 +3560,12 @@ private func encryptedMediaComponent() -> AppGroupEncryptedMediaComponentFfi {
 
 private func emptyMarkdownDocument() -> MarkdownDocumentFfi {
     MarkdownDocumentFfi(blocks: [])
+}
+
+private func restoreDefault(_ value: Any?, forKey key: String) {
+    if let value {
+        UserDefaults.standard.set(value, forKey: key)
+    } else {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
 }
