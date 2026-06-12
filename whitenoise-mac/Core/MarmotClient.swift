@@ -16,8 +16,11 @@ protocol MarmotRuntime {
     func publishUserProfile(accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]) async throws -> UserProfileMetadataFfi
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi]
+    func auditLogFiles() throws -> [AuditLogFileFfi]
     func auditLogSettings() throws -> AuditLogSettingsFfi
+    func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi
+    func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi
     func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi
@@ -25,6 +28,7 @@ protocol MarmotRuntime {
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws
     func setRelayTelemetrySettings(settings: RelayTelemetrySettingsFfi) async throws -> RelayTelemetrySettingsFfi
     func telemetryInstallId() throws -> String
+    func removeAccount(accountRef: String) async throws
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64
     func republishKeyPackage(accountRef: String) async throws -> UInt64
     func deleteAccountKeyPackage(accountRef: String, eventIdHex: String, relays: [String]) async throws -> UInt64
@@ -124,12 +128,24 @@ final class MarmotClient: MarmotRuntime {
         try await marmot.accountKeyPackages(accountRef: accountRef, bootstrapRelays: bootstrapRelays)
     }
 
+    func auditLogFiles() throws -> [AuditLogFileFfi] {
+        try marmot.auditLogFiles()
+    }
+
     func auditLogSettings() throws -> AuditLogSettingsFfi {
         try marmot.auditLogSettings()
     }
 
+    func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi {
+        try await marmot.deleteAuditLogFile(path: path)
+    }
+
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
         try marmot.notificationSettings(accountRef: accountRef)
+    }
+
+    func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi {
+        try await marmot.postAuditLogTrackerUpdate()
     }
 
     func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi {
@@ -158,6 +174,10 @@ final class MarmotClient: MarmotRuntime {
 
     func telemetryInstallId() throws -> String {
         try marmot.telemetryInstallId()
+    }
+
+    func removeAccount(accountRef: String) async throws {
+        try await marmot.removeAccount(accountRef: accountRef)
     }
 
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64 {

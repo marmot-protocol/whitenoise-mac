@@ -361,15 +361,24 @@ struct NotificationSettingsSnapshot: Equatable {
 struct PrivacySecuritySettingsSnapshot: Equatable {
     var relayTelemetryEnabled: Bool
     var relayTelemetryIntervalSeconds: UInt64
-    var auditLogUploadsEnabled: Bool
-    var hasObservabilityToken: Bool
+    var auditLoggingEnabled: Bool
+    var telemetryCredentialsAvailable: Bool
+    var auditLogCredentialsAvailable: Bool
 
     static let defaults = PrivacySecuritySettingsSnapshot(
         relayTelemetryEnabled: false,
         relayTelemetryIntervalSeconds: 60,
-        auditLogUploadsEnabled: false,
-        hasObservabilityToken: false
+        auditLoggingEnabled: false,
+        telemetryCredentialsAvailable: false,
+        auditLogCredentialsAvailable: false
     )
+}
+
+struct DiagnosticsInfoItem: Identifiable, Equatable {
+    let title: String
+    let value: String
+
+    var id: String { title }
 }
 
 enum RelaySettingsSection: String, CaseIterable, Identifiable {

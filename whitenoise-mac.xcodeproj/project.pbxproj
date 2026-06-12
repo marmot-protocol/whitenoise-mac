@@ -420,6 +420,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DARKMATTER_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_DARKMATTER_MAC)";
+				DARKMATTER_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_DARKMATTER_MAC)";
+				DARKMATTER_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
+				DARKMATTER_TELEMETRY_ENVIRONMENT = development;
 				DEVELOPMENT_TEAM = V8U75D7Q49;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = YES;
@@ -428,10 +432,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXTRACT_APP_INTENTS_METADATA = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "White Noise";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -463,6 +465,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DARKMATTER_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_DARKMATTER_MAC)";
+				DARKMATTER_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_DARKMATTER_MAC)";
+				DARKMATTER_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
+				DARKMATTER_TELEMETRY_ENVIRONMENT = production;
 				DEVELOPMENT_TEAM = V8U75D7Q49;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = YES;
@@ -471,10 +477,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				EXTRACT_APP_INTENTS_METADATA = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "White Noise";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
