@@ -465,11 +465,14 @@ private struct DetailPaneView: View {
 
 private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var pendingPrependAnchorId: String?
     let chat: ChatItem
+    private let bottomTranscriptPadding: CGFloat = 34
 
     var body: some View {
         @Bindable var workspace = workspace
         let messages = workspace.selectedMessages
+        let paging = workspace.selectedTimelinePaging
 
         VStack(spacing: 0) {
             ConversationHeader(chat: chat)
@@ -481,23 +484,54 @@ private struct ConversationView: View {
                         if messages.isEmpty {
                             EmptyConversationView()
                         } else {
+                            if paging.hasMoreBefore {
+                                TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
+                                    .onAppear {
+                                        guard pendingPrependAnchorId == nil else { return }
+                                        let anchorId = messages.first?.id
+                                        pendingPrependAnchorId = anchorId
+                                        Task {
+                                            await workspace.loadOlderMessages(groupIdHex: chat.id)
+                                            if pendingPrependAnchorId == anchorId,
+                                               workspace.selectedMessages.first?.id == anchorId {
+                                                pendingPrependAnchorId = nil
+                                            }
+                                        }
+                                    }
+                            }
+
                             ForEach(messages) { message in
                                 ConversationMessageRow(message: message)
+                                    .equatable()
                             }
                         }
 
                         Color.clear
-                            .frame(height: 1)
+                            .frame(height: bottomTranscriptPadding)
                             .id(bottomAnchorId)
                     }
                     .padding(.horizontal, 24)
-                    .padding(.vertical, 22)
+                    .padding(.top, 22)
+                    .padding(.bottom, 8)
                 }
                 .id(chat.id)
                 .defaultScrollAnchor(.bottom)
                 .onChange(of: messages.last?.id) { previousMessageId, _ in
-                    guard previousMessageId != nil, !messages.isEmpty else { return }
+                    guard previousMessageId != nil,
+                          !messages.isEmpty,
+                          !paging.hasMoreBefore,
+                          pendingPrependAnchorId == nil
+                    else { return }
                     scrollToBottom(with: proxy)
+                }
+                .onChange(of: messages.first?.id) { _, _ in
+                    guard let anchorId = pendingPrependAnchorId,
+                          messages.contains(where: { $0.id == anchorId })
+                    else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(anchorId, anchor: .top)
+                        pendingPrependAnchorId = nil
+                    }
                 }
             }
 
@@ -559,6 +593,22 @@ private struct ConversationView: View {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
         }
+    }
+}
+
+private struct TimelinePageLoadingRow: View {
+    let isLoading: Bool
+
+    var body: some View {
+        HStack {
+            Spacer()
+            ProgressView()
+                .controlSize(.small)
+                .opacity(isLoading ? 1 : 0.55)
+            Spacer()
+        }
+        .frame(height: 28)
+        .padding(.vertical, 2)
     }
 }
 
@@ -1079,8 +1129,12 @@ private struct GroupImageResultTile: View {
     }
 }
 
-private struct ConversationMessageRow: View {
+private struct ConversationMessageRow: View, Equatable {
     let message: MessageItem
+
+    static func == (lhs: ConversationMessageRow, rhs: ConversationMessageRow) -> Bool {
+        lhs.message == rhs.message
+    }
 
     var body: some View {
         if message.presentation.isChatBubble {
@@ -1150,22 +1204,12 @@ private extension GroupImageSearchResult {
 private struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var isHovering = false
+    @State private var isInlineActionPresentationActive = false
     let message: MessageItem
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.isOutgoing { Spacer(minLength: 72) }
-
-            if !message.isOutgoing {
-                ProfileImageAvatarView(
-                    seed: message.senderAccountIdHex,
-                    initials: message.senderName,
-                    pictureURL: message.senderPictureURL,
-                    size: 28,
-                    isSelected: false
-                )
-                    .padding(.bottom, 20)
-            }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
                 if !message.isOutgoing {
@@ -1176,15 +1220,7 @@ private struct MessageBubble: View {
                 }
 
                 HStack(alignment: .center, spacing: 8) {
-                    if message.isOutgoing, message.supportsChatActions {
-                        MessageInlineActions(message: message, isVisible: isHovering)
-                    }
-
                     bubbleContent
-
-                    if !message.isOutgoing, message.supportsChatActions {
-                        MessageInlineActions(message: message, isVisible: isHovering)
-                    }
                 }
 
                 Text(message.statusLabel.map { "\(message.timeLabel)  \($0)" } ?? message.timeLabel)
@@ -1233,6 +1269,10 @@ private struct MessageBubble: View {
         .onHover { isHovering = $0 }
     }
 
+    private var showsInlineActions: Bool {
+        message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let replyContext = message.replyContext {
@@ -1250,6 +1290,17 @@ private struct MessageBubble: View {
             bubbleBackground
         }
         .frame(maxWidth: 560, alignment: message.isOutgoing ? .trailing : .leading)
+        .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
+            if showsInlineActions {
+                MessageInlineActions(
+                    isPresentationActive: $isInlineActionPresentationActive,
+                    message: message
+                )
+                .offset(x: message.isOutgoing ? -100 : 100)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+        }
+        .animation(.smooth(duration: 0.12), value: showsInlineActions)
     }
 
     @ViewBuilder
@@ -1282,12 +1333,8 @@ private struct MessageInlineActions: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var isEmojiPickerPresented = false
     @State private var isOverflowPresented = false
+    @Binding var isPresentationActive: Bool
     let message: MessageItem
-    let isVisible: Bool
-
-    private var isActive: Bool {
-        isVisible || isEmojiPickerPresented || isOverflowPresented
-    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1327,9 +1374,19 @@ private struct MessageInlineActions: View {
             .help("More")
         }
         .frame(width: 92, height: 32)
-        .opacity(isActive ? 1 : 0)
-        .allowsHitTesting(isActive)
-        .animation(.smooth(duration: 0.12), value: isActive)
+        .onChange(of: isEmojiPickerPresented) { _, _ in
+            syncPresentationState()
+        }
+        .onChange(of: isOverflowPresented) { _, _ in
+            syncPresentationState()
+        }
+        .onDisappear {
+            isPresentationActive = false
+        }
+    }
+
+    private func syncPresentationState() {
+        isPresentationActive = isEmojiPickerPresented || isOverflowPresented
     }
 }
 

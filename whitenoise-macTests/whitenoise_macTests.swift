@@ -602,6 +602,64 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func loadingOlderMessagesUsesTimelineCursorAndMergesPage() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.count == 100)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-005")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+
+        let loadedIds = state.messagesByChat["direct-group"]?.map(\.id) ?? []
+        #expect(loadedIds.count == 105)
+        #expect(loadedIds.first == "message-000")
+        #expect(loadedIds.last == "message-104")
+        #expect(!state.selectedTimelinePaging.hasMoreBefore)
+        #expect(runtime.timelineMessageQueries.last?.before == baseTime + 5)
+        #expect(runtime.timelineMessageQueries.last?.beforeMessageId == "message-005")
+        #expect(runtime.timelineSubscriptionCount == 1)
+    }
+
+    @MainActor
     @Test func messageActionsDoNotRestartLiveSubscriptions() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -1624,6 +1682,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var chatListCallCount = 0
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
+    private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
@@ -1950,15 +2009,16 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
+        timelineMessageQueries.append(query)
         if let groupIdHex = query.groupIdHex {
-            return timelinePagesByGroupId[groupIdHex] ?? emptyTimelinePage()
+            return pagedTimeline(from: timelinePagesByGroupId[groupIdHex]?.messages ?? [], query: query)
         }
 
         let messages = timelinePagesByGroupId.values.flatMap(\.messages).sorted { lhs, rhs in
             if lhs.timelineAt != rhs.timelineAt { return lhs.timelineAt < rhs.timelineAt }
             return lhs.messageIdHex < rhs.messageIdHex
         }
-        return TimelinePageFfi(messages: messages, hasMoreBefore: false, hasMoreAfter: false)
+        return pagedTimeline(from: messages, query: query)
     }
 
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription {
@@ -2317,6 +2377,50 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
     }
 
     return TimelinePageFfi(messages: timelineMessages, hasMoreBefore: false, hasMoreAfter: false)
+}
+
+private func pagedTimeline(
+    from messages: [TimelineMessageRecordFfi],
+    query: TimelineMessageQueryFfi
+) -> TimelinePageFfi {
+    let sortedMessages = messages.sorted { lhs, rhs in
+        if lhs.timelineAt != rhs.timelineAt { return lhs.timelineAt < rhs.timelineAt }
+        return lhs.messageIdHex < rhs.messageIdHex
+    }
+    let limit = Int(query.limit ?? 50)
+
+    if let before = query.before, let beforeMessageId = query.beforeMessageId {
+        let olderMessages = sortedMessages.filter { message in
+            message.timelineAt < before
+                || (message.timelineAt == before && message.messageIdHex < beforeMessageId)
+        }
+        let pageMessages = Array(olderMessages.suffix(limit))
+        return TimelinePageFfi(
+            messages: pageMessages,
+            hasMoreBefore: olderMessages.count > pageMessages.count,
+            hasMoreAfter: true
+        )
+    }
+
+    if let after = query.after, let afterMessageId = query.afterMessageId {
+        let newerMessages = sortedMessages.filter { message in
+            message.timelineAt > after
+                || (message.timelineAt == after && message.messageIdHex > afterMessageId)
+        }
+        let pageMessages = Array(newerMessages.prefix(limit))
+        return TimelinePageFfi(
+            messages: pageMessages,
+            hasMoreBefore: true,
+            hasMoreAfter: newerMessages.count > pageMessages.count
+        )
+    }
+
+    let pageMessages = Array(sortedMessages.suffix(limit))
+    return TimelinePageFfi(
+        messages: pageMessages,
+        hasMoreBefore: sortedMessages.count > pageMessages.count,
+        hasMoreAfter: false
+    )
 }
 
 private func timelineMessage(

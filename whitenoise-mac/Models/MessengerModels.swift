@@ -134,6 +134,7 @@ struct MessageItem: Identifiable, Hashable {
     let senderPictureURL: String?
     let body: String
     let sentAt: Date
+    let timelineAt: UInt64
     let timelineKind: UInt64
     let isDeleted: Bool
     let invalidationStatus: String?
@@ -149,6 +150,7 @@ struct MessageItem: Identifiable, Hashable {
         senderPictureURL: String? = nil,
         body: String,
         sentAt: Date,
+        timelineAt: UInt64? = nil,
         timelineKind: UInt64 = 9,
         isDeleted: Bool = false,
         invalidationStatus: String? = nil,
@@ -163,6 +165,7 @@ struct MessageItem: Identifiable, Hashable {
         self.senderPictureURL = senderPictureURL
         self.body = body
         self.sentAt = sentAt
+        self.timelineAt = timelineAt ?? UInt64(sentAt.timeIntervalSince1970)
         self.timelineKind = timelineKind
         self.isDeleted = isDeleted
         self.invalidationStatus = invalidationStatus
