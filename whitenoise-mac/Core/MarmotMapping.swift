@@ -59,7 +59,8 @@ extension ChatItem {
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
             pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
-            unreadCount: Int(row.unreadCount)
+            unreadCount: Int(row.unreadCount),
+            isDirect: directPeer != nil
         )
     }
 
@@ -68,9 +69,17 @@ extension ChatItem {
             return L10n.string("Message deleted")
         }
 
-        let text = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
+        let presentation = MessageItem.presentation(for: preview.kind)
+        let text = MessageItem.displayText(
+            kind: preview.kind,
+            plaintext: preview.plaintext,
+            tags: [],
+            deleted: preview.deleted,
+            invalidationStatus: nil
+        )
         guard !text.isEmpty else { return L10n.string("Unsupported message") }
-        guard preview.sender != activeAccountIdHex,
+        guard presentation.isChatBubble,
+              preview.sender != activeAccountIdHex,
               let senderName = preview.senderDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !senderName.isEmpty
         else {
@@ -103,13 +112,20 @@ extension MessageItem {
         replyContext: MessageReplyContext?
     ) {
         let senderProfile = senderProfiles[record.sender]
+        let presentation = MessageItem.presentation(for: record.kind)
         self.init(
             id: record.messageIdHex,
             senderAccountIdHex: record.sender,
-            senderName: MessageItem.displayName(for: record.sender, profile: senderProfile),
+            senderName: MessageItem.senderName(
+                for: record.sender,
+                profile: senderProfile,
+                presentation: presentation
+            ),
             senderPictureURL: senderProfile?.pictureURL,
-            body: MessageItem.bodyText(
+            body: MessageItem.displayText(
+                kind: record.kind,
                 plaintext: record.plaintext,
+                tags: record.tags,
                 deleted: record.deleted,
                 invalidationStatus: record.invalidationStatus
             ),
@@ -117,9 +133,10 @@ extension MessageItem {
             timelineKind: record.kind,
             isDeleted: record.deleted,
             invalidationStatus: record.invalidationStatus,
-            isOutgoing: record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound",
-            reactions: reactions,
-            replyContext: replyContext
+            isOutgoing: presentation.isChatBubble && (record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound"),
+            reactions: presentation.isChatBubble ? reactions : [],
+            replyContext: presentation.isChatBubble ? replyContext : nil,
+            presentation: presentation
         )
     }
 
@@ -144,7 +161,30 @@ extension MessageItem {
             .sorted { $0.sentAt < $1.sentAt }
     }
 
-    private static func bodyText(plaintext: String, deleted: Bool, invalidationStatus: String? = nil) -> String {
+    fileprivate static func presentation(for kind: UInt64) -> MessagePresentation {
+        switch kind {
+        case MarmotTimelineKind.chat:
+            return .chat
+        case MarmotTimelineKind.agentStreamStart:
+            return .agentStreamStart
+        case MarmotTimelineKind.agentActivity:
+            return .agentActivity
+        case MarmotTimelineKind.agentOperation:
+            return .agentOperation
+        case MarmotTimelineKind.groupSystem:
+            return .groupSystem
+        default:
+            return .unsupported
+        }
+    }
+
+    fileprivate static func displayText(
+        kind: UInt64,
+        plaintext: String,
+        tags: [MessageTagFfi],
+        deleted: Bool,
+        invalidationStatus: String? = nil
+    ) -> String {
         if invalidationStatus != nil {
             return L10n.string("Message did not reach the group")
         }
@@ -154,7 +194,48 @@ extension MessageItem {
         }
 
         let body = plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
-        return body.isEmpty ? L10n.string("Unsupported message") : body
+        let payload = TimelinePayload.decode(from: body)
+
+        switch presentation(for: kind) {
+        case .chat:
+            return body.isEmpty ? L10n.string("Unsupported message") : body
+        case .agentStreamStart:
+            if tagValue("route", in: tags) == "quic" {
+                return L10n.string("Agent started a live response")
+            }
+            return L10n.string("Agent started a response")
+        case .agentActivity:
+            return firstNonBlank([
+                payload?.text,
+                payload?.status.map { "\(L10n.string("Agent activity")): \(humanized($0))" },
+                payload == nil ? body : nil
+            ]) ?? L10n.string("Agent activity")
+        case .agentOperation:
+            if let text = firstNonBlank([payload?.text, payload?.preview]) {
+                return text
+            }
+            if let name = payload?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+               let status = payload?.status?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+                return "\(name) \(humanized(status))"
+            }
+            if let eventType = payload?.eventType?.trimmingCharacters(in: .whitespacesAndNewlines), !eventType.isEmpty {
+                return "\(L10n.string("Agent operation")): \(humanized(eventType))"
+            }
+            if payload == nil, !body.isEmpty {
+                return body
+            }
+            return L10n.string("Agent operation")
+        case .groupSystem:
+            if let text = firstNonBlank([payload?.text]) {
+                return text
+            }
+            if payload == nil, !body.isEmpty {
+                return body
+            }
+            return groupSystemFallback(payload?.systemType ?? tagValue("system", in: tags))
+        case .unsupported:
+            return body.isEmpty ? L10n.string("Unsupported message") : body
+        }
     }
 
     private static func replyContext(
@@ -165,8 +246,28 @@ extension MessageItem {
         return MessageReplyContext(
             targetMessageId: preview.messageIdHex,
             senderName: MessageItem.displayName(for: preview.sender, profile: senderProfiles[preview.sender]),
-            body: bodyText(plaintext: preview.plaintext, deleted: preview.deleted)
+            body: displayText(
+                kind: preview.kind,
+                plaintext: preview.plaintext,
+                tags: [],
+                deleted: preview.deleted
+            )
         )
+    }
+
+    private static func senderName(
+        for sender: String,
+        profile: ChatPeerProfile?,
+        presentation: MessagePresentation
+    ) -> String {
+        switch presentation {
+        case .agentStreamStart, .agentActivity, .agentOperation:
+            return L10n.string("Agent")
+        case .groupSystem:
+            return L10n.string("System")
+        case .chat, .unsupported:
+            return displayName(for: sender, profile: profile)
+        }
     }
 
     private static func displayName(for sender: String, profile: ChatPeerProfile?) -> String {
@@ -175,6 +276,74 @@ extension MessageItem {
             if !trimmed.isEmpty { return trimmed }
         }
         return DisplayText.short(sender)
+    }
+
+    private static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {
+        tags.first { $0.values.first == name }?.values.dropFirst().first
+    }
+
+    private static func firstNonBlank(_ values: [String?]) -> String? {
+        values
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
+    private static func humanized(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+    }
+
+    private static func groupSystemFallback(_ systemType: String?) -> String {
+        switch systemType {
+        case "member_added":
+            return L10n.string("Member added")
+        case "member_removed":
+            return L10n.string("Member removed")
+        case "member_left":
+            return L10n.string("Member left")
+        case "admin_added":
+            return L10n.string("Admin added")
+        case "admin_removed":
+            return L10n.string("Admin removed")
+        case "group_renamed":
+            return L10n.string("Group renamed")
+        case "group_avatar_changed":
+            return L10n.string("Group avatar changed")
+        default:
+            return L10n.string("Group updated")
+        }
+    }
+}
+
+private enum MarmotTimelineKind {
+    static let chat: UInt64 = 9
+    static let agentStreamStart: UInt64 = 1200
+    static let agentActivity: UInt64 = 1201
+    static let agentOperation: UInt64 = 1202
+    static let groupSystem: UInt64 = 1210
+}
+
+private struct TimelinePayload: Decodable {
+    let text: String?
+    let status: String?
+    let eventType: String?
+    let name: String?
+    let preview: String?
+    let systemType: String?
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case status
+        case eventType = "event_type"
+        case name
+        case preview
+        case systemType = "system_type"
+    }
+
+    static func decode(from text: String) -> TimelinePayload? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(TimelinePayload.self, from: data)
     }
 }
 

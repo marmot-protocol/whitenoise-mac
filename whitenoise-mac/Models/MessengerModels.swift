@@ -43,6 +43,29 @@ struct ChatItem: Identifiable, Hashable {
     let avatarSeed: String
     let pictureURL: String?
     let unreadCount: Int
+    let isDirect: Bool
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String,
+        preview: String,
+        updatedAt: Date?,
+        avatarSeed: String,
+        pictureURL: String?,
+        unreadCount: Int,
+        isDirect: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.preview = preview
+        self.updatedAt = updatedAt
+        self.avatarSeed = avatarSeed
+        self.pictureURL = pictureURL
+        self.unreadCount = unreadCount
+        self.isDirect = isDirect
+    }
 
     var timestampLabel: String {
         guard let updatedAt else { return "" }
@@ -74,6 +97,36 @@ struct MessageReplyContext: Hashable {
     let body: String
 }
 
+enum MessagePresentation: Hashable {
+    case chat
+    case agentStreamStart
+    case agentActivity
+    case agentOperation
+    case groupSystem
+    case unsupported
+
+    var isChatBubble: Bool {
+        self == .chat
+    }
+
+    var systemImage: String {
+        switch self {
+        case .chat:
+            return "text.bubble"
+        case .agentStreamStart:
+            return "sparkles"
+        case .agentActivity:
+            return "waveform.path"
+        case .agentOperation:
+            return "hammer"
+        case .groupSystem:
+            return "person.2"
+        case .unsupported:
+            return "questionmark.bubble"
+        }
+    }
+}
+
 struct MessageItem: Identifiable, Hashable {
     let id: String
     let senderAccountIdHex: String
@@ -87,6 +140,7 @@ struct MessageItem: Identifiable, Hashable {
     let isOutgoing: Bool
     let reactions: [MessageReaction]
     let replyContext: MessageReplyContext?
+    let presentation: MessagePresentation
 
     init(
         id: String,
@@ -100,7 +154,8 @@ struct MessageItem: Identifiable, Hashable {
         invalidationStatus: String? = nil,
         isOutgoing: Bool,
         reactions: [MessageReaction] = [],
-        replyContext: MessageReplyContext? = nil
+        replyContext: MessageReplyContext? = nil,
+        presentation: MessagePresentation = .chat
     ) {
         self.id = id
         self.senderAccountIdHex = senderAccountIdHex ?? senderName
@@ -114,6 +169,7 @@ struct MessageItem: Identifiable, Hashable {
         self.isOutgoing = isOutgoing
         self.reactions = reactions
         self.replyContext = replyContext
+        self.presentation = presentation
     }
 
     var timeLabel: String {
@@ -121,10 +177,15 @@ struct MessageItem: Identifiable, Hashable {
     }
 
     var statusLabel: String? {
+        guard presentation.isChatBubble else { return nil }
         if invalidationStatus != nil {
             return L10n.string("Did not reach group")
         }
         return isOutgoing ? L10n.string("Sent") : nil
+    }
+
+    var supportsChatActions: Bool {
+        presentation.isChatBubble && !isDeleted && invalidationStatus == nil
     }
 }
 
@@ -523,7 +584,8 @@ extension ChatItem {
             updatedAt: Date().addingTimeInterval(-7_600),
             avatarSeed: "chat-nvk",
             pictureURL: nil,
-            unreadCount: 0
+            unreadCount: 0,
+            isDirect: true
         ),
         ChatItem(
             id: "chat-relays",

@@ -78,12 +78,14 @@ struct whitenoise_macTests {
             pendingConfirmation: false,
             title: "Alice",
             groupName: "",
+            avatarUrl: nil,
             avatar: nil,
             lastMessage: ChatListMessagePreviewFfi(
                 messageIdHex: "message-1",
                 sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
                 senderDisplayName: "Alice",
                 plaintext: "A prior message",
+                contentTokens: emptyMarkdownDocument(),
                 kind: 9,
                 timelineAt: lastMessageAt,
                 deleted: false
@@ -121,6 +123,88 @@ struct whitenoise_macTests {
         #expect(!outgoing.timeLabel.isEmpty)
         #expect(outgoing.statusLabel == "Sent")
         #expect(incoming.statusLabel == nil)
+    }
+
+    @MainActor
+    @Test func timelineMappingClassifiesAgentAndGroupSystemRows() async throws {
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "stream-start",
+                    groupIdHex: "group",
+                    sender: "agent",
+                    plaintext: "",
+                    kind: 1200,
+                    tags: [
+                        MessageTagFfi(values: ["stream", "abc"]),
+                        MessageTagFfi(values: ["route", "quic"])
+                    ],
+                    recordedAt: 1_700_000_000
+                ),
+                timelineMessage(
+                    id: "activity",
+                    groupIdHex: "group",
+                    sender: "agent",
+                    plaintext: #"{"v":1,"status":"thinking","text":"Thinking"}"#,
+                    kind: 1201,
+                    recordedAt: 1_700_000_001
+                ),
+                timelineMessage(
+                    id: "operation",
+                    groupIdHex: "group",
+                    sender: "agent",
+                    plaintext: #"{"v":1,"event_type":"tool_call","status":"started","name":"search","preview":"glp-1"}"#,
+                    kind: 1202,
+                    recordedAt: 1_700_000_002
+                ),
+                timelineMessage(
+                    id: "system",
+                    groupIdHex: "group",
+                    sender: "",
+                    plaintext: #"{"v":1,"system_type":"group_renamed","text":"Group renamed"}"#,
+                    kind: 1210,
+                    recordedAt: 1_700_000_003
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: "self"
+        )
+
+        #expect(messages.map(\.presentation) == [
+            .agentStreamStart,
+            .agentActivity,
+            .agentOperation,
+            .groupSystem
+        ])
+        #expect(messages.map(\.body) == [
+            "Agent started a live response",
+            "Thinking",
+            "glp-1",
+            "Group renamed"
+        ])
+        #expect(messages.allSatisfy { !$0.supportsChatActions })
+        #expect(messages.allSatisfy { $0.statusLabel == nil })
+    }
+
+    @MainActor
+    @Test func chatListPreviewUsesSystemMessageText() async throws {
+        let row = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: #"{"v":1,"system_type":"member_added","text":"Member added"}"#,
+            sender: "",
+            timelineAt: 1_700_000_000,
+            kind: 1210
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        #expect(chat.preview == "Member added")
     }
 
     @MainActor
@@ -696,6 +780,10 @@ struct whitenoise_macTests {
             admins: [],
             relays: ["wss://relay.example"],
             nostrGroupIdHex: "",
+            avatarUrl: nil,
+            avatarDim: nil,
+            avatarThumbhash: nil,
+            encryptedMedia: encryptedMediaComponent(),
             archived: false,
             pendingConfirmation: false,
             welcomerAccountIdHex: nil,
@@ -723,7 +811,100 @@ struct whitenoise_macTests {
         #expect(state.activeChats.first?.subtitle == "Direct message")
         #expect(state.activeChats.first?.avatarSeed == "alice1234567890alice1234567890alice1234567890alice1234567890")
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
+        #expect(state.activeChats.first?.isDirect == true)
         #expect(runtime.refreshedProfileIds == ["alice1234567890alice1234567890alice1234567890alice1234567890"])
+    }
+
+    @MainActor
+    @Test func groupImageSearchSelectionUpdatesGroupAvatarUrl() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let imageSearchClient = FakeGroupImageSearchClient(results: [
+            GroupImageSearchResult(
+                id: "image-1",
+                title: "Aurora",
+                imageURL: "https://example.com/aurora.jpg",
+                thumbnailURL: "https://example.com/aurora-thumb.jpg",
+                creator: "Open Photographer",
+                license: "by",
+                attribution: nil,
+                sourceURL: "https://example.com/aurora",
+                width: 1024,
+                height: 680
+            )
+        ])
+        let state = WorkspaceState(
+            groupImageSearchClient: imageSearchClient,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        state.showGroupImagePicker(for: groupChat)
+        await state.searchGroupImages()
+        guard let result = state.groupImageResults.first else {
+            Issue.record("Expected an image result")
+            return
+        }
+        await state.setGroupImage(result)
+
+        let imageSearchQueries = await imageSearchClient.queries
+        #expect(imageSearchQueries == ["Test Group"])
+        #expect(runtime.updatedGroupAvatar == UpdatedGroupAvatar(
+            groupIdHex: "group",
+            url: "https://example.com/aurora.jpg",
+            dim: "1024x680",
+            thumbhash: nil
+        ))
+        #expect(!state.isGroupImagePickerPresented)
+        #expect(state.activeChats.first?.pictureURL == "https://example.com/aurora.jpg")
+    }
+
+    @MainActor
+    @Test func directChatDoesNotOpenGroupImagePicker() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let directChat = state.activeChats.first else {
+            Issue.record("Expected a direct chat")
+            return
+        }
+
+        state.showGroupImagePicker(for: directChat)
+
+        #expect(directChat.isDirect)
+        #expect(!state.isGroupImagePickerPresented)
     }
 
     @MainActor
@@ -1358,6 +1539,20 @@ struct whitenoise_macTests {
 
 }
 
+private actor FakeGroupImageSearchClient: GroupImageSearchClient {
+    private let results: [GroupImageSearchResult]
+    private(set) var queries: [String] = []
+
+    init(results: [GroupImageSearchResult]) {
+        self.results = results
+    }
+
+    func searchImages(query: String) async throws -> [GroupImageSearchResult] {
+        queries.append(query)
+        return results
+    }
+}
+
 @MainActor
 private final class FakeMarmotRuntime: MarmotRuntime {
     private var storedAccounts: [AccountSummaryFfi]
@@ -1417,6 +1612,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var repliedMessage: SentReply?
     private(set) var reactedMessage: SentReaction?
     private(set) var deletedMessage: DeletedMessage?
+    private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
     private(set) var lastPackageFetchBootstrapRelays: [String] = []
     private(set) var didPublishNewKeyPackage = false
     private(set) var didRepublishKeyPackage = false
@@ -1477,7 +1673,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         if let member = normalizedMembersByRef[memberRef] {
             return member
         }
-        MemberRefFfi(
+        return MemberRefFfi(
             memberRef: memberRef,
             accountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
             npub: "npub1alice"
@@ -1601,7 +1797,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         storedRelayTelemetrySettings
     }
 
-    func setAuditLogSettings(settings: AuditLogSettingsFfi) throws -> AuditLogSettingsFfi {
+    func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi {
         storedAuditLogSettings = settings
         return storedAuditLogSettings
     }
@@ -1674,6 +1870,10 @@ private final class FakeMarmotRuntime: MarmotRuntime {
                 admins: [],
                 relays: MarmotClient.seedRelays,
                 nostrGroupIdHex: "",
+                avatarUrl: nil,
+                avatarDim: nil,
+                avatarThumbhash: nil,
+                encryptedMedia: encryptedMediaComponent(),
                 archived: false,
                 pendingConfirmation: false,
                 welcomerAccountIdHex: nil,
@@ -1691,6 +1891,25 @@ private final class FakeMarmotRuntime: MarmotRuntime {
             throw FakeMarmotRuntimeError.unused
         }
         return GroupDetailsFfi(group: group, members: [])
+    }
+
+    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi {
+        updatedGroupAvatar = UpdatedGroupAvatar(groupIdHex: groupIdHex, url: url, dim: dim, thumbhash: thumbhash)
+
+        if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+            groups[index].avatarUrl = url
+            groups[index].avatarDim = dim
+            groups[index].avatarThumbhash = thumbhash
+        }
+
+        if var details = groupDetailsById[groupIdHex] {
+            details.group.avatarUrl = url
+            details.group.avatarDim = dim
+            details.group.avatarThumbhash = thumbhash
+            groupDetailsById[groupIdHex] = details
+        }
+
+        return SendSummaryFfi(published: 1, messageIds: ["group-avatar"])
     }
 
     func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
@@ -1805,6 +2024,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
             pendingConfirmation: group.pendingConfirmation,
             title: group.name.isEmpty ? DisplayText.short(group.groupIdHex) : group.name,
             groupName: group.name,
+            avatarUrl: nil,
             avatar: nil,
             lastMessage: latest.map { message in
                 ChatListMessagePreviewFfi(
@@ -1812,6 +2032,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
                     sender: message.sender,
                     senderDisplayName: displayName(accountIdHex: message.sender),
                     plaintext: message.plaintext,
+                    contentTokens: message.contentTokens,
                     kind: message.kind,
                     timelineAt: message.timelineAt,
                     deleted: message.deleted
@@ -1847,6 +2068,13 @@ private struct SentReaction: Equatable {
 private struct DeletedMessage: Equatable {
     let groupIdHex: String
     let targetMessageId: String
+}
+
+private struct UpdatedGroupAvatar: Equatable {
+    let groupIdHex: String
+    let url: String?
+    let dim: String?
+    let thumbhash: String?
 }
 
 private final class FakeChatsSubscription: ChatsSubscription {
@@ -2006,6 +2234,7 @@ private func appMessage(
         groupIdHex: groupIdHex,
         sender: sender,
         plaintext: plaintext,
+        contentTokens: emptyMarkdownDocument(),
         kind: kind,
         tags: tags,
         recordedAt: recordedAt,
@@ -2054,6 +2283,7 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
             groupIdHex: message.groupIdHex,
             sender: message.sender,
             plaintext: message.plaintext,
+            contentTokens: message.contentTokens,
             kind: message.kind,
             tags: message.tags,
             timelineAt: message.recordedAt,
@@ -2065,6 +2295,7 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
                         messageIdHex: reply.messageIdHex,
                         sender: reply.sender,
                         plaintext: reply.plaintext,
+                        contentTokens: reply.contentTokens,
                         kind: reply.kind,
                         mediaJson: nil,
                         agentTextStreamJson: nil,
@@ -2076,7 +2307,8 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
             agentTextStreamJson: nil,
             reactions: projectedReactionSummary(reactionsByTarget[message.messageIdHex] ?? []),
             deleted: false,
-            deletedByMessageIdHex: nil
+            deletedByMessageIdHex: nil,
+            invalidationStatus: nil
         )
     }
     .sorted { lhs, rhs in
@@ -2107,6 +2339,7 @@ private func timelineMessage(
         groupIdHex: groupIdHex,
         sender: sender,
         plaintext: plaintext,
+        contentTokens: emptyMarkdownDocument(),
         kind: kind,
         tags: tags,
         timelineAt: recordedAt,
@@ -2117,7 +2350,8 @@ private func timelineMessage(
         agentTextStreamJson: agentTextStreamJson,
         reactions: reactions,
         deleted: false,
-        deletedByMessageIdHex: nil
+        deletedByMessageIdHex: nil,
+        invalidationStatus: nil
     )
 }
 
@@ -2126,7 +2360,8 @@ private func chatListRow(
     title: String,
     preview: String,
     sender: String,
-    timelineAt: UInt64
+    timelineAt: UInt64,
+    kind: UInt64 = 9
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
@@ -2134,13 +2369,15 @@ private func chatListRow(
         pendingConfirmation: false,
         title: title,
         groupName: "",
+        avatarUrl: nil,
         avatar: nil,
         lastMessage: ChatListMessagePreviewFfi(
             messageIdHex: "preview",
             sender: sender,
             senderDisplayName: nil,
             plaintext: preview,
-            kind: 9,
+            contentTokens: emptyMarkdownDocument(),
+            kind: kind,
             timelineAt: timelineAt,
             deleted: false
         ),
@@ -2271,6 +2508,10 @@ private func directGroup() -> AppGroupRecordFfi {
         admins: [],
         relays: ["wss://relay.example"],
         nostrGroupIdHex: "",
+        avatarUrl: nil,
+        avatarDim: nil,
+        avatarThumbhash: nil,
+        encryptedMedia: encryptedMediaComponent(),
         archived: false,
         pendingConfirmation: false,
         welcomerAccountIdHex: nil,
@@ -2287,9 +2528,28 @@ private func messageGroup() -> AppGroupRecordFfi {
         admins: [],
         relays: MarmotClient.seedRelays,
         nostrGroupIdHex: "",
+        avatarUrl: nil,
+        avatarDim: nil,
+        avatarThumbhash: nil,
+        encryptedMedia: encryptedMediaComponent(),
         archived: false,
         pendingConfirmation: false,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )
+}
+
+private func encryptedMediaComponent() -> AppGroupEncryptedMediaComponentFfi {
+    AppGroupEncryptedMediaComponentFfi(
+        componentId: 0,
+        component: "",
+        required: false,
+        mediaFormat: "",
+        allowedLocatorKinds: [],
+        defaultBlobEndpoints: []
+    )
+}
+
+private func emptyMarkdownDocument() -> MarkdownDocumentFfi {
+    MarkdownDocumentFfi(blocks: [])
 }

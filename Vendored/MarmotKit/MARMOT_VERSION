@@ -1,6 +1,6 @@
-darkmatter-sha: 59db003
-darkmatter-branch: HEAD
-built-at: 2026-06-09T08:28:40Z
+darkmatter-sha: f1b393e
+darkmatter-branch: master
+built-at: 2026-06-12T09:06:13Z
 uniffi-version: 0.28.3
 macos-targets: aarch64-apple-darwin
 
