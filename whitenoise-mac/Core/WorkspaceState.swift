@@ -1351,10 +1351,16 @@ final class WorkspaceState {
 
         return GroupDetailsSnapshot(
             groupIdHex: details.group.groupIdHex,
+            endpoint: details.group.endpoint,
             name: firstNonBlank([details.group.name]) ?? L10n.string("Unnamed group"),
             description: details.group.description,
             avatarURL: firstNonBlank([details.group.avatarUrl]),
+            avatarDimension: firstNonBlank([details.group.avatarDim]),
+            nostrGroupIdHex: details.group.nostrGroupIdHex,
+            relays: details.group.relays,
+            adminIds: details.group.admins,
             archived: details.group.archived,
+            pendingConfirmation: details.group.pendingConfirmation,
             members: members,
             isSelfAdmin: managementState.isSelfAdmin,
             isLastAdmin: managementState.isLastAdmin,

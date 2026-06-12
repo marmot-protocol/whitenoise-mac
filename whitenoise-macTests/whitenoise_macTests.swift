@@ -1015,6 +1015,9 @@ struct whitenoise_macTests {
         #expect(state.groupDetailsSnapshot?.name == "Test Group")
         #expect(state.groupDetailsSnapshot?.members.count == 3)
         #expect(state.groupDetailsSnapshot?.canInvite == true)
+        #expect(state.groupDetailsSnapshot?.relays == MarmotClient.seedRelays)
+        #expect(state.groupDetailsSnapshot?.adminIds == [account.accountIdHex])
+        #expect(state.groupDetailsSnapshot?.pendingConfirmation == false)
 
         state.groupProfileDraftName = "Renamed Group"
         state.groupProfileDraftDescription = "Planning room"

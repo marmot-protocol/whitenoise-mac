@@ -108,10 +108,16 @@ struct GroupMemberItem: Identifiable, Hashable {
 
 struct GroupDetailsSnapshot: Hashable {
     let groupIdHex: String
+    let endpoint: String
     let name: String
     let description: String
     let avatarURL: String?
+    let avatarDimension: String?
+    let nostrGroupIdHex: String
+    let relays: [String]
+    let adminIds: [String]
     let archived: Bool
+    let pendingConfirmation: Bool
     let members: [GroupMemberItem]
     let isSelfAdmin: Bool
     let isLastAdmin: Bool
