@@ -1310,6 +1310,8 @@ struct whitenoise_macTests {
         #expect(MarmotClient.seedRelays == defaults)
         #expect(RelaySettingsSnapshot.defaults.nip65 == defaults)
         #expect(RelaySettingsSnapshot.defaults.inbox == defaults)
+        #expect(RelaySettingsSnapshot.defaults.defaultRelays == defaults)
+        #expect(RelaySettingsSnapshot.defaults.bootstrapRelays == defaults)
         #expect(RelaySettingsSection.allCases == [.nip65, .inbox])
     }
 
@@ -1495,6 +1497,31 @@ struct whitenoise_macTests {
         #expect(state.keyPackages.map(\.eventIdHex) == ["event-local", "event-fetched"])
         #expect(state.keyPackages.first?.sourceLabel == "Local")
         #expect(runtime.lastPackageFetchBootstrapRelays == MarmotClient.seedRelays)
+    }
+
+    @MainActor
+    @Test func keyPackageLoadUsesAccountRelayBootstrapRelays() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let bootstrapRelays = ["wss://bootstrap.example"]
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: bootstrapRelays,
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox.example"]
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        await state.loadKeyPackages()
+
+        #expect(runtime.lastPackageFetchBootstrapRelays == bootstrapRelays)
     }
 
     @MainActor
@@ -1988,17 +2015,25 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func deletingKeyPackageFallsBackToNip65RelaysAndRefreshes() async throws {
+    @Test func deletingKeyPackageUsesAccountRelayBootstrapRelaysAndRefreshes() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
             running: true
         )
+        let bootstrapRelays = ["wss://bootstrap.example"]
         let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: bootstrapRelays,
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox.example"]
+        )
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
+        await state.loadSettingsData()
         await state.loadKeyPackages()
         guard let fetchedPackage = state.keyPackages.last else {
             Issue.record("Expected a fetched key package")
@@ -2007,8 +2042,65 @@ struct whitenoise_macTests {
         await state.deleteKeyPackage(fetchedPackage)
 
         #expect(runtime.deletedPackageEventId == "event-fetched")
-        #expect(runtime.lastPackageDeleteRelays == MarmotClient.seedRelays)
+        #expect(runtime.lastPackageDeleteRelays == bootstrapRelays)
         #expect(!state.keyPackages.map(\.eventIdHex).contains("event-fetched"))
+    }
+
+    @MainActor
+    @Test func savingProfileUsesAccountRelayLists() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let publishRelays = ["wss://published.example"]
+        let bootstrapRelays = ["wss://bootstrap.example"]
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installRelayLists(
+            defaultRelays: publishRelays,
+            bootstrapRelays: bootstrapRelays,
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox.example"]
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        state.profileDraft.displayName = "Desktop Renamed"
+        await state.saveProfile()
+
+        #expect(runtime.lastPublishedProfileDefaultRelays == publishRelays)
+        #expect(runtime.lastPublishedProfileBootstrapRelays == bootstrapRelays)
+        #expect(state.profileDraft.displayName == "Desktop Renamed")
+    }
+
+    @MainActor
+    @Test func savingRelaySettingsUsesExistingBootstrapRelays() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let bootstrapRelays = ["wss://bootstrap.example"]
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: bootstrapRelays,
+            nip65: ["wss://old-nip65.example"],
+            inbox: ["wss://old-inbox.example"]
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        state.selectRelaySection(.inbox)
+        state.relayDraft = ["wss://new-inbox.example"]
+        await state.saveRelaySettings()
+
+        #expect(runtime.lastSetInboxBootstrapRelays == bootstrapRelays)
+        #expect(state.relaySettings.inbox == ["wss://new-inbox.example"])
     }
 
     @MainActor
@@ -2112,6 +2204,10 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var didRepublishKeyPackage = false
     private(set) var deletedPackageEventId: String?
     private(set) var lastPackageDeleteRelays: [String] = []
+    private(set) var lastPublishedProfileDefaultRelays: [String] = []
+    private(set) var lastPublishedProfileBootstrapRelays: [String] = []
+    private(set) var lastSetInboxBootstrapRelays: [String] = []
+    private(set) var lastSetNip65BootstrapRelays: [String] = []
     private(set) var refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
@@ -2267,6 +2363,24 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         profilesByAccountId[accountIdHex] = profile
     }
 
+    func installRelayLists(
+        defaultRelays: [String],
+        bootstrapRelays: [String],
+        nip65: [String],
+        inbox: [String],
+        complete: Bool = true,
+        missing: [String] = []
+    ) {
+        relayLists = AccountRelayListsFfi(
+            complete: complete,
+            missing: missing,
+            defaultRelays: defaultRelays,
+            bootstrapRelays: bootstrapRelays,
+            nip65: RelayListFfi(kind: 10002, relays: nip65),
+            inbox: RelayListFfi(kind: 10050, relays: inbox)
+        )
+    }
+
     func installNormalizedMemberRef(query: String, accountIdHex: String, npub: String) {
         normalizedMembersByRef[query] = MemberRefFfi(
             memberRef: query,
@@ -2288,6 +2402,8 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func publishUserProfile(accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]) async throws -> UserProfileMetadataFfi {
+        lastPublishedProfileDefaultRelays = defaultRelays
+        lastPublishedProfileBootstrapRelays = bootstrapRelays
         self.profile = profile
         return profile
     }
@@ -2582,11 +2698,13 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
+        lastSetInboxBootstrapRelays = bootstrapRelays
         relayLists.inbox = RelayListFfi(kind: relayLists.inbox.kind, relays: relays)
         return relayLists
     }
 
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
+        lastSetNip65BootstrapRelays = bootstrapRelays
         relayLists.nip65 = RelayListFfi(kind: relayLists.nip65.kind, relays: relays)
         return relayLists
     }
