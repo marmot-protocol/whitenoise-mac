@@ -545,7 +545,7 @@ final class WorkspaceState {
         do {
             let packages = try await client.accountKeyPackages(
                 accountRef: activeAccount.accountRef,
-                bootstrapRelays: MarmotClient.seedRelays
+                bootstrapRelays: relaySettings.networkBootstrapRelays
             )
             keyPackages = packages.map(KeyPackageItem.init(package:))
         } catch {
@@ -657,11 +657,10 @@ final class WorkspaceState {
         defer { deletingKeyPackageId = nil }
 
         do {
-            let relays = package.sourceRelays.isEmpty ? relaySettings.nip65 : package.sourceRelays
             _ = try await client.deleteAccountKeyPackage(
                 accountRef: activeAccount.accountRef,
                 eventIdHex: package.eventIdHex,
-                relays: relays
+                relays: relaySettings.networkBootstrapRelays
             )
             await loadKeyPackages()
         } catch {
@@ -715,18 +714,19 @@ final class WorkspaceState {
 
         do {
             let lists: AccountRelayListsFfi
+            let bootstrapRelays = relaySettings.networkBootstrapRelays
             switch selectedRelaySection {
             case .nip65:
                 lists = try await client.setAccountNip65Relays(
                     accountRef: activeAccount.accountRef,
                     relays: relays,
-                    bootstrapRelays: MarmotClient.seedRelays
+                    bootstrapRelays: bootstrapRelays
                 )
             case .inbox:
                 lists = try await client.setAccountInboxRelays(
                     accountRef: activeAccount.accountRef,
                     relays: relays,
-                    bootstrapRelays: MarmotClient.seedRelays
+                    bootstrapRelays: bootstrapRelays
                 )
             }
             relaySettings = RelaySettingsSnapshot(lists: lists)
@@ -746,8 +746,8 @@ final class WorkspaceState {
             let published = try await client.publishUserProfile(
                 accountRef: activeAccount.accountRef,
                 profile: profileDraft.metadata,
-                defaultRelays: MarmotClient.seedRelays,
-                bootstrapRelays: MarmotClient.seedRelays
+                defaultRelays: relaySettings.publishRelays,
+                bootstrapRelays: relaySettings.networkBootstrapRelays
             )
             profileDraft = ProfileDraft(profile: published, fallbackName: activeAccount.displayName)
             let displayName = profileDraft.primaryDisplayName(fallback: activeAccount.displayName)
@@ -2902,7 +2902,13 @@ private extension RelaySettingsSnapshot {
     init(lists: AccountRelayListsFfi) {
         self.init(
             nip65: lists.nip65.relays.isEmpty ? lists.defaultRelays : lists.nip65.relays,
-            inbox: lists.inbox.relays.isEmpty ? lists.defaultRelays : lists.inbox.relays
+            inbox: lists.inbox.relays.isEmpty ? lists.defaultRelays : lists.inbox.relays,
+            defaultRelays: lists.defaultRelays,
+            bootstrapRelays: lists.bootstrapRelays,
+            publishedNip65: lists.nip65.relays,
+            publishedInbox: lists.inbox.relays,
+            missing: lists.missing,
+            isComplete: lists.complete
         )
     }
 }

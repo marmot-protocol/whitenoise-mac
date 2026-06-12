@@ -467,10 +467,22 @@ struct ProfileDraft: Equatable {
 struct RelaySettingsSnapshot: Equatable {
     var nip65: [String]
     var inbox: [String]
+    var defaultRelays: [String]
+    var bootstrapRelays: [String]
+    var publishedNip65: [String]
+    var publishedInbox: [String]
+    var missing: [String]
+    var isComplete: Bool
 
     static let defaults = RelaySettingsSnapshot(
         nip65: MarmotClient.seedRelays,
-        inbox: MarmotClient.seedRelays
+        inbox: MarmotClient.seedRelays,
+        defaultRelays: MarmotClient.seedRelays,
+        bootstrapRelays: MarmotClient.seedRelays,
+        publishedNip65: MarmotClient.seedRelays,
+        publishedInbox: MarmotClient.seedRelays,
+        missing: [],
+        isComplete: true
     )
 
     func relays(for section: RelaySettingsSection) -> [String] {
@@ -487,6 +499,29 @@ struct RelaySettingsSnapshot: Equatable {
         case .inbox:
             inbox = relays
         }
+    }
+
+    var publishRelays: [String] {
+        firstNonEmpty([defaultRelays, nip65, inbox])
+    }
+
+    var networkBootstrapRelays: [String] {
+        firstNonEmpty([bootstrapRelays, defaultRelays, nip65, inbox])
+    }
+
+    private func firstNonEmpty(_ candidates: [[String]]) -> [String] {
+        candidates
+            .map(Self.normalizedRelayURLs)
+            .first { !$0.isEmpty }
+            ?? MarmotClient.seedRelays
+    }
+
+    private static func normalizedRelayURLs(_ relays: [String]) -> [String] {
+        var seen = Set<String>()
+        return relays
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { seen.insert($0).inserted }
     }
 }
 

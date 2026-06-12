@@ -3039,6 +3039,8 @@ private struct RelaySettingsView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
 
+                    RelayDiagnosticsView(settings: workspace.relaySettings)
+
                     VStack(spacing: 0) {
                         if workspace.relayDraft.isEmpty {
                             ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
@@ -3109,6 +3111,85 @@ private struct RelaySettingsView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct RelayDiagnosticsView: View {
+    let settings: RelaySettingsSnapshot
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: settings.isComplete ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(settings.isComplete ? .green : .orange)
+                Text("Published Relay Lists")
+                    .font(.callout.weight(.semibold))
+                Spacer()
+                Text(settings.isComplete ? L10n.string("Complete") : L10n.string("Missing"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            RelayDiagnosticsRow(title: "Default", systemImage: "network", relays: settings.defaultRelays)
+            RelayDiagnosticsRow(title: "Bootstrap", systemImage: "antenna.radiowaves.left.and.right", relays: settings.bootstrapRelays)
+            RelayDiagnosticsRow(title: "NIP-65", systemImage: "list.bullet", relays: settings.publishedNip65)
+            RelayDiagnosticsRow(title: "Inbox", systemImage: "tray.and.arrow.down", relays: settings.publishedInbox)
+
+            if !settings.missing.isEmpty {
+                Text("Missing: \(settings.missing.joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                }
+        }
+    }
+}
+
+private struct RelayDiagnosticsRow: View {
+    let title: String
+    let systemImage: String
+    let relays: [String]
+
+    var body: some View {
+        DisclosureGroup {
+            if relays.isEmpty {
+                Text("Not published")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(relays, id: \.self) { relay in
+                    Text(relay)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                Spacer()
+                Text("\(relays.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(.quaternary, in: Capsule())
+            }
+            .font(.callout)
+        }
     }
 }
 
