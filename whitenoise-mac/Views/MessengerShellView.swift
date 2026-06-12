@@ -228,9 +228,6 @@ private struct ChatListDrawerView: View {
                         .buttonStyle(.plain)
                         .help("New chat")
                     }
-
-                    TextField("Search", text: $workspace.searchText)
-                        .textFieldStyle(.roundedBorder)
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 18)
@@ -247,6 +244,7 @@ private struct ChatListDrawerView: View {
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
+                .searchable(text: $workspace.searchText, placement: .sidebar, prompt: Text("Search"))
                 .overlay {
                     if workspace.filteredChats.isEmpty {
                         EmptyDrawerState()
@@ -3501,6 +3499,15 @@ private struct GlassPaneBackground: View {
     let opacity: Double
 
     var body: some View {
+        if #available(macOS 26.0, *) {
+            background
+                .backgroundExtensionEffect()
+        } else {
+            background
+        }
+    }
+
+    private var background: some View {
         ZStack {
             Rectangle()
                 .fill(.regularMaterial)
@@ -3517,6 +3524,15 @@ private struct GlassToolbarBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        if #available(macOS 26.0, *) {
+            background
+                .backgroundExtensionEffect()
+        } else {
+            background
+        }
+    }
+
+    private var background: some View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
