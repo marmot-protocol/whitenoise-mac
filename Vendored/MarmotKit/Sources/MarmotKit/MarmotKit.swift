@@ -1411,6 +1411,20 @@ public protocol MarmotProtocol : AnyObject {
     func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws  -> MediaDownloadResultFfi
     
     /**
+     * Edit `target_message_id` by publishing a kind-1009 event that
+     * references it and carries the replacement plaintext in `content`.
+     * Recipients honour the edit only when its authenticated author matches
+     * the target's author; mismatched edits are ignored client-side.
+     *
+     * The chat-list preview deliberately does not bump on an edit — an edit
+     * to a stale message must not reorder a conversation back to the top of
+     * the list. Host apps that aggregate edit history (e.g. an "(edited · N)"
+     * affordance) read the kind-1009 versions back from the timeline
+     * projection and resolve the latest text per target message id.
+     */
+    func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws  -> SendSummaryFfi
+
+    /**
      * Group plus enriched member rows for detail screens.
      */
     func groupDetails(accountRef: String, groupIdHex: String) async throws  -> GroupDetailsFfi
@@ -1644,7 +1658,7 @@ public protocol MarmotProtocol : AnyObject {
      * it does not change membership or publish anything. The chats list
      * filters archived groups unless `include_archived` is set.
      */
-    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) throws  -> AppGroupRecordFfi
+    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws  -> AppGroupRecordFfi
     
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws  -> NotificationSettingsFfi
     
@@ -2227,6 +2241,35 @@ open func downloadMedia(accountRef: String, groupIdHex: String, reference: Media
         )
 }
     
+    /**
+     * Edit `target_message_id` by publishing a kind-1009 event that
+     * references it and carries the replacement plaintext in `content`.
+     * Recipients honour the edit only when its authenticated author matches
+     * the target's author; mismatched edits are ignored client-side.
+     *
+     * The chat-list preview deliberately does not bump on an edit — an edit
+     * to a stale message must not reorder a conversation back to the top of
+     * the list. Host apps that aggregate edit history (e.g. an "(edited · N)"
+     * affordance) read the kind-1009 versions back from the timeline
+     * projection and resolve the latest text per target message id.
+     */
+open func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String)async throws  -> SendSummaryFfi {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_edit_message(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterString.lower(groupIdHex),FfiConverterString.lower(targetMessageId),FfiConverterString.lower(content)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeSendSummaryFfi.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
+}
+
     /**
      * Group plus enriched member rows for detail screens.
      */
@@ -3024,14 +3067,21 @@ open func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi)throws  -> A
      * it does not change membership or publish anything. The chats list
      * filters archived groups unless `include_archived` is set.
      */
-open func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool)throws  -> AppGroupRecordFfi {
-    return try  FfiConverterTypeAppGroupRecordFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
-    uniffi_marmot_uniffi_fn_method_marmot_set_group_archived(self.uniffiClonePointer(),
-        FfiConverterString.lower(accountRef),
-        FfiConverterString.lower(groupIdHex),
-        FfiConverterBool.lower(archived),$0
-    )
-})
+open func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool)async throws  -> AppGroupRecordFfi {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_set_group_archived(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterString.lower(groupIdHex),FfiConverterBool.lower(archived)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAppGroupRecordFfi.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
 }
     
 open func setLocalNotificationsEnabled(accountRef: String, enabled: Bool)throws  -> NotificationSettingsFfi {
@@ -13601,6 +13651,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_download_media() != 56125) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_edit_message() != 43927) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_group_details() != 55062) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -13736,7 +13789,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_audit_log_tracker_config() != 30506) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_marmot_uniffi_checksum_method_marmot_set_group_archived() != 3813) {
+    if (uniffi_marmot_uniffi_checksum_method_marmot_set_group_archived() != 17316) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_local_notifications_enabled() != 53550) {

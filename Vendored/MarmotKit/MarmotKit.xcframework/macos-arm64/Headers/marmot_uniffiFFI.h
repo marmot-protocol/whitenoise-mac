@@ -476,6 +476,11 @@ RustBuffer uniffi_marmot_uniffi_fn_method_marmot_display_name(void*_Nonnull ptr,
 uint64_t uniffi_marmot_uniffi_fn_method_marmot_download_media(void*_Nonnull ptr, RustBuffer account_ref, RustBuffer group_id_hex, RustBuffer reference
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_FN_METHOD_MARMOT_EDIT_MESSAGE
+#define UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_FN_METHOD_MARMOT_EDIT_MESSAGE
+uint64_t uniffi_marmot_uniffi_fn_method_marmot_edit_message(void*_Nonnull ptr, RustBuffer account_ref, RustBuffer group_id_hex, RustBuffer target_message_id, RustBuffer content
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_FN_METHOD_MARMOT_GROUP_DETAILS
 #define UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_FN_METHOD_MARMOT_GROUP_DETAILS
 uint64_t uniffi_marmot_uniffi_fn_method_marmot_group_details(void*_Nonnull ptr, RustBuffer account_ref, RustBuffer group_id_hex
@@ -703,7 +708,7 @@ RustBuffer uniffi_marmot_uniffi_fn_method_marmot_set_audit_log_tracker_config(vo
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_FN_METHOD_MARMOT_SET_GROUP_ARCHIVED
 #define UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_FN_METHOD_MARMOT_SET_GROUP_ARCHIVED
-RustBuffer uniffi_marmot_uniffi_fn_method_marmot_set_group_archived(void*_Nonnull ptr, RustBuffer account_ref, RustBuffer group_id_hex, int8_t archived, RustCallStatus *_Nonnull out_status
+uint64_t uniffi_marmot_uniffi_fn_method_marmot_set_group_archived(void*_Nonnull ptr, RustBuffer account_ref, RustBuffer group_id_hex, int8_t archived
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_FN_METHOD_MARMOT_SET_LOCAL_NOTIFICATIONS_ENABLED
@@ -1351,6 +1356,12 @@ uint16_t uniffi_marmot_uniffi_checksum_method_marmot_display_name(void
 #define UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_CHECKSUM_METHOD_MARMOT_DOWNLOAD_MEDIA
 uint16_t uniffi_marmot_uniffi_checksum_method_marmot_download_media(void
     
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_CHECKSUM_METHOD_MARMOT_EDIT_MESSAGE
+#define UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_CHECKSUM_METHOD_MARMOT_EDIT_MESSAGE
+uint16_t uniffi_marmot_uniffi_checksum_method_marmot_edit_message(void
+
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_MARMOT_UNIFFI_CHECKSUM_METHOD_MARMOT_GROUP_DETAILS

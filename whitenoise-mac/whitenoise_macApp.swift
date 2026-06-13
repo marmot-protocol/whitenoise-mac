@@ -20,6 +20,7 @@ struct whitenoise_macApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .windowResizability(.contentMinSize)
     }
 }

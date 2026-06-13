@@ -210,6 +210,9 @@ struct MessageItem: Identifiable, Hashable {
     let reactions: [MessageReaction]
     let replyContext: MessageReplyContext?
     let presentation: MessagePresentation
+    let timeLabel: String
+    let statusLabel: String?
+    let metadataLabel: String
 
     init(
         id: String,
@@ -241,18 +244,20 @@ struct MessageItem: Identifiable, Hashable {
         self.reactions = reactions
         self.replyContext = replyContext
         self.presentation = presentation
-    }
-
-    var timeLabel: String {
-        DisplayText.messageTimestamp(for: sentAt)
-    }
-
-    var statusLabel: String? {
-        guard presentation.isChatBubble else { return nil }
-        if invalidationStatus != nil {
-            return L10n.string("Did not reach group")
+        let timeLabel = DisplayText.messageTimestamp(for: sentAt)
+        self.timeLabel = timeLabel
+        let statusLabel: String?
+        if presentation.isChatBubble {
+            if invalidationStatus != nil {
+                statusLabel = L10n.string("Did not reach group")
+            } else {
+                statusLabel = isOutgoing ? L10n.string("Sent") : nil
+            }
+        } else {
+            statusLabel = nil
         }
-        return isOutgoing ? L10n.string("Sent") : nil
+        self.statusLabel = statusLabel
+        self.metadataLabel = statusLabel.map { "\(timeLabel)  \($0)" } ?? timeLabel
     }
 
     var debugTitle: String {
@@ -541,7 +546,7 @@ struct RelaySettingsSnapshot: Equatable {
             ?? MarmotClient.seedRelays
     }
 
-    private static func normalizedRelayURLs(_ relays: [String]) -> [String] {
+    nonisolated private static func normalizedRelayURLs(_ relays: [String]) -> [String] {
         var seen = Set<String>()
         return relays
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

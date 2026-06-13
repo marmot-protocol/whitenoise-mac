@@ -13,8 +13,8 @@ struct MessengerShellView: View {
                     GlassSeparator()
 
                     ChatListDrawerView()
-                        .frame(width: 312, alignment: .leading)
-                        .frame(width: workspace.isChatListVisible ? 312 : 0, alignment: .leading)
+                        .frame(width: 300, alignment: .leading)
+                        .frame(width: workspace.isChatListVisible ? 300 : 0, alignment: .leading)
                         .opacity(workspace.isChatListVisible ? 1 : 0)
                         .clipped()
                         .allowsHitTesting(workspace.isChatListVisible)
@@ -30,7 +30,7 @@ struct MessengerShellView: View {
             }
         }
         .background {
-            LiquidGlassBackground()
+            MessagesWindowBackground()
         }
         .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
     }
@@ -65,7 +65,7 @@ private struct WelcomeAuthView: View {
                         .frame(width: 176)
                 }
                 .controlSize(.large)
-                .buttonStyle(.borderedProminent)
+                .nativeGlassProminentButtonStyle()
                 .disabled(workspace.isAuthenticating)
 
                 Button {
@@ -75,23 +75,19 @@ private struct WelcomeAuthView: View {
                         .frame(width: 176)
                 }
                 .controlSize(.large)
+                .nativeGlassButtonStyle()
                 .disabled(workspace.isAuthenticating)
             }
 
             if workspace.authenticationMode == .login {
                 VStack(spacing: 12) {
-                    SecureField("nsec", text: $workspace.loginIdentity)
+                    SecureField("nsec1...", text: $workspace.loginIdentity)
                         .textFieldStyle(.plain)
                         .frame(width: 360)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
                         .background {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
-                                }
+                            GlassRoundedBackground(cornerRadius: 8)
                         }
                         .disabled(workspace.isAuthenticating)
 
@@ -104,7 +100,7 @@ private struct WelcomeAuthView: View {
                         Button(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in")) {
                             Task { await workspace.login() }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .nativeGlassProminentButtonStyle()
                         .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
                     }
                 }
@@ -144,7 +140,10 @@ private struct AccountRailView: View {
             } label: {
                 Image(systemName: workspace.isChatListVisible ? "sidebar.leading" : "sidebar.right")
                     .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 36, height: 36)
+                    .background {
+                        MessagesCircleControlBackground(isSelected: workspace.isChatListVisible)
+                    }
             }
             .buttonStyle(.plain)
             .help(workspace.isChatListVisible ? L10n.string("Hide chat list") : L10n.string("Show chat list"))
@@ -181,8 +180,7 @@ private struct AccountRailView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 36, height: 36)
                     .background {
-                        Circle()
-                            .fill(isSettingsSelected ? Color.white.opacity(0.14) : Color.clear)
+                        MessagesCircleControlBackground(isSelected: isSettingsSelected)
                     }
             }
             .buttonStyle(.plain)
@@ -190,9 +188,9 @@ private struct AccountRailView: View {
             .help("Settings")
         }
         .padding(.vertical, 14)
-        .frame(width: 68)
+        .frame(width: 62)
         .background {
-            GlassPaneBackground(opacity: 0.72)
+            MessagesSidebarBackground(level: .rail)
         }
     }
 }
@@ -214,7 +212,7 @@ private struct ChatListDrawerView: View {
             } else if workspace.isNewChatComposerVisible {
                 NewChatColumnView()
             } else {
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Text("Chats")
                             .font(.title2.weight(.semibold))
@@ -223,28 +221,41 @@ private struct ChatListDrawerView: View {
                             workspace.showNewChat()
                         } label: {
                             Image(systemName: "square.and.pencil")
-                                .frame(width: 28, height: 28)
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
                         }
                         .buttonStyle(.plain)
                         .help("New chat")
                     }
+
+                    MessagesSearchField(text: $workspace.searchText)
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 18)
+                .padding(.horizontal, 12)
+                .padding(.top, 14)
                 .padding(.bottom, 12)
 
                 GlassSeparator(axis: .horizontal)
 
-                List(selection: chatSelection) {
-                    ForEach(workspace.filteredChats) { chat in
-                        ChatRowContent(chat: chat)
-                            .tag(chat.id)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8))
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(workspace.filteredChats) { chat in
+                            Button {
+                                workspace.selectChat(chat)
+                            } label: {
+                                ChatRowContent(
+                                    chat: chat,
+                                    isSelected: workspace.selection == .chat(chat.id)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
                 }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-                .searchable(text: $workspace.searchText, placement: .sidebar, prompt: Text("Search"))
                 .overlay {
                     if workspace.filteredChats.isEmpty {
                         EmptyDrawerState()
@@ -253,21 +264,7 @@ private struct ChatListDrawerView: View {
             }
         }
         .background {
-            GlassPaneBackground(opacity: 0.64)
-        }
-    }
-
-    private var chatSelection: Binding<String?> {
-        Binding {
-            if case .chat(let chatId) = workspace.selection {
-                return chatId
-            }
-            return nil
-        } set: { chatId in
-            guard let chatId,
-                  let chat = workspace.activeChats.first(where: { $0.id == chatId })
-            else { return }
-            workspace.selectChat(chat)
+            MessagesSidebarBackground(level: .drawer)
         }
     }
 }
@@ -276,8 +273,6 @@ private struct SettingsListDrawerView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
-        @Bindable var workspace = workspace
-
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Settings")
@@ -291,31 +286,24 @@ private struct SettingsListDrawerView: View {
 
             GlassSeparator(axis: .horizontal)
 
-            List(selection: settingsSelection) {
-                ForEach(SettingsPage.sidebarPages, id: \.self) { page in
-                    SettingsSidebarRow(page: page)
-                        .tag(page)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+            ScrollView {
+                LazyVStack(spacing: 3) {
+                    ForEach(SettingsPage.sidebarPages, id: \.self) { page in
+                        Button {
+                            workspace.showSettingsPage(page)
+                        } label: {
+                            SettingsSidebarRow(page: page)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
 
         }
         .background {
-            GlassPaneBackground(opacity: 0.64)
-        }
-    }
-
-    private var settingsSelection: Binding<SettingsPage?> {
-        Binding {
-            if case .settings(let page) = workspace.selection {
-                return page
-            }
-            return nil
-        } set: { page in
-            guard let page else { return }
-            workspace.showSettingsPage(page)
+            MessagesSidebarBackground(level: .drawer)
         }
     }
 
@@ -348,12 +336,7 @@ private struct SettingsListDrawerView: View {
         }
         .padding(10)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                }
+            GlassRoundedBackground(cornerRadius: 8)
         }
     }
 }
@@ -370,7 +353,7 @@ private struct SettingsSidebarRow: View {
         HStack(spacing: 10) {
             Image(systemName: page.systemImage)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                 .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -385,12 +368,17 @@ private struct SettingsSidebarRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background {
+            MessagesSidebarRowBackground(isSelected: isSelected)
+        }
         .contentShape(Rectangle())
     }
 }
 
 private struct ChatRowContent: View {
     let chat: ChatItem
+    let isSelected: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -428,10 +416,14 @@ private struct ChatRowContent: View {
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
                     .frame(minWidth: 18, minHeight: 18)
-                    .background(Circle().fill(Color.accentColor))
+                    .background(Circle().fill(MessagesPalette.sentBubble))
             }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background {
+            MessagesSidebarRowBackground(isSelected: isSelected)
+        }
         .contentShape(Rectangle())
     }
 }
@@ -469,12 +461,18 @@ private struct DetailPaneView: View {
 private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var pendingPrependAnchorId: String?
+    @State private var didRequestOlderForVisibleTopSentinel = false
+    @State private var lastOlderLoadTriggerAnchorId: String?
+    @State private var topSentinelResetTask: Task<Void, Never>?
+    @State private var didRequestNewerForVisibleBottomSentinel = false
+    @State private var lastNewerLoadTriggerAnchorId: String?
+    @State private var bottomSentinelResetTask: Task<Void, Never>?
     let chat: ChatItem
     private let bottomTranscriptPadding: CGFloat = 34
 
     var body: some View {
         @Bindable var workspace = workspace
-        let messages = workspace.selectedMessages
+        let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
 
         VStack(spacing: 0) {
@@ -484,28 +482,76 @@ private struct ConversationView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        if messages.isEmpty {
+                        if messageIDs.isEmpty {
                             EmptyConversationView()
                         } else {
                             if paging.hasMoreBefore {
                                 TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
                                     .onAppear {
-                                        guard pendingPrependAnchorId == nil else { return }
-                                        let anchorId = messages.first?.id
+                                        topSentinelResetTask?.cancel()
+                                        guard let anchorId = messageIDs.first,
+                                              pendingPrependAnchorId == nil,
+                                              !paging.isLoadingBefore,
+                                              !didRequestOlderForVisibleTopSentinel,
+                                              lastOlderLoadTriggerAnchorId != anchorId
+                                        else { return }
+                                        didRequestOlderForVisibleTopSentinel = true
+                                        lastOlderLoadTriggerAnchorId = anchorId
                                         pendingPrependAnchorId = anchorId
                                         Task {
                                             await workspace.loadOlderMessages(groupIdHex: chat.id)
                                             if pendingPrependAnchorId == anchorId,
-                                               workspace.selectedMessages.first?.id == anchorId {
+                                               workspace.selectedMessageIDs.first == anchorId {
                                                 pendingPrependAnchorId = nil
+                                            }
+                                        }
+                                    }
+                                    .onDisappear {
+                                        guard pendingPrependAnchorId == nil else { return }
+                                        topSentinelResetTask?.cancel()
+                                        topSentinelResetTask = Task {
+                                            try? await Task.sleep(nanoseconds: 300_000_000)
+                                            guard !Task.isCancelled else { return }
+                                            await MainActor.run {
+                                                guard pendingPrependAnchorId == nil else { return }
+                                                didRequestOlderForVisibleTopSentinel = false
                                             }
                                         }
                                     }
                             }
 
-                            ForEach(messages) { message in
-                                ConversationMessageRow(message: message)
-                                    .equatable()
+                            ForEach(messageIDs, id: \.self) { messageID in
+                                ConversationMessageRow(groupIdHex: chat.id, messageId: messageID)
+                            }
+
+                            if paging.hasMoreAfter {
+                                TimelinePageLoadingRow(isLoading: paging.isLoadingAfter)
+                                    .onAppear {
+                                        bottomSentinelResetTask?.cancel()
+                                        guard let anchorId = messageIDs.last,
+                                              !paging.isLoadingAfter,
+                                              !didRequestNewerForVisibleBottomSentinel,
+                                              lastNewerLoadTriggerAnchorId != anchorId
+                                        else { return }
+                                        didRequestNewerForVisibleBottomSentinel = true
+                                        lastNewerLoadTriggerAnchorId = anchorId
+                                        Task {
+                                            await workspace.loadNewerMessages(groupIdHex: chat.id)
+                                            if workspace.selectedMessageIDs.last == anchorId {
+                                                scrollToBottom(with: proxy)
+                                            }
+                                        }
+                                    }
+                                    .onDisappear {
+                                        bottomSentinelResetTask?.cancel()
+                                        bottomSentinelResetTask = Task {
+                                            try? await Task.sleep(nanoseconds: 300_000_000)
+                                            guard !Task.isCancelled else { return }
+                                            await MainActor.run {
+                                                didRequestNewerForVisibleBottomSentinel = false
+                                            }
+                                        }
+                                    }
                             }
                         }
 
@@ -513,23 +559,34 @@ private struct ConversationView: View {
                             .frame(height: bottomTranscriptPadding)
                             .id(bottomAnchorId)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 22)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 18)
                     .padding(.bottom, 8)
                 }
                 .id(chat.id)
                 .defaultScrollAnchor(.bottom)
-                .onChange(of: messages.last?.id) { previousMessageId, _ in
+                .onChange(of: chat.id) { _, _ in
+                    topSentinelResetTask?.cancel()
+                    bottomSentinelResetTask?.cancel()
+                    pendingPrependAnchorId = nil
+                    didRequestOlderForVisibleTopSentinel = false
+                    lastOlderLoadTriggerAnchorId = nil
+                    topSentinelResetTask = nil
+                    didRequestNewerForVisibleBottomSentinel = false
+                    lastNewerLoadTriggerAnchorId = nil
+                    bottomSentinelResetTask = nil
+                }
+                .onChange(of: messageIDs.last) { previousMessageId, _ in
                     guard previousMessageId != nil,
-                          !messages.isEmpty,
+                          !messageIDs.isEmpty,
                           !paging.hasMoreBefore,
                           pendingPrependAnchorId == nil
                     else { return }
                     scrollToBottom(with: proxy)
                 }
-                .onChange(of: messages.first?.id) { _, _ in
+                .onChange(of: messageIDs.first) { _, _ in
                     guard let anchorId = pendingPrependAnchorId,
-                          messages.contains(where: { $0.id == anchorId })
+                          messageIDs.contains(anchorId)
                     else { return }
                     DispatchQueue.main.async {
                         proxy.scrollTo(anchorId, anchor: .top)
@@ -547,42 +604,52 @@ private struct ConversationView: View {
                     }
                 }
 
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Button {} label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 30, height: 30)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(true)
+
                     TextField("Message", text: $workspace.draftText, axis: .vertical)
                         .textFieldStyle(.plain)
                         .lineLimit(1...5)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
                         .background {
-                            Capsule(style: .continuous)
-                                .fill(Color.primary.opacity(0.055))
-                                .overlay {
-                                    Capsule(style: .continuous)
-                                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                                }
+                            MessagesComposerFieldBackground()
                         }
 
                     Button {
                         Task { await workspace.sendDraft() }
                     } label: {
                         Image(systemName: "paperplane.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 38, height: 38)
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .background {
+                                MessagesSendButtonBackground(isEnabled: workspace.canSend)
+                            }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
                     .keyboardShortcut(.return, modifiers: .command)
                     .disabled(!workspace.canSend)
                     .help("Send")
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
             .background {
-                GlassToolbarBackground()
+                MessagesComposerBarBackground()
             }
         }
         .background {
-            LiquidGlassBackground()
+            MessagesTranscriptBackground()
         }
     }
 
@@ -623,7 +690,7 @@ private struct ReplyComposerContextView: View {
         HStack(spacing: 10) {
             Image(systemName: "arrowshape.turn.up.left.fill")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(MessagesPalette.sentBubble)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(context.senderName)
@@ -643,18 +710,13 @@ private struct ReplyComposerContextView: View {
                     .font(.system(size: 11, weight: .bold))
                     .frame(width: 24, height: 24)
             }
-            .buttonStyle(.plain)
+            .nativeGlassButtonStyle()
             .help("Cancel reply")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
-                }
+            GlassRoundedBackground(cornerRadius: 8)
         }
     }
 }
@@ -679,7 +741,7 @@ private struct NewChatColumnView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
+                .nativeGlassButtonStyle()
                 .help("Close")
             }
             .padding(.horizontal, 14)
@@ -707,12 +769,11 @@ private struct NewChatColumnView: View {
                             .padding(.horizontal, 10)
                             .padding(.vertical, 9)
                             .background {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(.ultraThinMaterial)
+                                GlassRoundedBackground(cornerRadius: 8)
                             }
                             .overlay {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .stroke(isSearchFocused ? Color.accentColor : Color.white.opacity(0.28), lineWidth: 1)
+                                    .stroke(isSearchFocused ? MessagesPalette.sentBubble : Color.clear, lineWidth: 1)
                             }
                     }
 
@@ -738,7 +799,9 @@ private struct NewChatColumnView: View {
                 .padding(14)
             }
         }
-        .background(.thinMaterial)
+        .background {
+            GlassPaneBackground(opacity: 0.5)
+        }
         .task {
             isSearchFocused = true
         }
@@ -762,12 +825,7 @@ private struct NewChatDetailsForm: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
                     .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                        GlassRoundedBackground(cornerRadius: 8)
                     }
             }
 
@@ -782,12 +840,7 @@ private struct NewChatDetailsForm: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
                     .background {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                        GlassRoundedBackground(cornerRadius: 8)
                     }
             }
 
@@ -798,7 +851,7 @@ private struct NewChatDetailsForm: View {
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
-            .buttonStyle(.borderedProminent)
+            .nativeGlassProminentButtonStyle()
             .disabled(workspace.resolvedNewChatRecipient == nil || workspace.isCreatingChat)
         }
     }
@@ -831,12 +884,7 @@ private struct NewChatRecipientCard: View {
         }
         .padding(12)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
-                }
+            GlassRoundedBackground(cornerRadius: 8)
         }
     }
 }
@@ -877,7 +925,7 @@ private struct ProfileImageAvatarView: View {
         .clipShape(Circle())
         .overlay {
             Circle()
-                .strokeBorder(isSelected ? Color.accentColor : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
+                .strokeBorder(isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
         }
         .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
@@ -890,51 +938,63 @@ private struct ConversationHeader: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        HStack(spacing: 12) {
-            ProfileImageAvatarView(
-                seed: chat.avatarSeed,
-                initials: chat.title,
-                pictureURL: chat.pictureURL,
-                size: 42,
-                isSelected: false
-            )
-            VStack(alignment: .leading, spacing: 2) {
+        ZStack {
+            VStack(spacing: 4) {
+                ProfileImageAvatarView(
+                    seed: chat.avatarSeed,
+                    initials: chat.title,
+                    pictureURL: chat.pictureURL,
+                    size: 38,
+                    isSelected: false
+                )
+
                 Text(chat.title)
-                    .font(.headline)
+                    .font(.caption.weight(.semibold))
                     .lineLimit(1)
-                Text(chat.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.thinMaterial, in: Capsule())
             }
-            Spacer()
+            .frame(maxWidth: 220)
 
-            if !chat.isDirect {
-                Button {
-                    Task { await workspace.showGroupDetails(for: chat) }
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 30, height: 30)
-                }
-                .buttonStyle(.plain)
-                .help("Group details")
+            HStack {
+                Spacer()
 
-                Button {
-                    workspace.showGroupImagePicker(for: chat)
-                } label: {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 30, height: 30)
+                if !chat.isDirect {
+                    Button {
+                        Task { await workspace.showGroupDetails(for: chat) }
+                    } label: {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Group details")
+
+                    Button {
+                        workspace.showGroupImagePicker(for: chat)
+                    } label: {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Set group image")
                 }
-                .buttonStyle(.plain)
-                .help("Set group image")
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 7)
+        .frame(height: 76)
         .background {
-            GlassToolbarBackground()
+            MessagesHeaderBackground()
         }
         .sheet(isPresented: $workspace.isGroupDetailsPresented) {
             GroupDetailsSheet(chat: chat)
@@ -1026,7 +1086,7 @@ private struct GroupDetailsSheet: View {
                             } label: {
                                 Label(workspace.isSavingGroupProfile ? L10n.string("Saving...") : L10n.string("Save"), systemImage: "checkmark.circle")
                             }
-                            .buttonStyle(.borderedProminent)
+                            .nativeGlassProminentButtonStyle()
                             .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
                         }
                     }
@@ -1410,7 +1470,7 @@ private struct GroupImagePickerSheet: View {
                         } label: {
                             Label("Search", systemImage: "magnifyingglass")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .nativeGlassProminentButtonStyle()
                         .disabled(workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isSearchingGroupImages)
                         .help("Search")
                     }
@@ -1475,7 +1535,7 @@ private struct GroupImageResultTile: View {
         VStack(alignment: .leading, spacing: 7) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.07))
+                    .fill(.regularMaterial)
 
                 if let imageURL = result.previewURL {
                     AsyncImage(url: imageURL) { phase in
@@ -1518,29 +1578,24 @@ private struct GroupImageResultTile: View {
         }
         .padding(8)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.045))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                }
+            GlassRoundedBackground(cornerRadius: 8)
         }
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
-private struct ConversationMessageRow: View, Equatable {
-    let message: MessageItem
-
-    static func == (lhs: ConversationMessageRow, rhs: ConversationMessageRow) -> Bool {
-        lhs.message == rhs.message
-    }
+private struct ConversationMessageRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let groupIdHex: String
+    let messageId: String
 
     var body: some View {
-        if message.presentation.isChatBubble {
-            MessageBubble(message: message)
-        } else {
-            TimelineNoticeRow(message: message)
+        if let message = workspace.timelineMessage(groupIdHex: groupIdHex, messageId: messageId) {
+            if message.presentation.isChatBubble {
+                MessageBubble(message: message)
+            } else {
+                TimelineNoticeRow(message: message)
+            }
         }
     }
 }
@@ -1577,12 +1632,7 @@ private struct TimelineNoticeRow: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background {
-                Capsule(style: .continuous)
-                    .fill(Color.primary.opacity(0.055))
-                    .overlay {
-                        Capsule(style: .continuous)
-                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                    }
+                GlassCapsuleBackground()
             }
             .frame(maxWidth: 520)
             .contextMenu {
@@ -1609,6 +1659,7 @@ private extension GroupImageSearchResult {
 
 private struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
     let message: MessageItem
@@ -1629,9 +1680,9 @@ private struct MessageBubble: View {
                     bubbleContent
                 }
 
-                Text(message.statusLabel.map { "\(message.timeLabel)  \($0)" } ?? message.timeLabel)
+                Text(message.metadataLabel)
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
                     .padding(.horizontal, 5)
 
                 if !message.reactions.isEmpty {
@@ -1642,12 +1693,9 @@ private struct MessageBubble: View {
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .background {
-                                    Capsule()
-                                        .fill(.ultraThinMaterial)
-                                        .overlay {
-                                            Capsule()
-                                                .stroke(reaction.isOwn ? Color.accentColor.opacity(0.55) : Color.white.opacity(0.28), lineWidth: 1)
-                                        }
+                                    GlassCapsuleBackground(
+                                        borderColor: reaction.isOwn ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
+                                    )
                                 }
                         }
                     }
@@ -1690,16 +1738,16 @@ private struct MessageBubble: View {
             }
 
             Text(message.body)
-                .font(.system(size: 15))
+                .font(.system(size: 15.5))
                 .foregroundStyle(message.isOutgoing ? .white : .primary)
                 .lineSpacing(2)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 8)
         .background {
             bubbleBackground
         }
-        .frame(maxWidth: 560, alignment: message.isOutgoing ? .trailing : .leading)
+        .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
             if showsInlineActions {
                 MessageInlineActions(
@@ -1725,16 +1773,14 @@ private struct MessageBubble: View {
 
         if message.isOutgoing {
             shape
-                .fill(Color.accentColor)
-                .shadow(color: Color.accentColor.opacity(0.14), radius: 5, y: 2)
+                .fill(MessagesPalette.sentBubble)
         } else {
             shape
-                .fill(Color.primary.opacity(0.075))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
                 .overlay {
                     shape
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.24), lineWidth: 1)
                 }
-                .shadow(color: .black.opacity(0.05), radius: 4, y: 2)
         }
     }
 }
@@ -1865,7 +1911,10 @@ private struct MessageEmojiPickerPopover: View {
             .padding(12)
         }
         .frame(width: 360, height: 304)
-        .background(.regularMaterial)
+        .presentationBackground(.regularMaterial)
+        .background {
+            GlassRoundedBackground(cornerRadius: 8, material: .regularMaterial)
+        }
     }
 }
 
@@ -1890,7 +1939,10 @@ private struct MessageOverflowPopover: View {
         }
         .padding(.vertical, 6)
         .frame(width: 190)
-        .background(.regularMaterial)
+        .presentationBackground(.regularMaterial)
+        .background {
+            GlassRoundedBackground(cornerRadius: 8, material: .regularMaterial)
+        }
     }
 
     private func overflowButton(
@@ -1943,13 +1995,13 @@ private struct MessageReplyContextView: View {
     var body: some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(isOutgoing ? Color.white.opacity(0.72) : Color.accentColor.opacity(0.68))
+                .fill(isOutgoing ? Color.white.opacity(0.72) : MessagesPalette.sentBubble.opacity(0.68))
                 .frame(width: 3)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(context.senderName)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : Color.accentColor)
+                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : MessagesPalette.sentBubble)
                     .lineLimit(1)
 
                 Text(context.body)
@@ -1961,8 +2013,12 @@ private struct MessageReplyContextView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isOutgoing ? Color.white.opacity(0.13) : Color.black.opacity(0.045))
+            if isOutgoing {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.13))
+            } else {
+                GlassRoundedBackground(cornerRadius: 8)
+            }
         }
     }
 }
@@ -2042,7 +2098,9 @@ private struct SettingsHeader: View {
         .padding(.horizontal, 28)
         .padding(.top, 24)
         .padding(.bottom, 18)
-        .background(.ultraThinMaterial)
+        .background {
+            GlassToolbarBackground()
+        }
     }
 }
 
@@ -2089,7 +2147,8 @@ private struct AccountsSettingsView: View {
                 }
 
                 Section("Add Account") {
-                    SecureField("nsec", text: $workspace.loginIdentity)
+                    SecureField("", text: $workspace.loginIdentity, prompt: Text("nsec1..."))
+                        .labelsHidden()
                         .textFieldStyle(.roundedBorder)
                         .disabled(workspace.isAuthenticating)
 
@@ -2102,7 +2161,7 @@ private struct AccountsSettingsView: View {
                         } label: {
                             Label(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"), systemImage: "key")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .nativeGlassProminentButtonStyle()
                         .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
 
                         Button {
@@ -2114,6 +2173,7 @@ private struct AccountsSettingsView: View {
                         } label: {
                             Label(workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"), systemImage: "plus.circle")
                         }
+                        .nativeGlassButtonStyle()
                         .disabled(workspace.isAuthenticating)
 
                         Spacer()
@@ -2246,7 +2306,7 @@ private struct ProfileSettingsView: View {
                         } label: {
                             Label(workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"), systemImage: "checkmark.circle")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .nativeGlassProminentButtonStyle()
                         .disabled(workspace.isSavingProfile || workspace.activeAccount == nil)
 
                         if workspace.isLoadingSettings {
@@ -2457,6 +2517,7 @@ private struct AppearanceSettingsView: View {
 private struct PrivacySecuritySettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showDeleteAuditLogsConfirmation = false
+    @State private var showDeleteAllDataConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2488,16 +2549,6 @@ private struct PrivacySecuritySettingsView: View {
                     }
                     .disabled(workspace.isSavingPrivacySecurity)
 
-                    LabeledContent("Telemetry token") {
-                        Text(workspace.privacySecuritySettings.telemetryCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing"))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    LabeledContent("Audit token") {
-                        Text(workspace.privacySecuritySettings.auditLogCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing"))
-                            .foregroundStyle(.secondary)
-                    }
-
                     if workspace.isSavingPrivacySecurity {
                         HStack(spacing: 10) {
                             ProgressView()
@@ -2524,8 +2575,15 @@ private struct PrivacySecuritySettingsView: View {
                     }
 
                     if workspace.auditLogFiles.isEmpty {
-                        ContentUnavailableView("No audit logs", systemImage: "doc.text.magnifyingglass")
-                            .frame(minHeight: 150)
+                        HStack {
+                            Spacer()
+
+                            ContentUnavailableView("No audit logs", systemImage: "doc.text.magnifyingglass")
+                                .frame(maxWidth: 320)
+
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 150)
                     } else {
                         ForEach(workspace.auditLogFiles, id: \.path) { file in
                             AuditLogFileRow(file: file)
@@ -2538,7 +2596,7 @@ private struct PrivacySecuritySettingsView: View {
                         } label: {
                             Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .nativeGlassProminentButtonStyle()
                         .disabled(
                             workspace.isUploadingAuditLogFiles
                                 || !workspace.privacySecuritySettings.auditLogCredentialsAvailable
@@ -2556,6 +2614,24 @@ private struct PrivacySecuritySettingsView: View {
                         Label(auditLogUploadStatus, systemImage: "checkmark.seal")
                             .foregroundStyle(.green)
                     }
+                }
+
+                Section("Reset") {
+                    Button(role: .destructive) {
+                        showDeleteAllDataConfirmation = true
+                    } label: {
+                        Label(
+                            workspace.isDeletingAllData ? L10n.string("Deleting...") : L10n.string("Delete All Data"),
+                            systemImage: "trash"
+                        )
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(workspace.isDeletingAllData)
+
+                    Text("Reset White Noise to a newly installed state on this Mac.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 if workspace.lastError != nil {
@@ -2580,6 +2656,14 @@ private struct PrivacySecuritySettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This permanently removes every local audit JSONL file on this Mac.")
+        }
+        .alert("Delete all data?", isPresented: $showDeleteAllDataConfirmation) {
+            Button("Delete All Data", role: .destructive) {
+                Task { await workspace.deleteAllData() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears all accounts, chats, and messages from this Mac and resets White Noise to a newly installed state. This cannot be undone.")
         }
     }
 }
@@ -2718,18 +2802,16 @@ private struct DeveloperModeSettingsView: View {
                         Label("Streaming debug", systemImage: "waveform.path.ecg")
                     }
                     .disabled(!workspace.developerMode)
-
-                    LabeledContent("Streaming debug status") {
-                        Text(workspace.streamingDebugEnabled ? L10n.string("On") : L10n.string("Off"))
-                            .foregroundStyle(.secondary)
-                    }
                 }
 
                 Section("Storage") {
-                    LabeledContent("Location") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Location")
+
                         Text(workspace.storageRootPath)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     Button {
@@ -2808,10 +2890,13 @@ private struct RelaySettingsView: View {
 
                 Section("Add Relay") {
                     HStack(spacing: 8) {
-                        TextField("wss://relay.example", text: $workspace.newRelayURL)
+                        TextField("", text: $workspace.newRelayURL, prompt: Text("wss://relay.example"))
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
                             .onSubmit {
                                 workspace.addRelayDraftURL()
                             }
+                            .frame(maxWidth: .infinity)
 
                         Button {
                             workspace.addRelayDraftURL()
@@ -2829,7 +2914,7 @@ private struct RelaySettingsView: View {
                         } label: {
                             Label(workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"), systemImage: "checkmark.circle")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .nativeGlassProminentButtonStyle()
                         .disabled(workspace.isSavingRelays || workspace.activeAccount == nil)
 
                         Button {
@@ -2949,7 +3034,7 @@ private struct KeyPackageSettingsView: View {
                         } label: {
                             Label(workspace.isPublishingKeyPackage ? L10n.string("Publishing...") : L10n.string("Publish new"), systemImage: "plus.circle")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .nativeGlassProminentButtonStyle()
                         .disabled(workspace.isPublishingKeyPackage || workspace.activeAccount == nil)
 
                         Button {
@@ -3009,7 +3094,7 @@ private struct KeyPackageRow: View {
                     .foregroundStyle(.white)
                     .frame(width: 30, height: 30)
                     .background {
-                        Circle().fill(Color.accentColor)
+                        Circle().fill(MessagesPalette.sentBubble)
                     }
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -3119,7 +3204,7 @@ private struct AvatarView: View {
             }
             .overlay {
                 Circle()
-                    .strokeBorder(isSelected ? Color.accentColor : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
+                    .strokeBorder(isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
             }
             .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
@@ -3140,7 +3225,200 @@ private enum AvatarPalette {
     }
 }
 
+private enum MessagesPalette {
+    static let sentBubble = Color(nsColor: .systemBlue)
+}
+
+private struct MessagesSearchField: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .font(.callout)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background {
+            MessagesSearchFieldBackground()
+        }
+    }
+}
+
+private struct MessagesCircleControlBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var isSelected = false
+
+    var body: some View {
+        Circle()
+            .fill(
+                isSelected
+                    ? Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34)
+                    : Color.white.opacity(colorScheme == .dark ? 0.06 : 0.18)
+            )
+            .overlay {
+                Circle()
+                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.32), lineWidth: 1)
+            }
+            .nativeBackgroundExtensionEffect()
+    }
+}
+
+private struct MessagesSidebarRowBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let isSelected: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(
+                isSelected
+                    ? Color.white.opacity(colorScheme == .dark ? 0.13 : 0.28)
+                    : Color.clear
+            )
+    }
+}
+
+private struct MessagesSearchFieldBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.28))
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.28), lineWidth: 1)
+            }
+    }
+}
+
+private struct MessagesSendButtonBackground: View {
+    let isEnabled: Bool
+
+    var body: some View {
+        Circle()
+            .fill(isEnabled ? MessagesPalette.sentBubble : Color.white.opacity(0.08))
+            .overlay {
+                Circle()
+                    .stroke(Color.white.opacity(isEnabled ? 0.18 : 0.08), lineWidth: 1)
+            }
+    }
+}
+
+private struct MessagesComposerFieldBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(Color.white.opacity(colorScheme == .dark ? 0.06 : 0.22))
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.32), lineWidth: 1)
+            }
+    }
+}
+
+private struct MessagesWindowBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.regularMaterial)
+            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
+                .opacity(colorScheme == .dark ? 0.52 : 0.2)
+        }
+        .nativeBackgroundExtensionEffect()
+        .ignoresSafeArea()
+    }
+}
+
+private struct MessagesTranscriptBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.regularMaterial)
+            Color(nsColor: colorScheme == .dark ? .black : .textBackgroundColor)
+                .opacity(colorScheme == .dark ? 0.72 : 0.52)
+        }
+        .nativeBackgroundExtensionEffect()
+        .ignoresSafeArea()
+    }
+}
+
+private struct MessagesSidebarBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    enum Level {
+        case rail
+        case drawer
+    }
+
+    let level: Level
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.regularMaterial)
+            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
+                .opacity(backgroundOpacity)
+        }
+        .nativeBackgroundExtensionEffect()
+        .ignoresSafeArea()
+    }
+
+    private var backgroundOpacity: Double {
+        if colorScheme == .dark {
+            switch level {
+            case .rail: 0.5
+            case .drawer: 0.44
+            }
+        } else {
+            switch level {
+            case .rail: 0.16
+            case .drawer: 0.1
+            }
+        }
+    }
+}
+
+private struct MessagesHeaderBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
+                .opacity(colorScheme == .dark ? 0.34 : 0.18)
+        }
+        .nativeBackgroundExtensionEffect()
+    }
+}
+
+private struct MessagesComposerBarBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
+                .opacity(colorScheme == .dark ? 0.42 : 0.2)
+        }
+        .nativeBackgroundExtensionEffect()
+    }
+}
+
 private struct GlassSeparator: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     enum Axis {
         case horizontal
         case vertical
@@ -3150,14 +3428,14 @@ private struct GlassSeparator: View {
 
     var body: some View {
         Rectangle()
-            .fill(Color.white.opacity(0.095))
+            .fill(Color.primary.opacity(colorScheme == .dark ? 0.11 : 0.08))
             .frame(
                 width: axis == .vertical ? 1 : nil,
                 height: axis == .horizontal ? 1 : nil
             )
             .overlay {
                 Rectangle()
-                    .fill(Color.black.opacity(0.18))
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.05 : 0.18))
             }
     }
 }
@@ -3179,10 +3457,8 @@ private struct GlassPaneBackground: View {
         ZStack {
             Rectangle()
                 .fill(.regularMaterial)
-            Color(
-                white: colorScheme == .dark ? 0.035 : 0.92
-            )
-            .opacity(opacity)
+            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
+                .opacity(colorScheme == .dark ? opacity * 0.42 : opacity * 0.32)
         }
         .ignoresSafeArea()
     }
@@ -3204,10 +3480,8 @@ private struct GlassToolbarBackground: View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
-            Color(
-                white: colorScheme == .dark ? 0.045 : 0.98
-            )
-            .opacity(colorScheme == .dark ? 0.58 : 0.72)
+            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
+                .opacity(colorScheme == .dark ? 0.24 : 0.34)
         }
     }
 }
@@ -3226,28 +3500,84 @@ private struct LiquidGlassBackground: View {
 
     private var background: some View {
         ZStack {
-            Color(
-                white: colorScheme == .dark ? 0.045 : 0.95
-            )
             Rectangle()
-                .fill(.thickMaterial)
-                .opacity(colorScheme == .dark ? 0.38 : 0.62)
-            Color(
-                white: colorScheme == .dark ? 0.055 : 1.0
-            )
-            .opacity(colorScheme == .dark ? 0.44 : 0.24)
+                .fill(.regularMaterial)
+            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
+                .opacity(colorScheme == .dark ? 0.18 : 0.28)
         }
         .ignoresSafeArea()
     }
 }
 
-private extension View {
+private struct GlassRoundedBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var cornerRadius: CGFloat = 8
+    var material: Material = .ultraThinMaterial
+    var borderColor: Color?
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(material)
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(borderColor ?? Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34), lineWidth: 1)
+            }
+            .nativeBackgroundExtensionEffect()
+    }
+}
+
+private struct GlassCapsuleBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    var material: Material = .ultraThinMaterial
+    var borderColor: Color?
+
+    var body: some View {
+        Capsule(style: .continuous)
+            .fill(material)
+            .overlay {
+                Capsule(style: .continuous)
+                    .stroke(borderColor ?? Color.white.opacity(colorScheme == .dark ? 0.14 : 0.3), lineWidth: 1)
+            }
+            .nativeBackgroundExtensionEffect()
+    }
+}
+
+extension View {
     @ViewBuilder
     func nativeGlassButtonStyle() -> some View {
         if #available(macOS 26.0, *) {
             self.buttonStyle(.glass)
         } else {
             self.buttonStyle(.bordered)
+        }
+    }
+
+    @ViewBuilder
+    func nativeGlassProminentButtonStyle() -> some View {
+        if #available(macOS 26.0, *) {
+            self.buttonStyle(.glassProminent)
+        } else {
+            self.buttonStyle(.borderedProminent)
+        }
+    }
+
+    @ViewBuilder
+    func nativeBackgroundExtensionEffect() -> some View {
+        if #available(macOS 26.0, *) {
+            self.backgroundExtensionEffect()
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func nativeWindowGlassBackground() -> some View {
+        if #available(macOS 26.0, *) {
+            self
+                .containerBackground(.windowBackground, for: .window)
+                .toolbarBackgroundVisibility(.automatic, for: .windowToolbar)
+        } else {
+            self.background(.regularMaterial)
         }
     }
 }
