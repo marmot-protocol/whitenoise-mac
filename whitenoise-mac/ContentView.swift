@@ -16,7 +16,8 @@ struct ContentView: View {
             .frame(minWidth: 940, minHeight: 620)
             .preferredColorScheme(effectiveColorScheme)
             .environment(\.locale, workspace.preferredLocale)
-            .tint(.accentColor)
+            .tint(Color(nsColor: .systemBlue))
+            .nativeWindowGlassBackground()
             .onAppear {
                 applyAppearance(workspace.appearancePreference)
             }

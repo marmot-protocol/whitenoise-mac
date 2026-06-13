@@ -77,6 +77,46 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func deleteAllDataResetsToNewInstallState() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showSettings(.privacySecurity)
+        state.auditLogFiles = [
+            AuditLogFileFfi(
+                accountRef: primary.label,
+                path: "/tmp/audit-1.jsonl",
+                fileName: "audit-1.jsonl",
+                sizeBytes: 128,
+                modifiedAtMs: 1_700_000_000_000
+            )
+        ]
+        state.auditLogUploadStatus = "Uploaded 1 audit log file."
+
+        await state.deleteAllData()
+
+        #expect(runtime.didDeleteAllLocalData)
+        let accounts = try runtime.listAccounts()
+        #expect(accounts.isEmpty)
+        #expect(state.phase == .onboarding)
+        #expect(state.accounts.isEmpty)
+        #expect(state.activeAccountId == nil)
+        #expect(state.selection == nil)
+        #expect(state.auditLogFiles.isEmpty)
+        #expect(state.auditLogUploadStatus == nil)
+        #expect(!state.showsMessengerChrome)
+        #expect(UserDefaults.standard.string(forKey: "whitenoise.mac.activeAccountId") == nil)
+    }
+
+    @MainActor
     @Test func bootstrappingStateDoesNotShowMessengerChrome() async throws {
         let state = WorkspaceState(clientFactory: {
             FakeMarmotRuntime(accounts: [])
@@ -437,6 +477,13 @@ struct whitenoise_macTests {
             recordedAt: 1_700_000_010,
             agentTextStreamJson: #"{"stream_id":"stream"}"#
         )
+        let streamingChatRow = chatListRow(
+            groupIdHex: "direct-group",
+            title: "Alice",
+            preview: "Streaming…",
+            sender: account.accountIdHex,
+            timelineAt: 1_700_000_010
+        )
         runtime.installTimelineUpdates([
             .projection(update: RuntimeProjectionUpdateFfi(
                 accountIdHex: account.accountIdHex,
@@ -448,17 +495,14 @@ struct whitenoise_macTests {
                         .remove(messageIdHex: "stale", reason: .noLongerMatchesQuery),
                         .upsert(trigger: .agentStreamStarted, message: projected)
                     ],
-                    chatListRow: chatListRow(
-                        groupIdHex: "direct-group",
-                        title: "Alice",
-                        preview: "Streaming…",
-                        sender: account.accountIdHex,
-                        timelineAt: 1_700_000_010
-                    ),
+                    chatListRow: streamingChatRow,
                     chatListTrigger: .newLastMessage
                 )
             ))
         ], groupIdHex: "direct-group")
+        runtime.installChatListUpdates([
+            .row(trigger: .newLastMessage, row: streamingChatRow)
+        ])
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -574,6 +618,48 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func bootstrapSelectsMostRecentChatAndLoadsTimeline() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        runtime.installMessages([
+            appMessage(
+                id: "group-old",
+                groupIdHex: "group",
+                sender: account.accountIdHex,
+                plaintext: "Older group message",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            )
+        ], groupIdHex: "group")
+        runtime.installMessages([
+            appMessage(
+                id: "direct-new",
+                groupIdHex: "direct-group",
+                sender: account.accountIdHex,
+                plaintext: "Newest direct message",
+                kind: 9,
+                recordedAt: 1_700_000_100
+            )
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didLoadMostRecent = await waitFor {
+            state.selection == .chat("direct-group")
+                && state.messagesByChat["direct-group"]?.map(\.id) == ["direct-new"]
+        }
+
+        #expect(didLoadMostRecent)
+        #expect(runtime.timelineSubscriptionCount == 1)
+    }
+
+    @MainActor
     @Test func selectingChatsKeepsOnlyCurrentTranscriptInMemory() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -684,6 +770,342 @@ struct whitenoise_macTests {
         #expect(runtime.timelineMessageQueries.last?.before == baseTime + 5)
         #expect(runtime.timelineMessageQueries.last?.beforeMessageId == "message-005")
         #expect(runtime.timelineSubscriptionCount == 1)
+    }
+
+    @MainActor
+    @Test func loadingOlderMessagesDoesNotRepeatNonAdvancingCursor() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<101).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+
+        let initialQueryCount = runtime.timelineMessageQueries.count
+        runtime.timelineMessagesHandler = { query in
+            #expect(query.before == baseTime + 1)
+            #expect(query.beforeMessageId == "message-001")
+            return TimelinePageFfi(messages: [], hasMoreBefore: true, hasMoreAfter: true)
+        }
+
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+
+        #expect(runtime.timelineMessageQueries.count == initialQueryCount + 1)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-001")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+    }
+
+    @MainActor
+    @Test func timelineWindowCapsScrollbackAndPagesForwardAgain() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<450).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+
+        #expect(state.messagesByChat["direct-group"]?.count == 300)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-050")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "message-349")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+        #expect(state.selectedTimelinePaging.hasMoreAfter)
+
+        await state.loadNewerMessages(groupIdHex: "direct-group")
+
+        #expect(state.messagesByChat["direct-group"]?.count == 300)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-150")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "message-449")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+        #expect(!state.selectedTimelinePaging.hasMoreAfter)
+        #expect(runtime.timelineMessageQueries.last?.after == baseTime + 349)
+        #expect(runtime.timelineMessageQueries.last?.afterMessageId == "message-349")
+    }
+
+    @MainActor
+    @Test func latestSubscriptionPageDoesNotReplaceHistoricalTimelineWindow() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.timelineUpdateDelayNanoseconds = 300_000_000
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        let messages = (0..<450).map { index in
+            appMessage(
+                id: String(format: "message-%03d", index),
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Message \(index)",
+                kind: 9,
+                recordedAt: baseTime + UInt64(index)
+            )
+        }
+        runtime.installMessages(messages, groupIdHex: "direct-group")
+        runtime.installTimelineUpdates([
+            .page(page: TimelinePageFfi(
+                messages: (350..<450).map { index in
+                    timelineMessage(
+                        id: String(format: "message-%03d", index),
+                        groupIdHex: "direct-group",
+                        sender: aliceId,
+                        plaintext: "Live latest \(index)",
+                        recordedAt: baseTime + UInt64(index)
+                    )
+                },
+                hasMoreBefore: true,
+                hasMoreAfter: false
+            ))
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        let loadedIds = state.messagesByChat["direct-group"]?.map(\.id) ?? []
+        #expect(loadedIds.count == 300)
+        #expect(loadedIds.first == "message-050")
+        #expect(loadedIds.last == "message-349")
+        #expect(state.selectedTimelinePaging.hasMoreAfter)
+        #expect(runtime.markedReadMessageIds == ["message-449"])
+    }
+
+    @MainActor
+    @Test func projectionUpdateOnlyMutatesVisibleHistoricalMessages() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.timelineUpdateDelayNanoseconds = 300_000_000
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<450).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let visibleUpdate = timelineMessage(
+            id: "message-120",
+            groupIdHex: "direct-group",
+            sender: aliceId,
+            plaintext: "Visible message updated by projection",
+            recordedAt: baseTime + 120
+        )
+        let offscreenLatest = timelineMessage(
+            id: "message-500",
+            groupIdHex: "direct-group",
+            sender: aliceId,
+            plaintext: "Offscreen latest message",
+            recordedAt: baseTime + 500
+        )
+        runtime.installTimelineUpdates([
+            .projection(update: RuntimeProjectionUpdateFfi(
+                accountIdHex: account.accountIdHex,
+                accountLabel: account.label,
+                update: TimelineProjectionUpdateFfi(
+                    groupIdHex: "direct-group",
+                    messages: [visibleUpdate, offscreenLatest],
+                    changes: [
+                        .upsert(trigger: .reactionAdded, message: visibleUpdate),
+                        .upsert(trigger: .newMessage, message: offscreenLatest)
+                    ],
+                    chatListRow: chatListRow(
+                        groupIdHex: "direct-group",
+                        title: "Alice",
+                        preview: "Offscreen latest message",
+                        sender: aliceId,
+                        timelineAt: baseTime + 500
+                    ),
+                    chatListTrigger: .newLastMessage
+                )
+            ))
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        let loadedMessages = state.messagesByChat["direct-group"] ?? []
+        #expect(loadedMessages.count == 300)
+        #expect(loadedMessages.map(\.id).first == "message-050")
+        #expect(loadedMessages.map(\.id).last == "message-349")
+        #expect(loadedMessages.first(where: { $0.id == "message-120" })?.body == "Visible message updated by projection")
+        #expect(!loadedMessages.contains { $0.id == "message-500" })
+        #expect(state.selectedTimelinePaging.hasMoreAfter)
+        #expect(runtime.markedReadMessageIds == ["message-449"])
+    }
+
+    @MainActor
+    @Test func timelinePagingUsesLocalProfileDataWithoutRefreshingProfiles() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(bobId)
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: nil,
+                displayName: nil,
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: bobId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        runtime.clearRefreshedProfileIds()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+
+        #expect(runtime.refreshedProfileIds.isEmpty)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-000")
     }
 
     @MainActor
@@ -936,13 +1358,17 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
+        let didHydrateDirectPeer = await waitFor {
+            state.activeChats.first?.title == "Alice Actual"
+        }
 
+        #expect(didHydrateDirectPeer)
         #expect(state.activeChats.first?.title == "Alice Actual")
         #expect(state.activeChats.first?.subtitle == "Direct message")
         #expect(state.activeChats.first?.avatarSeed == "alice1234567890alice1234567890alice1234567890alice1234567890")
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
         #expect(state.activeChats.first?.isDirect == true)
-        #expect(runtime.refreshedProfileIds == ["alice1234567890alice1234567890alice1234567890alice1234567890"])
+        #expect(runtime.refreshedProfileIds.isEmpty)
     }
 
     @MainActor
@@ -1026,6 +1452,9 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
+        let didHydrateDirectChat = await waitFor {
+            state.activeChats.first?.isDirect == true
+        }
         guard let directChat = state.activeChats.first else {
             Issue.record("Expected a direct chat")
             return
@@ -1033,6 +1462,7 @@ struct whitenoise_macTests {
 
         state.showGroupImagePicker(for: directChat)
 
+        #expect(didHydrateDirectChat)
         #expect(directChat.isDirect)
         #expect(!state.isGroupImagePickerPresented)
     }
@@ -1227,6 +1657,7 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
+        runtime.clearTimelineMessageQueries()
         guard let groupChat = state.activeChats.first else {
             Issue.record("Expected a group chat")
             return
@@ -2252,6 +2683,9 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var timelineSubscriptionCount = 0
     private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
+    var accountIdsMissingProfiles = Set<String>()
+    var timelineMessagesHandler: ((TimelineMessageQueryFfi) -> TimelinePageFfi)?
+    var timelineUpdateDelayNanoseconds: UInt64 = 0
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
     private var groupDetailsById: [String: GroupDetailsFfi] = [:]
@@ -2279,6 +2713,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var didPostAuditLogTrackerUpdate = false
     private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
     private(set) var removedAccountRefs: [String] = []
+    private(set) var didDeleteAllLocalData = false
 
     init(accounts: [AccountSummaryFfi], createdAccount: AccountSummaryFfi? = nil) {
         self.storedAccounts = accounts
@@ -2298,12 +2733,14 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     }
 
     func displayName(accountIdHex: String) -> String? {
+        guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
         let resolvedProfile = profilesByAccountId[accountIdHex] ?? profile
         return resolvedProfile.displayName ?? resolvedProfile.name
     }
 
     func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi? {
-        profilesByAccountId[accountIdHex] ?? profile
+        guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
+        return profilesByAccountId[accountIdHex] ?? profile
     }
 
     func normalizeMemberRef(memberRef: String) throws -> MemberRefFfi {
@@ -2322,6 +2759,14 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         if let delay = profileRefreshDelaysByAccountId[accountIdHex] {
             try await Task.sleep(nanoseconds: delay)
         }
+    }
+
+    func clearRefreshedProfileIds() {
+        refreshedProfileIds = []
+    }
+
+    func clearTimelineMessageQueries() {
+        timelineMessageQueries = []
     }
 
     func installDirectGroup(
@@ -2510,6 +2955,17 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         "test-install-id"
     }
 
+    func deleteAllLocalData() async throws {
+        didDeleteAllLocalData = true
+        storedAccounts = []
+        groups = []
+        messagesByGroupId = [:]
+        timelinePagesByGroupId = [:]
+        timelineUpdatesByGroupId = [:]
+        chatListUpdates = []
+        storedAuditLogFiles = []
+    }
+
     func removeAccount(accountRef: String) async throws {
         removedAccountRefs.append(accountRef)
         storedAccounts.removeAll { $0.label == accountRef }
@@ -2676,7 +3132,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-self-demote")
     }
 
-    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) throws -> AppGroupRecordFfi {
+    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi {
         archivedGroup = ArchivedGroup(groupIdHex: groupIdHex, archived: archived)
         guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
             throw FakeMarmotRuntimeError.unused
@@ -2830,6 +3286,9 @@ private final class FakeMarmotRuntime: MarmotRuntime {
 
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
         timelineMessageQueries.append(query)
+        if let timelineMessagesHandler {
+            return timelineMessagesHandler(query)
+        }
         if let groupIdHex = query.groupIdHex {
             return pagedTimeline(from: timelinePagesByGroupId[groupIdHex]?.messages ?? [], query: query)
         }
@@ -2857,7 +3316,8 @@ private final class FakeMarmotRuntime: MarmotRuntime {
         )
         return FakeTimelineMessagesSubscription(
             page: page,
-            updates: groupIdHex.flatMap { timelineUpdatesByGroupId[$0] } ?? []
+            updates: groupIdHex.flatMap { timelineUpdatesByGroupId[$0] } ?? [],
+            updateDelayNanoseconds: timelineUpdateDelayNanoseconds
         )
     }
 
@@ -2904,7 +3364,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
             pendingConfirmation: group.pendingConfirmation,
             title: group.name.isEmpty ? DisplayText.short(group.groupIdHex) : group.name,
             groupName: group.name,
-            avatarUrl: nil,
+            avatarUrl: group.avatarUrl,
             avatar: nil,
             lastMessage: latest.map { message in
                 ChatListMessagePreviewFfi(
@@ -3022,17 +3482,27 @@ private final class FakeChatListSubscription: ChatListSubscription {
 
 private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscription {
     private let page: TimelinePageFfi
+    private var currentPage: TimelinePageFfi
     private var updates: [TimelineSubscriptionUpdateFfi]
+    private let updateDelayNanoseconds: UInt64
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.page = emptyTimelinePage()
+        self.currentPage = emptyTimelinePage()
         self.updates = []
+        self.updateDelayNanoseconds = 0
         super.init(unsafeFromRawPointer: pointer)
     }
 
-    init(page: TimelinePageFfi, updates: [TimelineSubscriptionUpdateFfi] = []) {
+    init(
+        page: TimelinePageFfi,
+        updates: [TimelineSubscriptionUpdateFfi] = [],
+        updateDelayNanoseconds: UInt64 = 0
+    ) {
         self.page = page
+        self.currentPage = page
         self.updates = updates
+        self.updateDelayNanoseconds = updateDelayNanoseconds
         super.init(noPointer: NoPointer())
     }
 
@@ -3041,12 +3511,57 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     }
 
     override func next() async -> TimelinePageFfi? {
-        nil
+        guard !updates.isEmpty else { return nil }
+        if updateDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
+        }
+        let update = updates.removeFirst()
+        switch update {
+        case .page(page: let page):
+            currentPage = page
+        case .projection(update: let runtimeUpdate):
+            currentPage.applyProjectionUpdate(runtimeUpdate.update)
+        }
+        return currentPage
     }
 
     override func nextUpdate() async -> TimelineSubscriptionUpdateFfi? {
         guard !updates.isEmpty else { return nil }
+        if updateDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
+        }
         return updates.removeFirst()
+    }
+}
+
+private extension TimelinePageFfi {
+    mutating func applyProjectionUpdate(_ update: TimelineProjectionUpdateFfi) {
+        if update.changes.isEmpty {
+            for message in update.messages {
+                upsert(message)
+            }
+        } else {
+            for change in update.changes {
+                switch change {
+                case .upsert(trigger: _, message: let message):
+                    upsert(message)
+                case .remove(messageIdHex: let messageIdHex, reason: _):
+                    messages.removeAll { $0.messageIdHex == messageIdHex }
+                }
+            }
+        }
+        messages.sort {
+            if $0.timelineAt != $1.timelineAt { return $0.timelineAt < $1.timelineAt }
+            return $0.messageIdHex < $1.messageIdHex
+        }
+    }
+
+    private mutating func upsert(_ message: TimelineMessageRecordFfi) {
+        if let index = messages.firstIndex(where: { $0.messageIdHex == message.messageIdHex }) {
+            messages[index] = message
+        } else {
+            messages.append(message)
+        }
     }
 }
 

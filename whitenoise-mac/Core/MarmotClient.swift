@@ -28,6 +28,7 @@ protocol MarmotRuntime {
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws
     func setRelayTelemetrySettings(settings: RelayTelemetrySettingsFfi) async throws -> RelayTelemetrySettingsFfi
     func telemetryInstallId() throws -> String
+    func deleteAllLocalData() async throws
     func removeAccount(accountRef: String) async throws
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64
     func republishKeyPackage(accountRef: String) async throws -> UInt64
@@ -43,7 +44,7 @@ protocol MarmotRuntime {
     func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi
     func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
-    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) throws -> AppGroupRecordFfi
+    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi
     func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi]
@@ -185,6 +186,20 @@ final class MarmotClient: MarmotRuntime {
         try marmot.telemetryInstallId()
     }
 
+    func deleteAllLocalData() async throws {
+        let accounts = try marmot.listAccounts()
+        for account in accounts {
+            try await marmot.removeAccount(accountRef: account.label)
+        }
+        await marmot.shutdown()
+
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: rootPath) {
+            try fileManager.removeItem(atPath: rootPath)
+        }
+        try fileManager.createDirectory(atPath: rootPath, withIntermediateDirectories: true)
+    }
+
     func removeAccount(accountRef: String) async throws {
         try await marmot.removeAccount(accountRef: accountRef)
     }
@@ -278,8 +293,8 @@ final class MarmotClient: MarmotRuntime {
         try await marmot.selfDemoteAdminDetailed(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
-    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) throws -> AppGroupRecordFfi {
-        try marmot.setGroupArchived(accountRef: accountRef, groupIdHex: groupIdHex, archived: archived)
+    func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi {
+        try await marmot.setGroupArchived(accountRef: accountRef, groupIdHex: groupIdHex, archived: archived)
     }
 
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi {

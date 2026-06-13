@@ -12,7 +12,7 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DARKMATTER_DIR="${DARKMATTER_DIR:-$HOME/code/darkmatter}"
 
 CRATE_DIR="$DARKMATTER_DIR/crates/marmot-uniffi"
-TARGET_DIR="$DARKMATTER_DIR/target"
+TARGET_DIR="${CARGO_TARGET_DIR:-$DARKMATTER_DIR/target}"
 VENDOR_DIR="$APP_DIR/Vendored/MarmotKit"
 BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marmotkit-macos.XXXXXX")"
 trap 'rm -rf "$BUILD_DIR"' EXIT
@@ -20,6 +20,7 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 CRATE_NAME="marmot-uniffi"
 LIB_BASENAME="marmot_uniffi"
 FRAMEWORK_NAME="MarmotKit"
+MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-15.6}"
 
 if [[ ! -d "$CRATE_DIR" ]]; then
     echo "error: can't find marmot-uniffi crate at $CRATE_DIR" >&2
@@ -28,6 +29,10 @@ if [[ ! -d "$CRATE_DIR" ]]; then
 fi
 
 export PATH="$HOME/.cargo/bin:$PATH"
+export MACOSX_DEPLOYMENT_TARGET
+export CFLAGS_aarch64_apple_darwin="${CFLAGS_aarch64_apple_darwin:--mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}}"
+export CXXFLAGS_aarch64_apple_darwin="${CXXFLAGS_aarch64_apple_darwin:--mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}}"
+export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
 
 mkdir -p "$BUILD_DIR/headers" "$BUILD_DIR/swift" "$VENDOR_DIR/Sources/MarmotKit"
 
@@ -78,6 +83,7 @@ darkmatter-branch: ${DM_BRANCH}
 built-at: ${BUILT_AT}
 uniffi-version: 0.28.3
 macos-targets: aarch64-apple-darwin
+macos-deployment-target: ${MACOSX_DEPLOYMENT_TARGET}
 
 Notes:
 - Regenerate with: whitenoise-mac/scripts/sync-bindings.sh
