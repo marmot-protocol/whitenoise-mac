@@ -1423,7 +1423,7 @@ public protocol MarmotProtocol : AnyObject {
      * projection and resolve the latest text per target message id.
      */
     func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws  -> SendSummaryFfi
-
+    
     /**
      * Group plus enriched member rows for detail screens.
      */
@@ -1758,6 +1758,13 @@ public protocol MarmotProtocol : AnyObject {
      * start, reaction summaries, delete tombstones, and pagination flags. Raw
      * kind-7/kind-5 events remain available through `messages(...)` for
      * diagnostics.
+     *
+     * This call is **synchronous** and runs the store read on the calling
+     * thread; clients should not use it for scroll-back. Prefer
+     * [`subscribe_timeline_messages`](Self::subscribe_timeline_messages) plus
+     * `TimelineMessagesSubscription::paginate_backwards` /
+     * `paginate_forwards`, which own a bounded window and run off the caller
+     * thread. Retained for one-shot diagnostics/tooling only.
      */
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws  -> TimelinePageFfi
     
@@ -2269,7 +2276,7 @@ open func editMessage(accountRef: String, groupIdHex: String, targetMessageId: S
             errorHandler: FfiConverterTypeMarmotKitError.lift
         )
 }
-
+    
     /**
      * Group plus enriched member rows for detail screens.
      */
@@ -3380,6 +3387,13 @@ open func telemetryInstallId()throws  -> String {
      * start, reaction summaries, delete tombstones, and pagination flags. Raw
      * kind-7/kind-5 events remain available through `messages(...)` for
      * diagnostics.
+     *
+     * This call is **synchronous** and runs the store read on the calling
+     * thread; clients should not use it for scroll-back. Prefer
+     * [`subscribe_timeline_messages`](Self::subscribe_timeline_messages) plus
+     * `TimelineMessagesSubscription::paginate_backwards` /
+     * `paginate_forwards`, which own a bounded window and run off the caller
+     * thread. Retained for one-shot diagnostics/tooling only.
      */
 open func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi)throws  -> TimelinePageFfi {
     return try  FfiConverterTypeTimelinePageFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
@@ -3860,16 +3874,63 @@ public func FfiConverterTypeNotificationsSubscription_lower(_ value: Notificatio
 
 
 
+/**
+ * Host-facing handle to one conversation's materialized timeline window.
+ *
+ * The runtime owns the authoritative, bounded window; this object exposes it.
+ * The live-update receiver and the paginatable window are held behind separate
+ * locks (`receiver` vs the runtime's internal window mutex, reached through the
+ * cloned `window` handle), so a host can drive `next()`/`next_update()` on one
+ * task while `paginate_backwards`/`paginate_forwards` runs on another without
+ * either blocking the other.
+ */
 public protocol TimelineMessagesSubscriptionProtocol : AnyObject {
     
+    /**
+     * Await the next live update and return the resulting authoritative window.
+     * Windowing (ordering, dedup, head-anchoring while scrolled back, and the
+     * cap) is owned by the runtime, so this returns exactly the bounded window
+     * pagination operates on — render it directly. Use
+     * [`next_update`](Self::next_update) instead to receive the raw delta.
+     */
     func next() async  -> TimelinePageFfi?
     
     func nextUpdate() async  -> TimelineSubscriptionUpdateFfi?
+    
+    /**
+     * Extend the materialized window toward older history by up to `count`
+     * messages and return the new window. The returned page is already sorted,
+     * deduplicated, capped, and carries correct `has_more_before` /
+     * `has_more_after` flags — render it directly; no client-side merging or
+     * windowing is required. The store read runs off the caller thread and uses
+     * a different lock than `next()`, so a host driving `next()` on a background
+     * task can paginate without blocking (and this never blocks the UI thread,
+     * unlike the synchronous `Marmot::timeline_messages`).
+     */
+    func paginateBackwards(count: UInt32) async throws  -> TimelinePageFfi
+    
+    /**
+     * Extend the materialized window toward the live head by up to `count`
+     * messages and return the new window. Reaching the head re-anchors the
+     * window (`has_more_after` becomes false). Same windowing/threading
+     * guarantees as [`paginate_backwards`](Self::paginate_backwards).
+     */
+    func paginateForwards(count: UInt32) async throws  -> TimelinePageFfi
     
     func snapshot()  -> TimelinePageFfi?
     
 }
 
+/**
+ * Host-facing handle to one conversation's materialized timeline window.
+ *
+ * The runtime owns the authoritative, bounded window; this object exposes it.
+ * The live-update receiver and the paginatable window are held behind separate
+ * locks (`receiver` vs the runtime's internal window mutex, reached through the
+ * cloned `window` handle), so a host can drive `next()`/`next_update()` on one
+ * task while `paginate_backwards`/`paginate_forwards` runs on another without
+ * either blocking the other.
+ */
 open class TimelineMessagesSubscription:
     TimelineMessagesSubscriptionProtocol {
     fileprivate let pointer: UnsafeMutableRawPointer!
@@ -3920,6 +3981,13 @@ open class TimelineMessagesSubscription:
     
 
     
+    /**
+     * Await the next live update and return the resulting authoritative window.
+     * Windowing (ordering, dedup, head-anchoring while scrolled back, and the
+     * cap) is owned by the runtime, so this returns exactly the bounded window
+     * pagination operates on — render it directly. Use
+     * [`next_update`](Self::next_update) instead to receive the raw delta.
+     */
 open func next()async  -> TimelinePageFfi? {
     return
         try!  await uniffiRustCallAsync(
@@ -3953,6 +4021,56 @@ open func nextUpdate()async  -> TimelineSubscriptionUpdateFfi? {
             liftFunc: FfiConverterOptionTypeTimelineSubscriptionUpdateFfi.lift,
             errorHandler: nil
             
+        )
+}
+    
+    /**
+     * Extend the materialized window toward older history by up to `count`
+     * messages and return the new window. The returned page is already sorted,
+     * deduplicated, capped, and carries correct `has_more_before` /
+     * `has_more_after` flags — render it directly; no client-side merging or
+     * windowing is required. The store read runs off the caller thread and uses
+     * a different lock than `next()`, so a host driving `next()` on a background
+     * task can paginate without blocking (and this never blocks the UI thread,
+     * unlike the synchronous `Marmot::timeline_messages`).
+     */
+open func paginateBackwards(count: UInt32)async throws  -> TimelinePageFfi {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_timelinemessagessubscription_paginate_backwards(
+                    self.uniffiClonePointer(),
+                    FfiConverterUInt32.lower(count)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeTimelinePageFfi.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
+}
+    
+    /**
+     * Extend the materialized window toward the live head by up to `count`
+     * messages and return the new window. Reaching the head re-anchors the
+     * window (`has_more_after` becomes false). Same windowing/threading
+     * guarantees as [`paginate_backwards`](Self::paginate_backwards).
+     */
+open func paginateForwards(count: UInt32)async throws  -> TimelinePageFfi {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_timelinemessagessubscription_paginate_forwards(
+                    self.uniffiClonePointer(),
+                    FfiConverterUInt32.lower(count)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeTimelinePageFfi.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
         )
 }
     
@@ -13837,7 +13955,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_telemetry_install_id() != 40706) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_marmot_uniffi_checksum_method_marmot_timeline_messages() != 13755) {
+    if (uniffi_marmot_uniffi_checksum_method_marmot_timeline_messages() != 49184) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_unreact_from_message() != 11846) {
@@ -13870,10 +13988,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_notificationssubscription_next() != 46153) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_marmot_uniffi_checksum_method_timelinemessagessubscription_next() != 61278) {
+    if (uniffi_marmot_uniffi_checksum_method_timelinemessagessubscription_next() != 62953) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_timelinemessagessubscription_next_update() != 63148) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_timelinemessagessubscription_paginate_backwards() != 53270) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_timelinemessagessubscription_paginate_forwards() != 2818) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_timelinemessagessubscription_snapshot() != 33790) {
