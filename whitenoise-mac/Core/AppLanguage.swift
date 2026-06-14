@@ -34,9 +34,19 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         [.system] + supportedAppLanguages
     }
 
+    // `L10n.string` resolves this on every localized lookup (many per message during
+    // mapping). Cache the constructed Locale and only rebuild it when the stored
+    // language preference actually changes.
+    nonisolated(unsafe) private static var cachedLocale: (raw: String?, locale: Locale)?
+
     static var currentLocale: Locale {
         let rawValue = UserDefaults.standard.string(forKey: storageKey)
-        return resolved(rawValue: rawValue).locale ?? .autoupdatingCurrent
+        if let cached = cachedLocale, cached.raw == rawValue {
+            return cached.locale
+        }
+        let locale = resolved(rawValue: rawValue).locale ?? .autoupdatingCurrent
+        cachedLocale = (rawValue, locale)
+        return locale
     }
 
     static func resolved(rawValue: String?) -> AppLanguage {

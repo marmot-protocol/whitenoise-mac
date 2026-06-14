@@ -52,19 +52,20 @@ private struct WelcomeAuthView: View {
                 .frame(width: 104, height: 104)
                 .shadow(color: Color.black.opacity(0.12), radius: 18, y: 10)
 
-            Text("White Noise")
-                .font(.system(size: 34, weight: .semibold))
-
-            HStack(spacing: 12) {
+            // Standard primary/secondary pattern: hierarchy comes from the button style,
+            // and the system owns the label/fill colors (adapts to accent, contrast, and
+            // light/dark) — we don't hard-code them.
+            VStack(spacing: 12) {
                 Button {
                     Task { await workspace.signUp() }
                 } label: {
                     Text(workspace.isAuthenticating && workspace.authenticationMode == .landing
                         ? L10n.string("Creating...")
                         : L10n.string("Create New Identity"))
-                        .frame(width: 176)
+                        .frame(maxWidth: .infinity)
                 }
-                .controlSize(.large)
+                .controlSize(.extraLarge)
+                .buttonBorderShape(.capsule)
                 .nativeGlassProminentButtonStyle()
                 .disabled(workspace.isAuthenticating)
 
@@ -72,12 +73,13 @@ private struct WelcomeAuthView: View {
                     workspace.showLogin()
                 } label: {
                     Text("Log in with Key")
-                        .frame(width: 176)
+                        .frame(maxWidth: .infinity)
                 }
-                .controlSize(.large)
-                .nativeGlassButtonStyle()
+                .controlSize(.extraLarge)
+                .buttonStyle(.plain)
                 .disabled(workspace.isAuthenticating)
             }
+            .frame(width: 280)
 
             if workspace.authenticationMode == .login {
                 VStack(spacing: 12) {
@@ -120,7 +122,9 @@ private struct WelcomeAuthView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            LiquidGlassBackground()
+            // Matches the app-logo tile grey (#202020) so the mark sits on a seamless field.
+            Color(red: 32.0 / 255.0, green: 32.0 / 255.0, blue: 32.0 / 255.0)
+                .ignoresSafeArea()
         }
     }
 }
@@ -212,6 +216,7 @@ private struct ChatListDrawerView: View {
             } else if workspace.isNewChatComposerVisible {
                 NewChatColumnView()
             } else {
+                let filteredChats = workspace.filteredChats
                 VStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Text("Chats")
@@ -241,7 +246,7 @@ private struct ChatListDrawerView: View {
 
                 ScrollView {
                     LazyVStack(spacing: 3) {
-                        ForEach(workspace.filteredChats) { chat in
+                        ForEach(filteredChats) { chat in
                             Button {
                                 workspace.selectChat(chat)
                             } label: {
@@ -257,7 +262,7 @@ private struct ChatListDrawerView: View {
                     .padding(.vertical, 8)
                 }
                 .overlay {
-                    if workspace.filteredChats.isEmpty {
+                    if filteredChats.isEmpty {
                         EmptyDrawerState()
                     }
                 }
@@ -322,10 +327,7 @@ private struct SettingsListDrawerView: View {
                     Text(account.displayName)
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
-                    Text(DisplayText.short(account.accountIdHex, head: 8, tail: 6))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    CopyableKeyLabel(accountIdHex: account.accountIdHex, head: 8, tail: 6, showsCopyButton: false)
                 }
             } else {
                 Label("No account", systemImage: "person.crop.circle.badge.exclamationmark")
@@ -472,7 +474,8 @@ private struct ConversationView: View {
 
     var body: some View {
         @Bindable var workspace = workspace
-        let messageIDs = workspace.selectedMessageIDs
+        let messages = workspace.selectedMessages
+        let messageIDs = messages.map(\.id)
         let paging = workspace.selectedTimelinePaging
 
         VStack(spacing: 0) {
@@ -520,8 +523,8 @@ private struct ConversationView: View {
                                     }
                             }
 
-                            ForEach(messageIDs, id: \.self) { messageID in
-                                ConversationMessageRow(groupIdHex: chat.id, messageId: messageID)
+                            ForEach(messages) { message in
+                                ConversationMessageRow(message: message)
                             }
 
                             if paging.hasMoreAfter {
@@ -576,10 +579,12 @@ private struct ConversationView: View {
                     lastNewerLoadTriggerAnchorId = nil
                     bottomSentinelResetTask = nil
                 }
-                .onChange(of: messageIDs.last) { previousMessageId, _ in
-                    guard previousMessageId != nil,
-                          !messageIDs.isEmpty,
-                          !paging.hasMoreBefore,
+                .onChange(of: messageIDs.last) { _, newMessageId in
+                    // Pin to the newest message on initial load and when a new message
+                    // arrives at the live edge — but not while scrolled back into history
+                    // (hasMoreAfter) or mid-prepend, where it would yank the user away.
+                    guard newMessageId != nil,
+                          !paging.hasMoreAfter,
                           pendingPrependAnchorId == nil
                     else { return }
                     scrollToBottom(with: proxy)
@@ -710,7 +715,7 @@ private struct ReplyComposerContextView: View {
                     .font(.system(size: 11, weight: .bold))
                     .frame(width: 24, height: 24)
             }
-            .nativeGlassButtonStyle()
+            .nativeGlassCircleButtonStyle()
             .help("Cancel reply")
         }
         .padding(.horizontal, 12)
@@ -741,7 +746,7 @@ private struct NewChatColumnView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .frame(width: 28, height: 28)
                 }
-                .nativeGlassButtonStyle()
+                .nativeGlassCircleButtonStyle()
                 .help("Close")
             }
             .padding(.horizontal, 14)
@@ -874,10 +879,7 @@ private struct NewChatRecipientCard: View {
                 Text(recipient.title)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)
-                Text(recipient.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                CopyableKeyLabel(accountIdHex: recipient.accountIdHex)
             }
 
             Spacer()
@@ -907,15 +909,12 @@ private struct ProfileImageAvatarView: View {
     var body: some View {
         Group {
             if let imageURL {
-                AsyncImage(url: imageURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    default:
-                        AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected)
-                    }
+                DownsampledAsyncImage(url: imageURL, maxPixelSize: size * 2) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } placeholder: {
+                    AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected)
                 }
             } else {
                 AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected)
@@ -1054,7 +1053,7 @@ private struct GroupDetailsSheet: View {
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 28, height: 28)
                 }
-                .nativeGlassButtonStyle()
+                .nativeGlassCircleButtonStyle()
                 .help("Close")
             }
             .padding(20)
@@ -1444,7 +1443,7 @@ private struct GroupImagePickerSheet: View {
                             .font(.system(size: 12, weight: .bold))
                             .frame(width: 28, height: 28)
                     }
-                    .nativeGlassButtonStyle()
+                    .nativeGlassCircleButtonStyle()
                     .help("Close")
                 }
                 .padding(.horizontal, 18)
@@ -1538,22 +1537,14 @@ private struct GroupImageResultTile: View {
                     .fill(.regularMaterial)
 
                 if let imageURL = result.previewURL {
-                    AsyncImage(url: imageURL) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                                .controlSize(.small)
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        case .failure:
-                            Image(systemName: "photo")
-                                .font(.system(size: 24, weight: .light))
-                                .foregroundStyle(.secondary)
-                        @unknown default:
-                            EmptyView()
-                        }
+                    DownsampledAsyncImage(url: imageURL, maxPixelSize: 320) { image in
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } placeholder: {
+                        Image(systemName: "photo")
+                            .font(.system(size: 24, weight: .light))
+                            .foregroundStyle(.secondary)
                     }
                 } else {
                     Image(systemName: "photo")
@@ -1585,17 +1576,16 @@ private struct GroupImageResultTile: View {
 }
 
 private struct ConversationMessageRow: View {
-    @Environment(WorkspaceState.self) private var workspace
-    let groupIdHex: String
-    let messageId: String
+    let message: MessageItem
 
+    // Receives the resolved MessageItem by value (not via a shared @Observable lookup),
+    // so SwiftUI diffs each row by value and only re-runs the rows that actually changed
+    // instead of invalidating every visible row on each page load / streaming update.
     var body: some View {
-        if let message = workspace.timelineMessage(groupIdHex: groupIdHex, messageId: messageId) {
-            if message.presentation.isChatBubble {
-                MessageBubble(message: message)
-            } else {
-                TimelineNoticeRow(message: message)
-            }
+        if message.presentation.isChatBubble {
+            MessageBubble(message: message)
+        } else {
+            TimelineNoticeRow(message: message)
         }
     }
 }
@@ -2213,10 +2203,7 @@ private struct AccountSettingsRow: View {
                         .lineLimit(1)
 
                     HStack(spacing: 8) {
-                        Text(DisplayText.short(account.accountIdHex, head: 12, tail: 10))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        CopyableKeyLabel(accountIdHex: account.accountIdHex, showsCopyButton: false)
 
                         Text(account.localSigning ? L10n.string("Local signing") : L10n.string("Watch-only"))
                             .font(.caption)
@@ -2280,10 +2267,7 @@ private struct ProfileSettingsView: View {
                                 Text(profilePreviewName(fallback: account))
                                     .font(.headline)
                                     .lineLimit(1)
-                                Text(DisplayText.short(account.accountIdHex, head: 12, tail: 10))
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .textSelection(.enabled)
+                                CopyableKeyLabel(accountIdHex: account.accountIdHex)
                             }
                         }
                     }
@@ -2373,14 +2357,9 @@ private struct IdentityKeysSettingsView: View {
                     }
 
                     Section("Public Identity") {
-                        if let npub = account.npub?.trimmingCharacters(in: .whitespacesAndNewlines), !npub.isEmpty {
-                            CopyableLabeledValue(title: "npub", value: npub) {
-                                workspace.copyText(npub)
-                            }
-                        }
-
-                        CopyableLabeledValue(title: "Public key", value: account.accountIdHex) {
-                            workspace.copyText(account.accountIdHex)
+                        let npub = workspace.npub(forAccountIdHex: account.accountIdHex)
+                        CopyableLabeledValue(title: "npub", value: npub) {
+                            workspace.copyText(npub)
                         }
                     }
 
@@ -2444,6 +2423,41 @@ private struct IdentityKeysSettingsView: View {
             return String(format: L10n.string("Remove %@?"), account.displayName)
         }
         return L10n.string("Remove account?")
+    }
+}
+
+// Shows a user's public key as a truncated `npub` (derived from the hex), with an optional
+// one-click copy-to-clipboard icon. Use everywhere a pubkey is surfaced so users always see
+// — and can copy — the canonical npub form rather than raw hex.
+private struct CopyableKeyLabel: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let accountIdHex: String
+    var head: Int = 12
+    var tail: Int = 10
+    var showsCopyButton: Bool = true
+
+    var body: some View {
+        let npub = workspace.npub(forAccountIdHex: accountIdHex)
+        HStack(spacing: 6) {
+            Text(DisplayText.short(npub, head: head, tail: tail))
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+
+            if showsCopyButton {
+                Button {
+                    workspace.copyText(npub)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 10))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(L10n.string("Copy npub"))
+            }
+        }
     }
 }
 
@@ -3550,6 +3564,14 @@ extension View {
         } else {
             self.buttonStyle(.bordered)
         }
+    }
+
+    /// A circular glass icon button (e.g. close / cancel "✕" controls).
+    @ViewBuilder
+    func nativeGlassCircleButtonStyle() -> some View {
+        self
+            .buttonBorderShape(.circle)
+            .nativeGlassButtonStyle()
     }
 
     @ViewBuilder

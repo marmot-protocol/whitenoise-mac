@@ -3409,6 +3409,9 @@
         }
       }
     },
+    "Copy npub" : {
+
+    },
     "Copy Private Key" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -22487,6 +22490,7 @@
       }
     },
     "White Noise" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
