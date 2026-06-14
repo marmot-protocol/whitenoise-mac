@@ -629,7 +629,15 @@ enum ChatFilter {
     }
 }
 
-enum DisplayText {
+nonisolated enum DisplayText {
+    // Cached so per-message timestamp formatting during mapping does not re-resolve the
+    // calendar or rebuild a format style for every message.
+    private static let calendar = Calendar.autoupdatingCurrent
+    private static let timeOnlyStyle = Date.FormatStyle(date: .omitted, time: .shortened)
+    private static let dateTimeStyle = Date.FormatStyle(date: .abbreviated, time: .shortened)
+    private static let weekdayStyle = Date.FormatStyle.dateTime.weekday(.abbreviated)
+    private static let monthDayStyle = Date.FormatStyle.dateTime.month(.abbreviated).day()
+
     static func short(_ value: String, head: Int = 8, tail: Int = 6) -> String {
         guard value.count > head + tail + 3 else { return value }
         return "\(value.prefix(head))...\(value.suffix(tail))"
@@ -646,21 +654,20 @@ enum DisplayText {
     }
 
     static func relativeTimestamp(for date: Date, now: Date = Date()) -> String {
-        let calendar = Calendar.current
         if calendar.isDateInToday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
+            return date.formatted(timeOnlyStyle)
         }
         if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
-            return date.formatted(.dateTime.weekday(.abbreviated))
+            return date.formatted(weekdayStyle)
         }
-        return date.formatted(.dateTime.month(.abbreviated).day())
+        return date.formatted(monthDayStyle)
     }
 
     static func messageTimestamp(for date: Date, now: Date = Date()) -> String {
-        if Calendar.current.isDateInToday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDateInToday(date) {
+            return date.formatted(timeOnlyStyle)
         }
-        return date.formatted(date: .abbreviated, time: .shortened)
+        return date.formatted(dateTimeStyle)
     }
 }
 
