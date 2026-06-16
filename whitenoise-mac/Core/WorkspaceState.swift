@@ -1334,6 +1334,7 @@ final class WorkspaceState {
     }
 
     func copyText(of message: MessageItem) {
+        guard message.canCopyText else { return }
         copyText(message.body)
     }
 
@@ -1381,7 +1382,7 @@ final class WorkspaceState {
     }
 
     func deleteMessage(_ message: MessageItem) async {
-        guard message.supportsChatActions else { return }
+        guard message.canDelete else { return }
         guard let client, let activeAccount, let selectedChat else { return }
         do {
             _ = try await client.deleteMessage(
