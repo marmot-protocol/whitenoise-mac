@@ -133,6 +133,7 @@ final class WorkspaceState {
     var mutatingGroupMemberId: String?
     private(set) var storageRootPath = MarmotClient.defaultStorageRootPath()
     private(set) var timelinePagingByChat: [String: TimelinePagingState] = [:]
+    private(set) var timelineInitialLoadGroupId: String?
 
     private let clientFactory: @MainActor () throws -> any MarmotRuntime
     private let localNotificationCenter: any LocalNotificationCenter
@@ -306,6 +307,12 @@ final class WorkspaceState {
         return timelinePagingByChat[selectedChat.id] ?? .empty
     }
 
+    var selectedTimelineIsLoadingInitialPage: Bool {
+        guard let selectedChat else { return false }
+        return timelineInitialLoadGroupId == selectedChat.id
+            && messagesByChat[selectedChat.id] == nil
+    }
+
     func timelineMessage(groupIdHex: String, messageId: String) -> MessageItem? {
         messageLookupByChat[groupIdHex]?[messageId]
     }
@@ -403,8 +410,17 @@ final class WorkspaceState {
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
         refreshObservabilityRuntime()
-        selection = activeChats.first.map { .chat($0.id) }
-        Task { await reloadChats() }
+        let chatToLoad = activeChats.first
+        selection = chatToLoad.map { .chat($0.id) }
+        if let chatToLoad {
+            beginTimelineInitialLoadIfNeeded(groupIdHex: chatToLoad.id)
+        }
+        Task {
+            await reloadChats()
+            if let selectedChat {
+                await loadMessages(groupIdHex: selectedChat.id)
+            }
+        }
     }
 
     func selectAccountFromSettings(_ account: AccountItem) {
@@ -430,6 +446,7 @@ final class WorkspaceState {
         replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
+        beginTimelineInitialLoadIfNeeded(groupIdHex: chat.id)
         Task { await loadMessages(groupIdHex: chat.id) }
     }
 
@@ -969,6 +986,7 @@ final class WorkspaceState {
             )
             selection = .chat(groupIdHex)
             closeNewChatComposer()
+            beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
             await loadMessages(groupIdHex: groupIdHex)
         } catch {
             lastError = error.localizedDescription
@@ -998,12 +1016,21 @@ final class WorkspaceState {
     }
 
     func loadMessages(groupIdHex: String) async {
-        guard let client, let activeAccount else { return }
+        guard let client, let activeAccount else {
+            finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            return
+        }
         if timelineTaskGroupId == groupIdHex, messagesByChat[groupIdHex] != nil {
+            finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return
         }
         stopTimelineListener()
-        guard selectedChat?.id == groupIdHex else { return }
+        guard selectedChat?.id == groupIdHex else {
+            finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            return
+        }
+        beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
+        defer { finishTimelineInitialLoad(groupIdHex: groupIdHex) }
         do {
             let accountRef = activeAccount.accountRef
             if let row = try await runOffMain({
@@ -1672,6 +1699,7 @@ final class WorkspaceState {
         closeNewChatComposer()
         pruneMessageCache(keeping: groupIdHex)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
 
         Task {
             await reloadChats()
@@ -1770,6 +1798,7 @@ final class WorkspaceState {
         mutatingGroupMemberId = nil
         self.storageRootPath = storageRootPath
         timelinePagingByChat = [:]
+        timelineInitialLoadGroupId = nil
         lastMarkedReadMarkers = [:]
         deliveredNotificationKeys = []
         deliveredNotificationKeyOrder = []
@@ -2198,6 +2227,9 @@ final class WorkspaceState {
         messageLookupByChat[groupIdHex] = nil
         messageIDsByChat[groupIdHex] = nil
         timelinePagingByChat[groupIdHex] = nil
+        if timelineInitialLoadGroupId == groupIdHex {
+            timelineInitialLoadGroupId = nil
+        }
         lastMarkedReadMarkers[groupIdHex] = nil
 
         guard case .chat(let selectedGroupId) = selection,
@@ -2208,6 +2240,7 @@ final class WorkspaceState {
         selection = nextChat.map { .chat($0.id) }
         pruneMessageCache(keeping: nextChat?.id)
         if let nextChat {
+            beginTimelineInitialLoadIfNeeded(groupIdHex: nextChat.id)
             Task { await loadMessages(groupIdHex: nextChat.id) }
         }
     }
@@ -2237,6 +2270,7 @@ final class WorkspaceState {
         } else {
             timelinePagingByChat = [groupIdHex: nextPaging]
         }
+        finishTimelineInitialLoad(groupIdHex: groupIdHex)
     }
 
     private func pruneMessageCache(keeping groupIdHex: String?) {
@@ -2245,6 +2279,7 @@ final class WorkspaceState {
             messageLookupByChat = [:]
             messageIDsByChat = [:]
             timelinePagingByChat = [:]
+            timelineInitialLoadGroupId = nil
             return
         }
 
@@ -2261,6 +2296,25 @@ final class WorkspaceState {
             timelinePagingByChat = [groupIdHex: paging]
         } else {
             timelinePagingByChat = [:]
+        }
+        if timelineInitialLoadGroupId != groupIdHex {
+            timelineInitialLoadGroupId = nil
+        } else if messagesByChat[groupIdHex] != nil {
+            timelineInitialLoadGroupId = nil
+        }
+    }
+
+    private func beginTimelineInitialLoadIfNeeded(groupIdHex: String) {
+        if messagesByChat[groupIdHex] == nil {
+            timelineInitialLoadGroupId = groupIdHex
+        } else if timelineInitialLoadGroupId == groupIdHex {
+            timelineInitialLoadGroupId = nil
+        }
+    }
+
+    private func finishTimelineInitialLoad(groupIdHex: String) {
+        if timelineInitialLoadGroupId == groupIdHex {
+            timelineInitialLoadGroupId = nil
         }
     }
 
@@ -2372,6 +2426,7 @@ final class WorkspaceState {
         replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
+        beginTimelineInitialLoadIfNeeded(groupIdHex: chat.id)
         await loadMessages(groupIdHex: chat.id)
     }
 
