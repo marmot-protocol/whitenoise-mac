@@ -2446,6 +2446,7 @@ private struct AccountSettingsRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(isRemoving)
 
             Button(role: .destructive, action: onRemove) {
                 Image(systemName: "person.crop.circle.badge.minus")

@@ -722,7 +722,19 @@ final class WorkspaceState {
             accounts = try client.listAccounts().map { accountItem(from: $0) }
             chatsByAccount[removedAccountId] = nil
 
-            if wasActive {
+            // `activeAccountId` may have changed during the await above — e.g. the user
+            // selected an account from settings while this removal was in flight. Decide
+            // recovery from the post-await state, not the pre-await `wasActive` snapshot,
+            // so we never leave `activeAccountId`/UserDefaults pointing at a removed
+            // account. `needsActiveReset` is true if the removed account was driving the
+            // UI, or if the (possibly newly-selected) active account no longer exists.
+            let activeAccountInvalid = activeAccountId == nil
+                || !accounts.contains(where: { $0.id == activeAccountId })
+            let needsActiveReset = wasActive || activeAccountInvalid
+
+            if needsActiveReset {
+                stopTimelineListener()
+                stopChatListListener()
                 messagesByChat.removeAll()
                 messageLookupByChat.removeAll()
                 messageIDsByChat.removeAll()
@@ -744,10 +756,11 @@ final class WorkspaceState {
                 return
             }
 
-            // Reselecting and reloading is only required when the account that was
-            // removed is the one currently driving the UI. Removing a background
-            // identity leaves the active session untouched.
-            if wasActive {
+            // Reselecting and reloading is only required when the account currently
+            // driving the UI was removed (directly, or via a racing selection of the
+            // soon-to-be-removed account). Removing a background identity that leaves a
+            // still-valid active account untouched needs no reselection.
+            if needsActiveReset {
                 restoreOrSelectFirstAccount()
                 selection = .settings(.accounts)
                 try await configureObservabilityRuntime()
