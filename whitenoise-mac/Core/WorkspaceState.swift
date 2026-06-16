@@ -2773,7 +2773,7 @@ final class WorkspaceState {
                     groupMemberNames[senderId],
                     resolved?.directoryDisplayName
                 ]),
-                pictureURL: firstNonBlank([resolved?.profilePicture])
+                pictureURL: resolved?.profilePicture?.nilIfBlank
             )
         }
 
