@@ -2,7 +2,7 @@
 
 A native macOS client for **Marmot Protocol** — MLS-based end-to-end encrypted
 group messaging over Nostr. White Noise is a SwiftUI app that wraps the
-[darkmatter](https://github.com/marmot-protocol) Rust core (the MLS/CGKA
+[darkmatter](https://github.com/marmot-protocol/darkmatter) Rust core (the MLS/CGKA
 engine) through a vendored `MarmotKit` framework, giving you sovereign, private
 communications in a single-window Mac experience.
 
@@ -22,12 +22,12 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
   mode against the Swift 6 tools)
 - Apple Silicon Mac — the vendored `MarmotKit.xcframework` ships
   `aarch64-apple-darwin` artifacts only
-- A checkout of the [darkmatter](https://github.com/marmot-protocol) Rust
+- A checkout of the [darkmatter](https://github.com/marmot-protocol/darkmatter) Rust
   workspace *only if you need to regenerate the MarmotKit bindings* (see below)
 
 ## Repository structure
 
-```
+```text
 .
 ├── AGENTS.md                  Notes for automated agents working in this repo
 ├── Config/                    Build settings & secrets (xcconfig + Info.plist)
@@ -120,7 +120,7 @@ build time. Requires the Rust toolchain (`cargo`) and Xcode command-line tools.
 
 ## Testing
 
-Run the test suites from Xcode (⌘U) or via `xcodebuild`:
+Run the tests from Xcode (⌘U) or via `xcodebuild`:
 
 ```sh
 xcodebuild test \
@@ -129,8 +129,11 @@ xcodebuild test \
   -destination 'platform=macOS'
 ```
 
-- `whitenoise-macTests/` — unit tests
-- `whitenoise-macUITests/` — UI tests
+- `whitenoise-macTests/` — unit tests (run by the shared scheme above)
+- `whitenoise-macUITests/` — UI tests (the `whitenoise-macUITests` target is
+  marked skipped in the shared scheme, so the command above runs the unit
+  target only; enable it in the scheme's Test action, or pass
+  `-only-testing:whitenoise-macUITests`, to run the UI suite)
 
 When validating the running app, keep exactly one `White Noise` instance alive
 (see `AGENTS.md`): do not use `open -n`; quit/terminate the existing process
