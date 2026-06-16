@@ -49,7 +49,9 @@ final class WorkspaceState {
     private(set) var backgroundStatus: String?
 
     var activeAccountId: String?
-    var selection: WorkspaceSelection?
+    var selection: WorkspaceSelection? {
+        didSet { dismissGroupImagePickerIfSelectedChatUnavailable() }
+    }
     var searchText = ""
     var isChatListVisible = true
     var draftText = ""
@@ -1456,6 +1458,11 @@ final class WorkspaceState {
         isSavingGroupImage = false
     }
 
+    private func dismissGroupImagePickerIfSelectedChatUnavailable() {
+        guard isGroupImagePickerPresented, selectedChat == nil else { return }
+        closeGroupImagePicker()
+    }
+
     func searchGroupImages() async {
         let query = groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
@@ -2183,6 +2190,7 @@ final class WorkspaceState {
 
         let chatItems = rows.map { baseChatItem(from: $0, account: account) }
         chatsByAccount[account.id] = sortedChatItems(chatItems)
+        dismissGroupImagePickerIfSelectedChatUnavailable()
         startChatListEnrichment(rows: rows, account: account)
     }
 
@@ -2236,6 +2244,7 @@ final class WorkspaceState {
               selectedGroupId == groupIdHex
         else { return }
 
+        closeGroupImagePicker()
         let nextChat = mostRecentChat(in: chats)
         selection = nextChat.map { .chat($0.id) }
         pruneMessageCache(keeping: nextChat?.id)
