@@ -69,9 +69,7 @@ private struct BackgroundStatusBanner: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .frame(maxWidth: 520)
-            .background {
-                GlassRoundedBackground(cornerRadius: 10)
-            }
+            .glassCard(cornerRadius: 10)
             .padding(.top, 12)
             .transition(.move(edge: .top).combined(with: .opacity))
             .animation(.smooth(duration: 0.2), value: workspace.backgroundStatus)
@@ -131,9 +129,7 @@ private struct WelcomeAuthView: View {
                         .frame(width: 360)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 10)
-                        .background {
-                            GlassRoundedBackground(cornerRadius: 8)
-                        }
+                        .glassCard()
                         .disabled(workspace.isAuthenticating)
 
                     HStack(spacing: 10) {
@@ -380,9 +376,7 @@ private struct SettingsListDrawerView: View {
             Spacer(minLength: 0)
         }
         .padding(10)
-        .background {
-            GlassRoundedBackground(cornerRadius: 8)
-        }
+        .glassCard()
     }
 }
 
@@ -863,9 +857,7 @@ private struct ReplyComposerContextView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background {
-            GlassRoundedBackground(cornerRadius: 8)
-        }
+        .glassCard()
     }
 }
 
@@ -916,9 +908,7 @@ private struct NewChatColumnView: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 9)
-                            .background {
-                                GlassRoundedBackground(cornerRadius: 8)
-                            }
+                            .glassCard()
                             .overlay {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(isSearchFocused ? MessagesPalette.sentBubble : Color.clear, lineWidth: 1)
@@ -972,9 +962,7 @@ private struct NewChatDetailsForm: View {
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
-                    .background {
-                        GlassRoundedBackground(cornerRadius: 8)
-                    }
+                    .glassCard()
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -987,9 +975,7 @@ private struct NewChatDetailsForm: View {
                     .lineLimit(2...4)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
-                    .background {
-                        GlassRoundedBackground(cornerRadius: 8)
-                    }
+                    .glassCard()
             }
 
             Button {
@@ -1028,9 +1014,7 @@ private struct NewChatRecipientCard: View {
             Spacer()
         }
         .padding(12)
-        .background {
-            GlassRoundedBackground(cornerRadius: 8)
-        }
+        .glassCard()
     }
 }
 
@@ -1716,9 +1700,7 @@ private struct GroupImageResultTile: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(8)
-        .background {
-            GlassRoundedBackground(cornerRadius: 8)
-        }
+        .glassCard()
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
@@ -2063,9 +2045,7 @@ private struct MessageEmojiPickerPopover: View {
         }
         .frame(width: 360, height: 304)
         .presentationBackground(.regularMaterial)
-        .background {
-            GlassRoundedBackground(cornerRadius: 8, material: .regularMaterial)
-        }
+        .glassCard(material: .regularMaterial)
     }
 }
 
@@ -2091,9 +2071,7 @@ private struct MessageOverflowPopover: View {
         .padding(.vertical, 6)
         .frame(width: 190)
         .presentationBackground(.regularMaterial)
-        .background {
-            GlassRoundedBackground(cornerRadius: 8, material: .regularMaterial)
-        }
+        .glassCard(material: .regularMaterial)
     }
 
     private func overflowButton(
@@ -2272,73 +2250,111 @@ private struct SettingsNativeForm<Content: View>: View {
     }
 }
 
+private struct SettingsScaffold<Content: View>: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let title: LocalizedStringKey
+    var subtitle: LocalizedStringKey?
+    var errorSectionTitle: LocalizedStringKey?
+    let content: Content
+
+    init(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey? = nil,
+        errorSectionTitle: LocalizedStringKey? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.errorSectionTitle = errorSectionTitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsHeader(title: title, subtitle: subtitle)
+            Divider()
+
+            SettingsNativeForm {
+                content
+                errorSection
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var errorSection: some View {
+        if let error = workspace.lastError {
+            if let errorSectionTitle {
+                Section(errorSectionTitle) {
+                    SettingsErrorView(error: error)
+                }
+            } else {
+                Section {
+                    SettingsErrorView(error: error)
+                }
+            }
+        }
+    }
+}
+
 private struct AccountsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
         @Bindable var workspace = workspace
 
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Accounts",
-                subtitle: "Manage the identities available on this Mac."
-            )
-            Divider()
-
-            SettingsNativeForm {
-                Section("Accounts") {
-                    ForEach(workspace.accounts) { account in
-                        AccountSettingsRow(
-                            account: account,
-                            isActive: account.id == workspace.activeAccountId
-                        ) {
-                            workspace.selectAccountFromSettings(account)
-                        }
-                    }
-                }
-
-                Section("Add Account") {
-                    SecureField("", text: $workspace.loginIdentity, prompt: Text("nsec1..."))
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(workspace.isAuthenticating)
-
-                    HStack(spacing: 10) {
-                        Button {
-                            Task {
-                                await workspace.login()
-                                workspace.showSettingsPage(.accounts)
-                            }
-                        } label: {
-                            Label(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"), systemImage: "key")
-                        }
-                        .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
-
-                        Button {
-                            workspace.loginIdentity = ""
-                            Task {
-                                await workspace.signUp()
-                                workspace.showSettingsPage(.accounts)
-                            }
-                        } label: {
-                            Label(workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"), systemImage: "plus.circle")
-                        }
-                        .nativeGlassButtonStyle()
-                        .disabled(workspace.isAuthenticating)
-
-                        Spacer()
-                    }
-                }
-
-                if let error = workspace.lastError {
-                    Section("Status") {
-                        SettingsErrorView(error: error)
+        SettingsScaffold(
+            title: "Accounts",
+            subtitle: "Manage the identities available on this Mac.",
+            errorSectionTitle: "Status"
+        ) {
+            Section("Accounts") {
+                ForEach(workspace.accounts) { account in
+                    AccountSettingsRow(
+                        account: account,
+                        isActive: account.id == workspace.activeAccountId
+                    ) {
+                        workspace.selectAccountFromSettings(account)
                     }
                 }
             }
+
+            Section("Add Account") {
+                SecureField("", text: $workspace.loginIdentity, prompt: Text("nsec1..."))
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(workspace.isAuthenticating)
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task {
+                            await workspace.login()
+                            workspace.showSettingsPage(.accounts)
+                        }
+                    } label: {
+                        Label(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"), systemImage: "key")
+                    }
+                    .nativeGlassProminentButtonStyle()
+                    .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
+
+                    Button {
+                        workspace.loginIdentity = ""
+                        Task {
+                            await workspace.signUp()
+                            workspace.showSettingsPage(.accounts)
+                        }
+                    } label: {
+                        Label(workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"), systemImage: "plus.circle")
+                    }
+                    .nativeGlassButtonStyle()
+                    .disabled(workspace.isAuthenticating)
+
+                    Spacer()
+                }
+            }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -2405,72 +2421,61 @@ private struct ProfileSettingsView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Profile",
-                subtitle: "Publish the profile other people see for this identity."
-            )
-            Divider()
+        SettingsScaffold(
+            title: "Profile",
+            subtitle: "Publish the profile other people see for this identity."
+        ) {
+            if let account = workspace.activeAccount {
+                Section("Preview") {
+                    HStack(spacing: 12) {
+                        ProfileImageAvatarView(
+                            seed: account.accountIdHex,
+                            initials: profilePreviewName(fallback: account),
+                            pictureURL: workspace.profileDraft.picture,
+                            size: 56,
+                            isSelected: false
+                        )
 
-            SettingsNativeForm {
-                if let account = workspace.activeAccount {
-                    Section("Preview") {
-                        HStack(spacing: 12) {
-                            ProfileImageAvatarView(
-                                seed: account.accountIdHex,
-                                initials: profilePreviewName(fallback: account),
-                                pictureURL: workspace.profileDraft.picture,
-                                size: 56,
-                                isSelected: false
-                            )
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(profilePreviewName(fallback: account))
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                CopyableKeyLabel(accountIdHex: account.accountIdHex)
-                            }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(profilePreviewName(fallback: account))
+                                .font(.headline)
+                                .lineLimit(1)
+                            CopyableKeyLabel(accountIdHex: account.accountIdHex)
                         }
-                    }
-                }
-
-                Section("Profile") {
-                    TextField("Display name", text: $workspace.profileDraft.displayName)
-                    TextField("Name", text: $workspace.profileDraft.name)
-                    TextField("About", text: $workspace.profileDraft.about, axis: .vertical)
-                        .lineLimit(3...5)
-                    TextField("Picture URL", text: $workspace.profileDraft.picture)
-                    TextField("NIP-05", text: $workspace.profileDraft.nip05)
-                    TextField("Lightning address", text: $workspace.profileDraft.lud16)
-                }
-
-                Section {
-                    HStack {
-                        Button {
-                            Task { await workspace.saveProfile() }
-                        } label: {
-                            Label(workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"), systemImage: "checkmark.circle")
-                        }
-                        .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.isSavingProfile || workspace.activeAccount == nil)
-
-                        if workspace.isLoadingSettings {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-
-                        Spacer()
-                    }
-                }
-
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
                     }
                 }
             }
+
+            Section("Profile") {
+                TextField("Display name", text: $workspace.profileDraft.displayName)
+                TextField("Name", text: $workspace.profileDraft.name)
+                TextField("About", text: $workspace.profileDraft.about, axis: .vertical)
+                    .lineLimit(3...5)
+                TextField("Picture URL", text: $workspace.profileDraft.picture)
+                TextField("NIP-05", text: $workspace.profileDraft.nip05)
+                TextField("Lightning address", text: $workspace.profileDraft.lud16)
+            }
+
+            Section {
+                HStack {
+                    Button {
+                        Task { await workspace.saveProfile() }
+                    } label: {
+                        Label(workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"), systemImage: "checkmark.circle")
+                    }
+                    .nativeGlassProminentButtonStyle()
+                    .disabled(workspace.isSavingProfile || workspace.activeAccount == nil)
+
+                    if workspace.isLoadingSettings {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Spacer()
+                }
+            }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func profilePreviewName(fallback account: AccountItem) -> String {
@@ -2487,84 +2492,73 @@ private struct IdentityKeysSettingsView: View {
     @State private var showRemoveAccountConfirmation = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Identity & Keys",
-                subtitle: "Public identity details and local signing state."
-            )
-            Divider()
+        SettingsScaffold(
+            title: "Identity & Keys",
+            subtitle: "Public identity details and local signing state."
+        ) {
+            if let account = workspace.activeAccount {
+                Section("Account") {
+                    HStack(spacing: 12) {
+                        ProfileImageAvatarView(
+                            seed: account.accountIdHex,
+                            initials: account.initials,
+                            pictureURL: account.pictureURL,
+                            size: 52,
+                            isSelected: false
+                        )
 
-            SettingsNativeForm {
-                if let account = workspace.activeAccount {
-                    Section("Account") {
-                        HStack(spacing: 12) {
-                            ProfileImageAvatarView(
-                                seed: account.accountIdHex,
-                                initials: account.initials,
-                                pictureURL: account.pictureURL,
-                                size: 52,
-                                isSelected: false
-                            )
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(account.displayName)
-                                    .font(.headline)
-                                    .lineLimit(1)
-                                Text(account.localSigning ? L10n.string("Local signing account") : L10n.string("Watch-only account"))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    Section("Public Identity") {
-                        let npub = workspace.npub(forAccountIdHex: account.accountIdHex)
-                        CopyableLabeledValue(title: "npub", value: npub) {
-                            workspace.copyText(npub)
-                        }
-                    }
-
-                    Section("Private Key") {
-                        LabeledContent("Private key") {
-                            Text(account.localSigning ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac"))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(account.displayName)
+                                .font(.headline)
+                                .lineLimit(1)
+                            Text(account.localSigning ? L10n.string("Local signing account") : L10n.string("Watch-only account"))
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-
-                        Button {
-                        } label: {
-                            Label("Copy Private Key", systemImage: "key")
-                        }
-                        .disabled(true)
-                        .help("Private-key export is not exposed by MarmotKit in this build")
-                    }
-
-                    Section("Account Removal") {
-                        Text("Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.")
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Button(role: .destructive) {
-                            showRemoveAccountConfirmation = true
-                        } label: {
-                            Label(workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
-                        }
-                        .disabled(workspace.isRemovingAccount)
-                    }
-                } else {
-                    Section {
-                        ContentUnavailableView("No active account", systemImage: "person.crop.circle.badge.exclamationmark")
-                            .frame(minHeight: 220)
                     }
                 }
 
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
+                Section("Public Identity") {
+                    let npub = workspace.npub(forAccountIdHex: account.accountIdHex)
+                    CopyableLabeledValue(title: "npub", value: npub) {
+                        workspace.copyText(npub)
                     }
+                }
+
+                Section("Private Key") {
+                    LabeledContent("Private key") {
+                        Text(account.localSigning ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac"))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                    } label: {
+                        Label("Copy Private Key", systemImage: "key")
+                    }
+                    .disabled(true)
+                    .help("Private-key export is not exposed by MarmotKit in this build")
+                }
+
+                Section("Account Removal") {
+                    Text("Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button(role: .destructive) {
+                        showRemoveAccountConfirmation = true
+                    } label: {
+                        Label(workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
+                    }
+                    .disabled(workspace.isRemovingAccount)
+                }
+            } else {
+                Section {
+                    ContentUnavailableView("No active account", systemImage: "person.crop.circle.badge.exclamationmark")
+                        .frame(minHeight: 220)
                 }
             }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .confirmationDialog(
             removeAccountTitle,
             isPresented: $showRemoveAccountConfirmation,
@@ -2652,40 +2646,29 @@ private struct AppearanceSettingsView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Appearance",
-                subtitle: "Choose how White Noise follows macOS appearance."
-            )
-            Divider()
-
-            SettingsNativeForm {
-                Section("Appearance") {
-                    Picker(L10n.string("Theme"), selection: $workspace.appearancePreference) {
-                        ForEach(AppearancePreference.allCases) { preference in
-                            Text(preference.label).tag(preference)
-                        }
-                    }
-
-                    Picker(L10n.string("Language"), selection: $workspace.languagePreference) {
-                        ForEach(AppLanguage.pickerChoices) { language in
-                            Text(language.displayName).tag(language)
-                        }
-                    }
-
-                    Text(L10n.string("System follows your Mac language. Other choices update White Noise immediately."))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
+        SettingsScaffold(
+            title: "Appearance",
+            subtitle: "Choose how White Noise follows macOS appearance."
+        ) {
+            Section("Appearance") {
+                Picker(L10n.string("Theme"), selection: $workspace.appearancePreference) {
+                    ForEach(AppearancePreference.allCases) { preference in
+                        Text(preference.label).tag(preference)
                     }
                 }
+
+                Picker(L10n.string("Language"), selection: $workspace.languagePreference) {
+                    ForEach(AppLanguage.pickerChoices) { language in
+                        Text(language.displayName).tag(language)
+                    }
+                }
+
+                Text(L10n.string("System follows your Mac language. Other choices update White Noise immediately."))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -2695,128 +2678,117 @@ private struct PrivacySecuritySettingsView: View {
     @State private var showDeleteAllDataConfirmation = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Privacy & Security",
-                subtitle: "Telemetry and audit logs stay off until you enable them."
-            )
-            Divider()
-
-            SettingsNativeForm {
-                Section("Data Sharing") {
-                    Toggle(isOn: Binding(
-                        get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
-                        set: { enabled in
-                            Task { await workspace.setRelayTelemetryEnabled(enabled) }
-                        }
-                    )) {
-                        Label("Anonymous Telemetry", systemImage: "waveform.path.ecg")
+        SettingsScaffold(
+            title: "Privacy & Security",
+            subtitle: "Telemetry and audit logs stay off until you enable them."
+        ) {
+            Section("Data Sharing") {
+                Toggle(isOn: Binding(
+                    get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
+                    set: { enabled in
+                        Task { await workspace.setRelayTelemetryEnabled(enabled) }
                     }
-                    .disabled(workspace.isSavingPrivacySecurity)
-
-                    Toggle(isOn: Binding(
-                        get: { workspace.privacySecuritySettings.auditLoggingEnabled },
-                        set: { enabled in
-                            Task { await workspace.setAuditLoggingEnabled(enabled) }
-                        }
-                    )) {
-                        Label("Audit Logging", systemImage: "doc.text.magnifyingglass")
-                    }
-                    .disabled(workspace.isSavingPrivacySecurity)
-
-                    if workspace.isSavingPrivacySecurity {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Saving...")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                )) {
+                    Label("Anonymous Telemetry", systemImage: "waveform.path.ecg")
                 }
+                .disabled(workspace.isSavingPrivacySecurity)
 
-                Section("Audit Log Files") {
-                    HStack {
-                        if workspace.isLoadingAuditLogFiles {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-
-                        Button {
-                            Task { await workspace.loadAuditLogFiles() }
-                        } label: {
-                            Label("Refresh", systemImage: "arrow.clockwise")
-                        }
-                        .disabled(workspace.isLoadingAuditLogFiles)
+                Toggle(isOn: Binding(
+                    get: { workspace.privacySecuritySettings.auditLoggingEnabled },
+                    set: { enabled in
+                        Task { await workspace.setAuditLoggingEnabled(enabled) }
                     }
+                )) {
+                    Label("Audit Logging", systemImage: "doc.text.magnifyingglass")
+                }
+                .disabled(workspace.isSavingPrivacySecurity)
 
-                    if workspace.auditLogFiles.isEmpty {
-                        HStack {
-                            Spacer()
-
-                            ContentUnavailableView("No audit logs", systemImage: "doc.text.magnifyingglass")
-                                .frame(maxWidth: 320)
-
-                            Spacer()
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 150)
-                    } else {
-                        ForEach(workspace.auditLogFiles, id: \.path) { file in
-                            AuditLogFileRow(file: file)
-                        }
-                    }
-
+                if workspace.isSavingPrivacySecurity {
                     HStack(spacing: 10) {
-                        Button {
-                            Task { await workspace.uploadAuditLogFiles() }
-                        } label: {
-                            Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
-                        }
-                        .nativeGlassProminentButtonStyle()
-                        .disabled(
-                            workspace.isUploadingAuditLogFiles
-                                || !workspace.privacySecuritySettings.auditLogCredentialsAvailable
-                        )
-
-                        Button(role: .destructive) {
-                            showDeleteAuditLogsConfirmation = true
-                        } label: {
-                            Label(workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"), systemImage: "trash")
-                        }
-                        .disabled(workspace.auditLogFiles.isEmpty || workspace.isDeletingAuditLogFiles)
-                    }
-
-                    if let auditLogUploadStatus = workspace.auditLogUploadStatus {
-                        Label(auditLogUploadStatus, systemImage: "checkmark.seal")
-                            .foregroundStyle(.green)
-                    }
-                }
-
-                Section("Reset") {
-                    Button(role: .destructive) {
-                        showDeleteAllDataConfirmation = true
-                    } label: {
-                        Label(
-                            workspace.isDeletingAllData ? L10n.string("Deleting...") : L10n.string("Delete All Data"),
-                            systemImage: "trash"
-                        )
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .disabled(workspace.isDeletingAllData)
-
-                    Text("Reset White Noise to a newly installed state on this Mac.")
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Saving...")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
+
+            Section("Audit Log Files") {
+                HStack {
+                    if workspace.isLoadingAuditLogFiles {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Button {
+                        Task { await workspace.loadAuditLogFiles() }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(workspace.isLoadingAuditLogFiles)
+                }
+
+                if workspace.auditLogFiles.isEmpty {
+                    HStack {
+                        Spacer()
+
+                        ContentUnavailableView("No audit logs", systemImage: "doc.text.magnifyingglass")
+                            .frame(maxWidth: 320)
+
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 150)
+                } else {
+                    ForEach(workspace.auditLogFiles, id: \.path) { file in
+                        AuditLogFileRow(file: file)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await workspace.uploadAuditLogFiles() }
+                    } label: {
+                        Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
+                    }
+                    .nativeGlassProminentButtonStyle()
+                    .disabled(
+                        workspace.isUploadingAuditLogFiles
+                            || !workspace.privacySecuritySettings.auditLogCredentialsAvailable
+                    )
+
+                    Button(role: .destructive) {
+                        showDeleteAuditLogsConfirmation = true
+                    } label: {
+                        Label(workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"), systemImage: "trash")
+                    }
+                    .disabled(workspace.auditLogFiles.isEmpty || workspace.isDeletingAuditLogFiles)
+                }
+
+                if let auditLogUploadStatus = workspace.auditLogUploadStatus {
+                    Label(auditLogUploadStatus, systemImage: "checkmark.seal")
+                        .foregroundStyle(.green)
+                }
+            }
+
+            Section("Reset") {
+                Button(role: .destructive) {
+                    showDeleteAllDataConfirmation = true
+                } label: {
+                    Label(
+                        workspace.isDeletingAllData ? L10n.string("Deleting...") : L10n.string("Delete All Data"),
+                        systemImage: "trash"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(workspace.isDeletingAllData)
+
+                Text("Reset White Noise to a newly installed state on this Mac.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task {
             await workspace.loadAuditLogFiles()
         }
@@ -2898,59 +2870,48 @@ private struct NotificationsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Notifications",
-                subtitle: "Local alerts for this Mac."
-            )
-            Divider()
-
-            SettingsNativeForm {
-                Section("Local Alerts") {
-                    Toggle(isOn: Binding(
-                        get: { workspace.notificationSettings.localNotificationsEnabled },
-                        set: { enabled in
-                            Task { await workspace.setLocalNotificationsEnabled(enabled) }
-                        }
-                    )) {
-                        Label("Local notifications", systemImage: "bell.badge")
+        SettingsScaffold(
+            title: "Notifications",
+            subtitle: "Local alerts for this Mac."
+        ) {
+            Section("Local Alerts") {
+                Toggle(isOn: Binding(
+                    get: { workspace.notificationSettings.localNotificationsEnabled },
+                    set: { enabled in
+                        Task { await workspace.setLocalNotificationsEnabled(enabled) }
                     }
-                    .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications)
+                )) {
+                    Label("Local notifications", systemImage: "bell.badge")
+                }
+                .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications)
 
-                    LabeledContent("Permission") {
-                        HStack(spacing: 8) {
-                            Text(workspace.notificationAuthorizationStatus.label)
-                                .foregroundStyle(.secondary)
-                            if workspace.isSavingNotifications {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-                        }
-                    }
-
-                    if workspace.notificationAuthorizationStatus == .notDetermined {
-                        Button {
-                            Task { await workspace.requestLocalNotificationPermission() }
-                        } label: {
-                            Label("Allow Notifications", systemImage: "checkmark.circle")
-                        }
-                    } else if workspace.notificationAuthorizationStatus == .denied {
-                        Button {
-                            workspace.openSystemNotificationSettings()
-                        } label: {
-                            Label("Open System Settings", systemImage: "gear")
+                LabeledContent("Permission") {
+                    HStack(spacing: 8) {
+                        Text(workspace.notificationAuthorizationStatus.label)
+                            .foregroundStyle(.secondary)
+                        if workspace.isSavingNotifications {
+                            ProgressView()
+                                .controlSize(.small)
                         }
                     }
                 }
 
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
+                if workspace.notificationAuthorizationStatus == .notDetermined {
+                    Button {
+                        Task { await workspace.requestLocalNotificationPermission() }
+                    } label: {
+                        Label("Allow Notifications", systemImage: "checkmark.circle")
+                    }
+                } else if workspace.notificationAuthorizationStatus == .denied {
+                    Button {
+                        workspace.openSystemNotificationSettings()
+                    } label: {
+                        Label("Open System Settings", systemImage: "gear")
                     }
                 }
             }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -2960,60 +2921,49 @@ private struct DeveloperModeSettingsView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Developer mode",
-                subtitle: "Storage and diagnostics."
-            )
-            Divider()
-
-            SettingsNativeForm {
-                Section("Developer") {
-                    Toggle(isOn: $workspace.developerMode) {
-                        Label("Developer mode", systemImage: "stethoscope")
-                    }
-
-                    Toggle(isOn: $workspace.streamingDebugMode) {
-                        Label("Streaming debug", systemImage: "waveform.path.ecg")
-                    }
-                    .disabled(!workspace.developerMode)
+        SettingsScaffold(
+            title: "Developer mode",
+            subtitle: "Storage and diagnostics."
+        ) {
+            Section("Developer") {
+                Toggle(isOn: $workspace.developerMode) {
+                    Label("Developer mode", systemImage: "stethoscope")
                 }
 
-                Section("Storage") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Location")
+                Toggle(isOn: $workspace.streamingDebugMode) {
+                    Label("Streaming debug", systemImage: "waveform.path.ecg")
+                }
+                .disabled(!workspace.developerMode)
+            }
 
-                        Text(workspace.storageRootPath)
+            Section("Storage") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Location")
+
+                    Text(workspace.storageRootPath)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: workspace.storageRootPath, isDirectory: true))
+                } label: {
+                    Label("Open Storage Folder", systemImage: "folder")
+                }
+            }
+
+            Section("Diagnostics") {
+                ForEach(workspace.diagnosticsInfo) { item in
+                    LabeledContent(item.title) {
+                        Text(item.value)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Button {
-                        NSWorkspace.shared.open(URL(fileURLWithPath: workspace.storageRootPath, isDirectory: true))
-                    } label: {
-                        Label("Open Storage Folder", systemImage: "folder")
-                    }
-                }
-
-                Section("Diagnostics") {
-                    ForEach(workspace.diagnosticsInfo) { item in
-                        LabeledContent(item.title) {
-                            Text(item.value)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
                     }
                 }
             }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -3023,99 +2973,88 @@ private struct RelaySettingsView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Relays",
-                subtitle: "Manage the relay lists published for this account."
-            )
-            Divider()
-
-            SettingsNativeForm {
-                Section("Relay List") {
-                    Picker("Relay list", selection: $workspace.selectedRelaySection) {
-                        ForEach(RelaySettingsSection.allCases) { section in
-                            Text(section.label).tag(section)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: workspace.selectedRelaySection) { _, section in
-                        workspace.selectRelaySection(section)
-                    }
-
-                    Text(workspace.selectedRelaySection.description)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section {
-                    RelayDiagnosticsView(settings: workspace.relaySettings)
-                }
-
-                Section("Relays") {
-                    if workspace.relayDraft.isEmpty {
-                        ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
-                            .frame(minHeight: 160)
-                    } else {
-                        ForEach(workspace.relayDraft, id: \.self) { relay in
-                            RelayRow(url: relay) {
-                                workspace.removeRelayDraftURL(relay)
-                            }
-                        }
+        SettingsScaffold(
+            title: "Relays",
+            subtitle: "Manage the relay lists published for this account."
+        ) {
+            Section("Relay List") {
+                Picker("Relay list", selection: $workspace.selectedRelaySection) {
+                    ForEach(RelaySettingsSection.allCases) { section in
+                        Text(section.label).tag(section)
                     }
                 }
-
-                Section("Add Relay") {
-                    HStack(spacing: 8) {
-                        TextField("", text: $workspace.newRelayURL, prompt: Text("wss://relay.example"))
-                            .labelsHidden()
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit {
-                                workspace.addRelayDraftURL()
-                            }
-                            .frame(maxWidth: .infinity)
-
-                        Button {
-                            workspace.addRelayDraftURL()
-                        } label: {
-                            Label("Add", systemImage: "plus")
-                        }
-                        .help("Add relay")
-                    }
+                .pickerStyle(.segmented)
+                .onChange(of: workspace.selectedRelaySection) { _, section in
+                    workspace.selectRelaySection(section)
                 }
 
-                Section {
-                    HStack(spacing: 10) {
-                        Button {
-                            Task { await workspace.saveRelaySettings() }
-                        } label: {
-                            Label(workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"), systemImage: "checkmark.circle")
+                Text(workspace.selectedRelaySection.description)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                RelayDiagnosticsView(settings: workspace.relaySettings)
+            }
+
+            Section("Relays") {
+                if workspace.relayDraft.isEmpty {
+                    ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
+                        .frame(minHeight: 160)
+                } else {
+                    ForEach(workspace.relayDraft, id: \.self) { relay in
+                        RelayRow(url: relay) {
+                            workspace.removeRelayDraftURL(relay)
                         }
-                        .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.isSavingRelays || workspace.activeAccount == nil)
-
-                        Button {
-                            workspace.restoreRelayDraftDefaults()
-                        } label: {
-                            Label("Restore defaults", systemImage: "arrow.counterclockwise")
-                        }
-                        .disabled(workspace.isSavingRelays)
-
-                        if workspace.isLoadingSettings {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-
-                        Spacer()
-                    }
-                }
-
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
                     }
                 }
             }
+
+            Section("Add Relay") {
+                HStack(spacing: 8) {
+                    TextField("", text: $workspace.newRelayURL, prompt: Text("wss://relay.example"))
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            workspace.addRelayDraftURL()
+                        }
+                        .frame(maxWidth: .infinity)
+
+                    Button {
+                        workspace.addRelayDraftURL()
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .help("Add relay")
+                }
+            }
+
+            Section {
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await workspace.saveRelaySettings() }
+                    } label: {
+                        Label(workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"), systemImage: "checkmark.circle")
+                    }
+                    .nativeGlassProminentButtonStyle()
+                    .disabled(workspace.isSavingRelays || workspace.activeAccount == nil)
+
+                    Button {
+                        workspace.restoreRelayDraftDefaults()
+                    } label: {
+                        Label("Restore defaults", systemImage: "arrow.counterclockwise")
+                    }
+                    .disabled(workspace.isSavingRelays)
+
+                    if workspace.isLoadingSettings {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Spacer()
+                }
+            }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -3194,62 +3133,51 @@ private struct KeyPackageSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
-        VStack(spacing: 0) {
-            SettingsHeader(
-                title: "Key Packages",
-                subtitle: "Manage the KeyPackages this identity has published for invites."
-            )
-            Divider()
-
-            SettingsNativeForm {
-                Section {
-                    HStack(spacing: 10) {
-                        Button {
-                            Task { await workspace.publishNewKeyPackage() }
-                        } label: {
-                            Label(workspace.isPublishingKeyPackage ? L10n.string("Publishing...") : L10n.string("Publish new"), systemImage: "plus.circle")
-                        }
-                        .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.isPublishingKeyPackage || workspace.activeAccount == nil)
-
-                        Button {
-                            Task { await workspace.republishKeyPackage() }
-                        } label: {
-                            Label(workspace.isRepublishingKeyPackage ? L10n.string("Republishing...") : L10n.string("Republish latest"), systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .disabled(workspace.isRepublishingKeyPackage || workspace.activeAccount == nil)
-
-                        if workspace.isLoadingSettings {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-
-                        Spacer()
+        SettingsScaffold(
+            title: "Key Packages",
+            subtitle: "Manage the KeyPackages this identity has published for invites."
+        ) {
+            Section {
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await workspace.publishNewKeyPackage() }
+                    } label: {
+                        Label(workspace.isPublishingKeyPackage ? L10n.string("Publishing...") : L10n.string("Publish new"), systemImage: "plus.circle")
                     }
-                }
+                    .nativeGlassProminentButtonStyle()
+                    .disabled(workspace.isPublishingKeyPackage || workspace.activeAccount == nil)
 
-                Section("Published Key Packages") {
-                    if workspace.keyPackages.isEmpty {
-                        ContentUnavailableView("No key packages", systemImage: "key.slash")
-                            .frame(minHeight: 220)
-                    } else {
-                        ForEach(workspace.keyPackages) { package in
-                            KeyPackageRow(package: package) {
-                                Task { await workspace.deleteKeyPackage(package) }
-                            }
-                            .disabled(workspace.deletingKeyPackageId == package.id)
-                        }
+                    Button {
+                        Task { await workspace.republishKeyPackage() }
+                    } label: {
+                        Label(workspace.isRepublishingKeyPackage ? L10n.string("Republishing...") : L10n.string("Republish latest"), systemImage: "arrow.triangle.2.circlepath")
                     }
-                }
+                    .disabled(workspace.isRepublishingKeyPackage || workspace.activeAccount == nil)
 
-                if workspace.lastError != nil {
-                    Section {
-                        SettingsErrorView(error: workspace.lastError)
+                    if workspace.isLoadingSettings {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Spacer()
+                }
+            }
+
+            Section("Published Key Packages") {
+                if workspace.keyPackages.isEmpty {
+                    ContentUnavailableView("No key packages", systemImage: "key.slash")
+                        .frame(minHeight: 220)
+                } else {
+                    ForEach(workspace.keyPackages) { package in
+                        KeyPackageRow(package: package) {
+                            Task { await workspace.deleteKeyPackage(package) }
+                        }
+                        .disabled(workspace.deletingKeyPackageId == package.id)
                     }
                 }
             }
+
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task(id: workspace.activeAccountId) {
             await workspace.loadKeyPackages()
         }
@@ -3701,6 +3629,23 @@ private struct GlassRoundedBackground: View {
     }
 }
 
+private struct GlassCardModifier: ViewModifier {
+    var cornerRadius: CGFloat = 8
+    var material: Material = .ultraThinMaterial
+    var borderColor: Color?
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                GlassRoundedBackground(
+                    cornerRadius: cornerRadius,
+                    material: material,
+                    borderColor: borderColor
+                )
+            }
+    }
+}
+
 private struct GlassCapsuleBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     var material: Material = .ultraThinMaterial
@@ -3718,6 +3663,18 @@ private struct GlassCapsuleBackground: View {
 }
 
 extension View {
+    func glassCard(
+        cornerRadius: CGFloat = 8,
+        material: Material = .ultraThinMaterial,
+        borderColor: Color? = nil
+    ) -> some View {
+        modifier(GlassCardModifier(
+            cornerRadius: cornerRadius,
+            material: material,
+            borderColor: borderColor
+        ))
+    }
+
     @ViewBuilder
     func nativeGlassButtonStyle() -> some View {
         if #available(macOS 26.0, *) {
