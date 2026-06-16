@@ -3594,6 +3594,140 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func senderOnlyPreviewModeOmitsDecryptedMessageBody() async throws {
+        // Issue #30: notification body must never leak decrypted plaintext when
+        // the user opts into sender-only previews. DM => body is generic, group
+        // => body is just the sender name; neither contains the message text.
+        let previousMode = UserDefaults.standard.object(forKey: "whitenoise.mac.notificationPreviewMode")
+        defer { restoreDefault(previousMode, forKey: "whitenoise.mac.notificationPreviewMode") }
+
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.notificationPreviewMode = .senderOnly
+
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "dm-notice",
+            groupIdHex: "direct-group",
+            senderName: "Alice",
+            previewText: "Top secret plaintext."
+        ))
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "group-notice",
+            groupIdHex: "team-group",
+            senderName: "Bob",
+            previewText: "More secret plaintext.",
+            isDm: false,
+            groupName: "Engineering"
+        ))
+
+        #expect(notificationCenter.postedRequests.count == 2)
+        let dm = notificationCenter.postedRequests[0]
+        #expect(dm.title == "Alice")
+        #expect(dm.body == "New message")
+        #expect(!dm.body.contains("Top secret plaintext."))
+
+        let group = notificationCenter.postedRequests[1]
+        #expect(group.title == "Engineering")
+        #expect(group.body == "Bob")
+        #expect(!group.body.contains("More secret plaintext."))
+    }
+
+    @MainActor
+    @Test func hiddenPreviewModeRevealsNeitherSenderNorContents() async throws {
+        // Issue #30: hidden mode must reveal nothing about who or what — generic
+        // title and body for both DMs and groups.
+        let previousMode = UserDefaults.standard.object(forKey: "whitenoise.mac.notificationPreviewMode")
+        defer { restoreDefault(previousMode, forKey: "whitenoise.mac.notificationPreviewMode") }
+
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.notificationPreviewMode = .hidden
+
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "dm-notice",
+            groupIdHex: "direct-group",
+            senderName: "Alice",
+            previewText: "Top secret plaintext."
+        ))
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "group-notice",
+            groupIdHex: "team-group",
+            senderName: "Bob",
+            previewText: "More secret plaintext.",
+            isDm: false,
+            groupName: "Engineering"
+        ))
+
+        #expect(notificationCenter.postedRequests.count == 2)
+        for request in notificationCenter.postedRequests {
+            #expect(request.title == "White Noise")
+            #expect(request.body == "New message")
+            #expect(!request.body.contains("plaintext"))
+            #expect(request.title != "Alice")
+            #expect(request.title != "Engineering")
+        }
+    }
+
+    @MainActor
+    @Test func fullPreviewModeIsDefaultAndPreservesLegacyBody() async throws {
+        // Backward-compatible default: full previews keep the prior behavior so
+        // existing users see no change unless they opt into a stricter mode.
+        let previousMode = UserDefaults.standard.object(forKey: "whitenoise.mac.notificationPreviewMode")
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.notificationPreviewMode")
+        defer { restoreDefault(previousMode, forKey: "whitenoise.mac.notificationPreviewMode") }
+
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.notificationPreviewMode == .full)
+
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "group-notice",
+            groupIdHex: "team-group",
+            senderName: "Bob",
+            previewText: "The launch plan is ready.",
+            isDm: false,
+            groupName: "Engineering"
+        ))
+
+        #expect(notificationCenter.postedRequests.count == 1)
+        #expect(notificationCenter.postedRequests.first?.title == "Engineering")
+        #expect(notificationCenter.postedRequests.first?.body == "Bob: The launch plan is ready.")
+    }
+
+
+    @MainActor
     @Test func activeChatNotificationIsSuppressedWhileAppIsActive() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -5289,6 +5423,8 @@ private func notificationUpdate(
     groupIdHex: String = "direct-group",
     senderName: String,
     previewText: String,
+    isDm: Bool = true,
+    groupName: String? = nil,
     isFromSelf: Bool = false
 ) -> NotificationUpdateFfi {
     NotificationUpdateFfi(
@@ -5298,8 +5434,8 @@ private func notificationUpdate(
         accountRef: account.label,
         accountIdHex: account.accountIdHex,
         groupIdHex: groupIdHex,
-        groupName: nil,
-        isDm: true,
+        groupName: groupName,
+        isDm: isDm,
         messageIdHex: "\(notificationKey)-message",
         sender: NotificationUserFfi(
             accountIdHex: isFromSelf ? account.accountIdHex : "alice1234567890alice1234567890alice1234567890alice1234567890",
