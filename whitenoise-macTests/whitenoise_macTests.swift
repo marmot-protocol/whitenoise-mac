@@ -50,6 +50,71 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func failedLoginScrubsEnteredNsecFromMemory() async throws {
+        // No createdAccount => FakeMarmotRuntime.login throws, exercising the failure path.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1faketestkeyfaketestkeyfaketestkeyfaketestkeyfaketest"
+
+        await state.login()
+
+        // Login failed (no account materialised) but the private key must not linger.
+        #expect(state.loginIdentity == "")
+        #expect(state.accounts.isEmpty)
+        #expect(state.lastError != nil)
+    }
+
+    @MainActor
+    @Test func successfulLoginScrubsEnteredNsecFromMemory() async throws {
+        let summary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: summary)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1faketestkeyfaketestkeyfaketestkeyfaketestkeyfaketest"
+
+        await state.login()
+
+        #expect(state.phase == .ready)
+        #expect(state.loginIdentity == "")
+    }
+
+    @MainActor
+    @Test func navigatingAwayFromAddAccountScrubsEnteredNsec() async throws {
+        let summary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [summary])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        // Simulate a typed-but-unsubmitted key in the Add Account field.
+        state.loginIdentity = "nsec1faketestkeyfaketestkeyfaketestkeyfaketestkeyfaketest"
+
+        state.showSettings(.accounts)
+        #expect(state.loginIdentity == "")
+
+        // And again when leaving for a chat.
+        state.loginIdentity = "nsec1anotherfakekeyanotherfakekeyanotherfakekeyanotherfake"
+        if let chat = state.activeChats.first {
+            state.selectChat(chat)
+            #expect(state.loginIdentity == "")
+        }
+    }
+
+    @MainActor
     @Test func removeActiveAccountCallsRuntimeAndSelectsNextAccount() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",

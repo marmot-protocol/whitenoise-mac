@@ -489,6 +489,7 @@ final class WorkspaceState {
 
     func selectAccount(_ account: AccountItem) {
         stopTimelineListener()
+        clearEnteredLoginIdentity()
         activeAccountId = account.id
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
@@ -512,6 +513,7 @@ final class WorkspaceState {
 
     func selectAccountFromSettings(_ account: AccountItem) {
         stopTimelineListener()
+        clearEnteredLoginIdentity()
         activeAccountId = account.id
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
@@ -528,6 +530,7 @@ final class WorkspaceState {
 
     func selectChat(_ chat: ChatItem) {
         stopTimelineListener()
+        clearEnteredLoginIdentity()
         selection = .chat(chat.id)
         draftText = ""
         replyDraftContext = nil
@@ -552,6 +555,7 @@ final class WorkspaceState {
 
     func showSettings(_ page: SettingsPage = .profile) {
         stopTimelineListener()
+        clearEnteredLoginIdentity()
         selection = .settings(page)
         draftText = ""
         replyDraftContext = nil
@@ -565,14 +569,22 @@ final class WorkspaceState {
 
     func showLogin() {
         authenticationMode = .login
-        loginIdentity = ""
+        clearEnteredLoginIdentity()
         lastError = nil
     }
 
     func cancelLogin() {
         authenticationMode = .landing
-        loginIdentity = ""
+        clearEnteredLoginIdentity()
         lastError = nil
+    }
+
+    /// Scrubs the entered nsec (private key) from `loginIdentity` so it does not
+    /// linger in observable memory longer than necessary. Used on login exit
+    /// paths and when navigating away from the login / add-account UI. See #32.
+    func clearEnteredLoginIdentity() {
+        guard !loginIdentity.isEmpty else { return }
+        loginIdentity = ""
     }
 
     func signUp() async {
@@ -607,7 +619,12 @@ final class WorkspaceState {
 
         lastError = nil
         isAuthenticating = true
-        defer { isAuthenticating = false }
+        // Scrub the entered nsec (private key) on every exit path so it never
+        // outlives the login call, including failures. See issue #32.
+        defer {
+            isAuthenticating = false
+            clearEnteredLoginIdentity()
+        }
 
         do {
             let summary = try await client.login(
@@ -616,7 +633,6 @@ final class WorkspaceState {
                 bootstrapRelays: MarmotClient.seedRelays
             )
             try refreshAccounts(preferred: summary)
-            loginIdentity = ""
             authenticationMode = .landing
             phase = .ready
             try await configureObservabilityRuntime()
