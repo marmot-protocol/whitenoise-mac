@@ -1202,6 +1202,50 @@ struct whitenoise_macTests {
         #expect(runtime.lastTimelineSubscription?.paginateForwardsCount == 1)
     }
 
+    @Test func newerTimelinePagingRestoresAnchorInsteadOfScrollingToBottom() {
+        let historicalPaging = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: true,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
+        let liveEdgePaging = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: false,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
+
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-150", "message-249", "message-349"],
+            paging: historicalPaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: "message-249",
+            newMessageId: "message-349"
+        ) == .restorePendingAppendAnchor("message-249"))
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-350", "message-449"],
+            paging: historicalPaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: "message-249",
+            newMessageId: "message-449"
+        ) == .clearPendingAppendAnchor)
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-350", "message-449"],
+            paging: historicalPaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: nil,
+            newMessageId: "message-449"
+        ) == .none)
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-350", "message-449"],
+            paging: liveEdgePaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: nil,
+            newMessageId: "message-449"
+        ) == .scrollToBottom)
+    }
+
     @MainActor
     @Test func latestSubscriptionPageDoesNotReplaceHistoricalTimelineWindow() async throws {
         let account = AccountSummaryFfi(
