@@ -2735,6 +2735,86 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func chatSwitchPreservesDraftTextPerConversation() async throws {
+        let state = WorkspaceState.preview()
+        let design = ChatItem.samples[0]
+        let nvk = ChatItem.samples[1]
+
+        #expect(state.selectedChat?.id == design.id)
+        state.draftText = "Design reply in progress"
+
+        state.selectChat(nvk)
+        #expect(state.draftText.isEmpty)
+        state.draftText = "NVK reply in progress"
+
+        state.selectChat(design)
+        #expect(state.draftText == "Design reply in progress")
+
+        state.selectChat(nvk)
+        #expect(state.draftText == "NVK reply in progress")
+    }
+
+    @MainActor
+    @Test func chatSwitchPreservesReplyDraftContextPerConversation() async throws {
+        let state = WorkspaceState.preview()
+        let design = ChatItem.samples[0]
+        let nvk = ChatItem.samples[1]
+        let designReply = MessageItem(
+            id: "design-parent",
+            senderName: "NVK",
+            body: "Design plan",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        let nvkReply = MessageItem(
+            id: "nvk-parent",
+            senderName: "NVK",
+            body: "Direct ping",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_010),
+            isOutgoing: false
+        )
+
+        #expect(state.selectedChat?.id == design.id)
+        state.startReply(to: designReply)
+
+        state.selectChat(nvk)
+        #expect(state.replyDraftContext == nil)
+        state.startReply(to: nvkReply)
+
+        state.selectChat(design)
+        #expect(state.replyDraftContext == MessageReplyContext(
+            targetMessageId: "design-parent",
+            senderName: "NVK",
+            body: "Design plan"
+        ))
+
+        state.selectChat(nvk)
+        #expect(state.replyDraftContext == MessageReplyContext(
+            targetMessageId: "nvk-parent",
+            senderName: "NVK",
+            body: "Direct ping"
+        ))
+    }
+
+    @MainActor
+    @Test func accountSwitchRestoresDraftTextWhenReturningToConversation() async throws {
+        let state = WorkspaceState.preview()
+        let design = ChatItem.samples[0]
+
+        #expect(state.selectedChat?.id == design.id)
+        state.draftText = "draft survives account hop"
+
+        state.selectAccount(AccountItem.samples[1])
+        #expect(state.activeAccountId == AccountItem.samples[1].id)
+        #expect(state.draftText.isEmpty)
+
+        state.selectAccount(AccountItem.samples[0])
+        #expect(state.activeAccountId == AccountItem.samples[0].id)
+        #expect(state.selectedChat?.id == design.id)
+        #expect(state.draftText == "draft survives account hop")
+    }
+
+    @MainActor
     @Test func newChatComposerOpensInChatColumnWithoutChangingDetailSelection() async throws {
         let state = WorkspaceState.preview()
         let selection = state.selection
@@ -2744,7 +2824,7 @@ struct whitenoise_macTests {
 
         #expect(state.isNewChatComposerVisible)
         #expect(state.selection == selection)
-        #expect(state.draftText.isEmpty)
+        #expect(state.draftText == "half-written message")
     }
 
     @MainActor

@@ -118,7 +118,20 @@ final class WorkspaceState {
     }
     var searchText = ""
     var isChatListVisible = true
-    var draftText = ""
+    var draftText: String {
+        get {
+            guard let selectedDraftChatId else { return "" }
+            return draftTextByChat[selectedDraftChatId] ?? ""
+        }
+        set {
+            guard let selectedDraftChatId else { return }
+            if newValue.isEmpty {
+                draftTextByChat[selectedDraftChatId] = nil
+            } else {
+                draftTextByChat[selectedDraftChatId] = newValue
+            }
+        }
+    }
     var isRefreshing = false
     var isSending = false
     var authenticationMode: AuthenticationMode = .landing
@@ -176,7 +189,16 @@ final class WorkspaceState {
     var newChatName = ""
     var newChatDescription = ""
     var newChatRecipient: NewChatRecipient?
-    var replyDraftContext: MessageReplyContext?
+    var replyDraftContext: MessageReplyContext? {
+        get {
+            guard let selectedDraftChatId else { return nil }
+            return replyDraftContextByChat[selectedDraftChatId]
+        }
+        set {
+            guard let selectedDraftChatId else { return }
+            replyDraftContextByChat[selectedDraftChatId] = newValue
+        }
+    }
     var isResolvingNewChat = false
     var isCreatingChat = false
     var isGroupImagePickerPresented = false
@@ -200,6 +222,25 @@ final class WorkspaceState {
     private(set) var storageRootPath = MarmotClient.defaultStorageRootPath()
     private(set) var timelinePagingByChat: [String: TimelinePagingState] = [:]
     private(set) var timelineInitialLoadGroupId: String?
+    private var draftTextByChat: [String: String] = [:]
+    private var replyDraftContextByChat: [String: MessageReplyContext] = [:]
+
+    private var selectedDraftChatId: String? {
+        guard case .chat(let chatId) = selection else { return nil }
+        return chatId
+    }
+
+    private func clearAllComposerDrafts() {
+        draftTextByChat.removeAll()
+        replyDraftContextByChat.removeAll()
+    }
+
+    private func clearComposerDrafts(for chatIds: [String]) {
+        for chatId in chatIds {
+            draftTextByChat[chatId] = nil
+            replyDraftContextByChat[chatId] = nil
+        }
+    }
 
     private let clientFactory: @MainActor () throws -> any MarmotRuntime
     private let localNotificationCenter: any LocalNotificationCenter
@@ -492,8 +533,6 @@ final class WorkspaceState {
         activeAccountId = account.id
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
         refreshObservabilityRuntime()
@@ -515,8 +554,6 @@ final class WorkspaceState {
         activeAccountId = account.id
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
         refreshObservabilityRuntime()
@@ -529,8 +566,6 @@ final class WorkspaceState {
     func selectChat(_ chat: ChatItem) {
         stopTimelineListener()
         selection = .chat(chat.id)
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
         beginTimelineInitialLoadIfNeeded(groupIdHex: chat.id)
@@ -539,8 +574,6 @@ final class WorkspaceState {
 
     func showNewChat() {
         isNewChatComposerVisible = true
-        draftText = ""
-        replyDraftContext = nil
         lastError = nil
         resetNewChatComposer()
     }
@@ -553,8 +586,6 @@ final class WorkspaceState {
     func showSettings(_ page: SettingsPage = .profile) {
         stopTimelineListener()
         selection = .settings(page)
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
     }
@@ -642,6 +673,8 @@ final class WorkspaceState {
             stopTimelineListener()
             stopChatListListener()
             try await client.removeAccount(accountRef: activeAccount.accountRef)
+            let removedChatIds = chatsByAccount[removedAccountId]?.map(\.id) ?? []
+            clearComposerDrafts(for: removedChatIds)
             accounts = try client.listAccounts().map { accountItem(from: $0) }
             chatsByAccount[removedAccountId] = nil
             messagesByChat.removeAll()
@@ -1786,8 +1819,6 @@ final class WorkspaceState {
 
         selection = .chat(groupIdHex)
         isChatListVisible = true
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: groupIdHex)
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -1821,8 +1852,7 @@ final class WorkspaceState {
         activeAccountId = preferredAccount.id
         UserDefaults.standard.set(preferredAccount.id, forKey: Self.activeAccountKey)
         searchText = ""
-        draftText = ""
-        replyDraftContext = nil
+        clearAllComposerDrafts()
         selection = nil
     }
 
@@ -1836,7 +1866,7 @@ final class WorkspaceState {
         selection = nil
         searchText = ""
         isChatListVisible = true
-        draftText = ""
+        clearAllComposerDrafts()
         isRefreshing = false
         isSending = false
         authenticationMode = .landing
@@ -1867,7 +1897,6 @@ final class WorkspaceState {
         deletingKeyPackageId = nil
         isNewChatComposerVisible = false
         resetNewChatComposer()
-        replyDraftContext = nil
         isResolvingNewChat = false
         isCreatingChat = false
         isGroupImagePickerPresented = false
@@ -2545,8 +2574,6 @@ final class WorkspaceState {
         else { return }
 
         selection = .chat(chat.id)
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
         beginTimelineInitialLoadIfNeeded(groupIdHex: chat.id)
