@@ -1290,6 +1290,23 @@ struct whitenoise_macTests {
         #expect(runtime.reactedMessage == nil)
     }
 
+    @Test func reactionRemovalCapabilityFollowsReactionEventId() throws {
+        let ownSummaryWithoutEventId = MessageReaction(
+            emoji: "👍",
+            count: 1,
+            isOwn: true
+        )
+        let userReactionWithEventId = MessageReaction(
+            emoji: "👍",
+            count: 1,
+            isOwn: false,
+            ownReactionMessageId: "reaction-event"
+        )
+
+        #expect(!ownSummaryWithoutEventId.canRemoveOwnReaction)
+        #expect(userReactionWithEventId.canRemoveOwnReaction)
+    }
+
     @MainActor
     @Test func copyingMessageTextUsesConfiguredClipboardWriter() async throws {
         var copiedText = ""

@@ -150,7 +150,7 @@ struct MessageReaction: Identifiable, Hashable {
     }
 
     var canRemoveOwnReaction: Bool {
-        isOwn && ownReactionMessageId != nil
+        ownReactionMessageId != nil
     }
 }
 
