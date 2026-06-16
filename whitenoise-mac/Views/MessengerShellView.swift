@@ -24,6 +24,13 @@ struct MessengerShellView: View {
                     DetailPaneView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                // Background-task failures (subscription listeners, observability
+                // refresh, read-marking) surface here as a non-modal banner rather
+                // than on the per-screen error view, so they are never misattributed
+                // to a user action on the login/settings/new-chat forms.
+                .overlay(alignment: .top) {
+                    BackgroundStatusBanner()
+                }
             } else {
                 DetailPaneView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -33,6 +40,42 @@ struct MessengerShellView: View {
             MessagesWindowBackground()
         }
         .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
+    }
+}
+
+private struct BackgroundStatusBanner: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    var body: some View {
+        if let status = workspace.backgroundStatus {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button {
+                    workspace.clearBackgroundStatus()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Dismiss"))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: 520)
+            .background {
+                GlassRoundedBackground(cornerRadius: 10)
+            }
+            .padding(.top, 12)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .animation(.smooth(duration: 0.2), value: workspace.backgroundStatus)
+        }
     }
 }
 
