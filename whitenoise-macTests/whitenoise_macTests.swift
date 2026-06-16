@@ -238,6 +238,7 @@ struct whitenoise_macTests {
         let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
         defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
         UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
 
         let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
         let sameWeekNow = messageDate.addingTimeInterval(86_400)
@@ -254,6 +255,7 @@ struct whitenoise_macTests {
         let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
         defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
         UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
 
         let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
         let expected = messageDate.formatted(
@@ -2894,6 +2896,7 @@ struct whitenoise_macTests {
         let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
         defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
         UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
 
         let publishedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let package = KeyPackageItem(
@@ -5222,5 +5225,11 @@ private func restoreDefault(_ value: Any?, forKey key: String) {
         UserDefaults.standard.set(value, forKey: key)
     } else {
         UserDefaults.standard.removeObject(forKey: key)
+    }
+    // Tests mutate `UserDefaults` directly (bypassing `WorkspaceState`), so the
+    // in-memory locale cache must be invalidated when the language key is
+    // restored — otherwise a stale cached locale leaks into later tests.
+    if key == AppLanguage.storageKey {
+        AppLanguage.refreshCachedLocale()
     }
 }
