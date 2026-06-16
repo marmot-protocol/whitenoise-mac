@@ -581,7 +581,7 @@ struct whitenoise_macTests {
                 )
             ))
         ], groupIdHex: "direct-group")
-        let state = WorkspaceState(clientFactory: { runtime })
+        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
@@ -590,6 +590,100 @@ struct whitenoise_macTests {
         }
 
         #expect(didApplyProjection)
+        #expect(runtime.markedReadMessageIds == ["latest"])
+    }
+
+    @MainActor
+    @Test func selectedChatDoesNotMarkReadWhileAppIsInactive() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "latest",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Latest message",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            )
+        ], groupIdHex: "direct-group")
+        // App is backgrounded: a selected chat must NOT advance the read marker just
+        // because a message is visible in the timeline window.
+        let state = WorkspaceState(appActivityProvider: { false }, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        #expect(state.messagesByChat["direct-group"]?.count == 1)
+        #expect(runtime.markedReadMessageIds.isEmpty)
+    }
+
+    @MainActor
+    @Test func regainingFocusFlushesDeferredReadMarking() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "latest",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Latest message",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            )
+        ], groupIdHex: "direct-group")
+        // Start inactive so the initial open defers marking, then flip to active and
+        // simulate the app regaining focus.
+        var isActive = false
+        let state = WorkspaceState(appActivityProvider: { isActive }, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(runtime.markedReadMessageIds.isEmpty)
+
+        isActive = true
+        await state.handleAppActivationChange()
+
         #expect(runtime.markedReadMessageIds == ["latest"])
     }
 
@@ -943,7 +1037,7 @@ struct whitenoise_macTests {
                 hasMoreAfter: false
             ))
         ], groupIdHex: "direct-group")
-        let state = WorkspaceState(clientFactory: { runtime })
+        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
@@ -1035,7 +1129,7 @@ struct whitenoise_macTests {
                 )
             ))
         ], groupIdHex: "direct-group")
-        let state = WorkspaceState(clientFactory: { runtime })
+        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")

@@ -5,6 +5,7 @@
 //  Created by Jeff Gardner on 26/05/2026.
 //
 
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -30,6 +31,16 @@ struct ContentView: View {
                 )
             ) { _ in
                 refreshSystemAppearance()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: NSApplication.didBecomeActiveNotification
+                )
+            ) { _ in
+                // The app just regained focus. Flush any read-marking that was deferred
+                // while it was in the background so the selected chat clears its unread
+                // state now that the user is actually looking at it.
+                Task { await workspace.handleAppActivationChange() }
             }
     }
 
