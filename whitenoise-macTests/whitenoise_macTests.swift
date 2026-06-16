@@ -1090,6 +1090,112 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func readMarkerAdvancesOverTrailingAgentMessage() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // Newest content is an agent-operation event (kind 1202), not a human chat
+        // message. The read marker must still advance to it — previously the kind-9-only
+        // filter pinned the marker to "human" and left the conversation unread.
+        runtime.installMessages([
+            appMessage(
+                id: "human",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Latest human message",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            ),
+            appMessage(
+                id: "agent",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Agent ran an operation",
+                kind: 1202,
+                recordedAt: 1_700_000_020
+            )
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        #expect(runtime.markedReadMessageIds == ["agent"])
+    }
+
+    @MainActor
+    @Test func readMarkerAdvancesInAgentOnlyConversation() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // Conversation contains no kind-9 message at all — only agent/system events.
+        // Previously last(where:) returned nil and the read marker never advanced, so
+        // the chat stayed unread for its entire lifetime.
+        runtime.installMessages([
+            appMessage(
+                id: "system",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Group renamed",
+                kind: 1210,
+                recordedAt: 1_700_000_010
+            ),
+            appMessage(
+                id: "agent-stream",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Agent started",
+                kind: 1200,
+                recordedAt: 1_700_000_020
+            )
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        #expect(runtime.markedReadMessageIds == ["agent-stream"])
+    }
+
+    @MainActor
     @Test func chatListUsesSubscriptionSnapshotAndTypedDeltas() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",

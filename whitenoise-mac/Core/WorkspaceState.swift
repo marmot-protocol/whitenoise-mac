@@ -2648,8 +2648,14 @@ final class WorkspaceState {
         // handleNotificationUpdate(_:). Marking is deferred until the conversation becomes
         // visible again (see handleConversationVisibilityChange()).
         guard selectedConversationIsVisible() else { return }
+        // Mark read against the newest visible, non-deleted message regardless of
+        // timelineKind. The timeline surfaces agent (1200–1202) and group-system (1210)
+        // events alongside human chat (kind 9), so a conversation whose newest content
+        // is non-chat — or which has no kind-9 messages at all — must still advance its
+        // read marker to what the user has actually seen. Filtering to kind 9 here pinned
+        // the marker to the last human message, leaving such chats permanently unread.
         guard let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
-            message.timelineKind == 9 && !message.isDeleted
+            !message.isDeleted
         }) else {
             return
         }
