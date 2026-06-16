@@ -197,6 +197,33 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: expectedRoot))
     }
 
+    @Test func marmotStorageRootRejectsFileAtExpectedRoot() throws {
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-storage-root-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let whiteNoiseDirectory = sandbox.appendingPathComponent("White Noise", isDirectory: true)
+        try fileManager.createDirectory(at: whiteNoiseDirectory, withIntermediateDirectories: true)
+
+        let marmotRoot = whiteNoiseDirectory.appendingPathComponent("Marmot", isDirectory: false)
+        try Data().write(to: marmotRoot)
+
+        do {
+            _ = try MarmotStorageRoot.resolve(baseURL: sandbox, fileManager: fileManager)
+            Issue.record("Expected storage root resolution to reject a file at the Marmot root")
+        } catch let error as MarmotStorageRootError {
+            guard case .rootIsNotDirectory(let path) = error else {
+                Issue.record("Expected rootIsNotDirectory, got \(error)")
+                return
+            }
+            #expect(path == marmotRoot.path)
+        } catch {
+            Issue.record("Expected MarmotStorageRootError, got \(error)")
+        }
+    }
+
     @MainActor
     @Test func chatSearchMatchesTitleSubtitleAndPreview() async throws {
         let chats = ChatItem.samples

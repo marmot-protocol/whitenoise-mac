@@ -458,6 +458,7 @@ enum MarmotStorageRoot {
         return root.path
     }
 
+    // Best-effort display label used before bootstrap; resolve() is the authoritative path.
     static func expectedPath(fileManager: FileManager = .default) -> String {
         guard let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return "Application Support unavailable"
