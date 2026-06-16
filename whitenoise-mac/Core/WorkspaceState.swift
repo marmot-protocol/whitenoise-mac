@@ -19,11 +19,6 @@ struct TimelinePagingState: Equatable {
     )
 }
 
-private struct TimelineCursor: Hashable {
-    let timelineAt: UInt64
-    let messageId: String
-}
-
 @MainActor
 @Observable
 final class WorkspaceState {
@@ -144,13 +139,22 @@ final class WorkspaceState {
     private var chatListEnrichmentTask: Task<Void, Never>?
     private var timelineTask: Task<Void, Never>?
     private var timelineTaskGroupId: String?
+    /// The live timeline subscription for the open conversation. It owns the
+    /// authoritative, bounded, materialized window; scroll-back/forward pagination and
+    /// live updates all flow through it (`paginateBackwards` / `paginateForwards` / `next`).
+    /// Kept alive for pagination independent of the listener task (which may finish if the
+    /// live stream ends), and cleared only when the conversation is torn down.
+    private var activeTimelineSubscription: TimelineMessagesSubscription?
+    private var activeTimelineGroupId: String?
     private var messageLookupByChat: [String: [String: MessageItem]] = [:]
-    private var olderTimelineRequestCursorsByChat: [String: TimelineCursor] = [:]
-    private var newerTimelineRequestCursorsByChat: [String: TimelineCursor] = [:]
     private var lastMarkedReadMarkers: [String: ReadMarker] = [:]
     private var deliveredNotificationKeys = Set<String>()
     private var deliveredNotificationKeyOrder: [String] = []
     private var newChatLookupGeneration = 0
+    /// Raw per-sender FFI lookups (userProfile + directory displayName), cached so that
+    /// scrolling back through history does not re-resolve the same senders from Rust on
+    /// every page. Keyed by sender accountIdHex; invalidated when a peer profile refreshes.
+    private var peerProfileFFICache: [String: ResolvedPeerFFI] = [:]
 
     private static let activeAccountKey = "whitenoise.mac.activeAccountId"
     private static let developerModeKey = "whitenoise.mac.developerMode"
@@ -158,7 +162,35 @@ final class WorkspaceState {
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
     private static let deliveredNotificationKeyLimit = 256
     private static let timelinePageLimit: UInt32 = 100
-    private static let timelineWindowLimit = 300
+
+    /// Dedicated queue for blocking MarmotRuntime FFI calls. The Rust core runs
+    /// synchronously (DB reads, MLS decryption); WorkspaceState is `@MainActor`, so
+    /// calling these directly freezes the UI. We hop them onto this queue and await the
+    /// result on the main actor. UniFFI objects are internally thread-safe.
+    nonisolated private static let ffiQueue = DispatchQueue(
+        label: "chat.whitenoise.marmot-ffi",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    /// Cached raw output of the per-sender profile FFI lookups.
+    struct ResolvedPeerFFI: Sendable {
+        var profileDisplayName: String?
+        var profileName: String?
+        var profilePicture: String?
+        var directoryDisplayName: String?
+    }
+
+    /// Runs a blocking FFI closure off the main thread and resumes on the caller's actor.
+    nonisolated private func runOffMain<T>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+            Self.ffiQueue.async {
+                continuation.resume(with: Result { try work() })
+            }
+        }
+    }
     private static var notificationPermissionGuidance: String {
         L10n.string("Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
@@ -495,9 +527,8 @@ final class WorkspaceState {
             chatsByAccount[removedAccountId] = nil
             messagesByChat.removeAll()
             messageLookupByChat.removeAll()
+            peerProfileFFICache.removeAll()
             timelinePagingByChat.removeAll()
-            olderTimelineRequestCursorsByChat.removeAll()
-            newerTimelineRequestCursorsByChat.removeAll()
             profileDraft = ProfileDraft()
             keyPackages = []
             auditLogFiles = []
@@ -842,6 +873,7 @@ final class WorkspaceState {
         do {
             let member = try client.normalizeMemberRef(memberRef: query)
             try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: MarmotClient.seedRelays)
+            peerProfileFFICache[member.accountIdHex] = nil
             let profile = try? client.userProfile(accountIdHex: member.accountIdHex)
             let displayName = firstNonBlank([
                 profile?.displayName,
@@ -956,13 +988,11 @@ final class WorkspaceState {
         }
         stopTimelineListener()
         guard selectedChat?.id == groupIdHex else { return }
-        olderTimelineRequestCursorsByChat[groupIdHex] = nil
-        newerTimelineRequestCursorsByChat[groupIdHex] = nil
         do {
-            if let row = try client.initializeChatReadState(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: groupIdHex
-            ) {
+            let accountRef = activeAccount.accountRef
+            if let row = try await runOffMain({
+                try client.initializeChatReadState(accountRef: accountRef, groupIdHex: groupIdHex)
+            }) {
                 await applyChatRow(row, account: activeAccount)
             }
 
@@ -978,31 +1008,12 @@ final class WorkspaceState {
                 hasMoreBefore: false,
                 hasMoreAfter: false
             )
-            let senderProfiles = await messageSenderProfiles(
-                from: page.messages,
-                groupIdHex: groupIdHex,
-                activeAccount: activeAccount,
-                client: client
-            )
-            guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
-
-            replaceMessages(
-                MessageItem.timeline(
-                    from: page,
-                    activeAccountIdHex: activeAccount.accountIdHex,
-                    senderProfiles: senderProfiles
-                ),
-                groupIdHex: groupIdHex,
-                paging: TimelinePagingState(
-                    hasMoreBefore: page.hasMoreBefore,
-                    hasMoreAfter: page.hasMoreAfter,
-                    isLoadingBefore: false,
-                    isLoadingAfter: false
-                ),
-                windowEdge: .newest
-            )
-            await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: activeAccount, client: client)
+            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
+            // Start the listener first (it tears down any prior listener, which would clear
+            // these), then record the subscription so scroll-back pagination can reach it.
             startTimelineListener(groupIdHex: groupIdHex, account: activeAccount, subscription: subscription)
+            activeTimelineSubscription = subscription
+            activeTimelineGroupId = groupIdHex
         } catch {
             lastError = error.localizedDescription
         }
@@ -1010,18 +1021,12 @@ final class WorkspaceState {
 
     func loadOlderMessages(groupIdHex: String) async {
         guard let client, let activeAccount else { return }
-        guard selectedChat?.id == groupIdHex else { return }
+        guard selectedChat?.id == groupIdHex, activeTimelineGroupId == groupIdHex else { return }
+        guard let subscription = activeTimelineSubscription else { return }
         guard var paging = timelinePagingByChat[groupIdHex],
               paging.hasMoreBefore,
               !paging.isLoadingBefore
         else { return }
-        guard let oldestMessage = messagesByChat[groupIdHex]?.first else { return }
-        let cursor = TimelineCursor(
-            timelineAt: oldestMessage.timelineAt,
-            messageId: oldestMessage.id
-        )
-        guard olderTimelineRequestCursorsByChat[groupIdHex] != cursor else { return }
-        olderTimelineRequestCursorsByChat[groupIdHex] = cursor
 
         paging.isLoadingBefore = true
         timelinePagingByChat[groupIdHex] = paging
@@ -1033,46 +1038,25 @@ final class WorkspaceState {
         }
 
         do {
-            let page = try client.timelineMessages(
-                accountRef: activeAccount.accountRef,
-                query: TimelineMessageQueryFfi(
-                    groupIdHex: groupIdHex,
-                    search: nil,
-                    before: oldestMessage.timelineAt,
-                    beforeMessageId: oldestMessage.id,
-                    after: nil,
-                    afterMessageId: nil,
-                    limit: Self.timelinePageLimit
-                )
-            )
+            // The subscription owns the materialized window; `paginateBackwards` extends it
+            // toward older history off the main thread and returns the new authoritative
+            // window (already sorted, deduped, capped, with correct has-more flags).
+            let page = try await subscription.paginateBackwards(count: Self.timelinePageLimit)
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
-            await mergeTimelinePage(
-                page,
-                groupIdHex: groupIdHex,
-                account: activeAccount,
-                client: client,
-                mode: .older
-            )
+            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
         } catch {
-            olderTimelineRequestCursorsByChat[groupIdHex] = nil
             lastError = error.localizedDescription
         }
     }
 
     func loadNewerMessages(groupIdHex: String) async {
         guard let client, let activeAccount else { return }
-        guard selectedChat?.id == groupIdHex else { return }
+        guard selectedChat?.id == groupIdHex, activeTimelineGroupId == groupIdHex else { return }
+        guard let subscription = activeTimelineSubscription else { return }
         guard var paging = timelinePagingByChat[groupIdHex],
               paging.hasMoreAfter,
               !paging.isLoadingAfter
         else { return }
-        guard let newestMessage = messagesByChat[groupIdHex]?.last else { return }
-        let cursor = TimelineCursor(
-            timelineAt: newestMessage.timelineAt,
-            messageId: newestMessage.id
-        )
-        guard newerTimelineRequestCursorsByChat[groupIdHex] != cursor else { return }
-        newerTimelineRequestCursorsByChat[groupIdHex] = cursor
 
         paging.isLoadingAfter = true
         timelinePagingByChat[groupIdHex] = paging
@@ -1084,30 +1068,48 @@ final class WorkspaceState {
         }
 
         do {
-            let page = try client.timelineMessages(
-                accountRef: activeAccount.accountRef,
-                query: TimelineMessageQueryFfi(
-                    groupIdHex: groupIdHex,
-                    search: nil,
-                    before: nil,
-                    beforeMessageId: nil,
-                    after: newestMessage.timelineAt,
-                    afterMessageId: newestMessage.id,
-                    limit: Self.timelinePageLimit
-                )
-            )
+            let page = try await subscription.paginateForwards(count: Self.timelinePageLimit)
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
-            await mergeTimelinePage(
-                page,
-                groupIdHex: groupIdHex,
-                account: activeAccount,
-                client: client,
-                mode: .newer
-            )
+            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
         } catch {
-            newerTimelineRequestCursorsByChat[groupIdHex] = nil
             lastError = error.localizedDescription
         }
+    }
+
+    /// Render an authoritative timeline window from the subscription (initial snapshot,
+    /// pagination result, or live update). The window is already ordered/deduped/capped by
+    /// the runtime, so we map + resolve senders and replace the transcript wholesale.
+    private func applyTimelineWindow(
+        _ page: TimelinePageFfi,
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        let senderProfiles = await messageSenderProfiles(
+            from: page.messages,
+            groupIdHex: groupIdHex,
+            activeAccount: account,
+            client: client
+        )
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+
+        let currentPaging = timelinePagingByChat[groupIdHex]
+        replaceMessages(
+            MessageItem.timeline(
+                from: page,
+                activeAccountIdHex: account.accountIdHex,
+                senderProfiles: senderProfiles
+            ),
+            groupIdHex: groupIdHex,
+            paging: TimelinePagingState(
+                hasMoreBefore: page.hasMoreBefore,
+                hasMoreAfter: page.hasMoreAfter,
+                isLoadingBefore: currentPaging?.isLoadingBefore ?? false,
+                isLoadingAfter: currentPaging?.isLoadingAfter ?? false
+            )
+        )
+        await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
     func startReply(to message: MessageItem) {
@@ -1129,6 +1131,15 @@ final class WorkspaceState {
 
     func copyText(_ text: String) {
         copyTextHandler(text)
+    }
+
+    /// The bech32 `npub` form of a hex public key — the canonical, user-facing way to show
+    /// a Nostr public key. Falls back to the hex if conversion is unavailable. The
+    /// conversion is a pure in-memory bech32 encode, so it's cheap to call from view bodies.
+    func npub(forAccountIdHex accountIdHex: String) -> String {
+        let trimmed = accountIdHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        return client?.npub(accountIdHex: trimmed) ?? trimmed
     }
 
     func react(to message: MessageItem, emoji: String) async {
@@ -1202,21 +1213,28 @@ final class WorkspaceState {
         defer { isExportingGroupTranscript = false }
 
         do {
-            let messages = try ConversationTranscriptExport.fetchAllMessages(
-                client: client,
-                accountRef: activeAccount.accountRef,
-                groupIdHex: snapshot.groupIdHex
-            )
-            let document = ConversationTranscriptExport.makeDocument(
-                groupIdHex: snapshot.groupIdHex,
-                groupName: snapshot.name,
-                messages: messages
-            )
-            let json = try ConversationTranscriptExport.encodeJSONString(document)
-            copyText(json)
+            let accountRef = activeAccount.accountRef
+            let groupIdHex = snapshot.groupIdHex
+            let groupName = snapshot.name
+            // Paginates the whole transcript via blocking FFI and JSON-encodes it; keep it
+            // off the main thread so a large export does not freeze the UI.
+            let export = try await runOffMain { () -> (json: String, eventCount: Int) in
+                let messages = try ConversationTranscriptExport.fetchAllMessages(
+                    client: client,
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex
+                )
+                let document = ConversationTranscriptExport.makeDocument(
+                    groupIdHex: groupIdHex,
+                    groupName: groupName,
+                    messages: messages
+                )
+                return (try ConversationTranscriptExport.encodeJSONString(document), document.eventCount)
+            }
+            copyText(export.json)
             groupTranscriptExportStatus = String(
                 format: L10n.string("Copied transcript JSON for %d events."),
-                document.eventCount
+                export.eventCount
             )
         } catch {
             lastError = error.localizedDescription
@@ -1720,8 +1738,6 @@ final class WorkspaceState {
         mutatingGroupMemberId = nil
         self.storageRootPath = storageRootPath
         timelinePagingByChat = [:]
-        olderTimelineRequestCursorsByChat = [:]
-        newerTimelineRequestCursorsByChat = [:]
         lastMarkedReadMarkers = [:]
         deliveredNotificationKeys = []
         deliveredNotificationKeyOrder = []
@@ -2039,6 +2055,8 @@ final class WorkspaceState {
         timelineTask?.cancel()
         timelineTask = nil
         timelineTaskGroupId = nil
+        activeTimelineSubscription = nil
+        activeTimelineGroupId = nil
     }
 
     private func runTimelineListener(
@@ -2059,12 +2077,14 @@ final class WorkspaceState {
                     limit: Self.timelinePageLimit
                 )
             }
-
+            // `next()` blocks for the next live change and returns the resulting
+            // authoritative window (ordering, dedup, head-anchoring while scrolled back,
+            // and the cap are all owned by the runtime), so we render it directly.
             while !Task.isCancelled {
-                guard let update = await subscription.nextUpdate() else { break }
+                guard let page = await subscription.next() else { break }
                 guard !Task.isCancelled else { break }
-                await applyTimelineSubscriptionUpdate(
-                    update,
+                await applyTimelineWindow(
+                    page,
                     groupIdHex: groupIdHex,
                     account: account,
                     client: client
@@ -2132,8 +2152,6 @@ final class WorkspaceState {
         messagesByChat[groupIdHex] = nil
         messageLookupByChat[groupIdHex] = nil
         timelinePagingByChat[groupIdHex] = nil
-        olderTimelineRequestCursorsByChat[groupIdHex] = nil
-        newerTimelineRequestCursorsByChat[groupIdHex] = nil
         lastMarkedReadMarkers[groupIdHex] = nil
 
         guard case .chat(let selectedGroupId) = selection,
@@ -2148,32 +2166,21 @@ final class WorkspaceState {
         }
     }
 
-    private enum TimelinePageMergeMode {
-        case older
-        case newer
-        case subscriptionRefresh
-    }
-
-    private enum TimelineWindowEdge {
-        case oldest
-        case newest
-    }
-
     private func replaceMessages(
         _ messages: [MessageItem],
         groupIdHex: String,
-        paging: TimelinePagingState? = nil,
-        windowEdge: TimelineWindowEdge = .newest
+        paging: TimelinePagingState? = nil
     ) {
-        var nextPaging = paging ?? timelinePagingByChat[groupIdHex] ?? .empty
-        let windowedMessages = windowedTimelineMessages(messages, paging: &nextPaging, edge: windowEdge)
-        let messageLookup = Dictionary(uniqueKeysWithValues: windowedMessages.map { ($0.id, $0) })
+        // The window is already ordered, deduped, and capped by the runtime subscription,
+        // so render it as-is.
+        let nextPaging = paging ?? timelinePagingByChat[groupIdHex] ?? .empty
+        let messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
 
         if messagesByChat.count == 1, messagesByChat[groupIdHex] != nil {
-            messagesByChat[groupIdHex] = windowedMessages
+            messagesByChat[groupIdHex] = messages
             messageLookupByChat[groupIdHex] = messageLookup
         } else {
-            messagesByChat = [groupIdHex: windowedMessages]
+            messagesByChat = [groupIdHex: messages]
             messageLookupByChat = [groupIdHex: messageLookup]
         }
         if timelinePagingByChat.count == 1, timelinePagingByChat[groupIdHex] != nil {
@@ -2188,8 +2195,6 @@ final class WorkspaceState {
             messagesByChat = [:]
             messageLookupByChat = [:]
             timelinePagingByChat = [:]
-            olderTimelineRequestCursorsByChat = [:]
-            newerTimelineRequestCursorsByChat = [:]
             return
         }
 
@@ -2205,361 +2210,6 @@ final class WorkspaceState {
         } else {
             timelinePagingByChat = [:]
         }
-        if let cursor = olderTimelineRequestCursorsByChat[groupIdHex] {
-            olderTimelineRequestCursorsByChat = [groupIdHex: cursor]
-        } else {
-            olderTimelineRequestCursorsByChat = [:]
-        }
-        if let cursor = newerTimelineRequestCursorsByChat[groupIdHex] {
-            newerTimelineRequestCursorsByChat = [groupIdHex: cursor]
-        } else {
-            newerTimelineRequestCursorsByChat = [:]
-        }
-    }
-
-    private func mergeTimelinePage(
-        _ page: TimelinePageFfi,
-        groupIdHex: String,
-        account: AccountItem,
-        client: any MarmotRuntime,
-        mode: TimelinePageMergeMode
-    ) async {
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-
-        if case .subscriptionRefresh = mode,
-           isViewingHistoricalTimelineWindow(groupIdHex: groupIdHex) {
-            markTimelinePageLoadIdle(groupIdHex: groupIdHex)
-            return
-        }
-
-        let senderProfiles = await messageSenderProfiles(
-            from: page.messages,
-            groupIdHex: groupIdHex,
-            activeAccount: account,
-            client: client
-        )
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-
-        let newMessages = MessageItem.timeline(
-            from: page,
-            activeAccountIdHex: account.accountIdHex,
-            senderProfiles: senderProfiles
-        )
-        switch mode {
-        case .older:
-            prependOlderTimelineMessages(newMessages, groupIdHex: groupIdHex)
-            var paging = timelinePagingByChat[groupIdHex] ?? .empty
-            paging.hasMoreBefore = page.hasMoreBefore
-            paging.hasMoreAfter = paging.hasMoreAfter || page.hasMoreAfter
-            timelinePagingByChat[groupIdHex] = paging
-        case .newer:
-            appendNewerTimelineMessages(newMessages, groupIdHex: groupIdHex)
-            var paging = timelinePagingByChat[groupIdHex] ?? .empty
-            paging.hasMoreBefore = paging.hasMoreBefore || page.hasMoreBefore
-            paging.hasMoreAfter = page.hasMoreAfter
-            timelinePagingByChat[groupIdHex] = paging
-        case .subscriptionRefresh:
-            reconcileTimelineSnapshot(newMessages, page: page, groupIdHex: groupIdHex)
-            await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
-        }
-    }
-
-    private func reconcileTimelineSnapshot(
-        _ snapshotMessages: [MessageItem],
-        page: TimelinePageFfi,
-        groupIdHex: String
-    ) {
-        var existingMessages = messagesByChat[groupIdHex] ?? []
-        let snapshotIds = Set(snapshotMessages.map(\.id))
-        let retainedOlderMessages: Bool
-        if let oldestSnapshot = snapshotMessages.first {
-            existingMessages.removeAll { message in
-                message.timelineAt >= oldestSnapshot.timelineAt && !snapshotIds.contains(message.id)
-            }
-            retainedOlderMessages = existingMessages.contains { message in
-                message.timelineAt < oldestSnapshot.timelineAt
-                    || (message.timelineAt == oldestSnapshot.timelineAt && message.id < oldestSnapshot.id)
-            }
-        } else {
-            existingMessages.removeAll()
-            retainedOlderMessages = false
-        }
-
-        var messagesById = Dictionary(uniqueKeysWithValues: existingMessages.map { ($0.id, $0) })
-        for message in snapshotMessages {
-            messagesById[message.id] = message
-        }
-
-        let mergedMessages = sortedTimelineMessages(Array(messagesById.values))
-        replaceMessages(
-            mergedMessages,
-            groupIdHex: groupIdHex,
-            paging: TimelinePagingState(
-                hasMoreBefore: page.hasMoreBefore || retainedOlderMessages,
-                hasMoreAfter: page.hasMoreAfter,
-                isLoadingBefore: false,
-                isLoadingAfter: false
-            ),
-            windowEdge: .newest
-        )
-    }
-
-    private func applyTimelineSubscriptionUpdate(
-        _ update: TimelineSubscriptionUpdateFfi,
-        groupIdHex: String,
-        account: AccountItem,
-        client: any MarmotRuntime
-    ) async {
-        switch update {
-        case .page(page: let page):
-            await mergeTimelinePage(
-                page,
-                groupIdHex: groupIdHex,
-                account: account,
-                client: client,
-                mode: .subscriptionRefresh
-            )
-        case .projection(update: let runtimeUpdate):
-            await applyTimelineProjectionUpdate(
-                runtimeUpdate.update,
-                groupIdHex: groupIdHex,
-                account: account,
-                client: client
-            )
-        }
-    }
-
-    private func applyTimelineProjectionUpdate(
-        _ update: TimelineProjectionUpdateFfi,
-        groupIdHex: String,
-        account: AccountItem,
-        client: any MarmotRuntime
-    ) async {
-        guard update.groupIdHex == groupIdHex else { return }
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-
-        var upsertRecordsById: [String: TimelineMessageRecordFfi] = [:]
-        for message in update.messages {
-            upsertRecordsById[message.messageIdHex] = message
-        }
-        var removedMessageIds = Set<String>()
-        for change in update.changes {
-            switch change {
-            case .upsert(trigger: _, message: let message):
-                upsertRecordsById[message.messageIdHex] = message
-            case .remove(messageIdHex: let messageIdHex, reason: _):
-                removedMessageIds.insert(messageIdHex)
-            }
-        }
-
-        if !removedMessageIds.isEmpty {
-            removeTimelineMessages(withIds: removedMessageIds, groupIdHex: groupIdHex)
-        }
-        let upsertRecords = sortedTimelineRecords(Array(upsertRecordsById.values))
-            .filter { shouldApplyTimelineUpsertRecord($0, groupIdHex: groupIdHex) }
-
-        if !upsertRecords.isEmpty {
-            let senderProfiles = await messageSenderProfiles(
-                from: upsertRecords,
-                groupIdHex: groupIdHex,
-                activeAccount: account,
-                client: client
-            )
-            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-
-            let page = TimelinePageFfi(
-                messages: upsertRecords,
-                hasMoreBefore: false,
-                hasMoreAfter: false
-            )
-            let newMessages = MessageItem.timeline(
-                from: page,
-                activeAccountIdHex: account.accountIdHex,
-                senderProfiles: senderProfiles
-            )
-            let windowEdge: TimelineWindowEdge = isViewingHistoricalTimelineWindow(groupIdHex: groupIdHex)
-                ? .oldest
-                : .newest
-            mergeTimelineMessages(newMessages, groupIdHex: groupIdHex, windowEdge: windowEdge)
-            if isViewingNewestTimelineEdge(groupIdHex: groupIdHex) {
-                await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
-            }
-        }
-
-        if let row = update.chatListRow {
-            await applyChatRow(row, account: account)
-        }
-    }
-
-    private func removeTimelineMessages(withIds messageIds: Set<String>, groupIdHex: String) {
-        guard !messageIds.isEmpty else { return }
-        var messages = messagesByChat[groupIdHex] ?? []
-        messages.removeAll { messageIds.contains($0.id) }
-        replaceMessages(messages, groupIdHex: groupIdHex)
-        if let targetMessageId = replyDraftContext?.targetMessageId,
-           messageIds.contains(targetMessageId) {
-            replyDraftContext = nil
-        }
-    }
-
-    private func mergeTimelineMessages(
-        _ newMessages: [MessageItem],
-        groupIdHex: String,
-        windowEdge: TimelineWindowEdge = .newest
-    ) {
-        guard !newMessages.isEmpty else { return }
-
-        var messagesById = Dictionary(
-            uniqueKeysWithValues: (messagesByChat[groupIdHex] ?? []).map { ($0.id, $0) }
-        )
-        for message in newMessages {
-            messagesById[message.id] = message
-        }
-        replaceMessages(
-            sortedTimelineMessages(Array(messagesById.values)),
-            groupIdHex: groupIdHex,
-            windowEdge: windowEdge
-        )
-    }
-
-    private func prependOlderTimelineMessages(_ olderMessages: [MessageItem], groupIdHex: String) {
-        guard !olderMessages.isEmpty else { return }
-
-        let existingMessages = messagesByChat[groupIdHex] ?? []
-        guard !existingMessages.isEmpty else {
-            replaceMessages(sortedTimelineMessages(olderMessages), groupIdHex: groupIdHex, windowEdge: .oldest)
-            return
-        }
-
-        let existingIds = Set(existingMessages.map(\.id))
-        let uniqueOlderMessages = olderMessages.filter { !existingIds.contains($0.id) }
-        guard !uniqueOlderMessages.isEmpty else { return }
-
-        let sortedOlderMessages = sortedTimelineMessages(uniqueOlderMessages)
-        if let newestOlderMessage = sortedOlderMessages.last,
-           let oldestExistingMessage = existingMessages.first,
-           isTimelineMessage(newestOlderMessage, orderedBeforeOrEqualTo: oldestExistingMessage) {
-            replaceMessages(sortedOlderMessages + existingMessages, groupIdHex: groupIdHex, windowEdge: .oldest)
-        } else {
-            mergeTimelineMessages(uniqueOlderMessages, groupIdHex: groupIdHex, windowEdge: .oldest)
-        }
-    }
-
-    private func appendNewerTimelineMessages(_ newerMessages: [MessageItem], groupIdHex: String) {
-        guard !newerMessages.isEmpty else { return }
-
-        let existingMessages = messagesByChat[groupIdHex] ?? []
-        guard !existingMessages.isEmpty else {
-            replaceMessages(sortedTimelineMessages(newerMessages), groupIdHex: groupIdHex, windowEdge: .newest)
-            return
-        }
-
-        let existingIds = Set(existingMessages.map(\.id))
-        let uniqueNewerMessages = newerMessages.filter { !existingIds.contains($0.id) }
-        guard !uniqueNewerMessages.isEmpty else { return }
-
-        let sortedNewerMessages = sortedTimelineMessages(uniqueNewerMessages)
-        if let oldestNewerMessage = sortedNewerMessages.first,
-           let newestExistingMessage = existingMessages.last,
-           isTimelineMessage(newestExistingMessage, orderedBeforeOrEqualTo: oldestNewerMessage) {
-            replaceMessages(existingMessages + sortedNewerMessages, groupIdHex: groupIdHex, windowEdge: .newest)
-        } else {
-            mergeTimelineMessages(uniqueNewerMessages, groupIdHex: groupIdHex, windowEdge: .newest)
-        }
-    }
-
-    private func sortedTimelineMessages(_ messages: [MessageItem]) -> [MessageItem] {
-        messages.sorted { lhs, rhs in
-            if lhs.timelineAt != rhs.timelineAt { return lhs.timelineAt < rhs.timelineAt }
-            return lhs.id < rhs.id
-        }
-    }
-
-    private func sortedTimelineRecords(_ records: [TimelineMessageRecordFfi]) -> [TimelineMessageRecordFfi] {
-        records.sorted { lhs, rhs in
-            if lhs.timelineAt != rhs.timelineAt { return lhs.timelineAt < rhs.timelineAt }
-            return lhs.messageIdHex < rhs.messageIdHex
-        }
-    }
-
-    private func windowedTimelineMessages(
-        _ messages: [MessageItem],
-        paging: inout TimelinePagingState,
-        edge: TimelineWindowEdge
-    ) -> [MessageItem] {
-        guard messages.count > Self.timelineWindowLimit else { return messages }
-
-        switch edge {
-        case .oldest:
-            paging.hasMoreAfter = true
-            return Array(messages.prefix(Self.timelineWindowLimit))
-        case .newest:
-            paging.hasMoreBefore = true
-            return Array(messages.suffix(Self.timelineWindowLimit))
-        }
-    }
-
-    private func isViewingHistoricalTimelineWindow(groupIdHex: String) -> Bool {
-        timelinePagingByChat[groupIdHex]?.hasMoreAfter == true
-    }
-
-    private func isViewingNewestTimelineEdge(groupIdHex: String) -> Bool {
-        timelinePagingByChat[groupIdHex]?.hasMoreAfter != true
-    }
-
-    private func markTimelinePageLoadIdle(groupIdHex: String) {
-        guard var paging = timelinePagingByChat[groupIdHex] else { return }
-        paging.isLoadingBefore = false
-        paging.isLoadingAfter = false
-        paging.hasMoreAfter = true
-        timelinePagingByChat[groupIdHex] = paging
-    }
-
-    private func shouldApplyTimelineUpsertRecord(
-        _ record: TimelineMessageRecordFfi,
-        groupIdHex: String
-    ) -> Bool {
-        if messageLookupByChat[groupIdHex]?[record.messageIdHex] != nil {
-            return true
-        }
-
-        guard let visibleMessages = messagesByChat[groupIdHex],
-              !visibleMessages.isEmpty
-        else { return true }
-
-        let paging = timelinePagingByChat[groupIdHex] ?? .empty
-        if paging.hasMoreAfter,
-           let newestVisibleMessage = visibleMessages.last,
-           isTimelineRecord(record, orderedAfter: newestVisibleMessage) {
-            return false
-        }
-        if paging.hasMoreBefore,
-           let oldestVisibleMessage = visibleMessages.first,
-           isTimelineRecord(record, orderedBefore: oldestVisibleMessage) {
-            return false
-        }
-        return true
-    }
-
-    private func isTimelineRecord(_ record: TimelineMessageRecordFfi, orderedAfter message: MessageItem) -> Bool {
-        if record.timelineAt != message.timelineAt {
-            return record.timelineAt > message.timelineAt
-        }
-        return record.messageIdHex > message.id
-    }
-
-    private func isTimelineRecord(_ record: TimelineMessageRecordFfi, orderedBefore message: MessageItem) -> Bool {
-        if record.timelineAt != message.timelineAt {
-            return record.timelineAt < message.timelineAt
-        }
-        return record.messageIdHex < message.id
-    }
-
-    private func isTimelineMessage(_ lhs: MessageItem, orderedBeforeOrEqualTo rhs: MessageItem) -> Bool {
-        if lhs.timelineAt != rhs.timelineAt {
-            return lhs.timelineAt < rhs.timelineAt
-        }
-        return lhs.id <= rhs.id
     }
 
     private func baseChatItem(from row: ChatListRowFfi, account: AccountItem) -> ChatItem {
@@ -2644,7 +2294,7 @@ final class WorkspaceState {
             groupIdHex: row.groupIdHex
         ) {
             groupAvatarURL = firstNonBlank([details.group.avatarUrl, groupAvatarURL])
-            directPeer = directPeerProfile(
+            directPeer = await directPeerProfile(
                 from: details,
                 activeAccountIdHex: account.accountIdHex,
                 client: client
@@ -2710,11 +2360,15 @@ final class WorkspaceState {
         lastMarkedReadMarkers[groupIdHex] = marker
 
         do {
-            if let row = try client.markTimelineMessageRead(
-                accountRef: account.accountRef,
-                groupIdHex: groupIdHex,
-                messageIdHex: latest.id
-            ) {
+            let accountRef = account.accountRef
+            let messageId = latest.id
+            if let row = try await runOffMain({
+                try client.markTimelineMessageRead(
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex,
+                    messageIdHex: messageId
+                )
+            }) {
                 await applyChatRow(row, account: account)
             }
         } catch {
@@ -2877,7 +2531,7 @@ final class WorkspaceState {
         from details: GroupDetailsFfi,
         activeAccountIdHex: String,
         client: any MarmotRuntime
-    ) -> ChatPeerProfile? {
+    ) async -> ChatPeerProfile? {
         let otherMembers = details.members.filter { member in
             !member.isSelf && member.memberIdHex != activeAccountIdHex
         }
@@ -2885,18 +2539,27 @@ final class WorkspaceState {
               let otherMember = otherMembers.first
         else { return nil }
 
-        let profile = try? client.userProfile(accountIdHex: otherMember.memberIdHex)
+        let memberId = otherMember.memberIdHex
+        let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
+            let profile = try? client.userProfile(accountIdHex: memberId)
+            return ResolvedPeerFFI(
+                profileDisplayName: profile?.displayName,
+                profileName: profile?.name,
+                profilePicture: profile?.picture,
+                directoryDisplayName: client.displayName(accountIdHex: memberId)
+            )
+        }
         let displayName = firstNonBlank([
-            profile?.displayName,
-            profile?.name,
+            resolved?.profileDisplayName,
+            resolved?.profileName,
             otherMember.displayName,
-            client.displayName(accountIdHex: otherMember.memberIdHex)
+            resolved?.directoryDisplayName
         ])
 
         return ChatPeerProfile(
-            accountIdHex: otherMember.memberIdHex,
+            accountIdHex: memberId,
             displayName: displayName,
-            pictureURL: profile?.picture
+            pictureURL: resolved?.profilePicture
         )
     }
 
@@ -2925,8 +2588,32 @@ final class WorkspaceState {
             .compactMap { $0 }
             .filter { !$0.isEmpty }
         )
-        var profiles: [String: ChatPeerProfile] = [:]
 
+        // Resolve any senders we have not seen before in a single off-main FFI batch,
+        // then cache the raw lookups so repeated scroll-up pages skip Rust entirely.
+        let unresolvedIds = senderIds.filter {
+            $0 != activeAccount.accountIdHex && peerProfileFFICache[$0] == nil
+        }
+        if !unresolvedIds.isEmpty {
+            let resolved = (try? await runOffMain { () -> [String: ResolvedPeerFFI] in
+                var output: [String: ResolvedPeerFFI] = [:]
+                for senderId in unresolvedIds {
+                    let profile = try? client.userProfile(accountIdHex: senderId)
+                    output[senderId] = ResolvedPeerFFI(
+                        profileDisplayName: profile?.displayName,
+                        profileName: profile?.name,
+                        profilePicture: profile?.picture,
+                        directoryDisplayName: client.displayName(accountIdHex: senderId)
+                    )
+                }
+                return output
+            }) ?? [:]
+            for (senderId, value) in resolved {
+                peerProfileFFICache[senderId] = value
+            }
+        }
+
+        var profiles: [String: ChatPeerProfile] = [:]
         for senderId in senderIds {
             if senderId == activeAccount.accountIdHex {
                 profiles[senderId] = ChatPeerProfile(
@@ -2937,24 +2624,16 @@ final class WorkspaceState {
                 continue
             }
 
-            let cachedProfile = try? client.userProfile(accountIdHex: senderId)
-            let cachedName = firstNonBlank([
-                cachedProfile?.displayName,
-                cachedProfile?.name,
-                groupMemberNames[senderId],
-                client.displayName(accountIdHex: senderId)
-            ])
-            let cachedPicture = firstNonBlank([cachedProfile?.picture])
+            let resolved = peerProfileFFICache[senderId]
             profiles[senderId] = ChatPeerProfile(
                 accountIdHex: senderId,
                 displayName: firstNonBlank([
-                    cachedName,
+                    resolved?.profileDisplayName,
+                    resolved?.profileName,
                     groupMemberNames[senderId],
-                    client.displayName(accountIdHex: senderId)
+                    resolved?.directoryDisplayName
                 ]),
-                pictureURL: firstNonBlank([
-                    cachedPicture
-                ])
+                pictureURL: firstNonBlank([resolved?.profilePicture])
             )
         }
 

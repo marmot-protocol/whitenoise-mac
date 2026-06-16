@@ -195,9 +195,17 @@ extension MessageItem {
         }
 
         let body = plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
+        let messagePresentation = presentation(for: kind)
+
+        // Plain chat messages never consult the JSON payload, so skip decoding it for
+        // the common case (this runs for every message during mapping).
+        if case .chat = messagePresentation {
+            return body.isEmpty ? L10n.string("Unsupported message") : body
+        }
+
         let payload = TimelinePayload.decode(from: body)
 
-        switch presentation(for: kind) {
+        switch messagePresentation {
         case .chat:
             return body.isEmpty ? L10n.string("Unsupported message") : body
         case .agentStreamStart:
@@ -342,9 +350,11 @@ private struct TimelinePayload: Decodable {
         case systemType = "system_type"
     }
 
+    private static let decoder = JSONDecoder()
+
     static func decode(from text: String) -> TimelinePayload? {
         guard let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode(TimelinePayload.self, from: data)
+        return try? decoder.decode(TimelinePayload.self, from: data)
     }
 }
 

@@ -437,7 +437,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func timelineProjectionChangesUpdateVisibleMessagesAndChatPreview() async throws {
+    @Test func timelineProjectionChangesUpdateVisibleMessages() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -513,7 +513,8 @@ struct whitenoise_macTests {
 
         #expect(didApplyProjection)
         #expect(state.messagesByChat["direct-group"]?.first?.body == "Streaming…")
-        #expect(state.activeChats.first?.preview == "Streaming…")
+        // The sidebar preview is driven by the chat-list subscription, not the timeline
+        // window (covered by chatListUsesSubscriptionSnapshotAndTypedDeltas).
     }
 
     @MainActor
@@ -715,7 +716,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func loadingOlderMessagesUsesTimelineCursorAndMergesPage() async throws {
+    @Test func loadingOlderMessagesExtendsWindowViaSubscription() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -767,13 +768,12 @@ struct whitenoise_macTests {
         #expect(loadedIds.first == "message-000")
         #expect(loadedIds.last == "message-104")
         #expect(!state.selectedTimelinePaging.hasMoreBefore)
-        #expect(runtime.timelineMessageQueries.last?.before == baseTime + 5)
-        #expect(runtime.timelineMessageQueries.last?.beforeMessageId == "message-005")
+        #expect(runtime.lastTimelineSubscription?.paginateBackwardsCount == 1)
         #expect(runtime.timelineSubscriptionCount == 1)
     }
 
     @MainActor
-    @Test func loadingOlderMessagesDoesNotRepeatNonAdvancingCursor() async throws {
+    @Test func loadingOlderMessagesStopsPaginatingAtOldest() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -816,19 +816,15 @@ struct whitenoise_macTests {
         await state.loadMessages(groupIdHex: "direct-group")
         #expect(state.selectedTimelinePaging.hasMoreBefore)
 
-        let initialQueryCount = runtime.timelineMessageQueries.count
-        runtime.timelineMessagesHandler = { query in
-            #expect(query.before == baseTime + 1)
-            #expect(query.beforeMessageId == "message-001")
-            return TimelinePageFfi(messages: [], hasMoreBefore: true, hasMoreAfter: true)
-        }
-
         await state.loadOlderMessages(groupIdHex: "direct-group")
         await state.loadOlderMessages(groupIdHex: "direct-group")
 
-        #expect(runtime.timelineMessageQueries.count == initialQueryCount + 1)
-        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-001")
-        #expect(state.selectedTimelinePaging.hasMoreBefore)
+        // The subscription owns the cursor: the first scroll-up reaches the oldest message,
+        // and the second is a no-op (guarded by hasMoreBefore), so it never re-paginates.
+        #expect(runtime.lastTimelineSubscription?.paginateBackwardsCount == 1)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-000")
+        #expect(state.messagesByChat["direct-group"]?.count == 101)
+        #expect(!state.selectedTimelinePaging.hasMoreBefore)
     }
 
     @MainActor
@@ -877,21 +873,23 @@ struct whitenoise_macTests {
         await state.loadOlderMessages(groupIdHex: "direct-group")
         await state.loadOlderMessages(groupIdHex: "direct-group")
 
-        #expect(state.messagesByChat["direct-group"]?.count == 300)
+        // The runtime caps the materialized window at MAX_TIMELINE_LIMIT (200); scrolling
+        // back trims the newest rows, so the window slides instead of growing unbounded.
+        #expect(state.messagesByChat["direct-group"]?.count == 200)
         #expect(state.messagesByChat["direct-group"]?.first?.id == "message-050")
-        #expect(state.messagesByChat["direct-group"]?.last?.id == "message-349")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "message-249")
         #expect(state.selectedTimelinePaging.hasMoreBefore)
         #expect(state.selectedTimelinePaging.hasMoreAfter)
 
         await state.loadNewerMessages(groupIdHex: "direct-group")
 
-        #expect(state.messagesByChat["direct-group"]?.count == 300)
+        // Paging forward slides the window toward the head, trimming the oldest rows.
+        #expect(state.messagesByChat["direct-group"]?.count == 200)
         #expect(state.messagesByChat["direct-group"]?.first?.id == "message-150")
-        #expect(state.messagesByChat["direct-group"]?.last?.id == "message-449")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "message-349")
         #expect(state.selectedTimelinePaging.hasMoreBefore)
-        #expect(!state.selectedTimelinePaging.hasMoreAfter)
-        #expect(runtime.timelineMessageQueries.last?.after == baseTime + 349)
-        #expect(runtime.timelineMessageQueries.last?.afterMessageId == "message-349")
+        #expect(state.selectedTimelinePaging.hasMoreAfter)
+        #expect(runtime.lastTimelineSubscription?.paginateForwardsCount == 1)
     }
 
     @MainActor
@@ -956,9 +954,9 @@ struct whitenoise_macTests {
         try? await Task.sleep(nanoseconds: 500_000_000)
 
         let loadedIds = state.messagesByChat["direct-group"]?.map(\.id) ?? []
-        #expect(loadedIds.count == 300)
+        #expect(loadedIds.count == 200)
         #expect(loadedIds.first == "message-050")
-        #expect(loadedIds.last == "message-349")
+        #expect(loadedIds.last == "message-249")
         #expect(state.selectedTimelinePaging.hasMoreAfter)
         #expect(runtime.markedReadMessageIds == ["message-449"])
     }
@@ -1048,9 +1046,9 @@ struct whitenoise_macTests {
         try? await Task.sleep(nanoseconds: 500_000_000)
 
         let loadedMessages = state.messagesByChat["direct-group"] ?? []
-        #expect(loadedMessages.count == 300)
+        #expect(loadedMessages.count == 200)
         #expect(loadedMessages.map(\.id).first == "message-050")
-        #expect(loadedMessages.map(\.id).last == "message-349")
+        #expect(loadedMessages.map(\.id).last == "message-249")
         #expect(loadedMessages.first(where: { $0.id == "message-120" })?.body == "Visible message updated by projection")
         #expect(!loadedMessages.contains { $0.id == "message-500" })
         #expect(state.selectedTimelinePaging.hasMoreAfter)
@@ -2598,8 +2596,7 @@ private actor FakeGroupImageSearchClient: GroupImageSearchClient {
     }
 }
 
-@MainActor
-private final class FakeMarmotRuntime: MarmotRuntime {
+private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private var storedAccounts: [AccountSummaryFfi]
     private let createdAccount: AccountSummaryFfi?
     private(set) var didStart = false
@@ -2681,6 +2678,7 @@ private final class FakeMarmotRuntime: MarmotRuntime {
     private(set) var chatListCallCount = 0
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
+    private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
     private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     var accountIdsMissingProfiles = Set<String>()
@@ -3302,23 +3300,21 @@ private final class FakeMarmotRuntime: MarmotRuntime {
 
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription {
         timelineSubscriptionCount += 1
-        let page = try timelineMessages(
-            accountRef: accountRef,
-            query: TimelineMessageQueryFfi(
-                groupIdHex: groupIdHex,
-                search: nil,
-                before: nil,
-                beforeMessageId: nil,
-                after: nil,
-                afterMessageId: nil,
-                limit: limit
-            )
-        )
-        return FakeTimelineMessagesSubscription(
-            page: page,
+        let ordered: [TimelineMessageRecordFfi]
+        if let groupIdHex {
+            ordered = timelinePagesByGroupId[groupIdHex]?.messages ?? []
+        } else {
+            ordered = timelinePagesByGroupId.values.flatMap(\.messages)
+        }
+        let subscription = FakeTimelineMessagesSubscription(
+            messages: ordered,
+            limit: Int(limit ?? 100),
+            windowCap: 200,
             updates: groupIdHex.flatMap { timelineUpdatesByGroupId[$0] } ?? [],
             updateDelayNanoseconds: timelineUpdateDelayNanoseconds
         )
+        lastTimelineSubscription = subscription
+        return subscription
     }
 
     func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi? {
@@ -3480,34 +3476,79 @@ private final class FakeChatListSubscription: ChatListSubscription {
     }
 }
 
+// Models the runtime's authoritative, bounded, materialized timeline window: a sliding
+// [lo, hi) window over the full ordered message set, capped at `windowCap`, extended by
+// `paginateBackwards`/`paginateForwards` and mutated by live `next()` updates. Mirrors the
+// marmot-app windowing contract closely enough for client-level tests; the exact math is
+// unit-tested in Rust.
 private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscription {
-    private let page: TimelinePageFfi
-    private var currentPage: TimelinePageFfi
+    private var fullSet: TimelinePageFfi
+    private let limit: Int
+    private let windowCap: Int
+    private var lo: Int
+    private var hi: Int
     private var updates: [TimelineSubscriptionUpdateFfi]
     private let updateDelayNanoseconds: UInt64
+    private(set) var paginateBackwardsCount = 0
+    private(set) var paginateForwardsCount = 0
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.page = emptyTimelinePage()
-        self.currentPage = emptyTimelinePage()
+        self.fullSet = emptyTimelinePage()
+        self.limit = 100
+        self.windowCap = 200
+        self.lo = 0
+        self.hi = 0
         self.updates = []
         self.updateDelayNanoseconds = 0
         super.init(unsafeFromRawPointer: pointer)
     }
 
     init(
-        page: TimelinePageFfi,
+        messages: [TimelineMessageRecordFfi],
+        limit: Int,
+        windowCap: Int,
         updates: [TimelineSubscriptionUpdateFfi] = [],
         updateDelayNanoseconds: UInt64 = 0
     ) {
-        self.page = page
-        self.currentPage = page
+        var page = TimelinePageFfi(messages: messages, hasMoreBefore: false, hasMoreAfter: false)
+        page.sortCanonical()
+        self.fullSet = page
+        self.limit = max(1, limit)
+        self.windowCap = max(1, windowCap)
+        self.hi = page.messages.count
+        self.lo = max(0, page.messages.count - max(1, limit))
         self.updates = updates
         self.updateDelayNanoseconds = updateDelayNanoseconds
         super.init(noPointer: NoPointer())
     }
 
+    private func windowPage() -> TimelinePageFfi {
+        let count = fullSet.messages.count
+        let clampedHi = min(max(hi, 0), count)
+        let clampedLo = min(max(lo, 0), clampedHi)
+        return TimelinePageFfi(
+            messages: Array(fullSet.messages[clampedLo..<clampedHi]),
+            hasMoreBefore: clampedLo > 0,
+            hasMoreAfter: clampedHi < count
+        )
+    }
+
     override func snapshot() -> TimelinePageFfi? {
-        page
+        windowPage()
+    }
+
+    override func paginateBackwards(count: UInt32) async throws -> TimelinePageFfi {
+        paginateBackwardsCount += 1
+        lo = max(0, lo - Int(count))
+        if hi - lo > windowCap { hi = lo + windowCap }
+        return windowPage()
+    }
+
+    override func paginateForwards(count: UInt32) async throws -> TimelinePageFfi {
+        paginateForwardsCount += 1
+        hi = min(fullSet.messages.count, hi + Int(count))
+        if hi - lo > windowCap { lo = hi - windowCap }
+        return windowPage()
     }
 
     override func next() async -> TimelinePageFfi? {
@@ -3516,13 +3557,33 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
             try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
         }
         let update = updates.removeFirst()
+        let priorSpan = hi - lo
+        let wasAnchored = hi >= fullSet.messages.count
         switch update {
         case .page(page: let page):
-            currentPage = page
+            // A head `.page` refresh never replaces a scrolled-back (detached) window.
+            guard wasAnchored else { return windowPage() }
+            for message in page.messages {
+                if let index = fullSet.messages.firstIndex(where: { $0.messageIdHex == message.messageIdHex }) {
+                    fullSet.messages[index] = message
+                } else {
+                    fullSet.messages.append(message)
+                }
+            }
+            fullSet.sortCanonical()
         case .projection(update: let runtimeUpdate):
-            currentPage.applyProjectionUpdate(runtimeUpdate.update)
+            fullSet.applyProjectionUpdate(runtimeUpdate.update)
         }
-        return currentPage
+        let count = fullSet.messages.count
+        if wasAnchored {
+            hi = count
+            lo = max(0, hi - max(limit, priorSpan))
+            if hi - lo > windowCap { lo = hi - windowCap }
+        } else {
+            hi = min(hi, count)
+            lo = min(lo, hi)
+        }
+        return windowPage()
     }
 
     override func nextUpdate() async -> TimelineSubscriptionUpdateFfi? {
@@ -3535,6 +3596,13 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
 }
 
 private extension TimelinePageFfi {
+    mutating func sortCanonical() {
+        messages.sort {
+            if $0.timelineAt != $1.timelineAt { return $0.timelineAt < $1.timelineAt }
+            return $0.messageIdHex < $1.messageIdHex
+        }
+    }
+
     mutating func applyProjectionUpdate(_ update: TimelineProjectionUpdateFfi) {
         if update.changes.isEmpty {
             for message in update.messages {

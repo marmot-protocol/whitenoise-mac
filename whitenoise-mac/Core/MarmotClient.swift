@@ -1,7 +1,10 @@
 import Foundation
 import MarmotKit
 
-protocol MarmotRuntime {
+// The project defaults to `@MainActor` isolation, but every MarmotRuntime method is a
+// thread-safe bridge into the Rust core. Marking the protocol `nonisolated` lets these
+// calls run off the main thread (see WorkspaceState.runOffMain) instead of blocking the UI.
+nonisolated protocol MarmotRuntime: Sendable {
     var storageRootPath: String { get }
 
     func start() async throws
@@ -62,7 +65,9 @@ protocol MarmotRuntime {
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi
 }
 
-final class MarmotClient: MarmotRuntime {
+// `marmot` is a UniFFI handle whose Rust object is internally Send + Sync, and all
+// stored properties are immutable, so MarmotClient is safe to share across threads.
+nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
     static let seedRelays: [String] = [
         "wss://relay.eu.whitenoise.chat",
         "wss://relay.us.whitenoise.chat"
