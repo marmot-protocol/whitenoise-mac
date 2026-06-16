@@ -126,6 +126,104 @@ struct whitenoise_macTests {
         #expect(!state.showsMessengerChrome)
     }
 
+    @Test func marmotStorageRootRejectsUnavailableApplicationSupportDirectory() throws {
+        let underlying = NSError(
+            domain: "MarmotStorageRootTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "blocked Application Support"]
+        )
+
+        do {
+            _ = try MarmotStorageRoot.resolve(applicationSupportDirectory: { _ in throw underlying })
+            Issue.record("Expected storage root resolution to fail")
+        } catch let error as MarmotStorageRootError {
+            let message = error.localizedDescription
+            #expect(message.contains("Unable to resolve a durable Application Support directory"))
+            #expect(message.contains("blocked Application Support"))
+            #expect(!message.contains(NSTemporaryDirectory()))
+        } catch {
+            Issue.record("Expected MarmotStorageRootError, got \(error)")
+        }
+    }
+
+    @MainActor
+    @Test func bootstrapSurfacesStorageRootResolutionFailures() async throws {
+        let underlying = NSError(
+            domain: "MarmotStorageRootTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "blocked Application Support"]
+        )
+        let state = WorkspaceState(clientFactory: {
+            throw MarmotStorageRootError.applicationSupportUnavailable(underlying)
+        })
+
+        await state.bootstrap()
+
+        guard case .failed(let message) = state.phase else {
+            Issue.record("Expected bootstrap to fail when storage root resolution fails")
+            return
+        }
+        #expect(message.contains("Unable to resolve a durable Application Support directory"))
+        #expect(state.lastError == message)
+        #expect(!state.showsMessengerChrome)
+    }
+
+    @Test func marmotStorageRootPropagatesDirectoryCreationFailures() throws {
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-storage-root-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let blockedParent = sandbox.appendingPathComponent("White Noise", isDirectory: false)
+        try Data().write(to: blockedParent)
+
+        let expectedRoot = sandbox
+            .appendingPathComponent("White Noise", isDirectory: true)
+            .appendingPathComponent("Marmot", isDirectory: true)
+            .path
+
+        do {
+            _ = try MarmotStorageRoot.resolve(baseURL: sandbox, fileManager: fileManager)
+            Issue.record("Expected storage root creation to fail")
+        } catch let error as MarmotStorageRootError {
+            let message = error.localizedDescription
+            #expect(message.contains("Unable to create durable Marmot storage directory"))
+            #expect(message.contains(expectedRoot))
+        } catch {
+            Issue.record("Expected MarmotStorageRootError, got \(error)")
+        }
+
+        #expect(!fileManager.fileExists(atPath: expectedRoot))
+    }
+
+    @Test func marmotStorageRootRejectsFileAtExpectedRoot() throws {
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-storage-root-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let whiteNoiseDirectory = sandbox.appendingPathComponent("White Noise", isDirectory: true)
+        try fileManager.createDirectory(at: whiteNoiseDirectory, withIntermediateDirectories: true)
+
+        let marmotRoot = whiteNoiseDirectory.appendingPathComponent("Marmot", isDirectory: false)
+        try Data().write(to: marmotRoot)
+
+        do {
+            _ = try MarmotStorageRoot.resolve(baseURL: sandbox, fileManager: fileManager)
+            Issue.record("Expected storage root resolution to reject a file at the Marmot root")
+        } catch let error as MarmotStorageRootError {
+            guard case .rootIsNotDirectory(let path) = error else {
+                Issue.record("Expected rootIsNotDirectory, got \(error)")
+                return
+            }
+            #expect(path == marmotRoot.path)
+        } catch {
+            Issue.record("Expected MarmotStorageRootError, got \(error)")
+        }
+    }
+
     @MainActor
     @Test func chatSearchMatchesTitleSubtitleAndPreview() async throws {
         let chats = ChatItem.samples
