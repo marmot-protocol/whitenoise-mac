@@ -1678,15 +1678,28 @@ private struct MessageBubble: View {
                 if !message.reactions.isEmpty {
                     HStack(spacing: 5) {
                         ForEach(message.reactions) { reaction in
-                            Text(reaction.label)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background {
-                                    GlassCapsuleBackground(
-                                        borderColor: reaction.isOwn ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
-                                    )
+                            Button {
+                                Task {
+                                    if reaction.isOwn {
+                                        await workspace.removeReaction(reaction, from: message)
+                                    } else {
+                                        await workspace.react(to: message, emoji: reaction.emoji)
+                                    }
                                 }
+                            } label: {
+                                Text(reaction.label)
+                                    .font(.caption.weight(.semibold))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background {
+                                        GlassCapsuleBackground(
+                                            borderColor: reaction.isOwn ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Capsule())
+                            .help(reaction.isOwn ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
                         }
                     }
                     .padding(.horizontal, 4)

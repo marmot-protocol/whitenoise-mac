@@ -1157,6 +1157,21 @@ final class WorkspaceState {
         }
     }
 
+    func removeReaction(_ reaction: MessageReaction, from message: MessageItem) async {
+        guard message.supportsChatActions else { return }
+        guard reaction.canRemoveOwnReaction, let reactionMessageId = reaction.ownReactionMessageId else { return }
+        guard let client, let activeAccount, let selectedChat else { return }
+        do {
+            _ = try await client.deleteMessage(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: selectedChat.id,
+                targetMessageId: reactionMessageId
+            )
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func deleteMessage(_ message: MessageItem) async {
         guard message.supportsChatActions else { return }
         guard let client, let activeAccount, let selectedChat else { return }

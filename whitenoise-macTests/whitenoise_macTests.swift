@@ -312,7 +312,7 @@ struct whitenoise_macTests {
         #expect(state.messagesByChat["group"]?.count == 1)
         #expect(state.messagesByChat["group"]?.first?.body == "The launch plan is ready.")
         #expect(state.messagesByChat["group"]?.first?.reactions == [
-            MessageReaction(emoji: "👍", count: 1, isOwn: true)
+            MessageReaction(emoji: "👍", count: 1, isOwn: true, ownReactionMessageId: "reaction")
         ])
     }
 
@@ -1239,6 +1239,55 @@ struct whitenoise_macTests {
             groupIdHex: "direct-group",
             targetMessageId: "parent"
         ))
+    }
+
+    @MainActor
+    @Test func messageActionsRemoveOwnReactionByDeletingReactionEvent() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let ownReaction = MessageReaction(
+            emoji: "👍",
+            count: 1,
+            isOwn: true,
+            ownReactionMessageId: "reaction-event"
+        )
+        let message = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            reactions: [ownReaction]
+        )
+
+        await state.bootstrap()
+        await state.removeReaction(ownReaction, from: message)
+
+        #expect(runtime.deletedMessage == DeletedMessage(
+            groupIdHex: "direct-group",
+            targetMessageId: "reaction-event"
+        ))
+        #expect(runtime.reactedMessage == nil)
     }
 
     @MainActor

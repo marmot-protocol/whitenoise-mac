@@ -134,11 +134,23 @@ struct MessageReaction: Identifiable, Hashable {
     let emoji: String
     let count: Int
     let isOwn: Bool
+    let ownReactionMessageId: String?
+
+    init(emoji: String, count: Int, isOwn: Bool, ownReactionMessageId: String? = nil) {
+        self.emoji = emoji
+        self.count = count
+        self.isOwn = isOwn
+        self.ownReactionMessageId = ownReactionMessageId
+    }
 
     var id: String { emoji }
 
     var label: String {
         count > 1 ? "\(emoji) \(count)" : emoji
+    }
+
+    var canRemoveOwnReaction: Bool {
+        isOwn && ownReactionMessageId != nil
     }
 }
 
