@@ -1801,6 +1801,94 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupImagePickerDismissesWhenSelectionClears() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        state.showGroupImagePicker(for: groupChat)
+        state.selection = nil
+
+        #expect(state.selectedChat == nil)
+        #expect(!state.isGroupImagePickerPresented)
+    }
+
+    @MainActor
+    @Test func groupImagePickerDismissesWhenSelectedChatIsRemoved() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        state.showGroupImagePicker(for: groupChat)
+        runtime.installChatListUpdates([
+            .removeRow(trigger: .removed, groupIdHex: groupChat.id)
+        ])
+        await state.reloadChats()
+        let didRemoveSelectedChat = await waitFor {
+            state.activeChats.isEmpty && state.selectedChat == nil
+        }
+
+        #expect(didRemoveSelectedChat)
+        #expect(!state.isGroupImagePickerPresented)
+    }
+
+    @MainActor
+    @Test func groupImagePickerDismissesWhenRemovedChatAutoReselectsNextChat() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first(where: { $0.id == "group" }) else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        state.selectChat(groupChat)
+        state.showGroupImagePicker(for: groupChat)
+        runtime.installChatListUpdates([
+            .removeRow(trigger: .removed, groupIdHex: groupChat.id)
+        ])
+        await state.reloadChats()
+        let didReselectNextChat = await waitFor {
+            state.selection == .chat("direct-group") && state.selectedChat?.id == "direct-group"
+        }
+
+        #expect(didReselectNextChat)
+        #expect(!state.isGroupImagePickerPresented)
+    }
+
+    @MainActor
     @Test func directChatDoesNotOpenGroupImagePicker() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
