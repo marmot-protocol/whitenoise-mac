@@ -1957,6 +1957,134 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func incrementalChatRowUpdateEnrichesDirectChatTitle() async throws {
+        // Regression for #40: single-row chat-list deltas go through the incremental
+        // enrichment path (startChatListEnrichment(replacingCurrent: false)). After the fix
+        // these tasks are tracked and coalesced per group, but the happy path must still
+        // enrich the row — verify a `.row` delta for a direct chat resolves the peer profile.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // Deliver an incremental row update (the buggy path) carrying a fresh last message.
+        let updatedRow = chatListRow(
+            groupIdHex: "direct-group",
+            title: "",
+            preview: "See you soon.",
+            sender: aliceId,
+            timelineAt: 1_700_000_500
+        )
+        runtime.installChatListUpdates([
+            .row(trigger: .newLastMessage, row: updatedRow)
+        ])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didEnrichIncrementally = await waitFor {
+            state.activeChats.first?.title == "Alice Actual"
+                && state.activeChats.first?.preview == "See you soon."
+        }
+
+        #expect(didEnrichIncrementally)
+        #expect(state.activeChats.first?.isDirect == true)
+        #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
+        // Enrichment must have run for the delta-delivered row (incremental path), in addition
+        // to the initial snapshot enrichment.
+        #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) >= 2)
+    }
+
+    // MARK: - ChatListRowEnrichmentTracker (issue #40 ownership invariants)
+
+    @Test func enrichmentTrackerStaleTaskAfterReloadDoesNotDropNewerTask() {
+        // Regression for the adversarial review on PR #62: a per-group generation counter that
+        // reset on `cancelAll()` (reload / account switch) reused token `1`, so an old canceled
+        // task finishing afterwards matched the *new* task's reused token and dropped its slot.
+        // Tokens are now process-monotonic and never reused, so this must not happen.
+        var tracker = ChatListRowEnrichmentTracker()
+        let group = "direct-group"
+
+        // 1. Incremental update starts task A for the group.
+        let tokenA = tracker.beginTask(forGroup: group)
+        tracker.register(task: Task {}, forGroup: group, token: tokenA)
+        #expect(tracker.currentToken(forGroup: group) == tokenA)
+
+        // 2. A full snapshot / reload (or listener stop) cancels everything and clears state.
+        tracker.cancelAll()
+        #expect(tracker.trackedTaskCount == 0)
+        #expect(tracker.currentToken(forGroup: group) == nil)
+
+        // 3. A later incremental update starts task B for the same group. Its token must differ
+        //    from A's — the sequence is not reset by `cancelAll()`.
+        let tokenB = tracker.beginTask(forGroup: group)
+        tracker.register(task: Task {}, forGroup: group, token: tokenB)
+        #expect(tokenB != tokenA)
+        #expect(tracker.currentToken(forGroup: group) == tokenB)
+
+        // 4. The old canceled task A finally unwinds and runs its cleanup with its stale token.
+        //    It must be a no-op: B still owns the slot.
+        tracker.finishTask(forGroup: group, token: tokenA)
+        #expect(tracker.currentToken(forGroup: group) == tokenB)
+        #expect(tracker.trackedTaskCount == 1)
+
+        // 5. When B itself finishes with its own token, the slot is released cleanly.
+        tracker.finishTask(forGroup: group, token: tokenB)
+        #expect(tracker.currentToken(forGroup: group) == nil)
+        #expect(tracker.trackedTaskCount == 0)
+    }
+
+    @Test func enrichmentTrackerNewerUpdateSupersedesInFlightTask() {
+        // A newer row update for the same group supersedes (coalesces) the in-flight one: the
+        // older task's later cleanup must not drop the newer task's slot.
+        var tracker = ChatListRowEnrichmentTracker()
+        let group = "g"
+
+        let first = tracker.beginTask(forGroup: group)
+        tracker.register(task: Task {}, forGroup: group, token: first)
+        let second = tracker.beginTask(forGroup: group)
+        tracker.register(task: Task {}, forGroup: group, token: second)
+        #expect(second != first)
+        #expect(tracker.currentToken(forGroup: group) == second)
+
+        // Stale older task cleanup is ignored; the newer task keeps the slot.
+        tracker.finishTask(forGroup: group, token: first)
+        #expect(tracker.currentToken(forGroup: group) == second)
+        #expect(tracker.trackedTaskCount == 1)
+    }
+
+    @Test func enrichmentTrackerLateRegistrationForStaleTokenIsRejected() {
+        // If a task's `register` lands after a newer `beginTask` for the same group (interleaving
+        // on the main actor), the stale registration must not clobber the newer owner.
+        var tracker = ChatListRowEnrichmentTracker()
+        let group = "g"
+
+        let stale = tracker.beginTask(forGroup: group)
+        let current = tracker.beginTask(forGroup: group)
+        // Late registration for the stale token is dropped.
+        tracker.register(task: Task {}, forGroup: group, token: stale)
+        tracker.register(task: Task {}, forGroup: group, token: current)
+        #expect(tracker.currentToken(forGroup: group) == current)
+        #expect(tracker.trackedTaskCount == 1)
+    }
+
+    @MainActor
     @Test func groupImageSearchSelectionUpdatesGroupAvatarUrl() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -3469,6 +3597,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
+    /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
+    /// through the incremental per-row path (issue #40 regression).
+    private(set) var groupDetailsCallCounts: [String: Int] = [:]
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
     private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
@@ -3830,6 +3961,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
+        groupDetailsCallCounts[groupIdHex, default: 0] += 1
         if let details = groupDetailsById[groupIdHex] {
             return details
         }
