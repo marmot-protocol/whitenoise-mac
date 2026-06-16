@@ -809,6 +809,61 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selectingUncachedChatTracksInitialTimelineLoadUntilSnapshotApplies() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        runtime.installMessages([
+            appMessage(
+                id: "group-message",
+                groupIdHex: "group",
+                sender: account.accountIdHex,
+                plaintext: "Group history should not look empty while loading",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            )
+        ], groupIdHex: "group")
+        runtime.installMessages([
+            appMessage(
+                id: "direct-message",
+                groupIdHex: "direct-group",
+                sender: account.accountIdHex,
+                plaintext: "Most recent chat loads during bootstrap",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            )
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.selection == .chat("direct-group"))
+        #expect(state.messagesByChat["group"] == nil)
+        guard let group = state.activeChats.first(where: { $0.id == "group" }) else {
+            Issue.record("Expected group chat")
+            return
+        }
+
+        runtime.timelineSubscriptionDelayNanoseconds = 50_000_000
+        state.selectChat(group)
+
+        #expect(state.selectedTimelineIsLoadingInitialPage)
+        #expect(state.selectedMessages.isEmpty)
+        #expect(state.messagesByChat["group"] == nil)
+
+        let didLoadGroup = await waitFor {
+            state.messagesByChat["group"]?.map(\.id) == ["group-message"]
+        }
+        #expect(didLoadGroup)
+        #expect(!state.selectedTimelineIsLoadingInitialPage)
+        #expect(state.selectedMessages.map(\.id) == ["group-message"])
+    }
+
+    @MainActor
     @Test func loadingOlderMessagesExtendsWindowViaSubscription() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -2853,6 +2908,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// When set, `subscribeNotifications()` throws this error, simulating a background
     /// notification-listener failure for routing tests.
     var subscribeNotificationsError: Error?
+    /// Simulates the async relay/runtime delay before the first timeline snapshot is available.
+    var timelineSubscriptionDelayNanoseconds: UInt64 = 0
     var timelineUpdateDelayNanoseconds: UInt64 = 0
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
@@ -3464,6 +3521,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription {
         timelineSubscriptionCount += 1
+        if timelineSubscriptionDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: timelineSubscriptionDelayNanoseconds)
+        }
         let ordered: [TimelineMessageRecordFfi]
         if let groupIdHex {
             ordered = timelinePagesByGroupId[groupIdHex]?.messages ?? []

@@ -520,6 +520,7 @@ private struct ConversationView: View {
         let messages = workspace.selectedMessages
         let messageIDs = messages.map(\.id)
         let paging = workspace.selectedTimelinePaging
+        let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
 
         VStack(spacing: 0) {
             ConversationHeader(chat: chat)
@@ -529,7 +530,11 @@ private struct ConversationView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         if messageIDs.isEmpty {
-                            EmptyConversationView()
+                            if isLoadingInitialPage {
+                                TimelineInitialLoadingView()
+                            } else {
+                                EmptyConversationView()
+                            }
                         } else {
                             if paging.hasMoreBefore {
                                 TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
@@ -711,6 +716,22 @@ private struct ConversationView: View {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
         }
+    }
+}
+
+private struct TimelineInitialLoadingView: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.regular)
+            Text("Loading messages...")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading messages")
     }
 }
 
