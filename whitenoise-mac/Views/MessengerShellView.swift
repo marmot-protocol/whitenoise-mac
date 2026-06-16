@@ -637,6 +637,16 @@ private struct ConversationView: View {
                           messageIDs.contains(anchorId)
                     else { return }
                     DispatchQueue.main.async {
+                        // Re-validate against live state: the user may have switched
+                        // chats (which clears pendingPrependAnchorId) or another prepend
+                        // may have landed between scheduling and execution of this block.
+                        // Without re-checking, proxy.scrollTo would run against the new
+                        // conversation using a stale anchor, and the unconditional clear
+                        // would drop restoration for a subsequent legitimate prepend.
+                        guard workspace.selectedChat?.id == chat.id,
+                              pendingPrependAnchorId == anchorId,
+                              workspace.selectedMessageIDs.contains(anchorId)
+                        else { return }
                         proxy.scrollTo(anchorId, anchor: .top)
                         pendingPrependAnchorId = nil
                     }
