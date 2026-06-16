@@ -614,7 +614,6 @@ struct whitenoise_macTests {
         }
 
         #expect(didApplyRemoval)
-        #expect(runtime.chatListCallCount == 0)
         #expect(runtime.chatListSubscriptionCount == 1)
     }
 
@@ -2675,7 +2674,6 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
-    private(set) var chatListCallCount = 0
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
     private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
@@ -3199,15 +3197,6 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return relayLists
     }
 
-    func subscribeChats(accountRef: String, includeArchived: Bool) async throws -> ChatsSubscription {
-        FakeChatsSubscription(groups: groups)
-    }
-
-    func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
-        chatListCallCount += 1
-        return chatListRows(includeArchived: includeArchived)
-    }
-
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
         chatListSubscriptionCount += 1
         return FakeChatListSubscription(
@@ -3326,13 +3315,6 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
     }
 
-    func messages(accountRef: String, groupIdHex: String?, limit: UInt32?) throws -> [AppMessageRecordFfi] {
-        if let groupIdHex {
-            return messagesByGroupId[groupIdHex] ?? []
-        }
-        return messagesByGroupId.values.flatMap { $0 }
-    }
-
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {
         throw FakeMarmotRuntimeError.unused
     }
@@ -3422,28 +3404,6 @@ private struct UpdatedGroupProfile: Equatable {
 private struct ArchivedGroup: Equatable {
     let groupIdHex: String
     let archived: Bool
-}
-
-private final class FakeChatsSubscription: ChatsSubscription {
-    private let groups: [AppGroupRecordFfi]
-
-    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.groups = []
-        super.init(unsafeFromRawPointer: pointer)
-    }
-
-    init(groups: [AppGroupRecordFfi]) {
-        self.groups = groups
-        super.init(noPointer: NoPointer())
-    }
-
-    override func snapshot() -> [AppGroupRecordFfi] {
-        groups
-    }
-
-    override func next() async -> AppGroupRecordFfi? {
-        nil
-    }
 }
 
 private final class FakeChatListSubscription: ChatListSubscription {
