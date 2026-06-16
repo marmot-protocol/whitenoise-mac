@@ -136,6 +136,37 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func chatListRelativeTimestampUsesSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+
+        let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let sameWeekNow = messageDate.addingTimeInterval(86_400)
+        let expected = messageDate.formatted(
+            Date.FormatStyle.dateTime.weekday(.abbreviated)
+                .locale(Locale(identifier: AppLanguage.spanish.rawValue))
+        )
+
+        #expect(DisplayText.relativeTimestamp(for: messageDate, now: sameWeekNow) == expected)
+    }
+
+    @MainActor
+    @Test func messageTimestampUsesSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+
+        let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let expected = messageDate.formatted(
+            Date.FormatStyle(date: .abbreviated, time: .shortened)
+                .locale(Locale(identifier: AppLanguage.spanish.rawValue))
+        )
+
+        #expect(DisplayText.messageTimestamp(for: messageDate) == expected)
+    }
+
+    @MainActor
     @Test func projectedChatRowTimestampUsesLastMessageTime() async throws {
         let lastMessageAt: UInt64 = 1_700_000_000
         let projectionRefreshedAt: UInt64 = 1_800_000_000
@@ -2307,6 +2338,50 @@ struct whitenoise_macTests {
         #expect(state.keyPackages.map(\.eventIdHex) == ["event-local", "event-fetched"])
         #expect(state.keyPackages.first?.sourceLabel == "Local")
         #expect(runtime.lastPackageFetchBootstrapRelays == MarmotClient.seedRelays)
+    }
+
+    @MainActor
+    @Test func keyPackageLabelsUseSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+
+        let publishedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let package = KeyPackageItem(
+            accountRef: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            keyPackageId: "key-package",
+            keyPackageRefHex: "key-package-ref",
+            eventIdHex: "event-fetched",
+            publishedAt: publishedAt,
+            keyPackageBytes: 128,
+            sourceRelays: ["wss://relay.example"],
+            isLocal: false,
+            isRelayDiscovered: true
+        )
+        let expectedPublished = publishedAt.formatted(
+            Date.FormatStyle(date: .abbreviated, time: .shortened)
+                .locale(Locale(identifier: AppLanguage.spanish.rawValue))
+        )
+
+        #expect(package.sourceLabel == "Obtenido")
+        #expect(package.publishedLabel == expectedPublished)
+
+        let unknownPackage = KeyPackageItem(
+            accountRef: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            keyPackageId: "unknown-package",
+            keyPackageRefHex: "unknown-key-package-ref",
+            eventIdHex: "event-unknown",
+            publishedAt: nil,
+            keyPackageBytes: 0,
+            sourceRelays: [],
+            isLocal: false,
+            isRelayDiscovered: false
+        )
+
+        #expect(unknownPackage.sourceLabel == "Desconocido")
+        #expect(unknownPackage.publishedLabel == "Desconocido")
     }
 
     @MainActor
