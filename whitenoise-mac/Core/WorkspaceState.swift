@@ -2348,6 +2348,13 @@ final class WorkspaceState {
         client: any MarmotRuntime
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        // A selected chat is necessary but not sufficient: only advance the read marker
+        // when the app is actually frontmost. If the user has switched away (app inactive,
+        // window occluded/minimized) incoming live deltas must not silently clear unread
+        // state for messages they have not seen — this mirrors the focus gate the
+        // notification path already applies in handleNotificationUpdate(_:). Marking is
+        // deferred until the app regains focus (see handleAppActivationChange()).
+        guard appActivityProvider() else { return }
         guard let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
             message.timelineKind == 9 && !message.isDeleted
         }) else {
@@ -2375,6 +2382,23 @@ final class WorkspaceState {
             lastMarkedReadMarkers[groupIdHex] = previousMarker
             lastError = error.localizedDescription
         }
+    }
+
+    /// Flush any read-marking that was deferred while the app was in the background.
+    ///
+    /// `markLatestVisibleMessageRead(_:)` refuses to advance the read marker while the
+    /// app is inactive, so messages that arrive on the selected chat while the user is
+    /// away stay unread. When the app regains focus the user is now actually looking at
+    /// the selected chat, so it is safe to advance the marker to the latest visible
+    /// message. Call this from the app/window activation hook (see ContentView).
+    func handleAppActivationChange() async {
+        guard appActivityProvider() else { return }
+        guard let client, let activeAccount, let selectedChat else { return }
+        await markLatestVisibleMessageRead(
+            groupIdHex: selectedChat.id,
+            account: activeAccount,
+            client: client
+        )
     }
 
     private func rememberDeliveredNotificationKey(_ key: String) {
