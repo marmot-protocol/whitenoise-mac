@@ -1630,7 +1630,7 @@ final class WorkspaceState {
             try await localNotificationCenter.post(request)
             rememberDeliveredNotificationKey(update.notificationKey)
         } catch {
-            lastError = error.localizedDescription
+            setBackgroundStatus(error.localizedDescription)
         }
     }
 

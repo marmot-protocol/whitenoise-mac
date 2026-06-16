@@ -2226,6 +2226,48 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func notificationDeliveryFailureRoutesToBackgroundStatusNotLastError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        // `handleNotificationUpdate(_:)` runs on the background notification listener.
+        // A failure posting the local notification must surface on the non-modal
+        // background banner, never on the per-screen `lastError` that login/settings/
+        // new-chat render (issue #24 — see PR #49 review finding).
+        let notificationCenter = FakeLocalNotificationCenter(
+            status: .authorized,
+            postError: NSError(
+                domain: "test.notification",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "notification delivery failed"]
+            )
+        )
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "notice-1",
+            groupIdHex: "direct-group",
+            senderName: "Alice",
+            previewText: "See you there."
+        ))
+
+        #expect(state.backgroundStatus == "notification delivery failed")
+        // The user-facing per-screen error field must remain untouched.
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func auditLogFileActionsRefreshDeleteAndUploadThroughRuntime() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -3677,6 +3719,7 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
     private(set) var status: LocalNotificationAuthorizationStatus
     private let requestedStatus: LocalNotificationAuthorizationStatus
     private let requestError: Error?
+    private let postError: Error?
     private(set) var didRequestAuthorization = false
     private(set) var postedRequests: [LocalNotificationRequest] = []
     private var responseHandler: (@MainActor ([String: String]) -> Void)?
@@ -3684,11 +3727,13 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
     init(
         status: LocalNotificationAuthorizationStatus = .authorized,
         requestedStatus: LocalNotificationAuthorizationStatus = .authorized,
-        requestError: Error? = nil
+        requestError: Error? = nil,
+        postError: Error? = nil
     ) {
         self.status = status
         self.requestedStatus = requestedStatus
         self.requestError = requestError
+        self.postError = postError
     }
 
     func authorizationStatus() async -> LocalNotificationAuthorizationStatus {
@@ -3705,6 +3750,9 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
     }
 
     func post(_ notification: LocalNotificationRequest) async throws {
+        if let postError {
+            throw postError
+        }
         postedRequests.append(notification)
     }
 
