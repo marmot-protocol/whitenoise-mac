@@ -1746,6 +1746,61 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func incrementalChatRowUpdateEnrichesDirectChatTitle() async throws {
+        // Regression for #40: single-row chat-list deltas go through the incremental
+        // enrichment path (startChatListEnrichment(replacingCurrent: false)). After the fix
+        // these tasks are tracked and coalesced per group, but the happy path must still
+        // enrich the row — verify a `.row` delta for a direct chat resolves the peer profile.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // Deliver an incremental row update (the buggy path) carrying a fresh last message.
+        let updatedRow = chatListRow(
+            groupIdHex: "direct-group",
+            title: "",
+            preview: "See you soon.",
+            sender: aliceId,
+            timelineAt: 1_700_000_500
+        )
+        runtime.installChatListUpdates([
+            .row(trigger: .newLastMessage, row: updatedRow)
+        ])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didEnrichIncrementally = await waitFor {
+            state.activeChats.first?.title == "Alice Actual"
+                && state.activeChats.first?.preview == "See you soon."
+        }
+
+        #expect(didEnrichIncrementally)
+        #expect(state.activeChats.first?.isDirect == true)
+        #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
+        // Enrichment must have run for the delta-delivered row (incremental path), in addition
+        // to the initial snapshot enrichment.
+        #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) >= 2)
+    }
+
+    @MainActor
     @Test func groupImageSearchSelectionUpdatesGroupAvatarUrl() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -3170,6 +3225,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
+    /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
+    /// through the incremental per-row path (issue #40 regression).
+    private(set) var groupDetailsCallCounts: [String: Int] = [:]
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
     private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
@@ -3531,6 +3589,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
+        groupDetailsCallCounts[groupIdHex, default: 0] += 1
         if let details = groupDetailsById[groupIdHex] {
             return details
         }

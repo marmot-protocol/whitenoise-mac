@@ -146,6 +146,15 @@ final class WorkspaceState {
     private var chatListTask: Task<Void, Never>?
     private var chatListTaskAccountId: String?
     private var chatListEnrichmentTask: Task<Void, Never>?
+    /// Incremental, per-row chat-list enrichment tasks keyed by group id. Single-row updates
+    /// (the chat-list subscription delta path) spawn one enrichment task per group; tracking
+    /// them here lets `stopChatListListener` cancel them on listener teardown / account switch
+    /// and lets a newer update for the same group supersede (coalesce) an in-flight one.
+    private var chatListRowEnrichmentTasks: [String: Task<Void, Never>] = [:]
+    /// Monotonic per-group generation counter for incremental enrichment tasks. Lets a
+    /// finishing task remove itself from `chatListRowEnrichmentTasks` only when it is still
+    /// the current task for that group (its generation hasn't been superseded).
+    private var chatListRowEnrichmentGenerations: [String: Int] = [:]
     private var timelineTask: Task<Void, Never>?
     private var timelineTaskGroupId: String?
     /// The live timeline subscription for the open conversation. It owns the
@@ -2068,6 +2077,11 @@ final class WorkspaceState {
         chatListTaskAccountId = nil
         chatListEnrichmentTask?.cancel()
         chatListEnrichmentTask = nil
+        for task in chatListRowEnrichmentTasks.values {
+            task.cancel()
+        }
+        chatListRowEnrichmentTasks.removeAll()
+        chatListRowEnrichmentGenerations.removeAll()
     }
 
     private func runChatListListener(
@@ -2332,17 +2346,44 @@ final class WorkspaceState {
         replacingCurrent: Bool = true
     ) {
         guard !rows.isEmpty, client != nil else { return }
+
         if replacingCurrent {
+            // Full-snapshot enrichment (bootstrap / reload): a fresh pass re-enriches every
+            // row, so it supersedes any in-flight incremental per-row work.
             chatListEnrichmentTask?.cancel()
+            for task in chatListRowEnrichmentTasks.values {
+                task.cancel()
+            }
+            chatListRowEnrichmentTasks.removeAll()
+            chatListRowEnrichmentGenerations.removeAll()
+
+            chatListEnrichmentTask = Task { [weak self] in
+                guard let self else { return }
+                await self.enrichChatRows(rows, account: account)
+            }
+            return
         }
 
-        let task = Task { [weak self] in
-            guard let self else { return }
-            await self.enrichChatRows(rows, account: account)
-        }
+        // Incremental, per-row path (chat-list subscription deltas). Track every spawned task
+        // and coalesce per group so only one enrichment runs per group at a time, and so they
+        // can be cancelled on listener teardown / account switch (issue #40).
+        for row in rows {
+            let groupId = row.groupIdHex
+            chatListRowEnrichmentTasks[groupId]?.cancel()
+            let generation = (chatListRowEnrichmentGenerations[groupId] ?? 0) + 1
+            chatListRowEnrichmentGenerations[groupId] = generation
 
-        if replacingCurrent {
-            chatListEnrichmentTask = task
+            let task = Task { [weak self] in
+                guard let self else { return }
+                await self.enrichChatRows([row], account: account)
+                // Release this group's slot only if a newer update hasn't superseded us;
+                // otherwise the newer task owns the slot and must not be dropped.
+                if self.chatListRowEnrichmentGenerations[groupId] == generation {
+                    self.chatListRowEnrichmentTasks[groupId] = nil
+                    self.chatListRowEnrichmentGenerations[groupId] = nil
+                }
+            }
+            chatListRowEnrichmentTasks[groupId] = task
         }
     }
 
@@ -2399,6 +2440,12 @@ final class WorkspaceState {
             accountRef: account.accountRef,
             groupIdHex: row.groupIdHex
         ) {
+            // Bail before the second FFI hop (userProfile lookup) if this enrichment has been
+            // cancelled — e.g. the listener was torn down or a newer row update for this group
+            // superseded us. Avoids running the rest of the wasted FFI work to completion (#40).
+            guard !Task.isCancelled else {
+                return ChatItem(row: row, activeAccountIdHex: account.accountIdHex)
+            }
             groupAvatarURL = firstNonBlank([details.group.avatarUrl, groupAvatarURL])
             directPeer = await directPeerProfile(
                 from: details,
