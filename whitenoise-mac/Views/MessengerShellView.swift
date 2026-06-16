@@ -503,9 +503,38 @@ private struct DetailPaneView: View {
     }
 }
 
+enum TimelineNewestMessageScrollAction: Equatable {
+    case none
+    case clearPendingAppendAnchor
+    case restorePendingAppendAnchor(String)
+    case scrollToBottom
+}
+
+func timelineNewestMessageScrollAction(
+    messageIDs: [String],
+    paging: TimelinePagingState,
+    pendingPrependAnchorId: String?,
+    pendingAppendAnchorId: String?,
+    newMessageId: String?
+) -> TimelineNewestMessageScrollAction {
+    if let pendingAppendAnchorId {
+        return messageIDs.contains(pendingAppendAnchorId)
+            ? .restorePendingAppendAnchor(pendingAppendAnchorId)
+            : .clearPendingAppendAnchor
+    }
+
+    guard newMessageId != nil,
+          !paging.hasMoreAfter,
+          pendingPrependAnchorId == nil
+    else { return .none }
+
+    return .scrollToBottom
+}
+
 private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var pendingPrependAnchorId: String?
+    @State private var pendingAppendAnchorId: String?
     @State private var didRequestOlderForVisibleTopSentinel = false
     @State private var lastOlderLoadTriggerAnchorId: String?
     @State private var topSentinelResetTask: Task<Void, Never>?
@@ -580,20 +609,24 @@ private struct ConversationView: View {
                                     .onAppear {
                                         bottomSentinelResetTask?.cancel()
                                         guard let anchorId = messageIDs.last,
+                                              pendingAppendAnchorId == nil,
                                               !paging.isLoadingAfter,
                                               !didRequestNewerForVisibleBottomSentinel,
                                               lastNewerLoadTriggerAnchorId != anchorId
                                         else { return }
                                         didRequestNewerForVisibleBottomSentinel = true
                                         lastNewerLoadTriggerAnchorId = anchorId
+                                        pendingAppendAnchorId = anchorId
                                         Task {
                                             await workspace.loadNewerMessages(groupIdHex: chat.id)
-                                            if workspace.selectedMessageIDs.last == anchorId {
-                                                scrollToBottom(with: proxy)
+                                            if pendingAppendAnchorId == anchorId,
+                                               workspace.selectedMessageIDs.last == anchorId {
+                                                pendingAppendAnchorId = nil
                                             }
                                         }
                                     }
                                     .onDisappear {
+                                        guard pendingAppendAnchorId == nil else { return }
                                         bottomSentinelResetTask?.cancel()
                                         bottomSentinelResetTask = Task {
                                             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -620,6 +653,7 @@ private struct ConversationView: View {
                     topSentinelResetTask?.cancel()
                     bottomSentinelResetTask?.cancel()
                     pendingPrependAnchorId = nil
+                    pendingAppendAnchorId = nil
                     didRequestOlderForVisibleTopSentinel = false
                     lastOlderLoadTriggerAnchorId = nil
                     topSentinelResetTask = nil
@@ -628,13 +662,39 @@ private struct ConversationView: View {
                     bottomSentinelResetTask = nil
                 }
                 .onChange(of: messageIDs.last) { _, newMessageId in
+                    switch timelineNewestMessageScrollAction(
+                        messageIDs: messageIDs,
+                        paging: paging,
+                        pendingPrependAnchorId: pendingPrependAnchorId,
+                        pendingAppendAnchorId: pendingAppendAnchorId,
+                        newMessageId: newMessageId
+                    ) {
+                    case .restorePendingAppendAnchor(let anchorId):
+                        DispatchQueue.main.async {
+                            // Re-validate against live state: the user may have switched
+                            // chats or a newer paging request may have landed since this
+                            // scroll restoration was scheduled.
+                            guard workspace.selectedChat?.id == chat.id,
+                                  pendingAppendAnchorId == anchorId,
+                                  workspace.selectedMessageIDs.contains(anchorId)
+                            else { return }
+                            proxy.scrollTo(anchorId, anchor: .bottom)
+                            pendingAppendAnchorId = nil
+                        }
+                        return
+                    case .clearPendingAppendAnchor:
+                        pendingAppendAnchorId = nil
+                        return
+                    case .scrollToBottom:
+                        break
+                    case .none:
+                        return
+                    }
+
                     // Pin to the newest message on initial load and when a new message
                     // arrives at the live edge — but not while scrolled back into history
-                    // (hasMoreAfter) or mid-prepend, where it would yank the user away.
-                    guard newMessageId != nil,
-                          !paging.hasMoreAfter,
-                          pendingPrependAnchorId == nil
-                    else { return }
+                    // (hasMoreAfter), mid-prepend, or mid-forward paging, where it would
+                    // yank the user away.
                     scrollToBottom(with: proxy)
                 }
                 .onChange(of: messageIDs.first) { _, _ in
