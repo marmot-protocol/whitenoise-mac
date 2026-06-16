@@ -2870,6 +2870,8 @@ private struct NotificationsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
+        @Bindable var workspace = workspace
+
         SettingsScaffold(
             title: "Notifications",
             subtitle: "Local alerts for this Mac."
@@ -2909,6 +2911,19 @@ private struct NotificationsSettingsView: View {
                         Label("Open System Settings", systemImage: "gear")
                     }
                 }
+            }
+
+            Section("Privacy") {
+                Picker(L10n.string("Message preview"), selection: $workspace.notificationPreviewMode) {
+                    ForEach(NotificationPreviewMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .disabled(!workspace.notificationSettings.localNotificationsEnabled)
+
+                Text(workspace.notificationPreviewMode.detail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
         }
