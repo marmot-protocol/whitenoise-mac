@@ -518,6 +518,104 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selectedMessageIDsCacheStaysInSyncAcrossTimelineMutations() async throws {
+        // Regression for #44: selectedMessageIDs is served from a cache maintained in
+        // lockstep with messagesByChat. Verify the cached ids always equal the live
+        // message ids before and after the timeline window is replaced via a projection.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "m1",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "First.",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            ),
+            appMessage(
+                id: "m2",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Second.",
+                kind: 9,
+                recordedAt: 1_700_000_001
+            )
+        ], groupIdHex: "direct-group")
+        let projected = timelineMessage(
+            id: "stream",
+            groupIdHex: "direct-group",
+            sender: account.accountIdHex,
+            plaintext: "Streaming…",
+            recordedAt: 1_700_000_010,
+            agentTextStreamJson: #"{"stream_id":"stream"}"#
+        )
+        let streamingChatRow = chatListRow(
+            groupIdHex: "direct-group",
+            title: "Alice",
+            preview: "Streaming…",
+            sender: account.accountIdHex,
+            timelineAt: 1_700_000_010
+        )
+        runtime.installTimelineUpdates([
+            .projection(update: RuntimeProjectionUpdateFfi(
+                accountIdHex: account.accountIdHex,
+                accountLabel: account.label,
+                update: TimelineProjectionUpdateFfi(
+                    groupIdHex: "direct-group",
+                    messages: [],
+                    changes: [
+                        .remove(messageIdHex: "m1", reason: .noLongerMatchesQuery),
+                        .upsert(trigger: .agentStreamStarted, message: projected)
+                    ],
+                    chatListRow: streamingChatRow,
+                    chatListTrigger: .newLastMessage
+                )
+            ))
+        ], groupIdHex: "direct-group")
+        runtime.installChatListUpdates([
+            .row(trigger: .newLastMessage, row: streamingChatRow)
+        ])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        // Cache matches the live ids after initial load.
+        #expect(state.selectedMessageIDs == state.selectedMessages.map(\.id))
+        #expect(state.selectedMessageIDs == ["m1", "m2"])
+
+        let didApplyProjection = await waitFor {
+            state.messagesByChat["direct-group"]?.map(\.id) == ["m2", "stream"]
+        }
+        #expect(didApplyProjection)
+
+        // Cache stays in sync after the projection mutates the window.
+        #expect(state.selectedMessageIDs == state.selectedMessages.map(\.id))
+        #expect(state.selectedMessageIDs == ["m2", "stream"])
+    }
+
+    @MainActor
     @Test func olderTimelineProjectionDeltaDoesNotMoveReadMarkerBackward() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
