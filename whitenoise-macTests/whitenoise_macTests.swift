@@ -34,7 +34,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
-            running: true
+            running: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
         let state = WorkspaceState(clientFactory: { runtime })
@@ -46,7 +46,35 @@ struct whitenoise_macTests {
         #expect(state.showsMessengerChrome)
         #expect(state.accounts.map(\.displayName) == ["Desktop Account"])
         #expect(state.accounts.first?.pictureURL == "https://example.com/avatar.png")
+        #expect(state.accounts.first?.isRunning == true)
         #expect(state.activeAccountId == "Desktop Account")
+        #expect(runtime.didStart)
+        #expect(runtime.startCallCount == 1)
+    }
+
+    @MainActor
+    @Test func loginStartsRuntimeAndEntersMessengerShell() async throws {
+        let loggedIn = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: loggedIn)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1desktop"
+        await state.login()
+
+        #expect(state.phase == .ready)
+        #expect(state.showsMessengerChrome)
+        #expect(state.accounts.map(\.displayName) == ["Desktop Account"])
+        #expect(state.accounts.first?.isRunning == true)
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(runtime.didStart)
+        #expect(runtime.startCallCount == 1)
     }
 
     @MainActor
@@ -3899,7 +3927,8 @@ private actor FakeGroupImageSearchClient: GroupImageSearchClient {
 private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private var storedAccounts: [AccountSummaryFfi]
     private let createdAccount: AccountSummaryFfi?
-    private(set) var didStart = false
+    private(set) var startCallCount = 0
+    var didStart: Bool { startCallCount > 0 }
     let storageRootPath = "/tmp/whitenoise-mac-tests"
     private var profile = UserProfileMetadataFfi(
         name: "desktop",
@@ -4026,7 +4055,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func start() async throws {
-        didStart = true
+        startCallCount += 1
+        storedAccounts = storedAccounts.map { account in
+            var runningAccount = account
+            runningAccount.running = true
+            return runningAccount
+        }
     }
 
     func listAccounts() throws -> [AccountSummaryFfi] {
