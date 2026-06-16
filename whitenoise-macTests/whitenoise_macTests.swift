@@ -142,6 +142,35 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removeNonActiveAccountLeavesActiveSessionUntouched() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        await state.removeAccount(backupAccount)
+
+        #expect(runtime.removedAccountRefs == ["Backup Account"])
+        #expect(state.accounts.map(\.id) == ["Desktop Account"])
+        // Removing a background identity must not switch the active account.
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(state.chatsByAccount["Backup Account"] == nil)
+    }
+
+    @MainActor
     @Test func deleteAllDataResetsToNewInstallState() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",

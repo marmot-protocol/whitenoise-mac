@@ -694,29 +694,45 @@ final class WorkspaceState {
     }
 
     func removeActiveAccount() async {
-        guard let client, let activeAccount, !isRemovingAccount else { return }
+        guard let activeAccount else { return }
+        await removeAccount(activeAccount)
+    }
+
+    /// Removes a single identity (any account, not just the active one) from this Mac.
+    /// Deletes the account's private key and local Marmot/MLS state via the runtime, then
+    /// updates `accounts`/`chatsByAccount`. When the removed account is the active one, the
+    /// in-memory message/profile caches are cleared and a remaining account is reselected
+    /// (or the app returns to onboarding when none remain).
+    func removeAccount(_ account: AccountItem) async {
+        guard let client, !isRemovingAccount else { return }
 
         lastError = nil
         isRemovingAccount = true
         defer { isRemovingAccount = false }
 
-        let removedAccountId = activeAccount.id
+        let removedAccountId = account.id
+        let wasActive = activeAccountId == removedAccountId
         do {
-            stopTimelineListener()
-            stopChatListListener()
-            try await client.removeAccount(accountRef: activeAccount.accountRef)
+            if wasActive {
+                stopTimelineListener()
+                stopChatListListener()
+            }
+            try await client.removeAccount(accountRef: account.accountRef)
             clearComposerDrafts(forAccountId: removedAccountId)
             accounts = try client.listAccounts().map { accountItem(from: $0) }
             chatsByAccount[removedAccountId] = nil
-            messagesByChat.removeAll()
-            messageLookupByChat.removeAll()
-            messageIDsByChat.removeAll()
-            peerProfileFFICache.removeAll()
-            timelinePagingByChat.removeAll()
-            profileDraft = ProfileDraft()
-            keyPackages = []
-            auditLogFiles = []
-            auditLogUploadStatus = nil
+
+            if wasActive {
+                messagesByChat.removeAll()
+                messageLookupByChat.removeAll()
+                messageIDsByChat.removeAll()
+                peerProfileFFICache.removeAll()
+                timelinePagingByChat.removeAll()
+                profileDraft = ProfileDraft()
+                keyPackages = []
+                auditLogFiles = []
+                auditLogUploadStatus = nil
+            }
 
             if accounts.isEmpty {
                 activeAccountId = nil
@@ -728,11 +744,16 @@ final class WorkspaceState {
                 return
             }
 
-            restoreOrSelectFirstAccount()
-            selection = .settings(.accounts)
-            try await configureObservabilityRuntime()
-            await loadSettingsData()
-            await reloadChats()
+            // Reselecting and reloading is only required when the account that was
+            // removed is the one currently driving the UI. Removing a background
+            // identity leaves the active session untouched.
+            if wasActive {
+                restoreOrSelectFirstAccount()
+                selection = .settings(.accounts)
+                try await configureObservabilityRuntime()
+                await loadSettingsData()
+                await reloadChats()
+            }
         } catch {
             lastError = error.localizedDescription
         }

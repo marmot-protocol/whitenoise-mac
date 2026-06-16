@@ -2300,6 +2300,7 @@ private struct SettingsScaffold<Content: View>: View {
 
 private struct AccountsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var accountPendingRemoval: AccountItem?
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -2309,15 +2310,26 @@ private struct AccountsSettingsView: View {
             subtitle: "Manage the identities available on this Mac.",
             errorSectionTitle: "Status"
         ) {
-            Section("Accounts") {
+            Section {
                 ForEach(workspace.accounts) { account in
                     AccountSettingsRow(
                         account: account,
-                        isActive: account.id == workspace.activeAccountId
-                    ) {
-                        workspace.selectAccountFromSettings(account)
-                    }
+                        isActive: account.id == workspace.activeAccountId,
+                        isRemoving: workspace.isRemovingAccount,
+                        onSelect: {
+                            workspace.selectAccountFromSettings(account)
+                        },
+                        onRemove: {
+                            accountPendingRemoval = account
+                        }
+                    )
                 }
+            } header: {
+                Text("Accounts")
+            } footer: {
+                Text("Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Add Account") {
@@ -2355,50 +2367,95 @@ private struct AccountsSettingsView: View {
             }
 
         }
+        .confirmationDialog(
+            removeAccountTitle,
+            isPresented: removeConfirmationBinding,
+            titleVisibility: .visible,
+            presenting: accountPendingRemoval
+        ) { account in
+            Button("Remove Account", role: .destructive) {
+                accountPendingRemoval = nil
+                Task { await workspace.removeAccount(account) }
+            }
+            Button("Cancel", role: .cancel) {
+                accountPendingRemoval = nil
+            }
+        } message: { _ in
+            Text("This deletes the private key and local message history for this identity from this Mac. This cannot be undone.")
+        }
+    }
+
+    private var removeConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { accountPendingRemoval != nil },
+            set: { isPresented in
+                if !isPresented { accountPendingRemoval = nil }
+            }
+        )
+    }
+
+    private var removeAccountTitle: String {
+        if let account = accountPendingRemoval {
+            return String(format: L10n.string("Remove %@?"), account.displayName)
+        }
+        return L10n.string("Remove account?")
     }
 }
 
 private struct AccountSettingsRow: View {
     let account: AccountItem
     let isActive: Bool
-    let action: () -> Void
+    let isRemoving: Bool
+    let onSelect: () -> Void
+    let onRemove: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                ProfileImageAvatarView(
-                    seed: account.accountIdHex,
-                    initials: account.initials,
-                    pictureURL: account.pictureURL,
-                    size: 44,
-                    isSelected: false
-                )
+        HStack(spacing: 12) {
+            Button(action: onSelect) {
+                HStack(spacing: 12) {
+                    ProfileImageAvatarView(
+                        seed: account.accountIdHex,
+                        initials: account.initials,
+                        pictureURL: account.pictureURL,
+                        size: 44,
+                        isSelected: false
+                    )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(account.displayName)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(account.displayName)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
 
-                    HStack(spacing: 8) {
-                        CopyableKeyLabel(accountIdHex: account.accountIdHex, showsCopyButton: false)
+                        HStack(spacing: 8) {
+                            CopyableKeyLabel(accountIdHex: account.accountIdHex, showsCopyButton: false)
 
-                        Text(account.localSigning ? L10n.string("Local signing") : L10n.string("Watch-only"))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            Text(account.localSigning ? L10n.string("Local signing") : L10n.string("Watch-only"))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if isActive {
+                        Label("Active", systemImage: "checkmark.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tint)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if isActive {
-                    Label("Active", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tint)
-                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            Button(role: .destructive, action: onRemove) {
+                Image(systemName: "person.crop.circle.badge.minus")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.red)
+            .disabled(isRemoving)
+            .help(L10n.string("Remove this account from this Mac"))
+            .accessibilityLabel(Text(String(format: L10n.string("Remove %@"), account.displayName)))
         }
-        .buttonStyle(.plain)
     }
 }
 
