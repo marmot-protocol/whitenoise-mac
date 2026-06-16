@@ -2,7 +2,9 @@ import Foundation
 import MarmotKit
 
 /// Builds a chronological JSON dump of inner Marmot/Nostr app events for debugging.
-enum ConversationTranscriptExport {
+/// `nonisolated` so the (blocking) FFI pagination + JSON encoding can run off the main
+/// thread under the project's default `@MainActor` isolation.
+nonisolated enum ConversationTranscriptExport {
     static let pageLimit: UInt32 = 200
 
     struct Document: Encodable {
