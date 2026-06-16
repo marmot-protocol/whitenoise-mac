@@ -78,11 +78,11 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
     var storageRootPath: String { rootPath }
 
     convenience init() throws {
-        try self.init(rootPath: Self.applicationSupportRoot(), relayUrls: Self.seedRelays)
+        try self.init(rootPath: MarmotStorageRoot.resolve(), relayUrls: Self.seedRelays)
     }
 
     static func defaultStorageRootPath() -> String {
-        applicationSupportRoot()
+        MarmotStorageRoot.expectedPath()
     }
 
     init(rootPath: String, relayUrls: [String]) throws {
@@ -394,24 +394,80 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             targetMessageId: targetMessageId
         )
     }
+}
 
-    private static func applicationSupportRoot() -> String {
-        let fileManager = FileManager.default
-        let base = (try? fileManager.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+enum MarmotStorageRootError: LocalizedError {
+    case applicationSupportUnavailable(Error)
+    case createDirectoryFailed(path: String, underlying: Error)
+    case rootIsNotDirectory(path: String)
 
-        let root = base
-            .appendingPathComponent("White Noise", isDirectory: true)
-            .appendingPathComponent("Marmot", isDirectory: true)
+    var errorDescription: String? {
+        switch self {
+        case .applicationSupportUnavailable(let error):
+            return "Unable to resolve a durable Application Support directory for Marmot storage: \(error.localizedDescription)"
+        case .createDirectoryFailed(let path, let error):
+            return "Unable to create durable Marmot storage directory at \(path): \(error.localizedDescription)"
+        case .rootIsNotDirectory(let path):
+            return "Marmot storage path exists but is not a directory: \(path)"
+        }
+    }
+}
 
-        if !fileManager.fileExists(atPath: root.path) {
-            try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+enum MarmotStorageRoot {
+    private static let appSupportDirectoryName = "White Noise"
+    private static let marmotDirectoryName = "Marmot"
+
+    static func resolve(
+        fileManager: FileManager = .default,
+        applicationSupportDirectory: (FileManager) throws -> URL = { fileManager in
+            try fileManager.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+        }
+    ) throws -> String {
+        let base: URL
+        do {
+            base = try applicationSupportDirectory(fileManager)
+        } catch {
+            throw MarmotStorageRootError.applicationSupportUnavailable(error)
+        }
+
+        return try resolve(baseURL: base, fileManager: fileManager)
+    }
+
+    static func resolve(baseURL: URL, fileManager: FileManager = .default) throws -> String {
+        let root = storageRootURL(baseURL: baseURL)
+        var isDirectory: ObjCBool = false
+
+        if fileManager.fileExists(atPath: root.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                throw MarmotStorageRootError.rootIsNotDirectory(path: root.path)
+            }
+            return root.path
+        }
+
+        do {
+            try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        } catch {
+            throw MarmotStorageRootError.createDirectoryFailed(path: root.path, underlying: error)
         }
 
         return root.path
+    }
+
+    static func expectedPath(fileManager: FileManager = .default) -> String {
+        guard let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return "Application Support unavailable"
+        }
+        return storageRootURL(baseURL: base).path
+    }
+
+    private static func storageRootURL(baseURL: URL) -> URL {
+        baseURL
+            .appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent(marmotDirectoryName, isDirectory: true)
     }
 }
