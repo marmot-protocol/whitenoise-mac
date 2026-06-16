@@ -588,19 +588,19 @@ struct KeyPackageItem: Identifiable, Equatable {
     var sourceLabel: String {
         switch (isLocal, isRelayDiscovered) {
         case (true, true):
-            "Local + fetched"
+            L10n.string("Local + fetched")
         case (true, false):
-            "Local"
+            L10n.string("Local")
         case (false, true):
-            "Fetched"
+            L10n.string("Fetched")
         case (false, false):
-            "Unknown"
+            L10n.string("Unknown")
         }
     }
 
     var publishedLabel: String {
-        guard let publishedAt else { return "Unknown" }
-        return publishedAt.formatted(date: .abbreviated, time: .shortened)
+        guard let publishedAt else { return L10n.string("Unknown") }
+        return DisplayText.dateTimeTimestamp(for: publishedAt)
     }
 }
 
@@ -665,21 +665,25 @@ nonisolated enum DisplayText {
         return String(source.prefix(2)).uppercased()
     }
 
-    static func relativeTimestamp(for date: Date, now: Date = Date()) -> String {
+    static func relativeTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale) -> String {
         if calendar.isDateInToday(date) {
-            return date.formatted(timeOnlyStyle)
+            return date.formatted(timeOnlyStyle.locale(locale))
         }
         if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
-            return date.formatted(weekdayStyle)
+            return date.formatted(weekdayStyle.locale(locale))
         }
-        return date.formatted(monthDayStyle)
+        return date.formatted(monthDayStyle.locale(locale))
     }
 
-    static func messageTimestamp(for date: Date, now: Date = Date()) -> String {
+    static func messageTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale) -> String {
         if calendar.isDateInToday(date) {
-            return date.formatted(timeOnlyStyle)
+            return date.formatted(timeOnlyStyle.locale(locale))
         }
-        return date.formatted(dateTimeStyle)
+        return dateTimeTimestamp(for: date, locale: locale)
+    }
+
+    static func dateTimeTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
+        date.formatted(dateTimeStyle.locale(locale))
     }
 }
 

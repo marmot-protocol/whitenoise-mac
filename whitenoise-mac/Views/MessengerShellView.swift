@@ -2773,7 +2773,7 @@ private struct AuditLogFileRow: View {
         var parts = [shortAccountRef(file.accountRef)]
         if let modifiedAtMs = file.modifiedAtMs {
             let date = Date(timeIntervalSince1970: TimeInterval(modifiedAtMs) / 1_000)
-            parts.append(date.formatted(date: .abbreviated, time: .shortened))
+            parts.append(DisplayText.dateTimeTimestamp(for: date))
         }
         return parts.joined(separator: " - ")
     }
