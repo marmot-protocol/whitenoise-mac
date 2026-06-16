@@ -2236,6 +2236,12 @@ struct whitenoise_macTests {
         }
 
         state.showGroupImagePicker(for: groupChat)
+        #expect(state.groupImageSearchQuery.isEmpty)
+        await state.searchGroupImages()
+        let emptyImageSearchQueries = await imageSearchClient.queries
+        #expect(emptyImageSearchQueries.isEmpty)
+
+        state.groupImageSearchQuery = "aurora"
         await state.searchGroupImages()
         guard let result = state.groupImageResults.first else {
             Issue.record("Expected an image result")
@@ -2244,7 +2250,7 @@ struct whitenoise_macTests {
         await state.setGroupImage(result)
 
         let imageSearchQueries = await imageSearchClient.queries
-        #expect(imageSearchQueries == ["Test Group"])
+        #expect(imageSearchQueries == ["aurora"])
         #expect(runtime.updatedGroupAvatar == UpdatedGroupAvatar(
             groupIdHex: "group",
             url: "https://example.com/aurora.jpg",

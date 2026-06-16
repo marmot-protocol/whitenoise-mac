@@ -1596,7 +1596,7 @@ private struct GroupImagePickerSheet: View {
 
                 VStack(spacing: 12) {
                     HStack(spacing: 8) {
-                        TextField("Search Openverse", text: $workspace.groupImageSearchQuery)
+                        TextField("Search images", text: $workspace.groupImageSearchQuery)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit {
                                 Task { await workspace.searchGroupImages() }
@@ -1616,6 +1616,11 @@ private struct GroupImagePickerSheet: View {
                         .disabled(workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isSearchingGroupImages)
                         .help("Search")
                     }
+
+                    Text("Search terms are sent to Openverse.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack {
                         SettingsErrorView(error: workspace.lastError)
