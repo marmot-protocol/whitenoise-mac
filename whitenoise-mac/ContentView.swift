@@ -39,8 +39,22 @@ struct ContentView: View {
             ) { _ in
                 // The app just regained focus. Flush any read-marking that was deferred
                 // while it was in the background so the selected chat clears its unread
-                // state now that the user is actually looking at it.
-                Task { await workspace.handleAppActivationChange() }
+                // state now that the user may be looking at it again.
+                Task { await workspace.handleConversationVisibilityChange() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: NSWindow.didBecomeKeyNotification
+                )
+            ) { _ in
+                Task { await workspace.handleConversationVisibilityChange() }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: NSWindow.didDeminiaturizeNotification
+                )
+            ) { _ in
+                Task { await workspace.handleConversationVisibilityChange() }
             }
     }
 
