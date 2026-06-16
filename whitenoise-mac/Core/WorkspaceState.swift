@@ -98,6 +98,11 @@ final class WorkspaceState {
         case login
     }
 
+    private struct ComposerDraftKey: Hashable {
+        let accountId: String
+        let chatId: String
+    }
+
     private(set) var phase: Phase = .bootstrapping
     private(set) var accounts: [AccountItem]
     private(set) var chatsByAccount: [String: [ChatItem]]
@@ -118,7 +123,20 @@ final class WorkspaceState {
     }
     var searchText = ""
     var isChatListVisible = true
-    var draftText = ""
+    var draftText: String {
+        get {
+            guard let selectedComposerDraftKey else { return "" }
+            return draftTextByConversation[selectedComposerDraftKey] ?? ""
+        }
+        set {
+            guard let selectedComposerDraftKey else { return }
+            if newValue.isEmpty {
+                draftTextByConversation[selectedComposerDraftKey] = nil
+            } else {
+                draftTextByConversation[selectedComposerDraftKey] = newValue
+            }
+        }
+    }
     var isRefreshing = false
     var isSending = false
     var authenticationMode: AuthenticationMode = .landing
@@ -176,7 +194,16 @@ final class WorkspaceState {
     var newChatName = ""
     var newChatDescription = ""
     var newChatRecipient: NewChatRecipient?
-    var replyDraftContext: MessageReplyContext?
+    var replyDraftContext: MessageReplyContext? {
+        get {
+            guard let selectedComposerDraftKey else { return nil }
+            return replyDraftContextByConversation[selectedComposerDraftKey]
+        }
+        set {
+            guard let selectedComposerDraftKey else { return }
+            replyDraftContextByConversation[selectedComposerDraftKey] = newValue
+        }
+    }
     var isResolvingNewChat = false
     var isCreatingChat = false
     var isGroupImagePickerPresented = false
@@ -200,6 +227,35 @@ final class WorkspaceState {
     private(set) var storageRootPath = MarmotClient.defaultStorageRootPath()
     private(set) var timelinePagingByChat: [String: TimelinePagingState] = [:]
     private(set) var timelineInitialLoadGroupId: String?
+    private var draftTextByConversation: [ComposerDraftKey: String] = [:]
+    private var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
+
+    private var selectedComposerDraftKey: ComposerDraftKey? {
+        guard let activeAccountId, case .chat(let chatId) = selection else { return nil }
+        return ComposerDraftKey(accountId: activeAccountId, chatId: chatId)
+    }
+
+    private func clearAllComposerDrafts() {
+        draftTextByConversation.removeAll()
+        replyDraftContextByConversation.removeAll()
+    }
+
+    private func clearComposerDrafts(for chatIds: [String], accountId: String) {
+        for chatId in chatIds {
+            let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
+            draftTextByConversation[key] = nil
+            replyDraftContextByConversation[key] = nil
+        }
+    }
+
+    private func clearComposerDrafts(forAccountId accountId: String) {
+        for key in draftTextByConversation.keys.filter({ $0.accountId == accountId }) {
+            draftTextByConversation[key] = nil
+        }
+        for key in replyDraftContextByConversation.keys.filter({ $0.accountId == accountId }) {
+            replyDraftContextByConversation[key] = nil
+        }
+    }
 
     private let clientFactory: @MainActor () throws -> any MarmotRuntime
     private let localNotificationCenter: any LocalNotificationCenter
@@ -493,8 +549,6 @@ final class WorkspaceState {
         activeAccountId = account.id
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
         refreshObservabilityRuntime()
@@ -517,8 +571,6 @@ final class WorkspaceState {
         activeAccountId = account.id
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
         refreshObservabilityRuntime()
@@ -532,8 +584,6 @@ final class WorkspaceState {
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .chat(chat.id)
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
         beginTimelineInitialLoadIfNeeded(groupIdHex: chat.id)
@@ -542,8 +592,6 @@ final class WorkspaceState {
 
     func showNewChat() {
         isNewChatComposerVisible = true
-        draftText = ""
-        replyDraftContext = nil
         lastError = nil
         resetNewChatComposer()
     }
@@ -557,8 +605,6 @@ final class WorkspaceState {
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .settings(page)
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
     }
@@ -658,6 +704,7 @@ final class WorkspaceState {
             stopTimelineListener()
             stopChatListListener()
             try await client.removeAccount(accountRef: activeAccount.accountRef)
+            clearComposerDrafts(forAccountId: removedAccountId)
             accounts = try client.listAccounts().map { accountItem(from: $0) }
             chatsByAccount[removedAccountId] = nil
             messagesByChat.removeAll()
@@ -1802,8 +1849,6 @@ final class WorkspaceState {
 
         selection = .chat(groupIdHex)
         isChatListVisible = true
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: groupIdHex)
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -1837,8 +1882,7 @@ final class WorkspaceState {
         activeAccountId = preferredAccount.id
         UserDefaults.standard.set(preferredAccount.id, forKey: Self.activeAccountKey)
         searchText = ""
-        draftText = ""
-        replyDraftContext = nil
+        clearAllComposerDrafts()
         selection = nil
     }
 
@@ -1852,7 +1896,7 @@ final class WorkspaceState {
         selection = nil
         searchText = ""
         isChatListVisible = true
-        draftText = ""
+        clearAllComposerDrafts()
         isRefreshing = false
         isSending = false
         authenticationMode = .landing
@@ -1883,7 +1927,6 @@ final class WorkspaceState {
         deletingKeyPackageId = nil
         isNewChatComposerVisible = false
         resetNewChatComposer()
-        replyDraftContext = nil
         isResolvingNewChat = false
         isCreatingChat = false
         isGroupImagePickerPresented = false
@@ -2291,6 +2334,9 @@ final class WorkspaceState {
         guard activeAccountId == account.id else { return }
 
         let chatItems = rows.map { baseChatItem(from: $0, account: account) }
+        let previousChatIds = Set((chatsByAccount[account.id] ?? []).map(\.id))
+        let nextChatIds = Set(chatItems.map(\.id))
+        clearComposerDrafts(for: Array(previousChatIds.subtracting(nextChatIds)), accountId: account.id)
         chatsByAccount[account.id] = sortedChatItems(chatItems)
         dismissGroupImagePickerIfSelectedChatUnavailable()
         startChatListEnrichment(rows: rows, account: account)
@@ -2337,6 +2383,7 @@ final class WorkspaceState {
         messageLookupByChat[groupIdHex] = nil
         messageIDsByChat[groupIdHex] = nil
         timelinePagingByChat[groupIdHex] = nil
+        clearComposerDrafts(for: [groupIdHex], accountId: account.id)
         if timelineInitialLoadGroupId == groupIdHex {
             timelineInitialLoadGroupId = nil
         }
@@ -2561,8 +2608,6 @@ final class WorkspaceState {
         else { return }
 
         selection = .chat(chat.id)
-        draftText = ""
-        replyDraftContext = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
         beginTimelineInitialLoadIfNeeded(groupIdHex: chat.id)

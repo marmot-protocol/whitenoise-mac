@@ -2800,6 +2800,148 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func chatSwitchPreservesDraftTextPerConversation() async throws {
+        let state = WorkspaceState.preview()
+        let design = ChatItem.samples[0]
+        let nvk = ChatItem.samples[1]
+
+        #expect(state.selectedChat?.id == design.id)
+        state.draftText = "Design reply in progress"
+
+        state.selectChat(nvk)
+        #expect(state.draftText.isEmpty)
+        state.draftText = "NVK reply in progress"
+
+        state.selectChat(design)
+        #expect(state.draftText == "Design reply in progress")
+
+        state.selectChat(nvk)
+        #expect(state.draftText == "NVK reply in progress")
+    }
+
+    @MainActor
+    @Test func chatSwitchPreservesReplyDraftContextPerConversation() async throws {
+        let state = WorkspaceState.preview()
+        let design = ChatItem.samples[0]
+        let nvk = ChatItem.samples[1]
+        let designReply = MessageItem(
+            id: "design-parent",
+            senderName: "NVK",
+            body: "Design plan",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        let nvkReply = MessageItem(
+            id: "nvk-parent",
+            senderName: "NVK",
+            body: "Direct ping",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_010),
+            isOutgoing: false
+        )
+
+        #expect(state.selectedChat?.id == design.id)
+        state.startReply(to: designReply)
+
+        state.selectChat(nvk)
+        #expect(state.replyDraftContext == nil)
+        state.startReply(to: nvkReply)
+
+        state.selectChat(design)
+        #expect(state.replyDraftContext == MessageReplyContext(
+            targetMessageId: "design-parent",
+            senderName: "NVK",
+            body: "Design plan"
+        ))
+
+        state.selectChat(nvk)
+        #expect(state.replyDraftContext == MessageReplyContext(
+            targetMessageId: "nvk-parent",
+            senderName: "NVK",
+            body: "Direct ping"
+        ))
+    }
+
+    @MainActor
+    @Test func accountSwitchRestoresDraftTextWhenReturningToConversation() async throws {
+        let state = WorkspaceState.preview()
+        let design = ChatItem.samples[0]
+
+        #expect(state.selectedChat?.id == design.id)
+        state.draftText = "draft survives account hop"
+
+        state.selectAccount(AccountItem.samples[1])
+        #expect(state.activeAccountId == AccountItem.samples[1].id)
+        #expect(state.draftText.isEmpty)
+
+        state.selectAccount(AccountItem.samples[0])
+        #expect(state.activeAccountId == AccountItem.samples[0].id)
+        #expect(state.selectedChat?.id == design.id)
+        #expect(state.draftText == "draft survives account hop")
+    }
+
+    @MainActor
+    @Test func sharedConversationDraftsAreIsolatedPerAccount() async throws {
+        let state = WorkspaceState.preview()
+        let sharedChat = ChatItem.samples[1]
+
+        state.selectChat(sharedChat)
+        state.draftText = "primary account draft"
+
+        state.selectAccount(AccountItem.samples[1])
+        #expect(state.selectedChat?.id == sharedChat.id)
+        #expect(state.draftText.isEmpty)
+        state.draftText = "backup account draft"
+
+        state.selectAccount(AccountItem.samples[0])
+        state.selectChat(sharedChat)
+        #expect(state.draftText == "primary account draft")
+
+        state.selectAccount(AccountItem.samples[1])
+        #expect(state.selectedChat?.id == sharedChat.id)
+        #expect(state.draftText == "backup account draft")
+    }
+
+    @MainActor
+    @Test func reloadChatsPrunesDraftsForRemovedConversations() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didLoadBothChats = await waitFor {
+            Set(state.activeChats.map(\.id)) == ["group", "direct-group"]
+        }
+        #expect(didLoadBothChats)
+
+        guard let groupChat = state.activeChats.first(where: { $0.id == "group" }) else {
+            Issue.record("Expected group chat")
+            return
+        }
+        state.selectChat(groupChat)
+        state.draftText = "draft for removed group"
+
+        runtime.installGroups([directGroup()])
+        await state.reloadChats()
+        #expect(state.activeChats.map(\.id) == ["direct-group"])
+
+        runtime.installGroups([messageGroup(), directGroup()])
+        await state.reloadChats()
+        guard let restoredGroupChat = state.activeChats.first(where: { $0.id == "group" }) else {
+            Issue.record("Expected restored group chat")
+            return
+        }
+        state.selectChat(restoredGroupChat)
+
+        #expect(state.draftText.isEmpty)
+    }
+
+    @MainActor
     @Test func newChatComposerOpensInChatColumnWithoutChangingDetailSelection() async throws {
         let state = WorkspaceState.preview()
         let selection = state.selection
@@ -2809,7 +2951,7 @@ struct whitenoise_macTests {
 
         #expect(state.isNewChatComposerVisible)
         #expect(state.selection == selection)
-        #expect(state.draftText.isEmpty)
+        #expect(state.draftText == "half-written message")
     }
 
     @MainActor
