@@ -174,6 +174,7 @@ final class WorkspaceState {
     var languagePreference: AppLanguage {
         didSet {
             UserDefaults.standard.set(languagePreference.rawValue, forKey: AppLanguage.storageKey)
+            AppLanguage.refreshCachedLocale()
         }
     }
     var isLoadingSettings = false
