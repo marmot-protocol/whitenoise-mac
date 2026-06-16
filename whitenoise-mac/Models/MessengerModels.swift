@@ -449,6 +449,45 @@ struct NotificationSettingsSnapshot: Equatable {
     )
 }
 
+/// Controls how much of an incoming message is revealed in a macOS local
+/// notification. macOS renders notification content as banners, persists it in
+/// Notification Center, and shows it on the lock screen, so for an E2EE
+/// messenger the notification body is content that leaves the app's control.
+/// This lets a user trade convenience for privacy, mirroring the conservative,
+/// individually-toggleable defaults used elsewhere in Privacy & Security.
+enum NotificationPreviewMode: String, CaseIterable, Identifiable {
+    /// Show the sender/group name and the decrypted message text (legacy behavior).
+    case full
+    /// Show who the message is from (and the group name), but never the message text.
+    case senderOnly
+    /// Reveal nothing: generic "New message" with no sender, group, or content.
+    case hidden
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .full:
+            L10n.string("Show message preview")
+        case .senderOnly:
+            L10n.string("Sender only")
+        case .hidden:
+            L10n.string("Hide all")
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .full:
+            L10n.string("Notifications show who sent the message and its contents.")
+        case .senderOnly:
+            L10n.string("Notifications show who sent the message but not its contents.")
+        case .hidden:
+            L10n.string("Notifications only say a new message arrived.")
+        }
+    }
+}
+
 struct PrivacySecuritySettingsSnapshot: Equatable {
     var relayTelemetryEnabled: Bool
     var relayTelemetryIntervalSeconds: UInt64

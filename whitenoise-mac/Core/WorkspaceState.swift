@@ -171,6 +171,11 @@ final class WorkspaceState {
             UserDefaults.standard.set(appearancePreference.rawValue, forKey: Self.appearancePreferenceKey)
         }
     }
+    var notificationPreviewMode: NotificationPreviewMode {
+        didSet {
+            UserDefaults.standard.set(notificationPreviewMode.rawValue, forKey: Self.notificationPreviewModeKey)
+        }
+    }
     var languagePreference: AppLanguage {
         didSet {
             UserDefaults.standard.set(languagePreference.rawValue, forKey: AppLanguage.storageKey)
@@ -307,6 +312,7 @@ final class WorkspaceState {
     private static let developerModeKey = "whitenoise.mac.developerMode"
     private static let streamingDebugModeKey = "whitenoise.mac.streamingDebugMode"
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
+    private static let notificationPreviewModeKey = "whitenoise.mac.notificationPreviewMode"
     private static let deliveredNotificationKeyLimit = 256
     private static let timelinePageLimit: UInt32 = 100
 
@@ -373,6 +379,8 @@ final class WorkspaceState {
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearancePreferenceKey)
         self.appearancePreference = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
+        let storedPreviewMode = UserDefaults.standard.string(forKey: Self.notificationPreviewModeKey)
+        self.notificationPreviewMode = storedPreviewMode.flatMap(NotificationPreviewMode.init(rawValue:)) ?? .full
         let storedLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
         self.languagePreference = AppLanguage.resolved(rawValue: storedLanguage)
         self.activeAccountId = UserDefaults.standard.string(forKey: Self.activeAccountKey)
@@ -2762,19 +2770,46 @@ final class WorkspaceState {
         ]) ?? L10n.string("Someone")
         let previewText = firstNonBlank([update.previewText]) ?? L10n.string("New message")
 
+        // For an E2EE messenger, notification content is rendered as banners,
+        // persisted in Notification Center, and shown on the lock screen — i.e.
+        // it leaves the app's control. Honor the user's preview-privacy choice:
+        // `.hidden` reveals nothing, `.senderOnly` keeps who-it's-from but never
+        // the decrypted message text, `.full` is the legacy behavior. See #30.
+        let previewMode = notificationPreviewMode
+        let genericBody = L10n.string("New message")
+
         let title: String
         let body: String
         switch update.trigger {
         case .groupInvite:
-            title = L10n.string("Group invite")
-            body = firstNonBlank([update.groupName, senderName]) ?? L10n.string("New group invite")
-        case .newMessage:
-            if update.isDm {
-                title = senderName
-                body = previewText
+            if previewMode == .hidden {
+                title = L10n.string("White Noise")
+                body = L10n.string("New group invite")
             } else {
-                title = firstNonBlank([update.groupName]) ?? L10n.string("New message")
-                body = "\(senderName): \(previewText)"
+                title = L10n.string("Group invite")
+                body = firstNonBlank([update.groupName, senderName]) ?? L10n.string("New group invite")
+            }
+        case .newMessage:
+            switch previewMode {
+            case .full:
+                if update.isDm {
+                    title = senderName
+                    body = previewText
+                } else {
+                    title = firstNonBlank([update.groupName]) ?? L10n.string("New message")
+                    body = "\(senderName): \(previewText)"
+                }
+            case .senderOnly:
+                if update.isDm {
+                    title = senderName
+                    body = genericBody
+                } else {
+                    title = firstNonBlank([update.groupName]) ?? L10n.string("New message")
+                    body = senderName
+                }
+            case .hidden:
+                title = L10n.string("White Noise")
+                body = genericBody
             }
         }
 
