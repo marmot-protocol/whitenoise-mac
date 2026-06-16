@@ -708,7 +708,6 @@ struct whitenoise_macTests {
         }
 
         #expect(didApplyRemoval)
-        #expect(runtime.chatListCallCount == 0)
         #expect(runtime.chatListSubscriptionCount == 1)
     }
 
@@ -2287,6 +2286,81 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func backgroundListenerFailureRoutesToBackgroundStatusNotLastError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // A background notification-listener failure must not surface on the shared
+        // per-screen error field that login/settings/new-chat render (issue #24).
+        runtime.subscribeNotificationsError = NSError(
+            domain: "test.background",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "background listener dropped"]
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        let routedToBackground = await waitFor {
+            state.backgroundStatus == "background listener dropped"
+        }
+        #expect(routedToBackground)
+        // The user-facing per-screen error field must remain untouched.
+        #expect(state.lastError == nil)
+
+        // The banner is dismissible without affecting lastError.
+        state.clearBackgroundStatus()
+        #expect(state.backgroundStatus == nil)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func notificationDeliveryFailureRoutesToBackgroundStatusNotLastError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        // `handleNotificationUpdate(_:)` runs on the background notification listener.
+        // A failure posting the local notification must surface on the non-modal
+        // background banner, never on the per-screen `lastError` that login/settings/
+        // new-chat render (issue #24 — see PR #49 review finding).
+        let notificationCenter = FakeLocalNotificationCenter(
+            status: .authorized,
+            postError: NSError(
+                domain: "test.notification",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "notification delivery failed"]
+            )
+        )
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "notice-1",
+            groupIdHex: "direct-group",
+            senderName: "Alice",
+            previewText: "See you there."
+        ))
+
+        #expect(state.backgroundStatus == "notification delivery failed")
+        // The user-facing per-screen error field must remain untouched.
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func auditLogFileActionsRefreshDeleteAndUploadThroughRuntime() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -2769,7 +2843,6 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
-    private(set) var chatListCallCount = 0
     private(set) var chatListSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
     private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
@@ -2777,6 +2850,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     var accountIdsMissingProfiles = Set<String>()
     var timelineMessagesHandler: ((TimelineMessageQueryFfi) -> TimelinePageFfi)?
+    /// When set, `subscribeNotifications()` throws this error, simulating a background
+    /// notification-listener failure for routing tests.
+    var subscribeNotificationsError: Error?
     var timelineUpdateDelayNanoseconds: UInt64 = 0
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
@@ -3293,15 +3369,6 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return relayLists
     }
 
-    func subscribeChats(accountRef: String, includeArchived: Bool) async throws -> ChatsSubscription {
-        FakeChatsSubscription(groups: groups)
-    }
-
-    func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
-        chatListCallCount += 1
-        return chatListRows(includeArchived: includeArchived)
-    }
-
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
         chatListSubscriptionCount += 1
         return FakeChatListSubscription(
@@ -3373,7 +3440,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
-        FakeNotificationsSubscription()
+        if let subscribeNotificationsError {
+            throw subscribeNotificationsError
+        }
+        return FakeNotificationsSubscription()
     }
 
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
@@ -3418,13 +3488,6 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi? {
         markedReadMessageIds.append(messageIdHex)
         return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
-    }
-
-    func messages(accountRef: String, groupIdHex: String?, limit: UInt32?) throws -> [AppMessageRecordFfi] {
-        if let groupIdHex {
-            return messagesByGroupId[groupIdHex] ?? []
-        }
-        return messagesByGroupId.values.flatMap { $0 }
     }
 
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {
@@ -3516,28 +3579,6 @@ private struct UpdatedGroupProfile: Equatable {
 private struct ArchivedGroup: Equatable {
     let groupIdHex: String
     let archived: Bool
-}
-
-private final class FakeChatsSubscription: ChatsSubscription {
-    private let groups: [AppGroupRecordFfi]
-
-    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.groups = []
-        super.init(unsafeFromRawPointer: pointer)
-    }
-
-    init(groups: [AppGroupRecordFfi]) {
-        self.groups = groups
-        super.init(noPointer: NoPointer())
-    }
-
-    override func snapshot() -> [AppGroupRecordFfi] {
-        groups
-    }
-
-    override func next() async -> AppGroupRecordFfi? {
-        nil
-    }
 }
 
 private final class FakeChatListSubscription: ChatListSubscription {
@@ -3732,6 +3773,7 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
     private(set) var status: LocalNotificationAuthorizationStatus
     private let requestedStatus: LocalNotificationAuthorizationStatus
     private let requestError: Error?
+    private let postError: Error?
     private(set) var didRequestAuthorization = false
     private(set) var postedRequests: [LocalNotificationRequest] = []
     private var responseHandler: (@MainActor ([String: String]) -> Void)?
@@ -3739,11 +3781,13 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
     init(
         status: LocalNotificationAuthorizationStatus = .authorized,
         requestedStatus: LocalNotificationAuthorizationStatus = .authorized,
-        requestError: Error? = nil
+        requestError: Error? = nil,
+        postError: Error? = nil
     ) {
         self.status = status
         self.requestedStatus = requestedStatus
         self.requestError = requestError
+        self.postError = postError
     }
 
     func authorizationStatus() async -> LocalNotificationAuthorizationStatus {
@@ -3760,6 +3804,9 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
     }
 
     func post(_ notification: LocalNotificationRequest) async throws {
+        if let postError {
+            throw postError
+        }
         postedRequests.append(notification)
     }
 

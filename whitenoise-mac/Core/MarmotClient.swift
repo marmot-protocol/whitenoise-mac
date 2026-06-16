@@ -50,15 +50,12 @@ nonisolated protocol MarmotRuntime: Sendable {
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi
-    func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi]
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription
-    func subscribeChats(accountRef: String, includeArchived: Bool) async throws -> ChatsSubscription
     func subscribeNotifications() async throws -> NotificationsSubscription
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription
     func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi?
     func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi?
-    func messages(accountRef: String, groupIdHex: String?, limit: UInt32?) throws -> [AppMessageRecordFfi]
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi
     func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws -> SendSummaryFfi
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws -> SendSummaryFfi
@@ -321,16 +318,8 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
-        try marmot.chatList(accountRef: accountRef, includeArchived: includeArchived)
-    }
-
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
         try await marmot.subscribeChatList(accountRef: accountRef, includeArchived: includeArchived)
-    }
-
-    func subscribeChats(accountRef: String, includeArchived: Bool) async throws -> ChatsSubscription {
-        try await marmot.subscribeChats(accountRef: accountRef, includeArchived: includeArchived)
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
@@ -359,10 +348,6 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             messageIdHex: messageIdHex
         )
-    }
-
-    func messages(accountRef: String, groupIdHex: String?, limit: UInt32?) throws -> [AppMessageRecordFfi] {
-        try marmot.messages(accountRef: accountRef, groupIdHex: groupIdHex, limit: limit)
     }
 
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {

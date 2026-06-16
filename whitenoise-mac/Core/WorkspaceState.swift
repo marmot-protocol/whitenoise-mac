@@ -38,7 +38,15 @@ final class WorkspaceState {
     private(set) var accounts: [AccountItem]
     private(set) var chatsByAccount: [String: [ChatItem]]
     private(set) var messagesByChat: [String: [MessageItem]]
+    /// Error for the user-initiated action on the *current* screen. Rendered by form
+    /// surfaces (login, settings, new-chat composer). Must never be written by
+    /// background tasks — see `backgroundStatus`.
     private(set) var lastError: String?
+    /// Status for failures originating in background tasks (subscription listeners,
+    /// observability refresh, read-marking). These are not tied to anything the user
+    /// just did, so they are surfaced on a non-modal global banner instead of the
+    /// per-screen error view, preventing misattribution and clobbering of `lastError`.
+    private(set) var backgroundStatus: String?
 
     var activeAccountId: String?
     var selection: WorkspaceSelection?
@@ -1622,7 +1630,7 @@ final class WorkspaceState {
             try await localNotificationCenter.post(request)
             rememberDeliveredNotificationKey(update.notificationKey)
         } catch {
-            lastError = error.localizedDescription
+            setBackgroundStatus(error.localizedDescription)
         }
     }
 
@@ -1759,9 +1767,22 @@ final class WorkspaceState {
             do {
                 try await self?.configureObservabilityRuntime()
             } catch {
-                self?.lastError = error.localizedDescription
+                self?.setBackgroundStatus(error.localizedDescription)
             }
         }
+    }
+
+    /// Record a background-task failure on the non-modal global status surface.
+    /// Background failures must never write `lastError`, which is reserved for the
+    /// user-initiated action on the current screen.
+    private func setBackgroundStatus(_ message: String?) {
+        backgroundStatus = message
+    }
+
+    /// Dismiss the background status banner (e.g. user tapped the close control, or a
+    /// later background operation succeeded).
+    func clearBackgroundStatus() {
+        backgroundStatus = nil
     }
 
     private func configureObservabilityRuntime() async throws {
@@ -1966,7 +1987,7 @@ final class WorkspaceState {
         } catch is CancellationError {
             return
         } catch {
-            lastError = error.localizedDescription
+            setBackgroundStatus(error.localizedDescription)
         }
 
         notificationTask = nil
@@ -2023,7 +2044,7 @@ final class WorkspaceState {
             return
         } catch {
             if activeAccountId == account.id {
-                lastError = error.localizedDescription
+                setBackgroundStatus(error.localizedDescription)
             }
         }
 
@@ -2094,7 +2115,7 @@ final class WorkspaceState {
             return
         } catch {
             if activeAccountId == account.id, selectedChat?.id == groupIdHex {
-                lastError = error.localizedDescription
+                setBackgroundStatus(error.localizedDescription)
             }
         }
 
@@ -2380,7 +2401,7 @@ final class WorkspaceState {
             }
         } catch {
             lastMarkedReadMarkers[groupIdHex] = previousMarker
-            lastError = error.localizedDescription
+            setBackgroundStatus(error.localizedDescription)
         }
     }
 
