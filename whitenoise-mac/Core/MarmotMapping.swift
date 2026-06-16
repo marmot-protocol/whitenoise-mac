@@ -362,12 +362,20 @@ private extension MessageReaction {
     static func summarize(_ summary: TimelineReactionSummaryFfi, activeAccountIdHex: String?) -> [MessageReaction] {
         summary.byEmoji
             .map { reaction in
-                MessageReaction(
+                let ownReactionMessageId = activeAccountIdHex.flatMap { accountIdHex in
+                    summary.userReactions.first { userReaction in
+                        userReaction.emoji == reaction.emoji && userReaction.sender == accountIdHex
+                    }?.reactionMessageIdHex
+                }
+                let isOwn = activeAccountIdHex.map { reaction.senders.contains($0) } ?? false
+
+                return MessageReaction(
                     emoji: reaction.emoji,
                     count: reaction.senders.count,
-                    isOwn: activeAccountIdHex.map { reaction.senders.contains($0) } ?? false
+                    isOwn: isOwn,
+                    ownReactionMessageId: ownReactionMessageId
                 )
-        }
+            }
             .sorted { lhs, rhs in
                 if lhs.count != rhs.count { return lhs.count > rhs.count }
                 return lhs.emoji < rhs.emoji
