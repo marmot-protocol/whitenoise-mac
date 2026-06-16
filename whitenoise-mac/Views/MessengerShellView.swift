@@ -512,10 +512,12 @@ enum TimelineNewestMessageScrollAction: Equatable {
 
 func timelineNewestMessageScrollAction(
     messageIDs: [String],
+    newMessageIsOutgoing: Bool,
     paging: TimelinePagingState,
     pendingPrependAnchorId: String?,
     pendingAppendAnchorId: String?,
-    newMessageId: String?
+    newMessageId: String?,
+    isPinnedToBottom: Bool
 ) -> TimelineNewestMessageScrollAction {
     if let pendingAppendAnchorId {
         return messageIDs.contains(pendingAppendAnchorId)
@@ -524,10 +526,17 @@ func timelineNewestMessageScrollAction(
     }
 
     guard newMessageId != nil,
-          !paging.hasMoreAfter,
           pendingPrependAnchorId == nil
     else { return .none }
 
+    // `hasMoreBefore` only means older history is loadable. It must not suppress
+    // live-edge appends. `hasMoreAfter` means the rendered window is detached from
+    // the live edge, so incoming updates should not yank the user out of history.
+    if paging.hasMoreAfter && !newMessageIsOutgoing {
+        return .none
+    }
+
+    guard isPinnedToBottom || newMessageIsOutgoing else { return .none }
     return .scrollToBottom
 }
 
@@ -535,6 +544,7 @@ private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var pendingPrependAnchorId: String?
     @State private var pendingAppendAnchorId: String?
+    @State private var isPinnedToBottom = true
     @State private var didRequestOlderForVisibleTopSentinel = false
     @State private var lastOlderLoadTriggerAnchorId: String?
     @State private var topSentinelResetTask: Task<Void, Never>?
@@ -642,6 +652,8 @@ private struct ConversationView: View {
                         Color.clear
                             .frame(height: bottomTranscriptPadding)
                             .id(bottomAnchorId)
+                            .onAppear { isPinnedToBottom = true }
+                            .onDisappear { isPinnedToBottom = false }
                     }
                     .padding(.horizontal, 28)
                     .padding(.top, 18)
@@ -654,6 +666,7 @@ private struct ConversationView: View {
                     bottomSentinelResetTask?.cancel()
                     pendingPrependAnchorId = nil
                     pendingAppendAnchorId = nil
+                    isPinnedToBottom = true
                     didRequestOlderForVisibleTopSentinel = false
                     lastOlderLoadTriggerAnchorId = nil
                     topSentinelResetTask = nil
@@ -664,10 +677,12 @@ private struct ConversationView: View {
                 .onChange(of: messageIDs.last) { _, newMessageId in
                     switch timelineNewestMessageScrollAction(
                         messageIDs: messageIDs,
+                        newMessageIsOutgoing: messages.last?.isOutgoing == true,
                         paging: paging,
                         pendingPrependAnchorId: pendingPrependAnchorId,
                         pendingAppendAnchorId: pendingAppendAnchorId,
-                        newMessageId: newMessageId
+                        newMessageId: newMessageId,
+                        isPinnedToBottom: isPinnedToBottom
                     ) {
                     case .restorePendingAppendAnchor(let anchorId):
                         DispatchQueue.main.async {
@@ -686,16 +701,10 @@ private struct ConversationView: View {
                         pendingAppendAnchorId = nil
                         return
                     case .scrollToBottom:
-                        break
+                        scrollToBottom(with: proxy)
                     case .none:
                         return
                     }
-
-                    // Pin to the newest message on initial load and when a new message
-                    // arrives at the live edge — but not while scrolled back into history
-                    // (hasMoreAfter), mid-prepend, or mid-forward paging, where it would
-                    // yank the user away.
-                    scrollToBottom(with: proxy)
                 }
                 .onChange(of: messageIDs.first) { _, _ in
                     guard let anchorId = pendingPrependAnchorId,

@@ -1218,32 +1218,101 @@ struct whitenoise_macTests {
 
         #expect(timelineNewestMessageScrollAction(
             messageIDs: ["message-150", "message-249", "message-349"],
+            newMessageIsOutgoing: false,
             paging: historicalPaging,
             pendingPrependAnchorId: nil,
             pendingAppendAnchorId: "message-249",
-            newMessageId: "message-349"
+            newMessageId: "message-349",
+            isPinnedToBottom: false
         ) == .restorePendingAppendAnchor("message-249"))
         #expect(timelineNewestMessageScrollAction(
             messageIDs: ["message-350", "message-449"],
+            newMessageIsOutgoing: false,
             paging: historicalPaging,
             pendingPrependAnchorId: nil,
             pendingAppendAnchorId: "message-249",
-            newMessageId: "message-449"
+            newMessageId: "message-449",
+            isPinnedToBottom: false
         ) == .clearPendingAppendAnchor)
         #expect(timelineNewestMessageScrollAction(
             messageIDs: ["message-350", "message-449"],
+            newMessageIsOutgoing: false,
             paging: historicalPaging,
             pendingPrependAnchorId: nil,
             pendingAppendAnchorId: nil,
-            newMessageId: "message-449"
+            newMessageId: "message-449",
+            isPinnedToBottom: true
         ) == .none)
         #expect(timelineNewestMessageScrollAction(
             messageIDs: ["message-350", "message-449"],
+            newMessageIsOutgoing: false,
             paging: liveEdgePaging,
             pendingPrependAnchorId: nil,
             pendingAppendAnchorId: nil,
-            newMessageId: "message-449"
+            newMessageId: "message-449",
+            isPinnedToBottom: true
         ) == .scrollToBottom)
+    }
+
+    @Test func newestMessageAutoScrollUsesBottomProximityNotOlderHistoryAvailability() {
+        let longLiveEdgePaging = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: false,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
+        let detachedHistoryPaging = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: true,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
+
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-001", "message-101"],
+            newMessageIsOutgoing: false,
+            paging: longLiveEdgePaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: nil,
+            newMessageId: "message-101",
+            isPinnedToBottom: true
+        ) == .scrollToBottom)
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-001", "message-101"],
+            newMessageIsOutgoing: false,
+            paging: longLiveEdgePaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: nil,
+            newMessageId: "message-101",
+            isPinnedToBottom: false
+        ) == .none)
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-001", "message-101"],
+            newMessageIsOutgoing: true,
+            paging: longLiveEdgePaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: nil,
+            newMessageId: "message-101",
+            isPinnedToBottom: false
+        ) == .scrollToBottom)
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-001", "message-101"],
+            newMessageIsOutgoing: false,
+            paging: detachedHistoryPaging,
+            pendingPrependAnchorId: nil,
+            pendingAppendAnchorId: nil,
+            newMessageId: "message-101",
+            isPinnedToBottom: true
+        ) == .none)
+        #expect(timelineNewestMessageScrollAction(
+            messageIDs: ["message-001", "message-101"],
+            newMessageIsOutgoing: false,
+            paging: longLiveEdgePaging,
+            pendingPrependAnchorId: "message-000",
+            pendingAppendAnchorId: nil,
+            newMessageId: "message-101",
+            isPinnedToBottom: true
+        ) == .none)
     }
 
     @MainActor
