@@ -1805,7 +1805,7 @@ private struct MessageBubble: View {
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 5)
 
-                if !message.reactions.isEmpty {
+                if message.supportsChatActions && !message.reactions.isEmpty {
                     HStack(spacing: 5) {
                         ForEach(message.reactions) { reaction in
                             Button {
@@ -1843,14 +1843,8 @@ private struct MessageBubble: View {
         }
         .contentShape(Rectangle())
         .contextMenu {
-            if message.supportsChatActions {
+            if message.canCopyText || message.canDelete {
                 MessageOverflowMenuItems(message: message)
-            } else {
-                Button {
-                    workspace.copyText(of: message)
-                } label: {
-                    Label("Copy Text", systemImage: "doc.on.doc")
-                }
             }
         }
         .onHover { isHovering = $0 }
@@ -1944,40 +1938,46 @@ private struct MessageInlineActions: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Button {
-                isEmojiPickerPresented = true
-            } label: {
-                MessageInlineActionIcon(systemName: "face.smiling", label: "React")
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $isEmojiPickerPresented, arrowEdge: .bottom) {
-                MessageEmojiPickerPopover { emoji in
-                    isEmojiPickerPresented = false
-                    Task { await workspace.react(to: message, emoji: emoji) }
+            if message.canReact {
+                Button {
+                    isEmojiPickerPresented = true
+                } label: {
+                    MessageInlineActionIcon(systemName: "face.smiling", label: "React")
                 }
-            }
-            .help("React")
-
-            Button {
-                workspace.startReply(to: message)
-            } label: {
-                MessageInlineActionIcon(systemName: "arrowshape.turn.up.left", label: "Reply")
-            }
-            .buttonStyle(.plain)
-            .help("Reply")
-
-            Button {
-                isOverflowPresented = true
-            } label: {
-                MessageInlineActionIcon(systemName: "ellipsis", label: "More")
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
-                MessageOverflowPopover(message: message) {
-                    isOverflowPresented = false
+                .buttonStyle(.plain)
+                .popover(isPresented: $isEmojiPickerPresented, arrowEdge: .bottom) {
+                    MessageEmojiPickerPopover { emoji in
+                        isEmojiPickerPresented = false
+                        Task { await workspace.react(to: message, emoji: emoji) }
+                    }
                 }
+                .help("React")
             }
-            .help("More")
+
+            if message.canReply {
+                Button {
+                    workspace.startReply(to: message)
+                } label: {
+                    MessageInlineActionIcon(systemName: "arrowshape.turn.up.left", label: "Reply")
+                }
+                .buttonStyle(.plain)
+                .help("Reply")
+            }
+
+            if message.canCopyText || message.canDelete {
+                Button {
+                    isOverflowPresented = true
+                } label: {
+                    MessageInlineActionIcon(systemName: "ellipsis", label: "More")
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
+                    MessageOverflowPopover(message: message) {
+                        isOverflowPresented = false
+                    }
+                }
+                .help("More")
+            }
         }
         .frame(width: 92, height: 32)
         .onChange(of: isEmojiPickerPresented) { _, _ in
@@ -2056,16 +2056,22 @@ private struct MessageOverflowPopover: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            overflowButton("Copy Text", systemImage: "doc.on.doc") {
-                workspace.copyText(of: message)
-                dismiss()
+            if message.canCopyText {
+                overflowButton("Copy Text", systemImage: "doc.on.doc") {
+                    workspace.copyText(of: message)
+                    dismiss()
+                }
             }
 
-            Divider()
+            if message.canCopyText && message.canDelete {
+                Divider()
+            }
 
-            overflowButton("Delete", systemImage: "trash", role: .destructive) {
-                dismiss()
-                Task { await workspace.deleteMessage(message) }
+            if message.canDelete {
+                overflowButton("Delete", systemImage: "trash", role: .destructive) {
+                    dismiss()
+                    Task { await workspace.deleteMessage(message) }
+                }
             }
         }
         .padding(.vertical, 6)
@@ -2101,18 +2107,24 @@ private struct MessageOverflowMenuItems: View {
     let message: MessageItem
 
     var body: some View {
-        Button {
-            workspace.copyText(of: message)
-        } label: {
-            Label("Copy Text", systemImage: "doc.on.doc")
+        if message.canCopyText {
+            Button {
+                workspace.copyText(of: message)
+            } label: {
+                Label("Copy Text", systemImage: "doc.on.doc")
+            }
         }
 
-        Divider()
+        if message.canCopyText && message.canDelete {
+            Divider()
+        }
 
-        Button(role: .destructive) {
-            Task { await workspace.deleteMessage(message) }
-        } label: {
-            Label("Delete", systemImage: "trash")
+        if message.canDelete {
+            Button(role: .destructive) {
+                Task { await workspace.deleteMessage(message) }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 }

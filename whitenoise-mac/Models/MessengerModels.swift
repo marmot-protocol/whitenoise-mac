@@ -280,8 +280,36 @@ struct MessageItem: Identifiable, Hashable {
         "\(DisplayText.short(id, head: 10, tail: 8)) - \(timelineAt)"
     }
 
+    private var hasCopyableBody: Bool {
+        !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isActionableContent: Bool {
+        !isDeleted && invalidationStatus == nil
+    }
+
+    private var isActionableChatBubble: Bool {
+        presentation.isChatBubble && isActionableContent
+    }
+
     var supportsChatActions: Bool {
-        presentation.isChatBubble && !isDeleted && invalidationStatus == nil
+        isActionableChatBubble
+    }
+
+    var canCopyText: Bool {
+        isActionableContent && hasCopyableBody
+    }
+
+    var canReact: Bool {
+        isActionableChatBubble
+    }
+
+    var canReply: Bool {
+        isActionableChatBubble
+    }
+
+    var canDelete: Bool {
+        isActionableChatBubble && isOutgoing
     }
 }
 

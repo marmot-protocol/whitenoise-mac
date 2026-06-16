@@ -417,6 +417,75 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func messageActionEligibilityTracksOwnershipAndState() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let outgoing = MessageItem(
+            id: "outgoing",
+            senderName: "Jeff",
+            body: "Ship it",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let incoming = MessageItem(
+            id: "incoming",
+            senderName: "Alice",
+            body: "Looks good",
+            sentAt: sentAt,
+            isOutgoing: false
+        )
+        let deleted = MessageItem(
+            id: "deleted",
+            senderName: "Jeff",
+            body: "Message deleted",
+            sentAt: sentAt,
+            isDeleted: true,
+            isOutgoing: true
+        )
+        let failed = MessageItem(
+            id: "failed",
+            senderName: "Jeff",
+            body: "Message did not reach the group",
+            sentAt: sentAt,
+            invalidationStatus: "signature-check-failed",
+            isOutgoing: true
+        )
+        let systemNotice = MessageItem(
+            id: "system",
+            senderName: "System",
+            body: "Member added",
+            sentAt: sentAt,
+            isOutgoing: false,
+            presentation: .groupSystem
+        )
+
+        #expect(outgoing.supportsChatActions)
+        #expect(outgoing.canCopyText)
+        #expect(outgoing.canReact)
+        #expect(outgoing.canReply)
+        #expect(outgoing.canDelete)
+
+        #expect(incoming.supportsChatActions)
+        #expect(incoming.canCopyText)
+        #expect(incoming.canReact)
+        #expect(incoming.canReply)
+        #expect(!incoming.canDelete)
+
+        for message in [deleted, failed] {
+            #expect(!message.supportsChatActions)
+            #expect(!message.canCopyText)
+            #expect(!message.canReact)
+            #expect(!message.canReply)
+            #expect(!message.canDelete)
+        }
+
+        #expect(!systemNotice.supportsChatActions)
+        #expect(systemNotice.canCopyText)
+        #expect(!systemNotice.canReact)
+        #expect(!systemNotice.canReply)
+        #expect(!systemNotice.canDelete)
+    }
+
+    @MainActor
     @Test func timelineMappingClassifiesAgentAndGroupSystemRows() async throws {
         let page = TimelinePageFfi(
             messages: [
@@ -1864,10 +1933,10 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
         let message = MessageItem(
             id: "parent",
-            senderName: "Alice",
+            senderName: "Desktop Account",
             body: "The launch plan is ready.",
             sentAt: Date(timeIntervalSince1970: 1_700_000_000),
-            isOutgoing: false
+            isOutgoing: true
         )
 
         await state.bootstrap()
@@ -1953,10 +2022,10 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
         let message = MessageItem(
             id: "parent",
-            senderName: "Alice",
+            senderName: "Desktop Account",
             body: "The launch plan is ready.",
             sentAt: Date(timeIntervalSince1970: 1_700_000_000),
-            isOutgoing: false
+            isOutgoing: true
         )
 
         await state.bootstrap()
@@ -1972,6 +2041,44 @@ struct whitenoise_macTests {
             groupIdHex: "direct-group",
             targetMessageId: "parent"
         ))
+    }
+
+    @MainActor
+    @Test func incomingMessageDeleteActionDoesNotPublishDeletion() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let message = MessageItem(
+            id: "incoming-parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        await state.deleteMessage(message)
+
+        #expect(runtime.deletedMessage == nil)
     }
 
     @MainActor
@@ -2054,6 +2161,32 @@ struct whitenoise_macTests {
         ))
 
         #expect(copiedText == "Copy this")
+    }
+
+    @MainActor
+    @Test func deletedAndFailedMessageTextDoesNotCopyPlaceholder() async throws {
+        var copiedText = "initial"
+        let state = WorkspaceState(copyTextHandler: { copiedText = $0 })
+        let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        state.copyText(of: MessageItem(
+            id: "deleted",
+            senderName: "Alice",
+            body: "Message deleted",
+            sentAt: sentAt,
+            isDeleted: true,
+            isOutgoing: false
+        ))
+        state.copyText(of: MessageItem(
+            id: "failed",
+            senderName: "Alice",
+            body: "Message did not reach the group",
+            sentAt: sentAt,
+            invalidationStatus: "signature-check-failed",
+            isOutgoing: true
+        ))
+
+        #expect(copiedText == "initial")
     }
 
     @MainActor
