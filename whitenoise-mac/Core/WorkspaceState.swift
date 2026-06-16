@@ -204,6 +204,7 @@ final class WorkspaceState {
     private let clientFactory: @MainActor () throws -> any MarmotRuntime
     private let localNotificationCenter: any LocalNotificationCenter
     private let appActivityProvider: @MainActor () -> Bool
+    private let conversationWindowVisibilityProvider: @MainActor () -> Bool
     private let copyTextHandler: @MainActor (String) -> Void
     private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     private let groupImageSearchClient: any GroupImageSearchClient
@@ -288,6 +289,9 @@ final class WorkspaceState {
         messagesByChat: [String: [MessageItem]] = [:],
         localNotificationCenter: (any LocalNotificationCenter)? = nil,
         appActivityProvider: @escaping @MainActor () -> Bool = { NSApplication.shared.isActive },
+        conversationWindowVisibilityProvider: @escaping @MainActor () -> Bool = {
+            WorkspaceState.defaultConversationWindowVisibilityProvider()
+        },
         copyTextHandler: @escaping @MainActor (String) -> Void = WorkspaceState.copyToGeneralPasteboard,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = { TelemetryBuildConfig.current() },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
@@ -302,6 +306,7 @@ final class WorkspaceState {
         self.messageIDsByChat = messagesByChat.mapValues { $0.map(\.id) }
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
         self.appActivityProvider = appActivityProvider
+        self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
         self.copyTextHandler = copyTextHandler
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
@@ -323,6 +328,15 @@ final class WorkspaceState {
         self.localNotificationCenter.setResponseHandler { [weak self] userInfo in
             self?.handleNotificationResponse(userInfo)
         }
+    }
+
+    private static func defaultConversationWindowVisibilityProvider() -> Bool {
+        guard let keyWindow = NSApplication.shared.keyWindow else { return false }
+        return keyWindow.isVisible && !keyWindow.isMiniaturized
+    }
+
+    private func selectedConversationIsVisible() -> Bool {
+        appActivityProvider() && conversationWindowVisibilityProvider()
     }
 
     static func preview() -> WorkspaceState {
@@ -1744,7 +1758,7 @@ final class WorkspaceState {
         guard !deliveredNotificationKeys.contains(update.notificationKey) else { return }
         guard localNotificationsEnabled(for: update) else { return }
 
-        if appActivityProvider(), selectedChat?.id == update.groupIdHex {
+        if selectedChat?.id == update.groupIdHex, selectedConversationIsVisible() {
             return
         }
 
@@ -2565,12 +2579,13 @@ final class WorkspaceState {
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
         // A selected chat is necessary but not sufficient: only advance the read marker
-        // when the app is actually frontmost. If the user has switched away (app inactive,
-        // window occluded/minimized) incoming live deltas must not silently clear unread
-        // state for messages they have not seen — this mirrors the focus gate the
-        // notification path already applies in handleNotificationUpdate(_:). Marking is
-        // deferred until the app regains focus (see handleAppActivationChange()).
-        guard appActivityProvider() else { return }
+        // when the app is active and the conversation window is actually visible. If the
+        // user has switched away or the window is hidden/minimized, incoming live deltas
+        // must not silently clear unread state for messages they have not seen — this
+        // mirrors the focus gate the notification path already applies in
+        // handleNotificationUpdate(_:). Marking is deferred until the conversation becomes
+        // visible again (see handleConversationVisibilityChange()).
+        guard selectedConversationIsVisible() else { return }
         guard let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
             message.timelineKind == 9 && !message.isDeleted
         }) else {
@@ -2600,21 +2615,25 @@ final class WorkspaceState {
         }
     }
 
-    /// Flush any read-marking that was deferred while the app was in the background.
+    /// Flush any read-marking that was deferred while the conversation was not visible.
     ///
-    /// `markLatestVisibleMessageRead(_:)` refuses to advance the read marker while the
-    /// app is inactive, so messages that arrive on the selected chat while the user is
-    /// away stay unread. When the app regains focus the user is now actually looking at
-    /// the selected chat, so it is safe to advance the marker to the latest visible
-    /// message. Call this from the app/window activation hook (see ContentView).
-    func handleAppActivationChange() async {
-        guard appActivityProvider() else { return }
+    /// `markLatestVisibleMessageRead(_:)` refuses to advance the read marker while the app
+    /// is inactive or its conversation window has no visible key window, so messages that
+    /// arrive while the user is away stay unread. When the conversation becomes visible
+    /// again it is safe to advance the marker to the latest visible message. Call this from
+    /// app/window activation hooks (see ContentView).
+    func handleConversationVisibilityChange() async {
+        guard selectedConversationIsVisible() else { return }
         guard let client, let activeAccount, let selectedChat else { return }
         await markLatestVisibleMessageRead(
             groupIdHex: selectedChat.id,
             account: activeAccount,
             client: client
         )
+    }
+
+    func handleAppActivationChange() async {
+        await handleConversationVisibilityChange()
     }
 
     private func rememberDeliveredNotificationKey(_ key: String) {

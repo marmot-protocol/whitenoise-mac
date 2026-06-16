@@ -808,7 +808,11 @@ struct whitenoise_macTests {
                 )
             ))
         ], groupIdHex: "direct-group")
-        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
@@ -866,6 +870,55 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selectedChatDoesNotMarkReadWhileConversationWindowIsHidden() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "latest",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Latest message",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            )
+        ], groupIdHex: "direct-group")
+        // The app process can stay active while its only window is minimized or has no
+        // key window; a selected chat is still not visible in that state.
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        #expect(state.messagesByChat["direct-group"]?.count == 1)
+        #expect(runtime.markedReadMessageIds.isEmpty)
+    }
+
+    @MainActor
     @Test func regainingFocusFlushesDeferredReadMarking() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -902,7 +955,11 @@ struct whitenoise_macTests {
         // Start inactive so the initial open defers marking, then flip to active and
         // simulate the app regaining focus.
         var isActive = false
-        let state = WorkspaceState(appActivityProvider: { isActive }, clientFactory: { runtime })
+        let state = WorkspaceState(
+            appActivityProvider: { isActive },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
@@ -910,6 +967,57 @@ struct whitenoise_macTests {
 
         isActive = true
         await state.handleAppActivationChange()
+
+        #expect(runtime.markedReadMessageIds == ["latest"])
+    }
+
+    @MainActor
+    @Test func restoringConversationWindowFlushesDeferredReadMarking() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "latest",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Latest message",
+                kind: 9,
+                recordedAt: 1_700_000_010
+            )
+        ], groupIdHex: "direct-group")
+        var isWindowVisible = false
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { isWindowVisible },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(runtime.markedReadMessageIds.isEmpty)
+
+        isWindowVisible = true
+        await state.handleConversationVisibilityChange()
 
         #expect(runtime.markedReadMessageIds == ["latest"])
     }
@@ -1465,7 +1573,11 @@ struct whitenoise_macTests {
                 hasMoreAfter: false
             ))
         ], groupIdHex: "direct-group")
-        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
@@ -1557,7 +1669,11 @@ struct whitenoise_macTests {
                 )
             ))
         ], groupIdHex: "direct-group")
-        let state = WorkspaceState(appActivityProvider: { true }, clientFactory: { runtime })
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
@@ -3289,6 +3405,7 @@ struct whitenoise_macTests {
         let state = WorkspaceState(
             localNotificationCenter: notificationCenter,
             appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
             clientFactory: { runtime }
         )
 
@@ -3303,6 +3420,51 @@ struct whitenoise_macTests {
 
         #expect(state.selection == .chat("direct-group"))
         #expect(notificationCenter.postedRequests.isEmpty)
+    }
+
+    @MainActor
+    @Test func activeSelectedChatNotificationPostsLocalAlertWhenConversationWindowIsHidden() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "notice-1",
+            groupIdHex: "direct-group",
+            senderName: "Alice",
+            previewText: "See you there."
+        ))
+
+        #expect(state.selection == .chat("direct-group"))
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["notice-1"])
     }
 
     @MainActor
