@@ -155,6 +155,12 @@ final class WorkspaceState {
     private var activeTimelineSubscription: TimelineMessagesSubscription?
     private var activeTimelineGroupId: String?
     private var messageLookupByChat: [String: [String: MessageItem]] = [:]
+    /// Cached per-chat message id arrays, materialized once per `messagesByChat`
+    /// mutation and maintained in lockstep with it (alongside `messageLookupByChat`).
+    /// SwiftUI re-evaluates `body` frequently; reading this cache avoids rebuilding a
+    /// fresh `[String]` on every access. Invalidated/recomputed only when the
+    /// underlying messages change.
+    private var messageIDsByChat: [String: [String]] = [:]
     private var lastMarkedReadMarkers: [String: ReadMarker] = [:]
     private var deliveredNotificationKeys = Set<String>()
     private var deliveredNotificationKeyOrder: [String] = []
@@ -219,6 +225,7 @@ final class WorkspaceState {
         self.messageLookupByChat = messagesByChat.mapValues { messages in
             Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         }
+        self.messageIDsByChat = messagesByChat.mapValues { $0.map(\.id) }
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
         self.appActivityProvider = appActivityProvider
         self.copyTextHandler = copyTextHandler
@@ -291,7 +298,7 @@ final class WorkspaceState {
 
     var selectedMessageIDs: [String] {
         guard let selectedChat else { return [] }
-        return messagesByChat[selectedChat.id]?.map(\.id) ?? []
+        return messageIDsByChat[selectedChat.id] ?? []
     }
 
     var selectedTimelinePaging: TimelinePagingState {
@@ -535,6 +542,7 @@ final class WorkspaceState {
             chatsByAccount[removedAccountId] = nil
             messagesByChat.removeAll()
             messageLookupByChat.removeAll()
+            messageIDsByChat.removeAll()
             peerProfileFFICache.removeAll()
             timelinePagingByChat.removeAll()
             profileDraft = ProfileDraft()
@@ -1703,6 +1711,7 @@ final class WorkspaceState {
         chatsByAccount = [:]
         messagesByChat = [:]
         messageLookupByChat = [:]
+        messageIDsByChat = [:]
         activeAccountId = nil
         selection = nil
         searchText = ""
@@ -2187,6 +2196,7 @@ final class WorkspaceState {
         chatsByAccount[account.id] = chats
         messagesByChat[groupIdHex] = nil
         messageLookupByChat[groupIdHex] = nil
+        messageIDsByChat[groupIdHex] = nil
         timelinePagingByChat[groupIdHex] = nil
         lastMarkedReadMarkers[groupIdHex] = nil
 
@@ -2211,13 +2221,16 @@ final class WorkspaceState {
         // so render it as-is.
         let nextPaging = paging ?? timelinePagingByChat[groupIdHex] ?? .empty
         let messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        let messageIDs = messages.map(\.id)
 
         if messagesByChat.count == 1, messagesByChat[groupIdHex] != nil {
             messagesByChat[groupIdHex] = messages
             messageLookupByChat[groupIdHex] = messageLookup
+            messageIDsByChat[groupIdHex] = messageIDs
         } else {
             messagesByChat = [groupIdHex: messages]
             messageLookupByChat = [groupIdHex: messageLookup]
+            messageIDsByChat = [groupIdHex: messageIDs]
         }
         if timelinePagingByChat.count == 1, timelinePagingByChat[groupIdHex] != nil {
             timelinePagingByChat[groupIdHex] = nextPaging
@@ -2230,6 +2243,7 @@ final class WorkspaceState {
         guard let groupIdHex else {
             messagesByChat = [:]
             messageLookupByChat = [:]
+            messageIDsByChat = [:]
             timelinePagingByChat = [:]
             return
         }
@@ -2237,9 +2251,11 @@ final class WorkspaceState {
         if let messages = messagesByChat[groupIdHex] {
             messagesByChat = [groupIdHex: messages]
             messageLookupByChat = [groupIdHex: Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })]
+            messageIDsByChat = [groupIdHex: messages.map(\.id)]
         } else {
             messagesByChat = [:]
             messageLookupByChat = [:]
+            messageIDsByChat = [:]
         }
         if let paging = timelinePagingByChat[groupIdHex] {
             timelinePagingByChat = [groupIdHex: paging]
