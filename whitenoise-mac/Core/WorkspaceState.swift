@@ -1008,7 +1008,10 @@ final class WorkspaceState {
     }
 
     func loadMessages(groupIdHex: String) async {
-        guard let client, let activeAccount else { return }
+        guard let client, let activeAccount else {
+            finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            return
+        }
         if timelineTaskGroupId == groupIdHex, messagesByChat[groupIdHex] != nil {
             finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return

@@ -864,6 +864,39 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func initialTimelineLoadClearsWhenRuntimeIsUnavailable() async throws {
+        let account = AccountItem(
+            id: "Desktop Account",
+            accountRef: "Desktop Account",
+            displayName: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
+        let chat = ChatItem(
+            id: "group",
+            title: "General",
+            subtitle: "Group chat",
+            preview: "",
+            updatedAt: nil,
+            avatarSeed: "group",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        UserDefaults.standard.set(account.id, forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [chat]],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+
+        state.selectChat(chat)
+
+        #expect(state.selectedTimelineIsLoadingInitialPage)
+        await state.loadMessages(groupIdHex: chat.id)
+        #expect(!state.selectedTimelineIsLoadingInitialPage)
+        #expect(state.messagesByChat["group"] == nil)
+    }
+
+    @MainActor
     @Test func loadingOlderMessagesExtendsWindowViaSubscription() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
