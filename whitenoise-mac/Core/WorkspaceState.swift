@@ -1517,7 +1517,7 @@ final class WorkspaceState {
         guard !chat.isDirect else { return }
         lastError = nil
         closeGroupDetails()
-        groupImageSearchQuery = chat.title
+        groupImageSearchQuery = ""
         groupImageResults = []
         isGroupImagePickerPresented = true
     }
