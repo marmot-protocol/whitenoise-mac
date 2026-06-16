@@ -2193,6 +2193,39 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func backgroundListenerFailureRoutesToBackgroundStatusNotLastError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // A background notification-listener failure must not surface on the shared
+        // per-screen error field that login/settings/new-chat render (issue #24).
+        runtime.subscribeNotificationsError = NSError(
+            domain: "test.background",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "background listener dropped"]
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        let routedToBackground = await waitFor {
+            state.backgroundStatus == "background listener dropped"
+        }
+        #expect(routedToBackground)
+        // The user-facing per-screen error field must remain untouched.
+        #expect(state.lastError == nil)
+
+        // The banner is dismissible without affecting lastError.
+        state.clearBackgroundStatus()
+        #expect(state.backgroundStatus == nil)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func auditLogFileActionsRefreshDeleteAndUploadThroughRuntime() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -2683,6 +2716,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     var accountIdsMissingProfiles = Set<String>()
     var timelineMessagesHandler: ((TimelineMessageQueryFfi) -> TimelinePageFfi)?
+    /// When set, `subscribeNotifications()` throws this error, simulating a background
+    /// notification-listener failure for routing tests.
+    var subscribeNotificationsError: Error?
     var timelineUpdateDelayNanoseconds: UInt64 = 0
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
@@ -3279,7 +3315,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
-        FakeNotificationsSubscription()
+        if let subscribeNotificationsError {
+            throw subscribeNotificationsError
+        }
+        return FakeNotificationsSubscription()
     }
 
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
