@@ -966,7 +966,7 @@ struct whitenoise_macTests {
         #expect(runtime.markedReadMessageIds.isEmpty)
 
         isActive = true
-        await state.handleAppActivationChange()
+        await state.handleConversationVisibilityChange()
 
         #expect(runtime.markedReadMessageIds == ["latest"])
     }

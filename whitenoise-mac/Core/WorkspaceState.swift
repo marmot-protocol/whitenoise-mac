@@ -2632,10 +2632,6 @@ final class WorkspaceState {
         )
     }
 
-    func handleAppActivationChange() async {
-        await handleConversationVisibilityChange()
-    }
-
     private func rememberDeliveredNotificationKey(_ key: String) {
         guard deliveredNotificationKeys.insert(key).inserted else { return }
         deliveredNotificationKeyOrder.append(key)
