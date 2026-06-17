@@ -1835,6 +1835,11 @@ final class WorkspaceState {
     func handleNotificationUpdate(_ update: NotificationUpdateFfi) async {
         guard !update.isFromSelf else { return }
         guard !deliveredNotificationKeys.contains(update.notificationKey) else { return }
+
+        // Keep the published settings snapshot in sync for the active account.
+        // This is an explicit step rather than a side effect of the guard below.
+        syncNotificationSettingsIfActive(for: update)
+
         guard localNotificationsEnabled(for: update) else { return }
 
         if selectedChat?.id == update.groupIdHex, selectedConversationIsVisible() {
@@ -2725,17 +2730,31 @@ final class WorkspaceState {
         }
     }
 
+    /// Pure predicate: reports whether local notifications are enabled for the
+    /// account targeted by `update`. Has no side effects — callers that also need
+    /// to refresh the published `notificationSettings` snapshot must invoke
+    /// `syncNotificationSettingsIfActive(for:)` explicitly.
     private func localNotificationsEnabled(for update: NotificationUpdateFfi) -> Bool {
         guard let client else { return false }
         guard let settings = try? client.notificationSettings(accountRef: update.accountRef) else {
             return false
         }
 
-        if activeAccount?.accountIdHex == update.accountIdHex {
-            notificationSettings = NotificationSettingsSnapshot(settings: settings)
+        return settings.localNotificationsEnabled
+    }
+
+    /// Refreshes the published `notificationSettings` snapshot when `update`
+    /// targets the active account. Kept separate from
+    /// `localNotificationsEnabled(for:)` so that evaluating the predicate does
+    /// not mutate UI state as a hidden side effect.
+    private func syncNotificationSettingsIfActive(for update: NotificationUpdateFfi) {
+        guard activeAccount?.accountIdHex == update.accountIdHex else { return }
+        guard let client else { return }
+        guard let settings = try? client.notificationSettings(accountRef: update.accountRef) else {
+            return
         }
 
-        return settings.localNotificationsEnabled
+        notificationSettings = NotificationSettingsSnapshot(settings: settings)
     }
 
     private func handleNotificationPermissionError(_ error: Error) async {
