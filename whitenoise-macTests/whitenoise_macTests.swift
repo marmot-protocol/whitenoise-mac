@@ -78,6 +78,81 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func addingSecondAccountViaLoginBringsItOnlineWithoutRelaunch() async throws {
+        // Regression for #74: the Settings → Add Account flow reuses login()/
+        // signUp() while the runtime is already running. The new account must be
+        // brought online immediately (its worker started, transport subscribed)
+        // rather than staying offline until the next app launch.
+        let primary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        // First launch brings the runtime online once for the existing account.
+        await state.bootstrap()
+        #expect(state.phase == .ready)
+        #expect(runtime.startCallCount == 1)
+        #expect(state.accounts.map(\.isRunning) == [true])
+
+        // Add a second account via the Settings → Add Account login path.
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: false
+        )
+        runtime.createdAccount = secondary
+        state.showLogin()
+        state.loginIdentity = "nsec1backup"
+        await state.login()
+
+        // The runtime must have been brought online again so the newly added
+        // account's worker/transport sync starts now — not after a relaunch.
+        #expect(runtime.startCallCount == 2)
+        #expect(state.accounts.count == 2)
+        let backup = try #require(state.accounts.first { $0.accountIdHex == secondary.accountIdHex })
+        #expect(backup.isRunning == true)
+        #expect(state.accounts.allSatisfy(\.isRunning))
+        #expect(state.activeAccountId == "Backup Account")
+    }
+
+    @MainActor
+    @Test func addingSecondAccountViaSignUpBringsItOnlineWithoutRelaunch() async throws {
+        // Companion to the login case above: the Create Identity button in
+        // Settings → Add Account must also bring the new account online. See #74.
+        let primary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(runtime.startCallCount == 1)
+
+        let secondary = AccountSummaryFfi(
+            label: "Second Identity",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            running: false
+        )
+        runtime.createdAccount = secondary
+        await state.signUp()
+
+        #expect(runtime.startCallCount == 2)
+        #expect(state.accounts.count == 2)
+        let added = try #require(state.accounts.first { $0.accountIdHex == secondary.accountIdHex })
+        #expect(added.isRunning == true)
+        #expect(state.accounts.allSatisfy(\.isRunning))
+    }
+
+    @MainActor
     @Test func failedLoginScrubsEnteredNsecFromMemory() async throws {
         // No createdAccount => FakeMarmotRuntime.login throws, exercising the failure path.
         let runtime = FakeMarmotRuntime(accounts: [])
@@ -4193,7 +4268,9 @@ private actor FakeGroupImageSearchClient: GroupImageSearchClient {
 
 private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     private var storedAccounts: [AccountSummaryFfi]
-    private let createdAccount: AccountSummaryFfi?
+    /// The account that `login` / `createIdentity` will materialise. `var` so a
+    /// test can point the next add at a different account (multi-account flows).
+    var createdAccount: AccountSummaryFfi?
     private(set) var startCallCount = 0
     var didStart: Bool { startCallCount > 0 }
     let storageRootPath = "/tmp/whitenoise-mac-tests"
@@ -4478,14 +4555,27 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func createIdentity(defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
         guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
-        storedAccounts = [createdAccount]
+        addOrReplaceAccount(createdAccount)
         return createdAccount
     }
 
     func login(identity: String, defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
         guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
-        storedAccounts = [createdAccount]
+        addOrReplaceAccount(createdAccount)
         return createdAccount
+    }
+
+    /// Mirrors the real runtime: `login` / `createIdentity` add the account to
+    /// the known set (replacing any existing entry with the same id) rather
+    /// than discarding accounts already brought up this session. The account is
+    /// not marked `running` here — only `start()` brings accounts online, which
+    /// is the behaviour issues #31 / #74 exercise.
+    private func addOrReplaceAccount(_ account: AccountSummaryFfi) {
+        if let index = storedAccounts.firstIndex(where: { $0.accountIdHex == account.accountIdHex }) {
+            storedAccounts[index] = account
+        } else {
+            storedAccounts.append(account)
+        }
     }
 
     func publishUserProfile(accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]) async throws -> UserProfileMetadataFfi {
