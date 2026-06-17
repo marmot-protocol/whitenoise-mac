@@ -3881,6 +3881,7 @@ struct whitenoise_macTests {
         }
 
         #expect(didRestart)
+        await state.deleteAllData()
     }
 
     @MainActor
@@ -3915,6 +3916,7 @@ struct whitenoise_macTests {
         }
 
         #expect(didRestart)
+        await state.deleteAllData()
     }
 
     @MainActor
@@ -3960,6 +3962,7 @@ struct whitenoise_macTests {
         }
 
         #expect(didRestart)
+        await state.deleteAllData()
     }
 
     @MainActor

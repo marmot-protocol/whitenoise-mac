@@ -2390,9 +2390,6 @@ final class WorkspaceState {
             reconnectAttempt += 1
         }
 
-        if !Task.isCancelled {
-            notificationTask = nil
-        }
     }
 
     private func startChatListListener(
