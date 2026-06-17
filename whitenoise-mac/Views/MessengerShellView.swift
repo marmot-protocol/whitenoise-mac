@@ -2787,6 +2787,10 @@ private struct PrivacySecuritySettingsView: View {
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
 
+                Text("Audit log upload metadata includes only the platform (macOS), app version, and an opaque audit-log device ID. It does not include your Mac name or account display name.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 if workspace.isSavingPrivacySecurity {
                     HStack(spacing: 10) {
                         ProgressView()

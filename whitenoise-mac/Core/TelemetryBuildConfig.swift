@@ -101,13 +101,13 @@ struct TelemetryBuildConfig: Equatable {
         )
     }
 
-    func auditTrackerConfig(accountLabel: String?) -> AuditLogTrackerConfigFfi {
+    func auditTrackerConfig(deviceLabel: String?) -> AuditLogTrackerConfigFfi {
         AuditLogTrackerConfigFfi(
             endpoint: nil,
             authorizationBearerToken: auditLogBearerToken,
             source: AuditLogUploadSourceFfi(
-                accountLabel: accountLabel,
-                deviceLabel: deviceModelIdentifier,
+                accountLabel: nil,
+                deviceLabel: deviceLabel.flatMap(Self.resolvedStringValue),
                 platform: "macOS",
                 appVersion: serviceVersion
             )

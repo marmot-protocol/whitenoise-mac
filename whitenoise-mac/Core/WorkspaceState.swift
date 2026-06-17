@@ -279,6 +279,7 @@ final class WorkspaceState {
     private let conversationWindowVisibilityProvider: @MainActor () -> Bool
     private let copyTextHandler: @MainActor (String) -> Void
     private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
+    private let auditLogUploadDeviceLabelProvider: @MainActor () -> String
     private let groupImageSearchClient: any GroupImageSearchClient
     private var client: (any MarmotRuntime)?
     private var notificationTask: Task<Void, Never>?
@@ -339,6 +340,7 @@ final class WorkspaceState {
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
     private static let notificationPreviewModeKey = "whitenoise.mac.notificationPreviewMode"
     private static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
+    private static let auditLogUploadDeviceLabelKey = "whitenoise.mac.auditLogUploadDeviceLabel"
     private static let deliveredNotificationKeyLimit = 256
     private static let timelinePageLimit: UInt32 = 100
 
@@ -384,6 +386,7 @@ final class WorkspaceState {
         },
         copyTextHandler: @escaping @MainActor (String) -> Void = WorkspaceState.copyToGeneralPasteboard,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = { TelemetryBuildConfig.current() },
+        auditLogUploadDeviceLabelProvider: @escaping @MainActor () -> String = { WorkspaceState.auditLogUploadDeviceLabel() },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
@@ -399,6 +402,7 @@ final class WorkspaceState {
         self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
         self.copyTextHandler = copyTextHandler
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
+        self.auditLogUploadDeviceLabelProvider = auditLogUploadDeviceLabelProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
@@ -2119,6 +2123,17 @@ final class WorkspaceState {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
+    private static func auditLogUploadDeviceLabel(defaults: UserDefaults = .standard) -> String {
+        if let stored = defaults.string(forKey: Self.auditLogUploadDeviceLabelKey)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !stored.isEmpty {
+            return stored
+        }
+
+        let generated = UUID().uuidString.lowercased()
+        defaults.set(generated, forKey: Self.auditLogUploadDeviceLabelKey)
+        return generated
+    }
+
     private var telemetryBuildConfig: TelemetryBuildConfig {
         telemetryBuildConfigProvider()
     }
@@ -2153,7 +2168,7 @@ final class WorkspaceState {
             config: config.runtimeConfig(installId: try client.telemetryInstallId())
         )
         _ = try client.setAuditLogTrackerConfig(
-            config: config.auditTrackerConfig(accountLabel: activeAccount?.displayName)
+            config: config.auditTrackerConfig(deviceLabel: auditLogUploadDeviceLabelProvider())
         )
         privacySecuritySettings.telemetryCredentialsAvailable = config.telemetryCredentialsAvailable
         privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable

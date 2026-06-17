@@ -3702,10 +3702,10 @@ struct whitenoise_macTests {
         #expect(runtimeConfig.resource?.osVersion == "Version 26.0")
         #expect(runtimeConfig.resource?.deviceModelIdentifier == "Mac15,3")
 
-        let auditConfig = config.auditTrackerConfig(accountLabel: "Desktop Account")
+        let auditConfig = config.auditTrackerConfig(deviceLabel: "audit-device-id")
         #expect(auditConfig.authorizationBearerToken == "audit-token")
-        #expect(auditConfig.source.accountLabel == "Desktop Account")
-        #expect(auditConfig.source.deviceLabel == "Mac15,3")
+        #expect(auditConfig.source.accountLabel == nil)
+        #expect(auditConfig.source.deviceLabel == "audit-device-id")
         #expect(auditConfig.source.platform == "macOS")
         #expect(auditConfig.source.appVersion == "2026.6+12")
     }
@@ -3769,6 +3769,7 @@ struct whitenoise_macTests {
                     environment: "production"
                 )
             },
+            auditLogUploadDeviceLabelProvider: { "audit-device-id" },
             clientFactory: { runtime }
         )
 
@@ -3790,7 +3791,8 @@ struct whitenoise_macTests {
         #expect(telemetryResource?.osVersion == ProcessInfo.processInfo.operatingSystemVersionString)
         #expect(telemetryResource?.deviceModelIdentifier == expectedDeviceModelIdentifier())
         #expect(runtime.auditLogTrackerConfig?.authorizationBearerToken == "audit-token")
-        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Desktop Account")
+        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == nil)
+        #expect(runtime.auditLogTrackerConfig?.source.deviceLabel == "audit-device-id")
 
         await state.setRelayTelemetryEnabled(false)
         await state.setAuditLoggingEnabled(true)
