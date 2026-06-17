@@ -2057,6 +2057,164 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func incompletePeerProfileLookupIsNotPinnedForTheSession() async throws {
+        // Regression for #8: an incomplete first sender-profile lookup (relay has not
+        // propagated the profile yet, or the lookup failed) must not be cached as a
+        // terminal answer. A later pass that has the data available must re-resolve and
+        // pick up the real name instead of leaving the contact pinned to its hex fallback.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // Blank group-member display name so the only name source is the profile lookup,
+        // and mark alice's profile as not-yet-available for the first pass.
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "",
+            otherProfile: UserProfileMetadataFfi(
+                name: nil,
+                displayName: nil,
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.accountIdsMissingProfiles.insert(aliceId)
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<150).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        let firstPass = state.messagesByChat["direct-group"] ?? []
+        let firstAliceName = firstPass.first?.senderName
+        // The relay had not propagated the profile, so the contact falls back to a
+        // shortened hex id rather than a real display name.
+        #expect(firstAliceName != "Alice Cooper")
+        #expect(firstAliceName == DisplayText.short(aliceId))
+
+        // The profile becomes available; a subsequent render must re-resolve it.
+        runtime.accountIdsMissingProfiles.remove(aliceId)
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+
+        let secondPass = state.messagesByChat["direct-group"] ?? []
+        #expect(secondPass.first?.senderName == "Alice Cooper")
+    }
+
+    @MainActor
+    @Test func completePeerProfileIsRefreshedAfterCacheTTLExpires() async throws {
+        // Regression for #8: a complete sender-profile lookup is cached, but the cache is
+        // not a permanent "seen" flag. Once the TTL elapses the profile is re-resolved so
+        // a contact's later display-name change is picked up within the same session.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "",
+            otherProfile: UserProfileMetadataFfi(
+                name: nil,
+                displayName: nil,
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<350).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        // Drive the cache clock from the test so TTL expiry is deterministic.
+        let clock = MutableClock(now: Date(timeIntervalSince1970: 2_000_000_000))
+        let state = WorkspaceState(nowProvider: { clock.now }, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Alice")
+
+        // Alice renames herself. A render inside the TTL keeps the cached name.
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Renamed",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        clock.now = clock.now.addingTimeInterval(60)
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Alice")
+
+        // Once the TTL elapses, the next render re-resolves and reflects the new name.
+        clock.now = clock.now.addingTimeInterval(600)
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Alice Renamed")
+    }
+
+    @MainActor
     @Test func messageActionsDoNotRestartLiveSubscriptions() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -6146,6 +6304,15 @@ private func groupDetailsFixture(
             )
         ]
     )
+}
+
+/// A trivial mutable clock for driving time-dependent cache behaviour deterministically
+/// in tests (whitenoise-mac#8). `@MainActor` so it matches `WorkspaceState`'s isolation
+/// when injected via `nowProvider`.
+@MainActor
+private final class MutableClock {
+    var now: Date
+    init(now: Date) { self.now = now }
 }
 
 private func directGroup() -> AppGroupRecordFfi {
