@@ -17590,6 +17590,65 @@
         }
       }
     },
+    "Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost)." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay-URLs müssen wss:// verwenden (Klartext ws:// ist nur für localhost erlaubt)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las URL de relays deben usar wss:// (ws:// en texto plano solo se permite para localhost)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les URL de relais doivent utiliser wss:// (ws:// en clair n’est autorisé que pour localhost)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli URL dei relay devono usare wss:// (ws:// in chiaro è consentito solo per localhost)."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URLs de relays devem usar wss:// (ws:// em texto não criptografado só é permitido para localhost)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "URL ретрансляторов должны использовать wss:// (незашифрованный ws:// разрешён только для localhost)."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relay URL’leri wss:// kullanmalı (şifresiz ws:// yalnızca localhost için kullanılabilir)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中继 URL 必须使用 wss://（明文 ws:// 仅允许用于 localhost）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中繼 URL 必須使用 wss://（明文 ws:// 僅允許用於 localhost）。"
+          }
+        }
+      }
+    },
     "Relays" : {
       "extractionState" : "manual",
       "localizations" : {

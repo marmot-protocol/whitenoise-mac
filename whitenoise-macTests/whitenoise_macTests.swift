@@ -4473,6 +4473,114 @@ struct whitenoise_macTests {
         #expect(state.selection == .chat("chat-nvk"))
     }
 
+    // MARK: - Relay URL validation (issue #18)
+
+    @Test func relayValidatorAcceptsSecureWssRelays() async throws {
+        #expect(RelayURLValidator.classify("wss://relay.example.com") == .secure)
+        #expect(RelayURLValidator.classify("wss://relay.us.whitenoise.chat") == .secure)
+        #expect(RelayURLValidator.classify("WSS://Relay.Example.com") == .secure)
+        #expect(RelayURLValidator.isAcceptable("wss://relay.example.com"))
+        #expect(!RelayURLValidator.isInsecure("wss://relay.example.com"))
+    }
+
+    @Test func relayValidatorRejectsCleartextWsOnPublicHosts() async throws {
+        #expect(RelayURLValidator.classify("ws://relay.example.com") == .insecureRejected)
+        #expect(RelayURLValidator.classify("ws://192.168.1.10:7777") == .insecureRejected)
+        #expect(RelayURLValidator.classify("ws://10.0.0.1") == .insecureRejected)
+        #expect(!RelayURLValidator.isAcceptable("ws://relay.example.com"))
+        // Rejected relays are not "insecure-but-allowed" — they simply cannot be saved.
+        #expect(!RelayURLValidator.isInsecure("ws://relay.example.com"))
+    }
+
+    @Test func relayValidatorAllowsCleartextWsOnLoopbackForDev() async throws {
+        for url in [
+            "ws://localhost",
+            "ws://localhost:7000",
+            "ws://127.0.0.1",
+            "ws://127.0.0.1:8080/relay",
+            "ws://127.1.2.3",
+            "ws://[::1]:7000"
+        ] {
+            #expect(RelayURLValidator.classify(url) == .insecureLoopback, "expected loopback for \(url)")
+            #expect(RelayURLValidator.isAcceptable(url), "expected acceptable for \(url)")
+            #expect(RelayURLValidator.isInsecure(url), "expected insecure flag for \(url)")
+        }
+    }
+
+    @Test func relayValidatorRejectsNonRelaySchemesAndJunk() async throws {
+        for url in ["", "   ", "https://relay.example.com", "relay.example.com", "wssx://foo", "ws://"] {
+            #expect(!RelayURLValidator.isAcceptable(url), "expected rejection for \(String(reflecting: url))")
+        }
+        // Leading/trailing whitespace is trimmed before classification, so a
+        // surrounded wss:// relay is still accepted as secure.
+        #expect(RelayURLValidator.classify("  wss://relay.example.com  ") == .secure)
+        #expect(RelayURLValidator.isAcceptable(" wss://relay.example.com "))
+    }
+
+    @Test func relayValidatorFlagsAllCleartextWsAsInsecureForUI() async throws {
+        // Loopback dev relays are cleartext.
+        #expect(RelayURLValidator.isCleartext("ws://127.0.0.1:7000"))
+        #expect(RelayURLValidator.isCleartext("ws://localhost"))
+        // Pre-existing public ws:// relays loaded from a saved list are also
+        // cleartext and must be flagged, even though they cannot be saved again.
+        #expect(RelayURLValidator.isCleartext("ws://relay.example.com"))
+        #expect(RelayURLValidator.isCleartext("ws://192.168.1.10:7777"))
+        // wss:// and junk are not cleartext.
+        #expect(!RelayURLValidator.isCleartext("wss://relay.example.com"))
+        #expect(!RelayURLValidator.isCleartext("https://relay.example.com"))
+        #expect(!RelayURLValidator.isCleartext(""))
+    }
+
+    @Test func relayValidatorRejectsSchemeOnlyAndHostlessURLs() async throws {
+        // Regression: a scheme prefix with no host must be malformed, not secure.
+        // Previously `wss://` was accepted as `.secure` purely on its prefix.
+        #expect(RelayURLValidator.classify("wss://") == .invalid)
+        #expect(RelayURLValidator.classify("ws://") == .invalid)
+        #expect(RelayURLValidator.classify("wss://  ") == .invalid)
+        #expect(!RelayURLValidator.isAcceptable("wss://"))
+        #expect(!RelayURLValidator.isInsecure("wss://"))
+        #expect(!RelayURLValidator.isCleartext("wss://"))
+    }
+
+    @Test func relayValidatorRejectsSpoofedLoopbackHosts() async throws {
+        // Hostnames that merely *contain* a loopback token must not be treated as loopback.
+        #expect(RelayURLValidator.classify("ws://127.0.0.1.evil.com") == .insecureRejected)
+        #expect(RelayURLValidator.classify("ws://localhost.evil.com") == .insecureRejected)
+        #expect(RelayURLValidator.classify("ws://notlocalhost") == .insecureRejected)
+        #expect(RelayURLValidator.classify("ws://127.0.0.256") == .insecureRejected)
+    }
+
+    @MainActor
+    @Test func addRelayDraftRejectsCleartextPublicWsRelay() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let before = state.relayDraft
+        state.newRelayURL = "ws://relay.example.com"
+        state.addRelayDraftURL()
+
+        #expect(state.relayDraft == before)
+        #expect(state.lastError != nil)
+    }
+
+    @MainActor
+    @Test func addRelayDraftAcceptsSecureAndLoopbackRelays() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.relayDraft = []
+
+        state.newRelayURL = "wss://relay.example.com"
+        state.addRelayDraftURL()
+        state.newRelayURL = "ws://127.0.0.1:7000"
+        state.addRelayDraftURL()
+
+        #expect(state.relayDraft == ["wss://relay.example.com", "ws://127.0.0.1:7000"])
+        #expect(!state.isInsecureRelay("wss://relay.example.com"))
+        #expect(state.isInsecureRelay("ws://127.0.0.1:7000"))
+    }
+
 }
 
 private actor FakeGroupImageSearchClient: GroupImageSearchClient {
