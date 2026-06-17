@@ -7,6 +7,41 @@ struct LoadedImage: @unchecked Sendable {
     let nsImage: NSImage
 }
 
+/// Privacy/safety policy for remote image URLs.
+///
+/// Profile/avatar `picture` URLs originate from untrusted peer Nostr metadata. Loading them
+/// directly leaks the viewer's IP address and online status to any server the sender chooses
+/// (a tracking-pixel vector) and, for `http://` URLs, exposes the request to network observers.
+/// This policy is the single place that decides whether a remote image URL is allowed to be
+/// fetched at all: it requires `https`, a non-empty host, and a standard web port. The
+/// *decision to load remote images at all* is gated separately behind a user preference
+/// (`WorkspaceState.loadRemoteImages`, default off); this policy is the defense-in-depth check
+/// that runs even once the user has opted in.
+enum RemoteImageURLPolicy {
+    /// Maximum bytes we are willing to download for a single remote image. A malicious URL can
+    /// otherwise serve an arbitrarily large response. 8 MiB is generous for an avatar/preview.
+    static let maxResponseBytes: Int64 = 8 * 1024 * 1024
+
+    /// Returns true if `url` is safe to fetch: `https` scheme with a non-empty host.
+    static func isAllowed(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" else { return false }
+        guard let host = url.host, !host.isEmpty else { return false }
+        return true
+    }
+
+    /// Parses a raw profile string into a fetchable URL, applying the same trimming the UI uses
+    /// and rejecting anything that fails `isAllowed`. Returns nil for empty/invalid/disallowed
+    /// input so callers can fall back to a generated avatar without ever issuing a request.
+    static func sanitizedURL(from raw: String?) -> URL? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              let url = URL(string: trimmed),
+              isAllowed(url)
+        else { return nil }
+        return url
+    }
+}
+
 /// Drop-in replacement for `AsyncImage` that loads a remote image once, downsamples it
 /// to the size it is actually displayed at (off the main thread), and caches the decoded
 /// result. Bare `AsyncImage` re-fetches and decodes the full-resolution image on the main
@@ -60,11 +95,15 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     }()
 
     func image(for url: URL, maxPixelSize: CGFloat) async -> LoadedImage? {
+        // Defense-in-depth: never fetch a URL that fails the policy, even if a caller forgot
+        // to sanitize. This is the network chokepoint for all remote image loads.
+        guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
+
         let key = "\(url.absoluteString)|\(Int(maxPixelSize))" as NSString
         if let cached = cache.object(forKey: key) {
             return LoadedImage(nsImage: cached)
         }
-        guard let (data, _) = try? await session.data(from: url) else { return nil }
+        guard let data = await Self.download(url, using: session) else { return nil }
         let pixelSize = maxPixelSize
         let loaded = await Task.detached(priority: .utility) {
             Self.downsample(data: data, maxPixelSize: pixelSize).map(LoadedImage.init)
@@ -72,6 +111,34 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         guard let loaded else { return nil }
         cache.setObject(loaded.nsImage, forKey: key)
         return loaded
+    }
+
+    /// Streams the response, rejecting non-success HTTP status codes and aborting once the
+    /// body exceeds `RemoteImageURLPolicy.maxResponseBytes` so a malicious server cannot feed
+    /// us an unbounded image.
+    private static func download(_ url: URL, using session: URLSession) async -> Data? {
+        let cap = RemoteImageURLPolicy.maxResponseBytes
+        do {
+            let (bytes, response) = try await session.bytes(from: url)
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                return nil
+            }
+            // Honour an advertised oversized Content-Length up front when present.
+            if response.expectedContentLength > 0, response.expectedContentLength > cap {
+                return nil
+            }
+            var data = Data()
+            if response.expectedContentLength > 0 {
+                data.reserveCapacity(Int(min(response.expectedContentLength, cap)))
+            }
+            for try await byte in bytes {
+                data.append(byte)
+                if Int64(data.count) > cap { return nil }
+            }
+            return data
+        } catch {
+            return nil
+        }
     }
 
     private static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {

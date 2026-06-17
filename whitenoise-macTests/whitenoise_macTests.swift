@@ -3050,6 +3050,54 @@ struct whitenoise_macTests {
         #expect(state.streamingDebugEnabled)
     }
 
+    @Test func remoteImagePolicyAllowsOnlyHttpsWithHost() async throws {
+        // Allowed: https with a real host.
+        #expect(RemoteImageURLPolicy.isAllowed(URL(string: "https://example.com/avatar.png")!))
+        #expect(RemoteImageURLPolicy.isAllowed(URL(string: "HTTPS://Example.com/a.jpg")!))
+
+        // Rejected: cleartext http (network observers can see the request).
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "http://example.com/avatar.png")!))
+        // Rejected: non-web schemes that could exfiltrate or hit local resources.
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "file:///etc/passwd")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "data:image/png;base64,AAAA")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "ftp://example.com/a.png")!))
+        // Rejected: https without a host.
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https:///nohost")!))
+    }
+
+    @Test func remoteImageSanitizedURLRejectsUntrustedInput() async throws {
+        // nil / empty / whitespace-only -> nil (no request issued).
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: nil) == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "   \n ") == nil)
+
+        // Disallowed schemes -> nil.
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "http://tracker.example/pixel.gif") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "javascript:alert(1)") == nil)
+
+        // Allowed https with surrounding whitespace -> trimmed, valid URL.
+        let sanitized = RemoteImageURLPolicy.sanitizedURL(from: "  https://cdn.example/p.png  ")
+        #expect(sanitized?.absoluteString == "https://cdn.example/p.png")
+    }
+
+    @MainActor
+    @Test func loadRemoteImagesDefaultsOffAndPersists() async throws {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: "whitenoise.mac.loadRemoteImages")
+        defer { restoreDefault(previous, forKey: "whitenoise.mac.loadRemoteImages") }
+
+        // Privacy-preserving default: off when no preference has been stored.
+        defaults.removeObject(forKey: "whitenoise.mac.loadRemoteImages")
+        let state = WorkspaceState.preview()
+        #expect(!state.loadRemoteImages)
+
+        // Opting in persists to UserDefaults so a fresh instance honours it.
+        state.loadRemoteImages = true
+        #expect(defaults.bool(forKey: "whitenoise.mac.loadRemoteImages"))
+        let reloaded = WorkspaceState.preview()
+        #expect(reloaded.loadRemoteImages)
+    }
+
     @MainActor
     @Test func messageDebugMetadataSummarizesTimelineKindAndId() async throws {
         let message = MessageItem(
