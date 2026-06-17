@@ -280,21 +280,11 @@ extension MessageItem {
     }
 
     private static func displayName(for sender: String, profile: ChatPeerProfile?) -> String {
-        for value in [profile?.displayName] {
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return DisplayText.short(sender)
+        firstNonBlank([profile?.displayName]) ?? DisplayText.short(sender)
     }
 
     private static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {
         tags.first { $0.values.first == name }?.values.dropFirst().first
-    }
-
-    private static func firstNonBlank(_ values: [String?]) -> String? {
-        values
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
     }
 
     private static func humanized(_ value: String) -> String {

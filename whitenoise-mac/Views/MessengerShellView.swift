@@ -2549,11 +2549,11 @@ private struct ProfileSettingsView: View {
     }
 
     private func profilePreviewName(fallback account: AccountItem) -> String {
-        for value in [workspace.profileDraft.displayName, workspace.profileDraft.name, account.displayName] {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return account.displayName
+        firstNonBlank([
+            workspace.profileDraft.displayName,
+            workspace.profileDraft.name,
+            account.displayName
+        ]) ?? account.displayName
     }
 }
 
