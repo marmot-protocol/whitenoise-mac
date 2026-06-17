@@ -324,8 +324,9 @@ final class WorkspaceState {
     /// The live timeline subscription for the open conversation. It owns the
     /// authoritative, bounded, materialized window; scroll-back/forward pagination and
     /// live updates all flow through it (`paginateBackwards` / `paginateForwards` / `next`).
-    /// Kept alive for pagination independent of the listener task (which may finish if the
-    /// live stream ends), and cleared only when the conversation is torn down.
+    /// Kept alive for pagination independent of the listener task. The listener replaces
+    /// it after a recoverable stream end/reconnect, and it is cleared only when the
+    /// conversation is torn down.
     private var activeTimelineSubscription: TimelineMessagesSubscription?
     private var activeTimelineGroupId: String?
     private var messageLookupByChat: [String: [String: MessageItem]] = [:]
@@ -365,6 +366,21 @@ final class WorkspaceState {
     private static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
     private static let deliveredNotificationKeyLimit = 256
     private static let timelinePageLimit: UInt32 = 100
+    /// Reconnect immediately once when a subscription stream ends, then use a capped
+    /// backoff if a broken stream keeps ending during startup. This avoids silent
+    /// listener death without tight-looping on an already-closed runtime channel.
+    private static let listenerReconnectDelaysNanoseconds: [UInt64] = [
+        0,
+        1_000_000_000,
+        2_000_000_000,
+        5_000_000_000,
+        10_000_000_000,
+    ]
+
+    private static func listenerReconnectDelayNanoseconds(forAttempt attempt: Int) -> UInt64 {
+        let index = min(max(attempt, 0), listenerReconnectDelaysNanoseconds.count - 1)
+        return listenerReconnectDelaysNanoseconds[index]
+    }
 
     /// Dedicated queue for blocking MarmotRuntime FFI calls. The Rust core runs
     /// synchronously (DB reads, MLS decryption); WorkspaceState is `@MainActor`, so
@@ -2200,6 +2216,15 @@ final class WorkspaceState {
         backgroundStatus = nil
     }
 
+    private func waitBeforeListenerReconnect(attempt: Int) async throws {
+        let delay = Self.listenerReconnectDelayNanoseconds(forAttempt: attempt)
+        guard delay > 0 else {
+            await Task.yield()
+            return
+        }
+        try await Task.sleep(nanoseconds: delay)
+    }
+
     private func configureObservabilityRuntime() async throws {
         guard let client else {
             observabilityRuntimeConfiguration = nil
@@ -2421,20 +2446,33 @@ final class WorkspaceState {
 
     private func runNotificationListener() async {
         guard let client else { return }
+        var reconnectAttempt = 0
 
-        do {
-            let subscription = try await client.subscribeNotifications()
-            while !Task.isCancelled {
-                guard let update = await subscription.next() else { break }
-                await handleNotificationUpdate(update)
+        while !Task.isCancelled {
+            do {
+                let subscription = try await client.subscribeNotifications()
+                while !Task.isCancelled {
+                    guard let update = await subscription.next() else { break }
+                    reconnectAttempt = 0
+                    await handleNotificationUpdate(update)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                setBackgroundStatus(error.localizedDescription)
             }
-        } catch is CancellationError {
-            return
-        } catch {
-            setBackgroundStatus(error.localizedDescription)
+
+            guard !Task.isCancelled else { break }
+            do {
+                try await waitBeforeListenerReconnect(attempt: reconnectAttempt)
+            } catch is CancellationError {
+                return
+            } catch {
+                setBackgroundStatus(error.localizedDescription)
+            }
+            reconnectAttempt += 1
         }
 
-        notificationTask = nil
     }
 
     private func startChatListListener(
@@ -2467,30 +2505,49 @@ final class WorkspaceState {
         existingSubscription: ChatListSubscription? = nil
     ) async {
         guard let client else { return }
+        var reconnectAttempt = 0
+        var pendingSubscription = existingSubscription
 
-        do {
-            let subscription: ChatListSubscription
-            if let existingSubscription {
-                subscription = existingSubscription
-            } else {
-                subscription = try await client.subscribeChatList(
-                    accountRef: account.accountRef,
-                    includeArchived: false
-                )
-                await applyChatRows(subscription.snapshot(), account: account)
+        while !Task.isCancelled, activeAccountId == account.id {
+            do {
+                let subscription: ChatListSubscription
+                if let existing = pendingSubscription {
+                    subscription = existing
+                    pendingSubscription = nil
+                } else {
+                    subscription = try await client.subscribeChatList(
+                        accountRef: account.accountRef,
+                        includeArchived: false
+                    )
+                    guard activeAccountId == account.id, !Task.isCancelled else { break }
+                    await applyChatRows(subscription.snapshot(), account: account)
+                }
+
+                while !Task.isCancelled, activeAccountId == account.id {
+                    guard let update = await subscription.nextUpdate() else { break }
+                    guard !Task.isCancelled, activeAccountId == account.id else { break }
+                    reconnectAttempt = 0
+                    await applyChatListSubscriptionUpdate(update, account: account)
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if activeAccountId == account.id {
+                    setBackgroundStatus(error.localizedDescription)
+                }
             }
 
-            while !Task.isCancelled {
-                guard let update = await subscription.nextUpdate() else { break }
-                guard !Task.isCancelled else { break }
-                await applyChatListSubscriptionUpdate(update, account: account)
+            guard !Task.isCancelled, activeAccountId == account.id else { break }
+            do {
+                try await waitBeforeListenerReconnect(attempt: reconnectAttempt)
+            } catch is CancellationError {
+                return
+            } catch {
+                if activeAccountId == account.id {
+                    setBackgroundStatus(error.localizedDescription)
+                }
             }
-        } catch is CancellationError {
-            return
-        } catch {
-            if activeAccountId == account.id {
-                setBackgroundStatus(error.localizedDescription)
-            }
+            reconnectAttempt += 1
         }
 
         if chatListTaskAccountId == account.id && !Task.isCancelled {
@@ -2531,37 +2588,79 @@ final class WorkspaceState {
         existingSubscription: TimelineMessagesSubscription? = nil
     ) async {
         guard let client else { return }
+        var reconnectAttempt = 0
+        var pendingSubscription = existingSubscription
 
-        do {
-            let subscription: TimelineMessagesSubscription
-            if let existingSubscription {
-                subscription = existingSubscription
-            } else {
-                subscription = try await client.subscribeTimelineMessages(
-                    accountRef: account.accountRef,
-                    groupIdHex: groupIdHex,
-                    limit: Self.timelinePageLimit
-                )
+        while !Task.isCancelled,
+              activeAccountId == account.id,
+              selectedChat?.id == groupIdHex {
+            do {
+                let subscription: TimelineMessagesSubscription
+                if let existing = pendingSubscription {
+                    subscription = existing
+                    pendingSubscription = nil
+                } else {
+                    subscription = try await client.subscribeTimelineMessages(
+                        accountRef: account.accountRef,
+                        groupIdHex: groupIdHex,
+                        limit: Self.timelinePageLimit
+                    )
+                    guard activeAccountId == account.id,
+                          selectedChat?.id == groupIdHex,
+                          !Task.isCancelled
+                    else { break }
+                    activeTimelineSubscription = subscription
+                    activeTimelineGroupId = groupIdHex
+                    if let page = subscription.snapshot() {
+                        await applyTimelineWindow(
+                            page,
+                            groupIdHex: groupIdHex,
+                            account: account,
+                            client: client
+                        )
+                    }
+                }
+                // `next()` blocks for the next live change and returns the resulting
+                // authoritative window (ordering, dedup, head-anchoring while scrolled back,
+                // and the cap are all owned by the runtime), so we render it directly.
+                while !Task.isCancelled,
+                      activeAccountId == account.id,
+                      selectedChat?.id == groupIdHex {
+                    guard let page = await subscription.next() else { break }
+                    guard !Task.isCancelled,
+                          activeAccountId == account.id,
+                          selectedChat?.id == groupIdHex
+                    else { break }
+                    reconnectAttempt = 0
+                    await applyTimelineWindow(
+                        page,
+                        groupIdHex: groupIdHex,
+                        account: account,
+                        client: client
+                    )
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                if activeAccountId == account.id, selectedChat?.id == groupIdHex {
+                    setBackgroundStatus(error.localizedDescription)
+                }
             }
-            // `next()` blocks for the next live change and returns the resulting
-            // authoritative window (ordering, dedup, head-anchoring while scrolled back,
-            // and the cap are all owned by the runtime), so we render it directly.
-            while !Task.isCancelled {
-                guard let page = await subscription.next() else { break }
-                guard !Task.isCancelled else { break }
-                await applyTimelineWindow(
-                    page,
-                    groupIdHex: groupIdHex,
-                    account: account,
-                    client: client
-                )
+
+            guard !Task.isCancelled,
+                  activeAccountId == account.id,
+                  selectedChat?.id == groupIdHex
+            else { break }
+            do {
+                try await waitBeforeListenerReconnect(attempt: reconnectAttempt)
+            } catch is CancellationError {
+                return
+            } catch {
+                if activeAccountId == account.id, selectedChat?.id == groupIdHex {
+                    setBackgroundStatus(error.localizedDescription)
+                }
             }
-        } catch is CancellationError {
-            return
-        } catch {
-            if activeAccountId == account.id, selectedChat?.id == groupIdHex {
-                setBackgroundStatus(error.localizedDescription)
-            }
+            reconnectAttempt += 1
         }
 
         if timelineTaskGroupId == groupIdHex && !Task.isCancelled {
