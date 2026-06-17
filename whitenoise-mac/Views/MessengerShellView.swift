@@ -903,8 +903,14 @@ private struct NewChatColumnView: View {
                             .onSubmit {
                                 Task { await workspace.resolveNewChatQuery() }
                             }
-                            .onChange(of: workspace.newChatQuery) { _, _ in
-                                Task { await workspace.resolveNewChatQueryIfReady() }
+                            .task(id: workspace.newChatQuery) {
+                                // Debounce keystrokes and let `.task(id:)` cancel the
+                                // pending lookup when the query changes again, so a
+                                // flurry of edits no longer spawns overlapping,
+                                // untracked tasks that race to write composer state.
+                                try? await Task.sleep(nanoseconds: 250_000_000)
+                                guard !Task.isCancelled else { return }
+                                await workspace.resolveNewChatQueryIfReady()
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 9)
