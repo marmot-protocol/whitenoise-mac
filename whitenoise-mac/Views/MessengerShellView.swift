@@ -1019,18 +1019,19 @@ private struct NewChatRecipientCard: View {
 }
 
 private struct ProfileImageAvatarView: View {
+    @Environment(WorkspaceState.self) private var workspace
     let seed: String
     let initials: String
     let pictureURL: String?
     let size: CGFloat
     let isSelected: Bool
 
+    /// Only returns a fetchable URL when the user has opted into loading remote images AND the
+    /// URL passes the safety policy (https + valid host). Otherwise nil, so a generated avatar
+    /// is shown and no outbound request is made to a sender-chosen server.
     private var imageURL: URL? {
-        guard let pictureURL = pictureURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !pictureURL.isEmpty
-        else { return nil }
-
-        return URL(string: pictureURL)
+        guard workspace.loadRemoteImages else { return nil }
+        return RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
     }
 
     var body: some View {
@@ -2694,6 +2695,19 @@ private struct PrivacySecuritySettingsView: View {
             title: "Privacy & Security",
             subtitle: "Telemetry and audit logs stay off until you enable them."
         ) {
+            Section("Remote Content") {
+                Toggle(isOn: Binding(
+                    get: { workspace.loadRemoteImages },
+                    set: { workspace.loadRemoteImages = $0 }
+                )) {
+                    Label("Load Remote Profile Images", systemImage: "person.crop.circle.badge.exclamationmark")
+                }
+
+                Text("Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Data Sharing") {
                 Toggle(isOn: Binding(
                     get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
