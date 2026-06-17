@@ -553,13 +553,7 @@ final class WorkspaceState {
             try await bringRuntimeOnline(runtime)
             accounts = try runtime.listAccounts().map { accountItem(from: $0) }
             restoreOrSelectFirstAccount()
-            try await configureObservabilityRuntime()
-            phase = .ready
-            await refreshNotificationAuthorizationStatus()
-            loadNotificationSettings()
-            await loadPrivacySecuritySettings()
-            await reloadChats()
-            startNotificationListener()
+            try await activateReadyState()
         } catch {
             phase = .failed(error.localizedDescription)
             lastError = error.localizedDescription
@@ -567,6 +561,17 @@ final class WorkspaceState {
     }
 
     func selectAccount(_ account: AccountItem) {
+        switchActiveAccount(
+            account,
+            finalSelection: chatsByAccount[account.id]?.first.map { WorkspaceSelection.chat($0.id) }
+        )
+    }
+
+    func selectAccountFromSettings(_ account: AccountItem) {
+        switchActiveAccount(account, finalSelection: .settings(.accounts))
+    }
+
+    private func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
         stopTimelineListener()
         clearEnteredLoginIdentity()
         activeAccountId = account.id
@@ -575,10 +580,9 @@ final class WorkspaceState {
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
         refreshObservabilityRuntime()
-        let chatToLoad = activeChats.first
-        selection = chatToLoad.map { .chat($0.id) }
-        if let chatToLoad {
-            beginTimelineInitialLoadIfNeeded(groupIdHex: chatToLoad.id)
+        selection = finalSelection
+        if case let .chat(chatId)? = finalSelection {
+            beginTimelineInitialLoadIfNeeded(groupIdHex: chatId)
         }
         Task {
             await reloadChats()
@@ -588,19 +592,14 @@ final class WorkspaceState {
         }
     }
 
-    func selectAccountFromSettings(_ account: AccountItem) {
-        stopTimelineListener()
-        clearEnteredLoginIdentity()
-        activeAccountId = account.id
-        UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
-        searchText = ""
-        closeNewChatComposer()
-        pruneMessageCache(keeping: nil)
-        refreshObservabilityRuntime()
-        selection = .settings(.accounts)
-        Task {
-            await reloadChats()
-        }
+    private func activateReadyState() async throws {
+        phase = .ready
+        try await configureObservabilityRuntime()
+        await refreshNotificationAuthorizationStatus()
+        loadNotificationSettings()
+        await loadPrivacySecuritySettings()
+        await reloadChats()
+        startNotificationListener()
     }
 
     func selectChat(_ chat: ChatItem) {
@@ -671,13 +670,7 @@ final class WorkspaceState {
             try await bringRuntimeOnline(client)
             try refreshAccounts(preferred: summary)
             authenticationMode = .landing
-            phase = .ready
-            try await configureObservabilityRuntime()
-            await refreshNotificationAuthorizationStatus()
-            loadNotificationSettings()
-            await loadPrivacySecuritySettings()
-            await reloadChats()
-            startNotificationListener()
+            try await activateReadyState()
         } catch {
             lastError = error.localizedDescription
         }
@@ -707,13 +700,7 @@ final class WorkspaceState {
             try await bringRuntimeOnline(client)
             try refreshAccounts(preferred: summary)
             authenticationMode = .landing
-            phase = .ready
-            try await configureObservabilityRuntime()
-            await refreshNotificationAuthorizationStatus()
-            loadNotificationSettings()
-            await loadPrivacySecuritySettings()
-            await reloadChats()
-            startNotificationListener()
+            try await activateReadyState()
         } catch {
             lastError = error.localizedDescription
         }
