@@ -271,7 +271,6 @@ final class WorkspaceState {
     private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     private let groupImageSearchClient: any GroupImageSearchClient
     private var client: (any MarmotRuntime)?
-    private var hasStartedRuntime = false
     private var notificationTask: Task<Void, Never>?
     private var chatListTask: Task<Void, Never>?
     private var chatListTaskAccountId: String?
@@ -537,7 +536,7 @@ final class WorkspaceState {
                 return
             }
 
-            try await startRuntimeIfNeeded(runtime)
+            try await bringRuntimeOnline(runtime)
             accounts = try runtime.listAccounts().map { accountItem(from: $0) }
             restoreOrSelectFirstAccount()
             try await configureObservabilityRuntime()
@@ -655,7 +654,7 @@ final class WorkspaceState {
                 bootstrapRelays: MarmotClient.seedRelays
             )
             try refreshAccounts(preferred: summary)
-            try await startRuntimeIfNeeded(client)
+            try await bringRuntimeOnline(client)
             try refreshAccounts(preferred: summary)
             authenticationMode = .landing
             phase = .ready
@@ -691,7 +690,7 @@ final class WorkspaceState {
                 bootstrapRelays: MarmotClient.seedRelays
             )
             try refreshAccounts(preferred: summary)
-            try await startRuntimeIfNeeded(client)
+            try await bringRuntimeOnline(client)
             try refreshAccounts(preferred: summary)
             authenticationMode = .landing
             phase = .ready
@@ -799,7 +798,6 @@ final class WorkspaceState {
 
             try await client.deleteAllLocalData()
             self.client = nil
-            hasStartedRuntime = false
             resetToNewInstallState(storageRootPath: client.storageRootPath)
 
             let runtime = try clientFactory()
@@ -1936,10 +1934,18 @@ final class WorkspaceState {
         selection = nil
     }
 
-    private func startRuntimeIfNeeded(_ runtime: any MarmotRuntime) async throws {
-        guard !hasStartedRuntime else { return }
+    /// Brings the Marmot runtime online so newly added accounts start their
+    /// workers and subscribe to transport events. `start()` is idempotent —
+    /// it reconciles all known accounts (spawning a worker for any that lacks
+    /// a live one) and rebuilds the user-directory subscriptions, and only
+    /// fails when the runtime is shutting down. It must therefore be re-invoked
+    /// after every `login()` / `signUp()`, not just once per launch: the
+    /// Settings → Add Account flow adds a 2nd+ account while the runtime is
+    /// already running, and that account stays offline (no live relay sync /
+    /// notifications) until relaunch unless the runtime is brought online
+    /// again. See issues #31 and #74.
+    private func bringRuntimeOnline(_ runtime: any MarmotRuntime) async throws {
         try await runtime.start()
-        hasStartedRuntime = true
     }
 
     private func resetToNewInstallState(storageRootPath: String) {
