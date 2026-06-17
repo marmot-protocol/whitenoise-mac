@@ -701,6 +701,52 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func timelineMappingPreservesRuntimeWindowOrder() async throws {
+        // Regression for #7: the runtime page already carries the authoritative
+        // timeline order, including any hidden same-second tie-break from storage.
+        // The client mapper must not re-sort the page by second-granular
+        // `timelineAt`, or subscription refreshes can reshuffle colliding rows.
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "runtime-third",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "storage order 3",
+                    recordedAt: 1_700_000_001
+                ),
+                timelineMessage(
+                    id: "runtime-first",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "storage order 1",
+                    recordedAt: 1_700_000_000
+                ),
+                timelineMessage(
+                    id: "runtime-second",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "storage order 2",
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: "self"
+        )
+
+        #expect(messages.map(\.id) == [
+            "runtime-third",
+            "runtime-first",
+            "runtime-second"
+        ])
+    }
+
+    @MainActor
     @Test func chatListPreviewUsesSystemMessageText() async throws {
         let row = chatListRow(
             groupIdHex: "group",
