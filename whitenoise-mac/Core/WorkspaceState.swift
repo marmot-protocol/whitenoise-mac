@@ -103,6 +103,13 @@ final class WorkspaceState {
         let chatId: String
     }
 
+    private struct ObservabilityRuntimeConfiguration: Equatable {
+        let buildConfig: TelemetryBuildConfig
+        let accountLabel: String?
+        let relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi
+        let auditLogTrackerConfig: AuditLogTrackerConfigFfi
+    }
+
     private(set) var phase: Phase = .bootstrapping
     private(set) var accounts: [AccountItem]
     private(set) var chatsByAccount: [String: [ChatItem]]
@@ -281,6 +288,7 @@ final class WorkspaceState {
     private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     private let groupImageSearchClient: any GroupImageSearchClient
     private var client: (any MarmotRuntime)?
+    private var observabilityRuntimeConfiguration: ObservabilityRuntimeConfiguration?
     private var notificationTask: Task<Void, Never>?
     private var chatListTask: Task<Void, Never>?
     private var chatListTaskAccountId: String?
@@ -815,6 +823,7 @@ final class WorkspaceState {
 
             try await client.deleteAllLocalData()
             self.client = nil
+            observabilityRuntimeConfiguration = nil
             resetToNewInstallState(storageRootPath: client.storageRootPath)
 
             let runtime = try clientFactory()
@@ -2049,6 +2058,7 @@ final class WorkspaceState {
         messagesByChat = [:]
         messageLookupByChat = [:]
         messageIDsByChat = [:]
+        observabilityRuntimeConfiguration = nil
         activeAccountId = nil
         selection = nil
         searchText = ""
@@ -2147,13 +2157,42 @@ final class WorkspaceState {
     }
 
     private func configureObservabilityRuntime() async throws {
-        guard let client else { return }
+        guard let client else {
+            observabilityRuntimeConfiguration = nil
+            return
+        }
+
         let config = telemetryBuildConfig
-        try await client.setRelayTelemetryRuntimeConfig(
-            config: config.runtimeConfig(installId: try client.telemetryInstallId())
-        )
-        _ = try client.setAuditLogTrackerConfig(
-            config: config.auditTrackerConfig(accountLabel: activeAccount?.displayName)
+        let accountLabel = activeAccount?.displayName
+        if let cached = observabilityRuntimeConfiguration,
+           cached.buildConfig == config,
+           cached.accountLabel == accountLabel {
+            privacySecuritySettings.telemetryCredentialsAvailable = config.telemetryCredentialsAvailable
+            privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable
+            return
+        }
+
+        let relayRuntimeConfig: RelayTelemetryRuntimeConfigFfi
+        if let cached = observabilityRuntimeConfiguration,
+           cached.buildConfig == config {
+            relayRuntimeConfig = cached.relayTelemetryRuntimeConfig
+        } else {
+            relayRuntimeConfig = config.runtimeConfig(installId: try client.telemetryInstallId())
+        }
+        let auditTrackerConfig = config.auditTrackerConfig(accountLabel: accountLabel)
+
+        if observabilityRuntimeConfiguration?.relayTelemetryRuntimeConfig != relayRuntimeConfig {
+            try await client.setRelayTelemetryRuntimeConfig(config: relayRuntimeConfig)
+        }
+        if observabilityRuntimeConfiguration?.auditLogTrackerConfig != auditTrackerConfig {
+            _ = try client.setAuditLogTrackerConfig(config: auditTrackerConfig)
+        }
+
+        observabilityRuntimeConfiguration = ObservabilityRuntimeConfiguration(
+            buildConfig: config,
+            accountLabel: accountLabel,
+            relayTelemetryRuntimeConfig: relayRuntimeConfig,
+            auditLogTrackerConfig: auditTrackerConfig
         )
         privacySecuritySettings.telemetryCredentialsAvailable = config.telemetryCredentialsAvailable
         privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable

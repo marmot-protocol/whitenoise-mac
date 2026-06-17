@@ -3803,6 +3803,77 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func observabilityRuntimeConfigurationSkipsUnchangedRequests() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
+
+        let primary = AccountSummaryFfi(
+            label: "primary-account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "secondary-account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.installProfile(
+            accountIdHex: primary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "primary",
+                displayName: "Primary Account",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: secondary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "secondary",
+                displayName: "Secondary Account",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(
+                    telemetryToken: "otlp-token",
+                    auditToken: "audit-token",
+                    environment: "production"
+                )
+            },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        #expect(runtime.telemetryInstallIdCallCount == 1)
+        #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
+        #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
+        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Primary Account")
+
+        let secondaryItem = try #require(state.accounts.first { $0.accountRef == secondary.label })
+        state.selectAccount(secondaryItem)
+        let didRefreshAccountLabel = await waitFor {
+            runtime.auditLogTrackerConfig?.source.accountLabel == "Secondary Account"
+        }
+
+        #expect(didRefreshAccountLabel)
+        #expect(runtime.telemetryInstallIdCallCount == 1)
+        #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
+        #expect(runtime.auditLogTrackerConfigSetCallCount == 2)
+    }
+
+    @MainActor
     @Test func enablingPrivacySecurityTogglesRequireConfiguredTokens() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -4723,9 +4794,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     )
     private(set) var localNotificationsEnabledSet: Bool?
     private(set) var auditLogTrackerConfig: AuditLogTrackerConfigFfi?
+    private(set) var auditLogTrackerConfigSetCallCount = 0
     private(set) var deletedAuditLogFilePaths: [String] = []
     private(set) var didPostAuditLogTrackerUpdate = false
     private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
+    private(set) var relayTelemetryRuntimeConfigSetCallCount = 0
+    private(set) var telemetryInstallIdCallCount = 0
     private(set) var removedAccountRefs: [String] = []
     private(set) var didDeleteAllLocalData = false
     /// Optional hook fired inside `removeAccount` after the ref is recorded but before the
@@ -4970,6 +5044,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi {
+        auditLogTrackerConfigSetCallCount += 1
         auditLogTrackerConfig = config
         return config
     }
@@ -4981,6 +5056,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws {
+        relayTelemetryRuntimeConfigSetCallCount += 1
         relayTelemetryRuntimeConfig = config
     }
 
@@ -4990,7 +5066,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func telemetryInstallId() throws -> String {
-        "test-install-id"
+        telemetryInstallIdCallCount += 1
+        return "test-install-id"
     }
 
     func deleteAllLocalData() async throws {
