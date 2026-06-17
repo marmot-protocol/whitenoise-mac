@@ -3070,14 +3070,6 @@ final class WorkspaceState {
         return trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit)
     }
 
-    private func firstNonBlank(_ values: [String?]) -> String? {
-        for value in values {
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return nil
-    }
-
     private var isShowingSettings: Bool {
         if case .settings = selection { return true }
         return false
@@ -3401,11 +3393,7 @@ private extension ProfileDraft {
     }
 
     func primaryDisplayName(fallback: String) -> String {
-        for value in [displayName, name, fallback] {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        return fallback
+        firstNonBlank([displayName, name, fallback]) ?? fallback
     }
 }
 
@@ -3438,12 +3426,5 @@ private extension KeyPackageItem {
             isLocal: package.local,
             isRelayDiscovered: package.relay
         )
-    }
-}
-
-private extension String {
-    var nilIfBlank: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
