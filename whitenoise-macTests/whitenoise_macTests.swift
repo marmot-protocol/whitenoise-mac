@@ -2971,6 +2971,31 @@ struct whitenoise_macTests {
         #expect(!state.isGroupImagePickerPresented)
     }
 
+    @Test func conversationHeaderChatInfoButtonOpensGroupDetailsSheet() throws {
+        // The header is a private SwiftUI view, so this source-shape regression
+        // guards the user-facing toolbar affordance directly: the info button
+        // must remain wired to the group details sheet instead of an empty action.
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let projectRootURL = testFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let messengerShellURL = projectRootURL
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessengerShellView.swift")
+        let source = try String(contentsOf: messengerShellURL, encoding: .utf8)
+        let headerStart = try #require(source.range(of: "private struct ConversationHeader: View {"))
+        let headerEnd = try #require(source.range(of: "private struct GroupDetailsSheet: View {"))
+        let headerSource = String(source[headerStart.lowerBound..<headerEnd.lowerBound])
+
+        #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
+        #expect(headerSource.contains("Image(systemName: \"info.circle\")"))
+        #expect(headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
+        #expect(headerSource.contains("GroupDetailsSheet(chat: chat)"))
+        #expect(!headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle"))
+        #expect(!headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle.fill"))
+    }
+
     @MainActor
     @Test func groupDetailsProfileSaveAndInviteUseBindings() async throws {
         let account = desktopAccount()
