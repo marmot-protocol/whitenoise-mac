@@ -170,6 +170,80 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removeNonActiveAccountLeavesActiveSessionUntouched() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        await state.removeAccount(backupAccount)
+
+        #expect(runtime.removedAccountRefs == ["Backup Account"])
+        #expect(state.accounts.map(\.id) == ["Desktop Account"])
+        // Removing a background identity must not switch the active account.
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(state.chatsByAccount["Backup Account"] == nil)
+    }
+
+    @MainActor
+    @Test func removingBackgroundAccountSelectedMidFlightRecoversActiveAccount() async throws {
+        // Regression for the account-switch/remove race: if the user selects the
+        // background account that is currently being removed while removal is in flight,
+        // `activeAccountId` transiently points at the soon-to-be-removed id. The pre-await
+        // `wasActive` snapshot is false, so naive code would skip recovery and leave
+        // `activeAccountId`/UserDefaults dangling at a deleted account. Removal must
+        // recompute against post-await state and reselect a surviving account.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+
+        // Simulate the racing UI selection of the account being removed, mid-await.
+        runtime.onRemoveAccountMidFlight = { _ in
+            await MainActor.run {
+                state.selectAccountFromSettings(backupAccount)
+            }
+        }
+
+        await state.removeAccount(backupAccount)
+
+        #expect(runtime.removedAccountRefs == ["Backup Account"])
+        #expect(state.accounts.map(\.id) == ["Desktop Account"])
+        // The active account must never point at the removed identity; recovery must
+        // reselect the surviving account.
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(UserDefaults.standard.string(forKey: "whitenoise.mac.activeAccountId") == "Desktop Account")
+        #expect(state.chatsByAccount["Backup Account"] == nil)
+    }
+
+    @MainActor
     @Test func deleteAllDataResetsToNewInstallState() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
@@ -4315,6 +4389,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
     private(set) var removedAccountRefs: [String] = []
     private(set) var didDeleteAllLocalData = false
+    /// Optional hook fired inside `removeAccount` after the ref is recorded but before the
+    /// account is actually dropped, used to simulate a racing UI action (e.g. the user
+    /// selecting the account currently being removed) mid-await.
+    var onRemoveAccountMidFlight: (@Sendable (String) async -> Void)?
 
     init(accounts: [AccountSummaryFfi], createdAccount: AccountSummaryFfi? = nil) {
         self.storedAccounts = accounts
@@ -4574,6 +4652,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func removeAccount(accountRef: String) async throws {
         removedAccountRefs.append(accountRef)
+        if let onRemoveAccountMidFlight {
+            await onRemoveAccountMidFlight(accountRef)
+        }
         storedAccounts.removeAll { $0.label == accountRef }
     }
 

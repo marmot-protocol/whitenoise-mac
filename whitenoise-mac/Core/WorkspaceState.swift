@@ -707,29 +707,57 @@ final class WorkspaceState {
     }
 
     func removeActiveAccount() async {
-        guard let client, let activeAccount, !isRemovingAccount else { return }
+        guard let activeAccount else { return }
+        await removeAccount(activeAccount)
+    }
+
+    /// Removes a single identity (any account, not just the active one) from this Mac.
+    /// Deletes the account's private key and local Marmot/MLS state via the runtime, then
+    /// updates `accounts`/`chatsByAccount`. When the removed account is the active one, the
+    /// in-memory message/profile caches are cleared and a remaining account is reselected
+    /// (or the app returns to onboarding when none remain).
+    func removeAccount(_ account: AccountItem) async {
+        guard let client, !isRemovingAccount else { return }
 
         lastError = nil
         isRemovingAccount = true
         defer { isRemovingAccount = false }
 
-        let removedAccountId = activeAccount.id
+        let removedAccountId = account.id
+        let wasActive = activeAccountId == removedAccountId
         do {
-            stopTimelineListener()
-            stopChatListListener()
-            try await client.removeAccount(accountRef: activeAccount.accountRef)
+            if wasActive {
+                stopTimelineListener()
+                stopChatListListener()
+            }
+            try await client.removeAccount(accountRef: account.accountRef)
             clearComposerDrafts(forAccountId: removedAccountId)
             accounts = try client.listAccounts().map { accountItem(from: $0) }
             chatsByAccount[removedAccountId] = nil
-            messagesByChat.removeAll()
-            messageLookupByChat.removeAll()
-            messageIDsByChat.removeAll()
-            peerProfileFFICache.removeAll()
-            timelinePagingByChat.removeAll()
-            profileDraft = ProfileDraft()
-            keyPackages = []
-            auditLogFiles = []
-            auditLogUploadStatus = nil
+
+            // `activeAccountId` may have changed during the await above — e.g. the user
+            // selected an account from settings while this removal was in flight. Decide
+            // recovery from the post-await state, not the pre-await `wasActive` snapshot,
+            // so we never leave `activeAccountId`/UserDefaults pointing at a removed
+            // account. `needsActiveReset` is true if the removed account was driving the
+            // UI, or if the (possibly newly-selected) active account no longer exists.
+            let activeAccountInvalid = activeAccountId == nil
+                || !accounts.contains(where: { $0.id == activeAccountId })
+            let needsActiveReset = wasActive || activeAccountInvalid
+
+            if needsActiveReset {
+                stopTimelineListener()
+                stopChatListListener()
+                messagesByChat.removeAll()
+                messageLookupByChat.removeAll()
+                messageIDsByChat.removeAll()
+                peerProfileFFICache.removeAll()
+                timelinePagingByChat.removeAll()
+                profileDraft = ProfileDraft()
+                keyPackages = []
+                auditLogFiles = []
+                auditLogUploadStatus = nil
+            }
 
             if accounts.isEmpty {
                 activeAccountId = nil
@@ -741,11 +769,17 @@ final class WorkspaceState {
                 return
             }
 
-            restoreOrSelectFirstAccount()
-            selection = .settings(.accounts)
-            try await configureObservabilityRuntime()
-            await loadSettingsData()
-            await reloadChats()
+            // Reselecting and reloading is only required when the account currently
+            // driving the UI was removed (directly, or via a racing selection of the
+            // soon-to-be-removed account). Removing a background identity that leaves a
+            // still-valid active account untouched needs no reselection.
+            if needsActiveReset {
+                restoreOrSelectFirstAccount()
+                selection = .settings(.accounts)
+                try await configureObservabilityRuntime()
+                await loadSettingsData()
+                await reloadChats()
+            }
         } catch {
             lastError = error.localizedDescription
         }
