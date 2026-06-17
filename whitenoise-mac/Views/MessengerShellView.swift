@@ -998,9 +998,12 @@ private struct NewChatDetailsForm: View {
 }
 
 private struct NewChatRecipientCard: View {
+    @Environment(WorkspaceState.self) private var workspace
     let recipient: NewChatRecipient
 
     var body: some View {
+        let publicKey = recipient.npub.isEmpty ? recipient.accountIdHex : recipient.npub
+
         HStack(spacing: 12) {
             ProfileImageAvatarView(
                 seed: recipient.accountIdHex,
@@ -1014,7 +1017,24 @@ private struct NewChatRecipientCard: View {
                 Text(recipient.title)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)
-                CopyableKeyLabel(accountIdHex: recipient.accountIdHex)
+                HStack(spacing: 6) {
+                    Text(DisplayText.short(publicKey, head: 12, tail: 10))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+
+                    Button {
+                        workspace.copyText(publicKey)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help(L10n.string("Copy npub"))
+                }
             }
 
             Spacer()
