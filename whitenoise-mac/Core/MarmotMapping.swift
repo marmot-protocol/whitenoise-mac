@@ -146,20 +146,21 @@ extension MessageItem {
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile] = [:]
     ) -> [MessageItem] {
-        page.messages
-            .map { record in
-                MessageItem(
-                    record: record,
-                    activeAccountIdHex: activeAccountIdHex,
-                    senderProfiles: senderProfiles,
-                    reactions: MessageReaction.summarize(record.reactions, activeAccountIdHex: activeAccountIdHex),
-                    replyContext: MessageItem.replyContext(
-                        for: record.replyPreview,
-                        senderProfiles: senderProfiles
-                    )
+        // MarmotKit returns an authoritative timeline window. Keep that order
+        // intact: `timelineAt` is second-granular, and re-sorting in the client
+        // can reshuffle records that the runtime/database already tie-broke.
+        return page.messages.map { record in
+            MessageItem(
+                record: record,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles,
+                reactions: MessageReaction.summarize(record.reactions, activeAccountIdHex: activeAccountIdHex),
+                replyContext: MessageItem.replyContext(
+                    for: record.replyPreview,
+                    senderProfiles: senderProfiles
                 )
-            }
-            .sorted { $0.sentAt < $1.sentAt }
+            )
+        }
     }
 
     fileprivate static func presentation(for kind: UInt64) -> MessagePresentation {
