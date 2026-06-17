@@ -59,16 +59,27 @@ enum RelayURLValidator {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .invalid }
 
-        let lowered = trimmed.lowercased()
-        if lowered.hasPrefix("wss://") {
-            return .secure
-        }
-        guard lowered.hasPrefix("ws://") else {
+        // Parse with URLComponents (rather than a bare prefix check) so a
+        // schemeless or hostless input — e.g. `wss://` with no host — is
+        // treated as malformed instead of being silently accepted as secure.
+        guard
+            let components = URLComponents(string: trimmed),
+            let scheme = components.scheme?.lowercased(),
+            let host = components.host,
+            !host.isEmpty
+        else {
             return .invalid
         }
 
-        // Cleartext ws:// — only acceptable for loopback hosts.
-        return isLoopbackRelay(trimmed) ? .insecureLoopback : .insecureRejected
+        switch scheme {
+        case "wss":
+            return .secure
+        case "ws":
+            // Cleartext ws:// — only acceptable for loopback hosts.
+            return isLoopbackHost(host) ? .insecureLoopback : .insecureRejected
+        default:
+            return .invalid
+        }
     }
 
     /// Whether the relay URL may be saved (secure, or loopback dev relay).
@@ -86,20 +97,6 @@ enum RelayURLValidator {
     /// insecure so pre-existing public `ws://` entries are visibly marked.
     static func isCleartext(_ value: String) -> Bool {
         classify(value).isCleartext
-    }
-
-    /// Extracts the host from a `ws://` URL and checks whether it is a loopback address.
-    private static func isLoopbackRelay(_ value: String) -> Bool {
-        guard let host = host(from: value) else { return false }
-        return isLoopbackHost(host)
-    }
-
-    private static func host(from value: String) -> String? {
-        // URLComponents handles ports, paths, and bracketed IPv6 literals.
-        if let components = URLComponents(string: value), let host = components.host, !host.isEmpty {
-            return host
-        }
-        return nil
     }
 
     private static func isLoopbackHost(_ host: String) -> Bool {

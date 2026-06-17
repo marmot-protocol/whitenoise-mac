@@ -4233,6 +4233,17 @@ struct whitenoise_macTests {
         #expect(!RelayURLValidator.isCleartext(""))
     }
 
+    @Test func relayValidatorRejectsSchemeOnlyAndHostlessURLs() async throws {
+        // Regression: a scheme prefix with no host must be malformed, not secure.
+        // Previously `wss://` was accepted as `.secure` purely on its prefix.
+        #expect(RelayURLValidator.classify("wss://") == .invalid)
+        #expect(RelayURLValidator.classify("ws://") == .invalid)
+        #expect(RelayURLValidator.classify("wss://  ") == .invalid)
+        #expect(!RelayURLValidator.isAcceptable("wss://"))
+        #expect(!RelayURLValidator.isInsecure("wss://"))
+        #expect(!RelayURLValidator.isCleartext("wss://"))
+    }
+
     @Test func relayValidatorRejectsSpoofedLoopbackHosts() async throws {
         // Hostnames that merely *contain* a loopback token must not be treated as loopback.
         #expect(RelayURLValidator.classify("ws://127.0.0.1.evil.com") == .insecureRejected)

@@ -3308,7 +3308,9 @@ private struct RelayRow: View {
                     .textSelection(.enabled)
 
                 if isInsecure {
-                    Text("Insecure — cleartext ws:// (loopback only)")
+                    Text(RelayURLValidator.classify(url) == .insecureLoopback
+                        ? "Insecure — cleartext ws:// (loopback only)"
+                        : "Insecure — cleartext ws:// (public host)")
                         .font(.caption2)
                         .foregroundStyle(.orange)
                 }
