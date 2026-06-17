@@ -280,6 +280,9 @@ final class WorkspaceState {
     private let copyTextHandler: @MainActor (String) -> Void
     private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     private let groupImageSearchClient: any GroupImageSearchClient
+    /// Injectable clock for peer-profile cache TTL decisions, so tests can drive cache
+    /// expiry deterministically (whitenoise-mac#8). Defaults to the system clock.
+    private let nowProvider: @MainActor () -> Date
     private var client: (any MarmotRuntime)?
     private var notificationTask: Task<Void, Never>?
     private var chatListTask: Task<Void, Never>?
@@ -330,8 +333,21 @@ final class WorkspaceState {
     private var newChatLookupGeneration = 0
     /// Raw per-sender FFI lookups (userProfile + directory displayName), cached so that
     /// scrolling back through history does not re-resolve the same senders from Rust on
-    /// every page. Keyed by sender accountIdHex; invalidated when a peer profile refreshes.
-    private var peerProfileFFICache: [String: ResolvedPeerFFI] = [:]
+    /// every page. Keyed by sender accountIdHex.
+    ///
+    /// Entries carry the resolution timestamp and whether the lookup produced a usable
+    /// profile (display name or picture). This prevents the cache from acting as a
+    /// permanent "seen" flag (whitenoise-mac#8): complete entries expire after
+    /// `peerProfileCacheTTL` so a contact's later name/avatar change is eventually
+    /// picked up within a session, and incomplete entries (relay not yet propagated, or
+    /// a failed/empty lookup) are always re-resolved so a contact is never pinned to a
+    /// fallback name/avatar for the life of the process. The cache is also account-scoped
+    /// and cleared on account switch.
+    private var peerProfileFFICache: [String: CachedPeerProfile] = [:]
+
+    /// How long a *complete* peer-profile lookup is trusted before it is re-resolved
+    /// from the Rust store. Incomplete lookups ignore the TTL and re-resolve every pass.
+    private static let peerProfileCacheTTL: TimeInterval = 300
 
     private static let activeAccountKey = "whitenoise.mac.activeAccountId"
     private static let developerModeKey = "whitenoise.mac.developerMode"
@@ -358,6 +374,28 @@ final class WorkspaceState {
         var profileName: String?
         var profilePicture: String?
         var directoryDisplayName: String?
+
+        /// A lookup is "complete" once it yields a usable display name or picture. An
+        /// incomplete lookup means the relay has not propagated the profile yet (or the
+        /// lookup failed), and must not be trusted as a terminal answer.
+        var isComplete: Bool {
+            firstNonBlank([profileDisplayName, profileName, directoryDisplayName]) != nil
+                || profilePicture?.nilIfBlank != nil
+        }
+    }
+
+    /// A `ResolvedPeerFFI` plus the time it was resolved, so the cache can apply a TTL to
+    /// complete lookups and always re-resolve incomplete ones (whitenoise-mac#8).
+    struct CachedPeerProfile: Sendable {
+        var resolved: ResolvedPeerFFI
+        var resolvedAt: Date
+
+        /// Whether this entry may be reused without re-resolving from the Rust store.
+        /// Incomplete lookups are never reused; complete lookups are reused until the TTL
+        /// elapses so later name/avatar changes are eventually picked up within a session.
+        func isFresh(now: Date, ttl: TimeInterval) -> Bool {
+            resolved.isComplete && now.timeIntervalSince(resolvedAt) < ttl
+        }
     }
 
     /// Runs a blocking FFI closure off the main thread and resumes on the caller's actor.
@@ -385,6 +423,7 @@ final class WorkspaceState {
         copyTextHandler: @escaping @MainActor (String) -> Void = WorkspaceState.copyToGeneralPasteboard,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = { TelemetryBuildConfig.current() },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
+        nowProvider: @escaping @MainActor () -> Date = { Date() },
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -400,6 +439,7 @@ final class WorkspaceState {
         self.copyTextHandler = copyTextHandler
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
+        self.nowProvider = nowProvider
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
@@ -595,6 +635,10 @@ final class WorkspaceState {
         searchText = ""
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
+        // Peer-profile lookups are scoped to the active account's view (directory display
+        // names can differ per account); drop them on switch so the new account does not
+        // inherit stale cross-account entries (whitenoise-mac#8).
+        peerProfileFFICache.removeAll()
         refreshObservabilityRuntime()
         selection = finalSelection
         if case let .chat(chatId)? = finalSelection {
@@ -3103,10 +3147,18 @@ final class WorkspaceState {
             .filter { !$0.isEmpty }
         )
 
-        // Resolve any senders we have not seen before in a single off-main FFI batch,
-        // then cache the raw lookups so repeated scroll-up pages skip Rust entirely.
-        let unresolvedIds = senderIds.filter {
-            $0 != activeAccount.accountIdHex && peerProfileFFICache[$0] == nil
+        // Resolve any senders whose cached lookup is missing, incomplete, or stale in a
+        // single off-main FFI batch, then cache the raw lookups (timestamped) so repeated
+        // scroll-up pages skip Rust entirely. Incomplete lookups (relay not yet
+        // propagated, or a failed lookup) are always re-resolved so a contact is never
+        // pinned to a fallback name/avatar for the life of the process; complete lookups
+        // are re-resolved once the TTL elapses so later name/avatar changes are picked up
+        // within a session (whitenoise-mac#8).
+        let now = nowProvider()
+        let unresolvedIds = senderIds.filter { senderId in
+            guard senderId != activeAccount.accountIdHex else { return false }
+            guard let cached = peerProfileFFICache[senderId] else { return true }
+            return !cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL)
         }
         if !unresolvedIds.isEmpty {
             let resolved = (try? await runOffMain { () -> [String: ResolvedPeerFFI] in
@@ -3123,7 +3175,7 @@ final class WorkspaceState {
                 return output
             }) ?? [:]
             for (senderId, value) in resolved {
-                peerProfileFFICache[senderId] = value
+                peerProfileFFICache[senderId] = CachedPeerProfile(resolved: value, resolvedAt: now)
             }
         }
 
@@ -3138,7 +3190,7 @@ final class WorkspaceState {
                 continue
             }
 
-            let resolved = peerProfileFFICache[senderId]
+            let resolved = peerProfileFFICache[senderId]?.resolved
             profiles[senderId] = ChatPeerProfile(
                 accountIdHex: senderId,
                 displayName: firstNonBlank([
