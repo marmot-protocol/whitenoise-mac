@@ -3174,8 +3174,20 @@ final class WorkspaceState {
                 }
                 return output
             }) ?? [:]
-            for (senderId, value) in resolved {
-                peerProfileFFICache[senderId] = CachedPeerProfile(resolved: value, resolvedAt: now)
+            // The off-main resolution above suspends this actor. If the user switched
+            // accounts while the batch was in flight, `selectAccount`/
+            // `selectAccountFromSettings` already cleared `peerProfileFFICache` for the
+            // newly selected account. Writing these now-stale, account-scoped lookups
+            // would repopulate the cache with the *previous* account's directory/profile
+            // entries and leak them into the new account until TTL expiry, undercutting
+            // the account-scoped invalidation this code path relies on. Only commit the
+            // results if we are still resolving for the same active account; otherwise
+            // drop them — the caller re-checks `activeAccountId` after this await and
+            // discards the stale window anyway (whitenoise-mac#8).
+            if activeAccountId == activeAccount.id {
+                for (senderId, value) in resolved {
+                    peerProfileFFICache[senderId] = CachedPeerProfile(resolved: value, resolvedAt: now)
+                }
             }
         }
 
