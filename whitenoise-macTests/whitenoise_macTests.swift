@@ -3827,17 +3827,18 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func telemetryBuildConfigUsesSeparateMacBuildSettings() async throws {
+    @Test func telemetryBuildConfigUsesBundledNonSecretSettingsAndRuntimeEnvironmentCredentials() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
                 "DarkmatterTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
-                "DarkmatterTelemetryBearerToken": "otlp-token",
-                "DarkmatterAuditLogBearerToken": "audit-token",
                 "DarkmatterTelemetryEnvironment": "production",
                 "CFBundleShortVersionString": "2026.6",
                 "CFBundleVersion": "12"
             ],
-            environment: [:],
+            environment: [
+                "DARKMATTER_OTLP_BEARER_TOKEN": "otlp-token",
+                "DARKMATTER_AUDIT_LOG_BEARER_TOKEN": "audit-token"
+            ],
             osVersion: "Version 26.0",
             deviceModelIdentifier: "Mac15,3"
         )
@@ -3866,6 +3867,31 @@ struct whitenoise_macTests {
         #expect(auditConfig.source.deviceLabel == "Mac15,3")
         #expect(auditConfig.source.platform == "macOS")
         #expect(auditConfig.source.appVersion == "2026.6+12")
+    }
+
+    @MainActor
+    @Test func telemetryBuildConfigIgnoresBundledBearerTokens() async throws {
+        let config = TelemetryBuildConfig.current(
+            infoDictionary: [
+                "DarkmatterTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
+                "DarkmatterTelemetryBearerToken": "bundled-otlp-token",
+                "DarkmatterAuditLogBearerToken": "bundled-audit-token",
+                "DarkmatterTelemetryEnvironment": "production",
+                "CFBundleShortVersionString": "2026.6",
+                "CFBundleVersion": "12"
+            ],
+            environment: [:],
+            osVersion: "Version 26.0",
+            deviceModelIdentifier: "Mac15,3"
+        )
+
+        #expect(config.otlpEndpoint == "https://collector.example/v1/metrics")
+        #expect(config.bearerToken == nil)
+        #expect(config.auditLogBearerToken == nil)
+        #expect(!config.telemetryCredentialsAvailable)
+        #expect(!config.auditLogCredentialsAvailable)
+        #expect(config.deploymentEnvironment == "production")
+        #expect(config.serviceVersion == "2026.6+12")
     }
 
     @MainActor
@@ -4051,12 +4077,12 @@ struct whitenoise_macTests {
 
         await state.setRelayTelemetryEnabled(true)
         #expect(!runtime.storedRelayTelemetrySettings.exportEnabled)
-        #expect(state.lastError == "Telemetry credentials are not configured for this build.")
+        #expect(state.lastError == "Telemetry credentials are not available in this launch environment.")
 
         await state.setAuditLoggingEnabled(true)
 
         #expect(!runtime.storedAuditLogSettings.enabled)
-        #expect(state.lastError == "Audit log credentials are not configured for this build.")
+        #expect(state.lastError == "Audit log credentials are not available in this launch environment.")
     }
 
     @MainActor

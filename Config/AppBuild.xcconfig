@@ -1,7 +1,5 @@
 // App target build settings shared by Debug and Release.
-// Put local secrets in Config/AppSecrets.xcconfig. That file is ignored.
-
-OTLP_TOKEN_DARKMATTER_MAC =
-AUDIT_LOG_TOKEN_DARKMATTER_MAC =
+// This file is for non-secret build-time values only. Runtime bearer tokens
+// must be supplied through the launch environment; do not bundle them in the app.
 
 #include? "AppSecrets.xcconfig"

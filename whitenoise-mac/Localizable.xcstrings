@@ -2317,7 +2317,7 @@
     "Archiving..." : {
 
     },
-    "Audit log credentials are not configured for this build." : {
+    "Audit log credentials are not available in this launch environment." : {
 
     },
     "Audit Log Files" : {
@@ -21542,7 +21542,7 @@
     "Telemetry and audit logs stay off until you enable them." : {
 
     },
-    "Telemetry credentials are not configured for this build." : {
+    "Telemetry credentials are not available in this launch environment." : {
 
     },
     "Telemetry token" : {

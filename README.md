@@ -30,10 +30,10 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 ```text
 .
 ├── AGENTS.md                  Notes for automated agents working in this repo
-├── Config/                    Build settings & secrets (xcconfig + Info.plist)
-│   ├── AppBuild.xcconfig       Shared Debug/Release build settings
-│   ├── AppSecrets.xcconfig.example  Template for local-only secrets (gitignored copy)
-│   └── Info.plist              App bundle metadata + telemetry keys
+├── Config/                    Build settings and app metadata
+│   ├── AppBuild.xcconfig       Shared non-secret Debug/Release build settings
+│   ├── AppSecrets.xcconfig.example  Template for optional non-secret local settings
+│   └── Info.plist              App bundle metadata + non-secret telemetry keys
 ├── scripts/
 │   └── sync-bindings.sh        Rebuilds & re-vendors MarmotKit from darkmatter
 ├── Vendored/
@@ -68,7 +68,7 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 | `RemoteImageLoader.swift` | Off-main remote image loading + downsampling + caching (an `AsyncImage` replacement). |
 | `AppLanguage.swift` / `L10n.swift` | In-app language selection and localized string lookup. |
 | `NativeAppearanceController.swift` | Light/dark appearance control. |
-| `TelemetryBuildConfig.swift` | OTLP telemetry + audit-log build configuration (tokens injected at build time). |
+| `TelemetryBuildConfig.swift` | OTLP telemetry + audit-log runtime configuration. Bearer credentials are launch-environment only and are never bundled. |
 | `ConversationTranscriptExport.swift` | Chronological JSON export of inner Marmot/Nostr events for debugging. |
 
 ## Building and running
@@ -85,14 +85,18 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
    through the local SwiftPM package in `Vendored/MarmotKit`, so a fresh clone
    builds without a darkmatter checkout in the common case.
 
-2. **(Optional) configure local secrets.** Telemetry/audit-log tokens are
-   build-time secrets. Copy the example and fill in values if you have them —
-   the real file is gitignored and the app builds fine without it:
+2. **(Optional) configure local observability.** Telemetry/audit-log bearer
+   tokens are runtime credentials, not build settings. To test uploads locally,
+   add launch environment variables in the Xcode scheme (or launch the app from
+   a shell with them set):
 
    ```sh
-   cp Config/AppSecrets.xcconfig.example Config/AppSecrets.xcconfig
-   # edit Config/AppSecrets.xcconfig
+   DARKMATTER_OTLP_BEARER_TOKEN=...
+   DARKMATTER_AUDIT_LOG_BEARER_TOKEN=...
    ```
+
+   The built app bundle intentionally does not contain bearer tokens. Use
+   `Config/AppSecrets.xcconfig` only for non-secret local build settings.
 
 3. **Select the `whitenoise-mac` scheme** and build/run (⌘R) on a "My Mac"
    destination.

@@ -9,9 +9,9 @@ enum TelemetrySettingsActionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .telemetryNotConfigured:
-            L10n.string("Telemetry credentials are not configured for this build.")
+            L10n.string("Telemetry credentials are not available in this launch environment.")
         case .auditLogNotConfigured:
-            L10n.string("Audit log credentials are not configured for this build.")
+            L10n.string("Audit log credentials are not available in this launch environment.")
         }
     }
 }
@@ -53,23 +53,19 @@ struct TelemetryBuildConfig: Equatable {
                 environmentKeys: ["DARKMATTER_OTLP_ENDPOINT"],
                 environment: environment
             ) ?? defaultOtlpEndpoint,
-            bearerToken: stringValue(
-                for: "DarkmatterTelemetryBearerToken",
-                in: info,
-                environmentKeys: [
+            bearerToken: environmentStringValue(
+                for: [
                     "DARKMATTER_OTLP_BEARER_TOKEN",
                     "OTLP_TOKEN_DARKMATTER_MAC"
                 ],
-                environment: environment
+                in: environment
             ),
-            auditLogBearerToken: stringValue(
-                for: "DarkmatterAuditLogBearerToken",
-                in: info,
-                environmentKeys: [
+            auditLogBearerToken: environmentStringValue(
+                for: [
                     "DARKMATTER_AUDIT_LOG_BEARER_TOKEN",
                     "AUDIT_LOG_TOKEN_DARKMATTER_MAC"
                 ],
-                environment: environment
+                in: environment
             ),
             deploymentEnvironment: deploymentEnvironment(
                 from: stringValue(
@@ -125,6 +121,16 @@ struct TelemetryBuildConfig: Equatable {
             return value
         }
         return environmentKeys.lazy
+            .compactMap { environment[$0] }
+            .compactMap(resolvedStringValue)
+            .first
+    }
+
+    nonisolated private static func environmentStringValue(
+        for keys: [String],
+        in environment: [String: String]
+    ) -> String? {
+        keys.lazy
             .compactMap { environment[$0] }
             .compactMap(resolvedStringValue)
             .first

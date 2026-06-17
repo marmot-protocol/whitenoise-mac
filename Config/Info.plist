@@ -24,10 +24,6 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>DarkmatterAuditLogBearerToken</key>
-	<string>$(DARKMATTER_AUDIT_LOG_BEARER_TOKEN)</string>
-	<key>DarkmatterTelemetryBearerToken</key>
-	<string>$(DARKMATTER_OTLP_BEARER_TOKEN)</string>
 	<key>DarkmatterTelemetryEnvironment</key>
 	<string>$(DARKMATTER_TELEMETRY_ENVIRONMENT)</string>
 	<key>DarkmatterTelemetryOTLPEndpoint</key>
