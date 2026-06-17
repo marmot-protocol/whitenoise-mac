@@ -422,6 +422,15 @@ final class WorkspaceState {
         }
     }
 
+    /// Raw output of the per-account bootstrap/settings FFI lookups.
+    struct ResolvedAccountFFI: Sendable {
+        var profileDisplayName: String?
+        var profileName: String?
+        var profilePicture: String?
+        var directoryDisplayName: String?
+        var npub: String?
+    }
+
     /// Runs a blocking FFI closure off the main thread and resumes on the caller's actor.
     nonisolated private func runOffMain<T>(
         _ work: @escaping @Sendable () throws -> T
@@ -621,8 +630,10 @@ final class WorkspaceState {
             let runtime = try clientFactory()
             client = runtime
             storageRootPath = runtime.storageRootPath
-            let summaries = try runtime.listAccounts()
-            accounts = summaries.map { accountItem(from: $0) }
+            let summaries = try await runOffMain {
+                try runtime.listAccounts()
+            }
+            accounts = try await accountItems(from: summaries, client: runtime)
             restoreOrSelectFirstAccount()
             try await configureObservabilityRuntime()
             if accounts.isEmpty {
@@ -631,7 +642,7 @@ final class WorkspaceState {
             }
 
             try await bringRuntimeOnline(runtime)
-            accounts = try runtime.listAccounts().map { accountItem(from: $0) }
+            accounts = try await accountItemsFromRuntime(client: runtime)
             restoreOrSelectFirstAccount()
             try await activateReadyState()
         } catch {
@@ -680,7 +691,7 @@ final class WorkspaceState {
         phase = .ready
         try await configureObservabilityRuntime()
         await refreshNotificationAuthorizationStatus()
-        loadNotificationSettings()
+        await loadNotificationSettings()
         await loadPrivacySecuritySettings()
         await reloadChats()
         startNotificationListener()
@@ -750,9 +761,9 @@ final class WorkspaceState {
                 defaultRelays: MarmotClient.seedRelays,
                 bootstrapRelays: MarmotClient.seedRelays
             )
-            try refreshAccounts(preferred: summary)
+            try await refreshAccounts(preferred: summary)
             try await bringRuntimeOnline(client)
-            try refreshAccounts(preferred: summary)
+            try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
             try await activateReadyState()
         } catch {
@@ -780,9 +791,9 @@ final class WorkspaceState {
                 defaultRelays: MarmotClient.seedRelays,
                 bootstrapRelays: MarmotClient.seedRelays
             )
-            try refreshAccounts(preferred: summary)
+            try await refreshAccounts(preferred: summary)
             try await bringRuntimeOnline(client)
-            try refreshAccounts(preferred: summary)
+            try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
             try await activateReadyState()
         } catch {
@@ -816,7 +827,7 @@ final class WorkspaceState {
             }
             try await client.removeAccount(accountRef: account.accountRef)
             clearComposerDrafts(forAccountId: removedAccountId)
-            accounts = try client.listAccounts().map { accountItem(from: $0) }
+            accounts = try await accountItemsFromRuntime(client: client)
             chatsByAccount[removedAccountId] = nil
 
             // `activeAccountId` may have changed during the await above — e.g. the user
@@ -986,23 +997,35 @@ final class WorkspaceState {
             }
         }
 
+        let accountIdHex = activeAccount.accountIdHex
+        let accountRef = activeAccount.accountRef
+        let fallbackName = activeAccount.displayName
+        let pictureURL = activeAccount.pictureURL
+
         do {
-            let profile = try client.userProfile(accountIdHex: activeAccount.accountIdHex)
-            profileDraft = ProfileDraft(profile: profile, fallbackName: activeAccount.displayName)
-            let displayName = profileDraft.primaryDisplayName(fallback: activeAccount.displayName)
+            let profile = try await runOffMain {
+                try client.userProfile(accountIdHex: accountIdHex)
+            }
+            profileDraft = ProfileDraft(profile: profile, fallbackName: fallbackName)
+            let displayName = profileDraft.primaryDisplayName(fallback: fallbackName)
             updateActiveAccountProfile(displayName: displayName, pictureURL: profileDraft.picture)
         } catch {
             lastError = error.localizedDescription
-            profileDraft = ProfileDraft(fallbackName: activeAccount.displayName)
-            if let displayName = client.displayName(accountIdHex: activeAccount.accountIdHex)?
+            profileDraft = ProfileDraft(fallbackName: fallbackName)
+            let displayName = (try? await runOffMain {
+                client.displayName(accountIdHex: accountIdHex)
+            }) ?? nil
+            if let displayName = displayName?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                 !displayName.isEmpty {
-                updateActiveAccountProfile(displayName: displayName, pictureURL: activeAccount.pictureURL)
+                updateActiveAccountProfile(displayName: displayName, pictureURL: pictureURL)
             }
         }
 
         do {
-            let lists = try client.accountRelayLists(accountRef: activeAccount.accountRef)
+            let lists = try await runOffMain {
+                try client.accountRelayLists(accountRef: accountRef)
+            }
             relaySettings = RelaySettingsSnapshot(lists: lists)
             relayDraft = relaySettings.relays(for: selectedRelaySection)
         } catch {
@@ -1014,7 +1037,7 @@ final class WorkspaceState {
         await refreshNotificationAuthorizationStatus()
         // The active account may have changed during the await above; abandon stale writes.
         guard !Task.isCancelled, activeAccountId == accountId else { return }
-        loadNotificationSettings()
+        await loadNotificationSettings()
         await loadPrivacySecuritySettings()
     }
 
@@ -1077,11 +1100,15 @@ final class WorkspaceState {
             }
         }
 
+        let accountRef = activeAccount.accountRef
+
         do {
-            let settings = try client.setLocalNotificationsEnabled(
-                accountRef: activeAccount.accountRef,
-                enabled: enabled
-            )
+            let settings = try await runOffMain {
+                try client.setLocalNotificationsEnabled(
+                    accountRef: accountRef,
+                    enabled: enabled
+                )
+            }
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
             lastError = error.localizedDescription
@@ -1260,14 +1287,24 @@ final class WorkspaceState {
         }
 
         do {
-            let member = try client.normalizeMemberRef(memberRef: query)
+            let member = try await runOffMain {
+                try client.normalizeMemberRef(memberRef: query)
+            }
             try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: MarmotClient.seedRelays)
             peerProfileFFICache[member.accountIdHex] = nil
-            let profile = try? client.userProfile(accountIdHex: member.accountIdHex)
+            let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
+                let profile = try? client.userProfile(accountIdHex: member.accountIdHex)
+                return ResolvedPeerFFI(
+                    profileDisplayName: profile?.displayName,
+                    profileName: profile?.name,
+                    profilePicture: profile?.picture,
+                    directoryDisplayName: client.displayName(accountIdHex: member.accountIdHex)
+                )
+            }
             let displayName = firstNonBlank([
-                profile?.displayName,
-                profile?.name,
-                client.displayName(accountIdHex: member.accountIdHex)
+                resolved?.profileDisplayName,
+                resolved?.profileName,
+                resolved?.directoryDisplayName
             ])
             let recipient = NewChatRecipient(
                 sourceQuery: query,
@@ -1275,7 +1312,7 @@ final class WorkspaceState {
                 accountIdHex: member.accountIdHex,
                 npub: member.npub,
                 displayName: displayName,
-                pictureURL: profile?.picture
+                pictureURL: resolved?.profilePicture
             )
             guard isCurrentNewChatLookup(generation: lookupGeneration, query: query) else {
                 return nil
@@ -1534,12 +1571,12 @@ final class WorkspaceState {
     }
 
     /// The bech32 `npub` form of a hex public key — the canonical, user-facing way to show
-    /// a Nostr public key. Falls back to the hex if conversion is unavailable. The
-    /// conversion is a pure in-memory bech32 encode, so it's cheap to call from view bodies.
+    /// a Nostr public key. Falls back to the hex until the account cache has been hydrated
+    /// off the main thread.
     func npub(forAccountIdHex accountIdHex: String) -> String {
         let trimmed = accountIdHex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
-        return client?.npub(accountIdHex: trimmed) ?? trimmed
+        return accounts.first(where: { $0.accountIdHex == trimmed })?.npub ?? trimmed
     }
 
     func react(to message: MessageItem, emoji: String) async {
@@ -1701,7 +1738,9 @@ final class WorkspaceState {
         defer { isInvitingGroupMember = false }
 
         do {
-            let normalized = try client.normalizeMemberRef(memberRef: query)
+            let normalized = try await runOffMain {
+                try client.normalizeMemberRef(memberRef: query)
+            }
             let result = try await client.inviteMembersDetailed(
                 accountRef: activeAccount.accountRef,
                 groupIdHex: snapshot.groupIdHex,
@@ -2029,9 +2068,9 @@ final class WorkspaceState {
 
         // Keep the published settings snapshot in sync for the active account.
         // This is an explicit step rather than a side effect of the guard below.
-        syncNotificationSettingsIfActive(for: update)
+        await syncNotificationSettingsIfActive(for: update)
 
-        guard localNotificationsEnabled(for: update) else { return }
+        guard await localNotificationsEnabled(for: update) else { return }
 
         if selectedChat?.id == update.groupIdHex, selectedConversationIsVisible() {
             return
@@ -2082,10 +2121,11 @@ final class WorkspaceState {
         }
     }
 
-    private func refreshAccounts(preferred summary: AccountSummaryFfi) throws {
+    private func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
         guard let client else { return }
-        let preferredAccount = accountItem(from: summary)
-        var refreshed = try client.listAccounts().map { accountItem(from: $0) }
+        let preferredItems = try await accountItems(from: [summary], client: client)
+        let preferredAccount = preferredItems.first ?? Self.accountItem(from: summary, resolved: nil)
+        var refreshed = try await accountItemsFromRuntime(client: client)
         if !refreshed.contains(where: { $0.id == preferredAccount.id }) {
             refreshed.append(preferredAccount)
         }
@@ -2246,7 +2286,10 @@ final class WorkspaceState {
            cached.buildConfig == config {
             relayRuntimeConfig = cached.relayTelemetryRuntimeConfig
         } else {
-            relayRuntimeConfig = config.runtimeConfig(installId: try client.telemetryInstallId())
+            let installId = try await runOffMain {
+                try client.telemetryInstallId()
+            }
+            relayRuntimeConfig = config.runtimeConfig(installId: installId)
         }
         let auditTrackerConfig = config.auditTrackerConfig(accountLabel: accountLabel)
 
@@ -2254,7 +2297,9 @@ final class WorkspaceState {
             try await client.setRelayTelemetryRuntimeConfig(config: relayRuntimeConfig)
         }
         if observabilityRuntimeConfiguration?.auditLogTrackerConfig != auditTrackerConfig {
-            _ = try client.setAuditLogTrackerConfig(config: auditTrackerConfig)
+            _ = try await runOffMain {
+                try client.setAuditLogTrackerConfig(config: auditTrackerConfig)
+            }
         }
 
         observabilityRuntimeConfiguration = ObservabilityRuntimeConfiguration(
@@ -2267,14 +2312,17 @@ final class WorkspaceState {
         privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable
     }
 
-    private func loadNotificationSettings() {
+    private func loadNotificationSettings() async {
         guard let client, let activeAccount else {
             notificationSettings = .defaults
             return
         }
 
         do {
-            let settings = try client.notificationSettings(accountRef: activeAccount.accountRef)
+            let accountRef = activeAccount.accountRef
+            let settings = try await runOffMain {
+                try client.notificationSettings(accountRef: accountRef)
+            }
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
             notificationSettings = .defaults
@@ -2290,8 +2338,12 @@ final class WorkspaceState {
 
         do {
             try await configureObservabilityRuntime()
-            let telemetry = try client.relayTelemetrySettings()
-            let auditLog = try client.auditLogSettings()
+            let (telemetry, auditLog) = try await runOffMain {
+                (
+                    try client.relayTelemetrySettings(),
+                    try client.auditLogSettings()
+                )
+            }
             let config = telemetryBuildConfig
             privacySecuritySettings = PrivacySecuritySettingsSnapshot(
                 relayTelemetryEnabled: telemetry.exportEnabled,
@@ -2322,7 +2374,9 @@ final class WorkspaceState {
 
         do {
             try await configureObservabilityRuntime()
-            let current = try client.relayTelemetrySettings()
+            let current = try await runOffMain {
+                try client.relayTelemetrySettings()
+            }
             let settings = RelayTelemetrySettingsFfi(
                 exportEnabled: enabled,
                 exportIntervalSeconds: current.exportIntervalSeconds
@@ -2369,7 +2423,9 @@ final class WorkspaceState {
         defer { isLoadingAuditLogFiles = false }
 
         do {
-            auditLogFiles = try client.auditLogFiles()
+            auditLogFiles = try await runOffMain {
+                try client.auditLogFiles()
+            }
         } catch {
             auditLogFiles = []
             lastError = error.localizedDescription
@@ -3046,9 +3102,12 @@ final class WorkspaceState {
     /// account targeted by `update`. Has no side effects — callers that also need
     /// to refresh the published `notificationSettings` snapshot must invoke
     /// `syncNotificationSettingsIfActive(for:)` explicitly.
-    private func localNotificationsEnabled(for update: NotificationUpdateFfi) -> Bool {
+    private func localNotificationsEnabled(for update: NotificationUpdateFfi) async -> Bool {
         guard let client else { return false }
-        guard let settings = try? client.notificationSettings(accountRef: update.accountRef) else {
+        let accountRef = update.accountRef
+        guard let settings = try? await runOffMain({
+            try client.notificationSettings(accountRef: accountRef)
+        }) else {
             return false
         }
 
@@ -3059,10 +3118,13 @@ final class WorkspaceState {
     /// targets the active account. Kept separate from
     /// `localNotificationsEnabled(for:)` so that evaluating the predicate does
     /// not mutate UI state as a hidden side effect.
-    private func syncNotificationSettingsIfActive(for update: NotificationUpdateFfi) {
+    private func syncNotificationSettingsIfActive(for update: NotificationUpdateFfi) async {
         guard activeAccount?.accountIdHex == update.accountIdHex else { return }
         guard let client else { return }
-        guard let settings = try? client.notificationSettings(accountRef: update.accountRef) else {
+        let accountRef = update.accountRef
+        guard let settings = try? await runOffMain({
+            try client.notificationSettings(accountRef: accountRef)
+        }) else {
             return
         }
 
@@ -3356,15 +3418,48 @@ final class WorkspaceState {
         return profiles
     }
 
-    private func accountItem(from summary: AccountSummaryFfi) -> AccountItem {
-        let base = AccountItem(summary: summary)
-        guard let client else { return base }
+    private func accountItemsFromRuntime(client: any MarmotRuntime) async throws -> [AccountItem] {
+        let summaries = try await runOffMain {
+            try client.listAccounts()
+        }
+        return try await accountItems(from: summaries, client: client)
+    }
 
+    private func accountItems(
+        from summaries: [AccountSummaryFfi],
+        client: any MarmotRuntime
+    ) async throws -> [AccountItem] {
+        try await runOffMain {
+            summaries.map { summary in
+                let resolved = Self.resolvedAccountFFI(from: summary, client: client)
+                return Self.accountItem(from: summary, resolved: resolved)
+            }
+        }
+    }
+
+    nonisolated private static func resolvedAccountFFI(
+        from summary: AccountSummaryFfi,
+        client: any MarmotRuntime
+    ) -> ResolvedAccountFFI {
         let profile = try? client.userProfile(accountIdHex: summary.accountIdHex)
+        return ResolvedAccountFFI(
+            profileDisplayName: profile?.displayName,
+            profileName: profile?.name,
+            profilePicture: profile?.picture,
+            directoryDisplayName: client.displayName(accountIdHex: summary.accountIdHex),
+            npub: client.npub(accountIdHex: summary.accountIdHex)
+        )
+    }
+
+    nonisolated private static func accountItem(
+        from summary: AccountSummaryFfi,
+        resolved: ResolvedAccountFFI?
+    ) -> AccountItem {
+        let base = AccountItem(summary: summary)
         let displayName = firstNonBlank([
-            profile?.displayName,
-            profile?.name,
-            client.displayName(accountIdHex: summary.accountIdHex)
+            resolved?.profileDisplayName,
+            resolved?.profileName,
+            resolved?.directoryDisplayName
         ]) ?? base.displayName
 
         return AccountItem(
@@ -3372,8 +3467,8 @@ final class WorkspaceState {
             accountRef: base.accountRef,
             displayName: displayName,
             accountIdHex: base.accountIdHex,
-            npub: client.npub(accountIdHex: base.accountIdHex),
-            pictureURL: profile?.picture,
+            npub: resolved?.npub,
+            pictureURL: resolved?.profilePicture,
             localSigning: base.localSigning,
             isRunning: base.isRunning
         )

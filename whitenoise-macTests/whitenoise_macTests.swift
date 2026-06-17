@@ -78,6 +78,81 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func bootstrapRunsSynchronousRuntimeReadsOffMainThread() async throws {
+        // Regression for #17: WorkspaceState is @MainActor, but blocking sync FFI reads
+        // (account listing/profile/name/npub plus settings probes) must not execute on
+        // the main thread during launch.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        runtime.clearSyncCallThreadRecords()
+        await state.bootstrap()
+
+        #expect(state.phase == .ready)
+        #expect(runtime.syncCallThreadRecord("listAccounts").count >= 2)
+        #expect(runtime.syncCallThreadRecord("listAccounts").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("userProfile").contains(false))
+        #expect(runtime.syncCallThreadRecord("userProfile").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("displayName").contains(false))
+        #expect(runtime.syncCallThreadRecord("displayName").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("npub").contains(false))
+        #expect(runtime.syncCallThreadRecord("npub").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("notificationSettings").contains(false))
+        #expect(runtime.syncCallThreadRecord("notificationSettings").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("telemetryInstallId").contains(false))
+        #expect(runtime.syncCallThreadRecord("telemetryInstallId").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").contains(false))
+        #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("relayTelemetrySettings").contains(false))
+        #expect(runtime.syncCallThreadRecord("relayTelemetrySettings").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("auditLogSettings").contains(false))
+        #expect(runtime.syncCallThreadRecord("auditLogSettings").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("auditLogFiles").contains(false))
+        #expect(runtime.syncCallThreadRecord("auditLogFiles").allSatisfy { !$0 })
+    }
+
+    @MainActor
+    @Test func loadSettingsDataRunsSynchronousRuntimeReadsOffMainThread() async throws {
+        // The Settings screen pulls profile, relay, notification, telemetry, and audit
+        // snapshots. Those are synchronous FFI reads and must not block the run loop.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        runtime.clearSyncCallThreadRecords()
+        await state.loadSettingsData()
+
+        #expect(runtime.syncCallThreadRecord("userProfile").contains(false))
+        #expect(runtime.syncCallThreadRecord("userProfile").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("accountRelayLists").contains(false))
+        #expect(runtime.syncCallThreadRecord("accountRelayLists").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("notificationSettings").contains(false))
+        #expect(runtime.syncCallThreadRecord("notificationSettings").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("telemetryInstallId").contains(false))
+        #expect(runtime.syncCallThreadRecord("telemetryInstallId").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").contains(false))
+        #expect(runtime.syncCallThreadRecord("setAuditLogTrackerConfig").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("relayTelemetrySettings").contains(false))
+        #expect(runtime.syncCallThreadRecord("relayTelemetrySettings").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("auditLogSettings").contains(false))
+        #expect(runtime.syncCallThreadRecord("auditLogSettings").allSatisfy { !$0 })
+        #expect(runtime.syncCallThreadRecord("auditLogFiles").contains(false))
+        #expect(runtime.syncCallThreadRecord("auditLogFiles").allSatisfy { !$0 })
+    }
+
+    @MainActor
     @Test func addingSecondAccountViaLoginBringsItOnlineWithoutRelaunch() async throws {
         // Regression for #74: the Settings → Add Account flow reuses login()/
         // signUp() while the runtime is already running. The new account must be
@@ -5100,6 +5175,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     var accountIdsMissingProfiles = Set<String>()
     var timelineMessagesHandler: ((TimelineMessageQueryFfi) -> TimelinePageFfi)?
+    private let syncCallThreadLock = NSLock()
+    private var syncCallThreads: [String: [Bool]] = [:]
     /// When set, `subscribeNotifications()` throws this error, simulating a background
     /// notification-listener failure for routing tests.
     var subscribeNotificationsError: Error?
@@ -5157,14 +5234,36 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func listAccounts() throws -> [AccountSummaryFfi] {
-        storedAccounts
+        recordSyncCall("listAccounts")
+        return storedAccounts
+    }
+
+    func clearSyncCallThreadRecords() {
+        syncCallThreadLock.lock()
+        syncCallThreads = [:]
+        syncCallThreadLock.unlock()
+    }
+
+    func syncCallThreadRecord(_ name: String) -> [Bool] {
+        syncCallThreadLock.lock()
+        let threads = syncCallThreads[name] ?? []
+        syncCallThreadLock.unlock()
+        return threads
+    }
+
+    private func recordSyncCall(_ name: String) {
+        syncCallThreadLock.lock()
+        syncCallThreads[name, default: []].append(Thread.isMainThread)
+        syncCallThreadLock.unlock()
     }
 
     func npub(accountIdHex: String) -> String? {
-        "npub1\(accountIdHex.prefix(12))"
+        recordSyncCall("npub")
+        return "npub1\(accountIdHex.prefix(12))"
     }
 
     func displayName(accountIdHex: String) -> String? {
+        recordSyncCall("displayName")
         guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
         let resolvedProfile = profilesByAccountId[accountIdHex] ?? profile
         return resolvedProfile.displayName ?? resolvedProfile.name
@@ -5172,11 +5271,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi? {
         userProfileCallCount += 1
+        recordSyncCall("userProfile")
         guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
         return profilesByAccountId[accountIdHex] ?? profile
     }
 
     func normalizeMemberRef(memberRef: String) throws -> MemberRefFfi {
+        recordSyncCall("normalizeMemberRef")
         if let member = normalizedMembersByRef[memberRef] {
             return member
         }
@@ -5337,6 +5438,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
         accountRelayListsCallCount += 1
+        recordSyncCall("accountRelayLists")
         return relayLists
     }
 
@@ -5347,11 +5449,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func auditLogFiles() throws -> [AuditLogFileFfi] {
-        storedAuditLogFiles
+        recordSyncCall("auditLogFiles")
+        return storedAuditLogFiles
     }
 
     func auditLogSettings() throws -> AuditLogSettingsFfi {
-        storedAuditLogSettings
+        recordSyncCall("auditLogSettings")
+        return storedAuditLogSettings
     }
 
     func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi {
@@ -5361,7 +5465,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
-        notificationSettings
+        recordSyncCall("notificationSettings")
+        return notificationSettings
     }
 
     func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi {
@@ -5370,7 +5475,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi {
-        storedRelayTelemetrySettings
+        recordSyncCall("relayTelemetrySettings")
+        return storedRelayTelemetrySettings
     }
 
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi {
@@ -5380,11 +5486,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi {
         auditLogTrackerConfigSetCallCount += 1
+        recordSyncCall("setAuditLogTrackerConfig")
         auditLogTrackerConfig = config
         return config
     }
 
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {
+        recordSyncCall("setLocalNotificationsEnabled")
         localNotificationsEnabledSet = enabled
         notificationSettings.localNotificationsEnabled = enabled
         return notificationSettings
@@ -5402,6 +5510,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func telemetryInstallId() throws -> String {
         telemetryInstallIdCallCount += 1
+        recordSyncCall("telemetryInstallId")
         return "test-install-id"
     }
 
@@ -5735,6 +5844,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
+        recordSyncCall("timelineMessages")
         timelineMessageQueries.append(query)
         if let timelineMessagesHandler {
             return timelineMessagesHandler(query)
@@ -5774,10 +5884,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi? {
-        groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
+        recordSyncCall("initializeChatReadState")
+        return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
     }
 
     func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi? {
+        recordSyncCall("markTimelineMessageRead")
         markedReadMessageIds.append(messageIdHex)
         return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
     }
