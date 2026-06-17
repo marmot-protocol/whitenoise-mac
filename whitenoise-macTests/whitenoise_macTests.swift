@@ -3545,6 +3545,107 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func concurrentSettingsLoadsForSameAccountCoalesce() async throws {
+        // Issue #4: settings loading is driven from more than one entry point (the settings
+        // view's `.task(id: activeAccountId)` and explicit reloads), so two overlapping
+        // `loadSettingsData()` calls for the same account must coalesce onto a single in-flight
+        // load rather than duplicating the per-account profile / relay fetches.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let baselineProfileCalls = runtime.userProfileCallCount
+        let baselineRelayCalls = runtime.accountRelayListsCallCount
+
+        // Two concurrent loads for the same active account. The first to run installs the
+        // in-flight task before suspending; the second observes it and awaits the same task.
+        async let first: Void = state.loadSettingsData()
+        async let second: Void = state.loadSettingsData()
+        _ = await (first, second)
+
+        // Exactly one additional profile + relay fetch despite two concurrent callers.
+        #expect(runtime.userProfileCallCount == baselineProfileCalls + 1)
+        #expect(runtime.accountRelayListsCallCount == baselineRelayCalls + 1)
+        #expect(state.isLoadingSettings == false)
+    }
+
+    @MainActor
+    @Test func sequentialSettingsLoadsForSameAccountStillReload() async throws {
+        // Coalescing must not turn a later, intentionally-sequential reload into a no-op: once a
+        // load has finished, a fresh `loadSettingsData()` performs a new fetch.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        let afterFirst = runtime.userProfileCallCount
+        await state.loadSettingsData()
+
+        #expect(runtime.userProfileCallCount == afterFirst + 1)
+    }
+
+    @MainActor
+    @Test func cancellingInFlightSettingsLoadWithNoActiveAccountClearsSpinner() async throws {
+        // Issue #4 (adversarial-review blocking finding): a settings load that is cancelled
+        // *without* a replacement load starting must not leave `isLoadingSettings` stuck `true`.
+        // Repro: hold a load suspended mid-flight (at `refreshNotificationAuthorizationStatus()`),
+        // clear the active account (as account removal of the last account does), then let the
+        // stale load resume. The resumed task must NOT own the spinner (a newer generation has
+        // superseded it); the no-active-account reset path owns clearing it.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let gate = GatedLocalNotificationCenter()
+        let state = WorkspaceState(
+            localNotificationCenter: gate,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        // Arm the gate so the next settings load suspends inside refreshNotificationAuthorizationStatus().
+        gate.gateEnabled = true
+        async let inflight: Void = state.loadSettingsData()
+
+        // Spin the main actor until the suspended load has set the spinner and reached the gate.
+        while !(state.isLoadingSettings && gate.didReachGate) {
+            await Task.yield()
+        }
+        #expect(state.isLoadingSettings)
+
+        // Clear the active account with no replacement load — the no-active-account branch of
+        // loadSettingsData() runs synchronously, cancels the in-flight task, and resets to defaults.
+        state.activeAccountId = nil
+        await state.loadSettingsData()
+
+        // The spinner must already be cleared by the reset path, even before the stale load resumes.
+        #expect(state.isLoadingSettings == false)
+
+        // Release the gate so the stale load resumes; its defer must see the bumped generation and
+        // leave the (already-false) spinner untouched rather than resurrecting it.
+        gate.releaseGate()
+        _ = await inflight
+
+        #expect(state.isLoadingSettings == false)
+    }
+
+    @MainActor
     @Test func settingsLoadShowsNotificationPreference() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -4470,6 +4571,11 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
+    /// Number of times `userProfile` was queried — used to assert settings-load coalescing
+    /// (issue #4 regression): overlapping `loadSettingsData()` calls for the same account must
+    /// not duplicate the per-account profile fetch.
+    private(set) var userProfileCallCount = 0
+    private(set) var accountRelayListsCallCount = 0
     /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
     /// through the incremental per-row path (issue #40 regression).
     private(set) var groupDetailsCallCounts: [String: Int] = [:]
@@ -4548,6 +4654,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi? {
+        userProfileCallCount += 1
         guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
         return profilesByAccountId[accountIdHex] ?? profile
     }
@@ -4712,7 +4819,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
-        relayLists
+        accountRelayListsCallCount += 1
+        return relayLists
     }
 
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi] {
@@ -5477,6 +5585,44 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
 
     func simulateResponse(_ userInfo: [String: String]) {
         responseHandler?(userInfo)
+    }
+}
+
+/// A notification center whose `authorizationStatus()` can be suspended on demand, used to hold a
+/// settings load at its `await refreshNotificationAuthorizationStatus()` point so a test can mutate
+/// state (e.g. clear the active account) before the load resumes. Issue #4 regression support.
+@MainActor
+private final class GatedLocalNotificationCenter: LocalNotificationCenter {
+    /// When false, `authorizationStatus()` returns immediately (e.g. during `bootstrap()`); when
+    /// true, it suspends on the first call until `releaseGate()` is invoked.
+    var gateEnabled = false
+    private(set) var didReachGate = false
+    private var gateContinuation: CheckedContinuation<Void, Never>?
+    private var responseHandler: (@MainActor ([String: String]) -> Void)?
+
+    func authorizationStatus() async -> LocalNotificationAuthorizationStatus {
+        if gateEnabled {
+            didReachGate = true
+            await withCheckedContinuation { continuation in
+                gateContinuation = continuation
+            }
+        }
+        return .authorized
+    }
+
+    func releaseGate() {
+        gateContinuation?.resume()
+        gateContinuation = nil
+    }
+
+    func requestAuthorization() async throws -> LocalNotificationAuthorizationStatus {
+        .authorized
+    }
+
+    func post(_ notification: LocalNotificationRequest) async throws {}
+
+    func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {
+        responseHandler = handler
     }
 }
 
