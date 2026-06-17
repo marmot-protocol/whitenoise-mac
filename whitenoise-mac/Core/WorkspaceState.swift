@@ -292,6 +292,22 @@ final class WorkspaceState {
     /// are process-monotonic and never reused, so a stale canceled task can never match a future
     /// task's token and drop its tracking slot. See `ChatListRowEnrichmentTracker`.
     private var chatListRowEnrichment = ChatListRowEnrichmentTracker()
+    /// Single-owner coalescing for the aggregate settings load (issue #4). `loadSettingsData()`
+    /// is invoked from more than one entry point — the settings view's `.task(id: activeAccountId)`
+    /// and explicit reloads (e.g. after removing the active account) — which can otherwise issue
+    /// overlapping profile / relay / notification / privacy fetches for the same account. The
+    /// in-flight task is tracked here keyed by `settingsLoadAccountId`: a concurrent request for the
+    /// same account awaits the existing task (coalesces) instead of starting a duplicate, and a
+    /// request for a different account cancels the now-stale load so it cannot clobber fresher state.
+    private var settingsLoadTask: Task<Void, Never>?
+    private var settingsLoadAccountId: String?
+    /// Monotonic token identifying the most recently started settings load. `performSettingsLoad`
+    /// captures the value at launch and only clears `isLoadingSettings` in its `defer` if it is
+    /// still the current generation — i.e. no newer load has superseded it. This distinguishes
+    /// "superseded by a newer load" (must NOT dismiss the spinner the newer load owns) from
+    /// "cancelled with no replacement" (the active account was cleared, so the spinner MUST be
+    /// dismissed instead of left stuck). See `loadSettingsData` / issue #4.
+    private var settingsLoadGeneration: UInt64 = 0
     private var timelineTask: Task<Void, Never>?
     private var timelineTaskGroupId: String?
     /// The live timeline subscription for the open conversation. It owns the
@@ -829,8 +845,32 @@ final class WorkspaceState {
         }
     }
 
+    /// Loads the aggregate settings snapshot (profile, relays, notifications, privacy/security)
+    /// for the active account.
+    ///
+    /// Settings loading is driven from more than one entry point — the settings view's
+    /// `.task(id: workspace.activeAccountId)` and explicit reloads after account mutations (e.g.
+    /// `removeAccount`, which changes `activeAccountId` *and* calls this directly). Without
+    /// coalescing those paths can issue two overlapping loads for the same account, doubling the
+    /// profile/relay/notification/privacy work and racing each other to write UI state. This
+    /// method therefore enforces a single owner per account:
+    ///
+    /// - A concurrent call for the account already loading awaits the in-flight task (coalesces)
+    ///   instead of starting a duplicate.
+    /// - A call for a *different* account cancels the now-stale load — and the stale task, on
+    ///   resuming, sees `activeAccountId` no longer matches and abandons its writes — so a slower
+    ///   older load can never clobber the fresher account's UI state.
     func loadSettingsData() async {
-        guard let client, let activeAccount else {
+        guard let activeAccount else {
+            // No active account: cancel any in-flight load and reset to defaults synchronously.
+            // The cancelled task may be suspended mid-flight; its `defer` will see a newer
+            // generation (bumped below) and decline to touch `isLoadingSettings`, so this path
+            // owns clearing the spinner — otherwise it would stay stuck `true` forever (issue #4).
+            settingsLoadTask?.cancel()
+            settingsLoadTask = nil
+            settingsLoadAccountId = nil
+            settingsLoadGeneration &+= 1
+            isLoadingSettings = false
             profileDraft = ProfileDraft()
             relaySettings = .defaults
             relayDraft = relaySettings.relays(for: selectedRelaySection)
@@ -840,8 +880,55 @@ final class WorkspaceState {
             return
         }
 
+        let accountId = activeAccount.id
+
+        // Coalesce: a request for the account already loading joins the in-flight task.
+        if let existing = settingsLoadTask, settingsLoadAccountId == accountId {
+            await existing.value
+            return
+        }
+
+        // A request for a different account supersedes the stale in-flight load.
+        settingsLoadTask?.cancel()
+
+        settingsLoadGeneration &+= 1
+        let generation = settingsLoadGeneration
+        let task = Task { [weak self] in
+            await self?.performSettingsLoad(accountId: accountId, generation: generation)
+        }
+        settingsLoadTask = task
+        settingsLoadAccountId = accountId
+
+        await task.value
+
+        // Only clear ownership if no newer load has since taken over this slot.
+        if settingsLoadTask == task {
+            settingsLoadTask = nil
+            settingsLoadAccountId = nil
+        }
+    }
+
+    /// Performs the actual settings fetches for `accountId`. Guarded so that if the active account
+    /// changes (or the task is canceled) mid-flight, no stale results are written to the UI.
+    ///
+    /// `generation` is the monotonic token assigned when this load was started. The `defer` clears
+    /// `isLoadingSettings` only while this is still the current generation. If a newer load has
+    /// since superseded this one, that newer load owns the spinner and we must not dismiss it; if
+    /// instead the load was cancelled with no replacement (active account cleared), the
+    /// no-active-account branch in `loadSettingsData()` has already cleared the spinner. Keying on
+    /// the generation rather than `activeAccountId` also handles a rapid A→B→A switch, where the
+    /// account id alone would spuriously match.
+    private func performSettingsLoad(accountId: String, generation: UInt64) async {
+        guard let client, let activeAccount, activeAccount.id == accountId else { return }
+
         isLoadingSettings = true
-        defer { isLoadingSettings = false }
+        defer {
+            // Only the still-current owner clears the loading flag, so a superseded stale load
+            // cannot prematurely dismiss the spinner for the newer account's load.
+            if settingsLoadGeneration == generation {
+                isLoadingSettings = false
+            }
+        }
 
         do {
             let profile = try client.userProfile(accountIdHex: activeAccount.accountIdHex)
@@ -869,6 +956,8 @@ final class WorkspaceState {
         }
 
         await refreshNotificationAuthorizationStatus()
+        // The active account may have changed during the await above; abandon stale writes.
+        guard !Task.isCancelled, activeAccountId == accountId else { return }
         loadNotificationSettings()
         await loadPrivacySecuritySettings()
     }
