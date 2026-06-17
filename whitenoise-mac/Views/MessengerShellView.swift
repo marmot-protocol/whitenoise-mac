@@ -3408,8 +3408,24 @@ private enum AvatarPalette {
     ]
 
     static func gradient(for seed: String) -> LinearGradient {
-        let index = abs(seed.hashValue) % palettes.count
+        // Use a deterministic hash so a given seed always maps to the same
+        // palette across launches. `String.hashValue` is seeded with
+        // per-process randomness (unstable colors) and `abs(_:)` traps on
+        // `Int.min`; an unsigned FNV-1a over the UTF-8 bytes avoids both.
+        let index = Int(stableHash(seed) % UInt64(palettes.count))
         return LinearGradient(colors: palettes[index], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// FNV-1a (64-bit) over the seed's UTF-8 bytes. Deterministic across
+    /// launches and overflow-safe via wrapping arithmetic.
+    private static func stableHash(_ seed: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
+        let prime: UInt64 = 0x0000_0100_0000_01b3 // FNV prime
+        for byte in seed.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* prime
+        }
+        return hash
     }
 }
 
