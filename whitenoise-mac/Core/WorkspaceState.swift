@@ -969,7 +969,7 @@ final class WorkspaceState {
         let url = newRelayURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
         guard isRelayURL(url) else {
-            lastError = L10n.string("Relay URLs must start with ws:// or wss://")
+            lastError = L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
             return
         }
         if !relayDraft.contains(url) {
@@ -995,7 +995,7 @@ final class WorkspaceState {
             return
         }
         guard relays.allSatisfy(isRelayURL) else {
-            lastError = L10n.string("Relay URLs must start with ws:// or wss://")
+            lastError = L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
             return
         }
 
@@ -3055,7 +3055,13 @@ final class WorkspaceState {
     }
 
     private func isRelayURL(_ value: String) -> Bool {
-        value.hasPrefix("wss://") || value.hasPrefix("ws://")
+        RelayURLValidator.isAcceptable(value)
+    }
+
+    /// Whether a saved relay uses cleartext `ws://` transport (loopback dev relay)
+    /// and should be surfaced as insecure in the UI.
+    func isInsecureRelay(_ value: String) -> Bool {
+        RelayURLValidator.isInsecure(value)
     }
 
     private func looksLikeMemberRef(_ value: String) -> Bool {

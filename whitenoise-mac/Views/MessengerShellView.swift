@@ -3029,7 +3029,7 @@ private struct RelaySettingsView: View {
                         .frame(minHeight: 160)
                 } else {
                     ForEach(workspace.relayDraft, id: \.self) { relay in
-                        RelayRow(url: relay) {
+                        RelayRow(url: relay, isInsecure: workspace.isInsecureRelay(relay)) {
                             workspace.removeRelayDraftURL(relay)
                         }
                     }
@@ -3291,18 +3291,28 @@ private struct KeyPackageRow: View {
 
 private struct RelayRow: View {
     let url: String
+    var isInsecure: Bool = false
     let remove: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "network")
+            Image(systemName: isInsecure ? "lock.open.trianglebadge.exclamationmark" : "network")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isInsecure ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .frame(width: 20)
+                .help(isInsecure ? L10n.string("Insecure cleartext relay (ws://). Relay metadata is not encrypted in transit.") : "")
 
-            Text(url)
-                .font(.system(.callout, design: .monospaced))
-                .textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(url)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+
+                if isInsecure {
+                    Text("Insecure — cleartext ws:// (loopback only)")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
 
             Spacer()
 
