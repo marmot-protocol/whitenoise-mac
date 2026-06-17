@@ -3058,10 +3058,11 @@ final class WorkspaceState {
         RelayURLValidator.isAcceptable(value)
     }
 
-    /// Whether a saved relay uses cleartext `ws://` transport (loopback dev relay)
-    /// and should be surfaced as insecure in the UI.
+    /// Whether a saved relay uses cleartext `ws://` transport (loopback dev
+    /// relay, or a pre-existing public `ws://` relay that loaded from a saved
+    /// relay list) and should be surfaced as insecure in the UI.
     func isInsecureRelay(_ value: String) -> Bool {
-        RelayURLValidator.isInsecure(value)
+        RelayURLValidator.isCleartext(value)
     }
 
     private func looksLikeMemberRef(_ value: String) -> Bool {

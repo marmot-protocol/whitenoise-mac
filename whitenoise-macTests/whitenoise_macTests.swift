@@ -4210,11 +4210,27 @@ struct whitenoise_macTests {
     }
 
     @Test func relayValidatorRejectsNonRelaySchemesAndJunk() async throws {
-        for url in ["", "   ", "https://relay.example.com", "relay.example.com", "wssx://foo", " wss://relay.example.com"] {
+        for url in ["", "   ", "https://relay.example.com", "relay.example.com", "wssx://foo", "ws://"] {
             #expect(!RelayURLValidator.isAcceptable(url), "expected rejection for \(String(reflecting: url))")
         }
-        // Leading/trailing whitespace is trimmed before classification.
+        // Leading/trailing whitespace is trimmed before classification, so a
+        // surrounded wss:// relay is still accepted as secure.
         #expect(RelayURLValidator.classify("  wss://relay.example.com  ") == .secure)
+        #expect(RelayURLValidator.isAcceptable(" wss://relay.example.com "))
+    }
+
+    @Test func relayValidatorFlagsAllCleartextWsAsInsecureForUI() async throws {
+        // Loopback dev relays are cleartext.
+        #expect(RelayURLValidator.isCleartext("ws://127.0.0.1:7000"))
+        #expect(RelayURLValidator.isCleartext("ws://localhost"))
+        // Pre-existing public ws:// relays loaded from a saved list are also
+        // cleartext and must be flagged, even though they cannot be saved again.
+        #expect(RelayURLValidator.isCleartext("ws://relay.example.com"))
+        #expect(RelayURLValidator.isCleartext("ws://192.168.1.10:7777"))
+        // wss:// and junk are not cleartext.
+        #expect(!RelayURLValidator.isCleartext("wss://relay.example.com"))
+        #expect(!RelayURLValidator.isCleartext("https://relay.example.com"))
+        #expect(!RelayURLValidator.isCleartext(""))
     }
 
     @Test func relayValidatorRejectsSpoofedLoopbackHosts() async throws {

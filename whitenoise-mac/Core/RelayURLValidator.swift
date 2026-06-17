@@ -38,6 +38,20 @@ enum RelayURLValidator {
         var isInsecure: Bool {
             self == .insecureLoopback
         }
+
+        /// Whether a relay with this classification uses cleartext `ws://`
+        /// transport of any kind — loopback dev relays *and* rejected public
+        /// relays. The UI uses this to mark every non-`wss://` relay as
+        /// insecure, including pre-existing public `ws://` entries that loaded
+        /// from a saved relay list and would be rejected on the next save.
+        var isCleartext: Bool {
+            switch self {
+            case .insecureLoopback, .insecureRejected:
+                return true
+            case .secure, .invalid:
+                return false
+            }
+        }
     }
 
     /// Classifies a trimmed relay URL string.
@@ -65,6 +79,13 @@ enum RelayURLValidator {
     /// Whether the relay URL is cleartext and should be flagged as insecure in the UI.
     static func isInsecure(_ value: String) -> Bool {
         classify(value).isInsecure
+    }
+
+    /// Whether the relay URL uses cleartext `ws://` transport (loopback dev
+    /// relay or a non-loopback public relay). The UI flags all of these as
+    /// insecure so pre-existing public `ws://` entries are visibly marked.
+    static func isCleartext(_ value: String) -> Bool {
+        classify(value).isCleartext
     }
 
     /// Extracts the host from a `ws://` URL and checks whether it is a loopback address.
