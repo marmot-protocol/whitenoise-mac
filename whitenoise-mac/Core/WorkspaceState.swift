@@ -166,6 +166,16 @@ final class WorkspaceState {
     var streamingDebugEnabled: Bool {
         developerMode && streamingDebugMode
     }
+    /// When false (the default), profile/avatar pictures from untrusted peer metadata are NOT
+    /// fetched from their remote URLs; a generated avatar is shown instead. This prevents an
+    /// arbitrary sender from learning the viewer's IP address / online status simply by putting
+    /// a `picture` URL in front of them (a tracking-pixel vector). The user opts in explicitly
+    /// in Privacy & Security settings.
+    var loadRemoteImages: Bool {
+        didSet {
+            UserDefaults.standard.set(loadRemoteImages, forKey: Self.loadRemoteImagesKey)
+        }
+    }
     var appearancePreference: AppearancePreference {
         didSet {
             UserDefaults.standard.set(appearancePreference.rawValue, forKey: Self.appearancePreferenceKey)
@@ -312,6 +322,7 @@ final class WorkspaceState {
     private static let streamingDebugModeKey = "whitenoise.mac.streamingDebugMode"
     private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
     private static let notificationPreviewModeKey = "whitenoise.mac.notificationPreviewMode"
+    private static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
     private static let deliveredNotificationKeyLimit = 256
     private static let timelinePageLimit: UInt32 = 100
 
@@ -376,6 +387,9 @@ final class WorkspaceState {
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
+        // Defaults to false: bool(forKey:) returns false when the key is absent, which is the
+        // privacy-preserving default (remote peer images are not fetched until the user opts in).
+        self.loadRemoteImages = UserDefaults.standard.bool(forKey: Self.loadRemoteImagesKey)
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearancePreferenceKey)
         self.appearancePreference = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
         let storedPreviewMode = UserDefaults.standard.string(forKey: Self.notificationPreviewModeKey)
