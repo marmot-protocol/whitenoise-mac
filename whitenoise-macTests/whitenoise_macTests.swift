@@ -3864,6 +3864,105 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func notificationListenerRestartsWhenStreamEnds() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationStreamEndsImmediately = true
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didRestart = await waitFor {
+            runtime.notificationSubscriptionCount >= 2
+        }
+
+        #expect(didRestart)
+    }
+
+    @MainActor
+    @Test func chatListListenerRestartsWhenUpdateStreamEnds() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.chatListStreamEndsAfterUpdates = true
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didRestart = await waitFor {
+            runtime.chatListSubscriptionCount >= 2
+        }
+
+        #expect(didRestart)
+    }
+
+    @MainActor
+    @Test func timelineListenerRestartsWhenLiveStreamEndsForSelectedChat() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "initial",
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Initial message",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            )
+        ], groupIdHex: "direct-group")
+        runtime.timelineStreamEndsAfterUpdates = true
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didRestart = await waitFor {
+            runtime.timelineSubscriptionCount >= 2
+        }
+
+        #expect(didRestart)
+    }
+
+    @MainActor
     @Test func notificationDeliveryFailureRoutesToBackgroundStatusNotLastError() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -4688,8 +4787,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// through the incremental per-row path (issue #40 regression).
     private(set) var groupDetailsCallCounts: [String: Int] = [:]
     private(set) var chatListSubscriptionCount = 0
+    private(set) var notificationSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
     private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
+    var chatListStreamEndsAfterUpdates = false
+    var notificationStreamEndsImmediately = false
+    var timelineStreamEndsAfterUpdates = false
     private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     var accountIdsMissingProfiles = Set<String>()
@@ -5247,7 +5350,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         chatListSubscriptionCount += 1
         return FakeChatListSubscription(
             rows: chatListRows(includeArchived: includeArchived),
-            updates: chatListUpdates
+            updates: chatListUpdates,
+            endsWhenExhausted: chatListStreamEndsAfterUpdates
         )
     }
 
@@ -5314,10 +5418,11 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
+        notificationSubscriptionCount += 1
         if let subscribeNotificationsError {
             throw subscribeNotificationsError
         }
-        return FakeNotificationsSubscription()
+        return FakeNotificationsSubscription(endsImmediately: notificationStreamEndsImmediately)
     }
 
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
@@ -5352,7 +5457,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             limit: Int(limit ?? 100),
             windowCap: 200,
             updates: groupIdHex.flatMap { timelineUpdatesByGroupId[$0] } ?? [],
-            updateDelayNanoseconds: timelineUpdateDelayNanoseconds
+            updateDelayNanoseconds: timelineUpdateDelayNanoseconds,
+            endsWhenExhausted: timelineStreamEndsAfterUpdates
         )
         lastTimelineSubscription = subscription
         return subscription
@@ -5458,19 +5564,37 @@ private struct ArchivedGroup: Equatable {
     let archived: Bool
 }
 
+private func awaitSubscriptionCancellation<T>() async -> T? {
+    while !Task.isCancelled {
+        do {
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+        } catch {
+            break
+        }
+    }
+    return nil
+}
+
 private final class FakeChatListSubscription: ChatListSubscription {
     private let rows: [ChatListRowFfi]
     private var updates: [ChatListSubscriptionUpdateFfi]
+    private let endsWhenExhausted: Bool
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.rows = []
         self.updates = []
+        self.endsWhenExhausted = true
         super.init(unsafeFromRawPointer: pointer)
     }
 
-    init(rows: [ChatListRowFfi], updates: [ChatListSubscriptionUpdateFfi] = []) {
+    init(
+        rows: [ChatListRowFfi],
+        updates: [ChatListSubscriptionUpdateFfi] = [],
+        endsWhenExhausted: Bool = false
+    ) {
         self.rows = rows
         self.updates = updates
+        self.endsWhenExhausted = endsWhenExhausted
         super.init(noPointer: NoPointer())
     }
 
@@ -5479,11 +5603,15 @@ private final class FakeChatListSubscription: ChatListSubscription {
     }
 
     override func next() async -> ChatListRowFfi? {
-        nil
+        if endsWhenExhausted { return nil }
+        return await awaitSubscriptionCancellation()
     }
 
     override func nextUpdate() async -> ChatListSubscriptionUpdateFfi? {
-        guard !updates.isEmpty else { return nil }
+        guard !updates.isEmpty else {
+            if endsWhenExhausted { return nil }
+            return await awaitSubscriptionCancellation()
+        }
         return updates.removeFirst()
     }
 }
@@ -5501,6 +5629,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     private var hi: Int
     private var updates: [TimelineSubscriptionUpdateFfi]
     private let updateDelayNanoseconds: UInt64
+    private let endsWhenExhausted: Bool
     private(set) var paginateBackwardsCount = 0
     private(set) var paginateForwardsCount = 0
 
@@ -5512,6 +5641,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         self.hi = 0
         self.updates = []
         self.updateDelayNanoseconds = 0
+        self.endsWhenExhausted = true
         super.init(unsafeFromRawPointer: pointer)
     }
 
@@ -5520,7 +5650,8 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         limit: Int,
         windowCap: Int,
         updates: [TimelineSubscriptionUpdateFfi] = [],
-        updateDelayNanoseconds: UInt64 = 0
+        updateDelayNanoseconds: UInt64 = 0,
+        endsWhenExhausted: Bool = false
     ) {
         var page = TimelinePageFfi(messages: messages, hasMoreBefore: false, hasMoreAfter: false)
         page.sortCanonical()
@@ -5531,6 +5662,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         self.lo = max(0, page.messages.count - max(1, limit))
         self.updates = updates
         self.updateDelayNanoseconds = updateDelayNanoseconds
+        self.endsWhenExhausted = endsWhenExhausted
         super.init(noPointer: NoPointer())
     }
 
@@ -5564,7 +5696,10 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     }
 
     override func next() async -> TimelinePageFfi? {
-        guard !updates.isEmpty else { return nil }
+        guard !updates.isEmpty else {
+            if endsWhenExhausted { return nil }
+            return await awaitSubscriptionCancellation()
+        }
         if updateDelayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
         }
@@ -5599,7 +5734,10 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     }
 
     override func nextUpdate() async -> TimelineSubscriptionUpdateFfi? {
-        guard !updates.isEmpty else { return nil }
+        guard !updates.isEmpty else {
+            if endsWhenExhausted { return nil }
+            return await awaitSubscriptionCancellation()
+        }
         if updateDelayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
         }
@@ -5735,16 +5873,21 @@ private final class GatedLocalNotificationCenter: LocalNotificationCenter {
 }
 
 private final class FakeNotificationsSubscription: NotificationsSubscription {
+    private let endsImmediately: Bool
+
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.endsImmediately = true
         super.init(unsafeFromRawPointer: pointer)
     }
 
-    init() {
+    init(endsImmediately: Bool = false) {
+        self.endsImmediately = endsImmediately
         super.init(noPointer: NoPointer())
     }
 
     override func next() async -> NotificationUpdateFfi? {
-        nil
+        if endsImmediately { return nil }
+        return await awaitSubscriptionCancellation()
     }
 }
 
