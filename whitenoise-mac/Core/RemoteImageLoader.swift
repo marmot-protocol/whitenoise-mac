@@ -205,6 +205,8 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
     private let lock = NSLock()
     private var collector: CappedDataCollector
     private var continuation: CheckedContinuation<Data?, Never>?
+    private var task: URLSessionDataTask?
+    private var cancelled = false
     private var finished = false
 
     init(cap: Int64) {
@@ -213,12 +215,40 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
     }
 
     func download(_ url: URL, using session: URLSession) async -> Data? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
-            lock.lock()
-            self.continuation = continuation
-            lock.unlock()
-            session.dataTask(with: url).resume()
+        // Propagate Swift task cancellation to the underlying network request. The
+        // `DownsampledAsyncImage` call site runs this inside a `.task(id:)`, which cancels the
+        // awaiting task whenever the row's URL/size identity changes (scrolling, navigation);
+        // without this the request would keep running and buffering until it completed or timed
+        // out. (The native `URLSession.bytes(from:)` API we replaced did this automatically.)
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+                lock.lock()
+                if cancelled {
+                    lock.unlock()
+                    continuation.resume(returning: nil)
+                    return
+                }
+                self.continuation = continuation
+                let task = session.dataTask(with: url)
+                self.task = task
+                lock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            cancel()
         }
+    }
+
+    /// Cancels the in-flight data task (if any) and resolves the awaiting continuation with
+    /// `nil`. Safe to call before the task is created (the `cancelled` flag short-circuits
+    /// `download`) and idempotent (later calls are no-ops once `finished`).
+    private func cancel() {
+        lock.lock()
+        cancelled = true
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
+        finish(with: nil)
     }
 
     /// Resumes the awaiting continuation exactly once; later calls are ignored. (A cap abort
@@ -230,6 +260,26 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
         self.continuation = nil
         lock.unlock()
         continuation.resume(returning: result)
+    }
+
+    /// Re-validate redirect targets against the privacy policy. `URLSession` follows redirects
+    /// automatically by default, so without this an allowed `https://` avatar could 3xx-redirect
+    /// to `http://` (or another disallowed scheme/host), defeating the HTTPS-only,
+    /// IP-leak-limiting `RemoteImageURLPolicy` check applied to the original URL.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else {
+            completionHandler(nil)
+            task.cancel()
+            finish(with: nil)
+            return
+        }
+        completionHandler(request)
     }
 
     func urlSession(
