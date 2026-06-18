@@ -4452,6 +4452,175 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func notificationResponseAccountSwitchRefreshesObservabilityAccountLabel() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
+
+        let primary = AccountSummaryFfi(
+            label: "primary-account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "secondary-account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.installProfile(
+            accountIdHex: primary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "primary",
+                displayName: "Primary Account",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: secondary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "secondary",
+                displayName: "Secondary Account",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(
+                    telemetryToken: "otlp-token",
+                    auditToken: "audit-token",
+                    environment: "production"
+                )
+            },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Primary Account")
+
+        // accountIdHex is the canonical account identifier; accountRef/label can be stale if
+        // the account was renamed after the notification was delivered.
+        state.handleNotificationResponse([
+            "groupIdHex": "direct-group",
+            "accountIdHex": secondary.accountIdHex,
+            "accountRef": primary.label
+        ])
+        let didRefreshAccountLabel = await waitFor {
+            runtime.auditLogTrackerConfig?.source.accountLabel == "Secondary Account"
+        }
+
+        #expect(didRefreshAccountLabel)
+        #expect(runtime.telemetryInstallIdCallCount == 1)
+        #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
+        #expect(runtime.auditLogTrackerConfigSetCallCount == 2)
+    }
+
+    @MainActor
+    @Test func notificationResponseAccountSwitchClearsPeerProfileFFICache() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
+
+        let primary = AccountSummaryFfi(
+            label: "primary-account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "secondary-account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            running: true
+        )
+        let senderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.installProfile(
+            accountIdHex: primary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "primary",
+                displayName: "Primary Account",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: secondary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "secondary",
+                displayName: "Secondary Account",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: primary.accountIdHex,
+            otherAccountIdHex: senderId,
+            otherDisplayName: "Group Alias",
+            otherProfile: UserProfileMetadataFfi(
+                name: "sender-primary",
+                displayName: "Primary Alias",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages([
+            appMessage(
+                id: "initial",
+                groupIdHex: "direct-group",
+                sender: senderId,
+                plaintext: "Initial message",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            )
+        ], groupIdHex: "direct-group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Primary Alias")
+        let baselineProfileCalls = runtime.userProfileCallCount
+
+        runtime.installProfile(
+            accountIdHex: senderId,
+            profile: UserProfileMetadataFfi(
+                name: "sender-secondary",
+                displayName: "Secondary Alias",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+
+        state.handleNotificationResponse([
+            "groupIdHex": "direct-group",
+            "accountIdHex": secondary.accountIdHex,
+            "accountRef": secondary.label
+        ])
+        let didResolveWithSecondaryProfile = await waitFor {
+            state.messagesByChat["direct-group"]?.first?.senderName == "Secondary Alias"
+        }
+
+        #expect(didResolveWithSecondaryProfile)
+        #expect(runtime.userProfileCallCount > baselineProfileCalls)
+    }
+
+    @MainActor
     @Test func enablingPrivacySecurityTogglesRequireConfiguredTokens() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
