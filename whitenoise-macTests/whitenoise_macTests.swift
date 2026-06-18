@@ -2578,7 +2578,8 @@ struct whitenoise_macTests {
     @MainActor
     @Test func copyingMessageTextUsesConfiguredClipboardWriter() async throws {
         var copiedText = ""
-        let state = WorkspaceState(copyTextHandler: { copiedText = $0 })
+        var copiedConcealed = false
+        let state = WorkspaceState(copyTextHandler: { copiedText = $0; copiedConcealed = $1 })
 
         state.copyText(of: MessageItem(
             id: "message",
@@ -2589,12 +2590,25 @@ struct whitenoise_macTests {
         ))
 
         #expect(copiedText == "Copy this")
+        // Decrypted message bodies are private content and must be marked concealed so
+        // clipboard managers / Universal Clipboard treat them as transient.
+        #expect(copiedConcealed)
+    }
+
+    @MainActor
+    @Test func copyingTextDefaultsToConcealed() async throws {
+        var copiedConcealed = false
+        let state = WorkspaceState(copyTextHandler: { _, concealed in copiedConcealed = concealed })
+
+        state.copyText("anything-copied-from-this-app")
+
+        #expect(copiedConcealed)
     }
 
     @MainActor
     @Test func deletedAndFailedMessageTextDoesNotCopyPlaceholder() async throws {
         var copiedText = "initial"
-        let state = WorkspaceState(copyTextHandler: { copiedText = $0 })
+        let state = WorkspaceState(copyTextHandler: { text, _ in copiedText = text })
         let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
 
         state.copyText(of: MessageItem(
@@ -2620,7 +2634,7 @@ struct whitenoise_macTests {
     @MainActor
     @Test func copyingPlainSettingsTextUsesConfiguredClipboardWriter() async throws {
         var copiedText = ""
-        let state = WorkspaceState(copyTextHandler: { copiedText = $0 })
+        let state = WorkspaceState(copyTextHandler: { text, _ in copiedText = text })
 
         state.copyText("public-key-value")
 
@@ -3256,7 +3270,7 @@ struct whitenoise_macTests {
 
         var copiedText = ""
         let state = WorkspaceState(
-            copyTextHandler: { copiedText = $0 },
+            copyTextHandler: { text, _ in copiedText = text },
             clientFactory: { runtime }
         )
 

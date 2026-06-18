@@ -284,7 +284,7 @@ final class WorkspaceState {
     private let localNotificationCenter: any LocalNotificationCenter
     private let appActivityProvider: @MainActor () -> Bool
     private let conversationWindowVisibilityProvider: @MainActor () -> Bool
-    private let copyTextHandler: @MainActor (String) -> Void
+    private let copyTextHandler: @MainActor (String, Bool) -> Void
     private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     private let groupImageSearchClient: any GroupImageSearchClient
     /// Injectable clock for peer-profile cache TTL decisions, so tests can drive cache
@@ -453,7 +453,7 @@ final class WorkspaceState {
         conversationWindowVisibilityProvider: @escaping @MainActor () -> Bool = {
             WorkspaceState.defaultConversationWindowVisibilityProvider()
         },
-        copyTextHandler: @escaping @MainActor (String) -> Void = WorkspaceState.copyToGeneralPasteboard,
+        copyTextHandler: @escaping @MainActor (String, Bool) -> Void = WorkspaceState.copyToGeneralPasteboard,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = { TelemetryBuildConfig.current() },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
@@ -1566,8 +1566,16 @@ final class WorkspaceState {
         copyText(message.body)
     }
 
-    func copyText(_ text: String) {
-        copyTextHandler(text)
+    /// Copies `text` to the system pasteboard.
+    ///
+    /// Every value copied from this app is private-messenger content — decrypted message
+    /// bodies, full conversation transcripts, and Nostr identity keys — so copies default to
+    /// `concealed`. A concealed copy additionally carries the `org.nspasteboard.ConcealedType`
+    /// marker (see `copyToGeneralPasteboard`), which clipboard-history managers honor to avoid
+    /// persisting the value and which discourages Universal Clipboard (Handoff) from syncing it
+    /// to the user's other devices.
+    func copyText(_ text: String, concealed: Bool = true) {
+        copyTextHandler(text, concealed)
     }
 
     /// The bech32 `npub` form of a hex public key — the canonical, user-facing way to show
@@ -2224,9 +2232,20 @@ final class WorkspaceState {
         phase = .onboarding
     }
 
-    private static func copyToGeneralPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+    /// The community-convention pasteboard type (https://nspasteboard.org) that privacy-aware
+    /// clipboard managers check for to treat an item as transient: they skip persisting it to
+    /// clipboard history, and it also discourages Universal Clipboard / Handoff from broadcasting
+    /// the item to the user's other Apple devices.
+    static let concealedPasteboardType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+
+    private static func copyToGeneralPasteboard(_ text: String, concealed: Bool) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        if concealed {
+            // Non-destructive: apps that don't recognise the concealed type still read `.string`.
+            pasteboard.setString(text, forType: Self.concealedPasteboardType)
+        }
     }
 
     private var telemetryBuildConfig: TelemetryBuildConfig {
