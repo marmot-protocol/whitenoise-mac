@@ -3548,6 +3548,50 @@ struct whitenoise_macTests {
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https:///nohost")!))
     }
 
+    @Test func remoteImageCollectorReturnsAllBytesUnderCap() async throws {
+        // Several chunks spanning typical OS delivery sizes should round-trip byte-for-byte.
+        let chunkSize = 64 * 1024
+        let payload = (0..<(chunkSize * 2 + 123)).map { UInt8($0 & 0xFF) }
+        var collector = CappedDataCollector(cap: Int64(payload.count) + 1)
+        // Feed the payload in chunks the way URLSession would deliver it.
+        var offset = 0
+        while offset < payload.count {
+            let end = min(offset + chunkSize, payload.count)
+            #expect(collector.append(Data(payload[offset..<end])))
+            offset = end
+        }
+        #expect(!collector.exceededCap)
+        #expect(Array(collector.data) == payload)
+    }
+
+    @Test func remoteImageCollectorAcceptsExactlyCapBytes() async throws {
+        // Exactly `cap` bytes is allowed (the check rejects only when total exceeds cap).
+        let payload = [UInt8](repeating: 0xAB, count: 64 * 1024 + 7)
+        var collector = CappedDataCollector(cap: Int64(payload.count))
+        #expect(collector.append(Data(payload)))
+        #expect(!collector.exceededCap)
+        #expect(collector.data.count == payload.count)
+    }
+
+    @Test func remoteImageCollectorRejectsOverCap() async throws {
+        // One byte past the cap aborts the download (unbounded-response protection): the
+        // over-cap chunk is rejected, the flag is set, and subsequent chunks are ignored.
+        let cap = 64 * 1024
+        var collector = CappedDataCollector(cap: Int64(cap))
+        #expect(collector.append(Data([UInt8](repeating: 0x01, count: cap))))
+        #expect(!collector.append(Data([0x02])))
+        #expect(collector.exceededCap)
+        // Further appends stay rejected and do not grow the buffer.
+        #expect(!collector.append(Data([0x03, 0x04])))
+        #expect(collector.data.count == cap)
+    }
+
+    @Test func remoteImageCollectorHandlesEmptyResponse() async throws {
+        let collector = CappedDataCollector(cap: 1024)
+        #expect(collector.data.isEmpty)
+        #expect(!collector.exceededCap)
+    }
+
     @Test func remoteImageSanitizedURLRejectsUntrustedInput() async throws {
         // nil / empty / whitespace-only -> nil (no request issued).
         #expect(RemoteImageURLPolicy.sanitizedURL(from: nil) == nil)
