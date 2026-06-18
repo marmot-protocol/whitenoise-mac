@@ -146,6 +146,12 @@ final class WorkspaceState {
     }
     var isRefreshing = false
     var isSending = false
+    /// Per-target reentrancy guards for message actions. `react`/`deleteMessage`
+    /// operate on arbitrary messages, so a single in-flight bool (like `isSending`)
+    /// would wrongly block acting on a *different* message. We key on the action's
+    /// target instead so only a duplicate of the *same* in-flight action is dropped.
+    private var inFlightReactionKeys = Set<String>()
+    private var inFlightDeleteMessageIds = Set<String>()
     var authenticationMode: AuthenticationMode = .landing
     var loginIdentity = ""
     var isAuthenticating = false
@@ -1590,6 +1596,12 @@ final class WorkspaceState {
     func react(to message: MessageItem, emoji: String) async {
         guard message.supportsChatActions else { return }
         guard let client, let activeAccount, let selectedChat else { return }
+        // Reentrancy guard: drop a duplicate of the *same* in-flight reaction
+        // (same target + emoji) while allowing a different emoji on the same message.
+        let reactionKey = "\(selectedChat.id)\u{1F}\(message.id)\u{1F}\(emoji)"
+        guard !inFlightReactionKeys.contains(reactionKey) else { return }
+        inFlightReactionKeys.insert(reactionKey)
+        defer { inFlightReactionKeys.remove(reactionKey) }
         do {
             _ = try await client.reactToMessage(
                 accountRef: activeAccount.accountRef,
@@ -1606,6 +1618,11 @@ final class WorkspaceState {
         guard message.supportsChatActions else { return }
         guard reaction.canRemoveOwnReaction, let reactionMessageId = reaction.ownReactionMessageId else { return }
         guard let client, let activeAccount, let selectedChat else { return }
+        // Reentrancy guard: the removal deletes the reaction event, so key on its id
+        // (shared namespace with `deleteMessage`) to drop a repeated in-flight removal.
+        guard !inFlightDeleteMessageIds.contains(reactionMessageId) else { return }
+        inFlightDeleteMessageIds.insert(reactionMessageId)
+        defer { inFlightDeleteMessageIds.remove(reactionMessageId) }
         do {
             _ = try await client.deleteMessage(
                 accountRef: activeAccount.accountRef,
@@ -1620,6 +1637,10 @@ final class WorkspaceState {
     func deleteMessage(_ message: MessageItem) async {
         guard message.canDelete else { return }
         guard let client, let activeAccount, let selectedChat else { return }
+        // Reentrancy guard: drop a repeated delete of the same in-flight message.
+        guard !inFlightDeleteMessageIds.contains(message.id) else { return }
+        inFlightDeleteMessageIds.insert(message.id)
+        defer { inFlightDeleteMessageIds.remove(message.id) }
         do {
             _ = try await client.deleteMessage(
                 accountRef: activeAccount.accountRef,
@@ -2044,7 +2065,12 @@ final class WorkspaceState {
 
     func sendDraft() async {
         let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let client, let activeAccount, let selectedChat, !text.isEmpty else { return }
+        // `!isSending` is the reentrancy guard: `isSending` flips synchronously here,
+        // but the model only suspends (and `draftText` is only cleared) at the `await`
+        // below. Without this guard a second invocation delivered before SwiftUI
+        // re-renders the disabled send button (⌘-Return auto-repeat, double events)
+        // would still observe the old `draftText` and re-send the same message.
+        guard let client, let activeAccount, let selectedChat, !text.isEmpty, !isSending else { return }
         isSending = true
         defer { isSending = false }
 

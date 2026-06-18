@@ -2472,6 +2472,171 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func sendDraftDropsOverlappingDuplicateInvocation() async throws {
+        // Issue #78: sendDraft() must guard against reentrancy. `isSending` flips synchronously,
+        // but the model only suspends (and draftText is only cleared) at the `await sendText(...)`.
+        // A second invocation delivered before SwiftUI re-renders the disabled send button
+        // (⌘-Return auto-repeat, double events) would otherwise observe the still-unchanged
+        // draftText and re-send the same message. Repro: hold the first send in-flight at the
+        // FFI gate, fire an overlapping second send, then release. Only one text must be sent.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.draftText = "only once"
+
+        // Arm the gate so the first send suspends inside sendText(); start it concurrently.
+        runtime.messageActionGateEnabled = true
+        async let firstSend: Void = state.sendDraft()
+
+        // Spin the main actor until the first send is in-flight (isSending set, FFI reached).
+        while !(state.isSending && runtime.didReachMessageActionGate) {
+            await Task.yield()
+        }
+
+        // Overlapping second invocation: it must hit the `!isSending` guard and return immediately.
+        await state.sendDraft()
+        #expect(runtime.sendTextCallCount == 1)
+
+        // Release the gate and let the first send finish.
+        runtime.releaseMessageActionGate()
+        await firstSend
+
+        #expect(runtime.sendTextCallCount == 1)
+        #expect(runtime.sentText == SentText(groupIdHex: "direct-group", text: "only once"))
+        #expect(state.draftText.isEmpty)
+        #expect(state.isSending == false)
+    }
+
+    @MainActor
+    @Test func reactDropsOverlappingDuplicateButAllowsDifferentEmoji() async throws {
+        // Issue #78: react(to:emoji:) must drop a duplicate of the *same* in-flight reaction
+        // (same target + emoji) while still allowing a different emoji on the same message.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let message = MessageItem(
+            id: "parent",
+            senderName: "Desktop Account",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: true
+        )
+
+        await state.bootstrap()
+
+        // Hold the first react in-flight at the FFI gate.
+        runtime.messageActionGateEnabled = true
+        async let firstReact: Void = state.react(to: message, emoji: "👍")
+        while !runtime.didReachMessageActionGate {
+            await Task.yield()
+        }
+
+        // Duplicate same-emoji react is dropped by the per-target guard.
+        await state.react(to: message, emoji: "👍")
+        #expect(runtime.reactToMessageCallCount == 1)
+
+        // A different emoji on the same message is a legitimate, distinct action and is allowed.
+        await state.react(to: message, emoji: "🎉")
+        #expect(runtime.reactToMessageCallCount == 2)
+
+        runtime.releaseMessageActionGate()
+        await firstReact
+
+        #expect(runtime.reactToMessageCallCount == 2)
+    }
+
+    @MainActor
+    @Test func deleteMessageDropsOverlappingDuplicateInvocation() async throws {
+        // Issue #78: deleteMessage(_:) must drop a repeated delete of the same in-flight message.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let message = MessageItem(
+            id: "parent",
+            senderName: "Desktop Account",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: true
+        )
+
+        await state.bootstrap()
+
+        runtime.messageActionGateEnabled = true
+        async let firstDelete: Void = state.deleteMessage(message)
+        while !runtime.didReachMessageActionGate {
+            await Task.yield()
+        }
+
+        // Overlapping repeated delete of the same message is dropped by the per-target guard.
+        await state.deleteMessage(message)
+        #expect(runtime.deleteMessageCallCount == 1)
+
+        runtime.releaseMessageActionGate()
+        await firstDelete
+
+        #expect(runtime.deleteMessageCallCount == 1)
+    }
+
+    @MainActor
     @Test func incomingMessageDeleteActionDoesNotPublishDeletion() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -5149,6 +5314,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var repliedMessage: SentReply?
     private(set) var reactedMessage: SentReaction?
     private(set) var deletedMessage: DeletedMessage?
+    private(set) var sentText: SentText?
+    // Issue #78 reentrancy-test support: count message-action FFI calls so a test can prove
+    // an overlapping duplicate was dropped by the WorkspaceState guard before reaching the runtime.
+    private(set) var sendTextCallCount = 0
+    private(set) var replyToMessageCallCount = 0
+    private(set) var reactToMessageCallCount = 0
+    private(set) var deleteMessageCallCount = 0
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
     private(set) var archivedGroup: ArchivedGroup?
@@ -5197,6 +5369,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// Simulates the async relay/runtime delay before the first timeline snapshot is available.
     var timelineSubscriptionDelayNanoseconds: UInt64 = 0
     var timelineUpdateDelayNanoseconds: UInt64 = 0
+    /// Issue #78 reentrancy-test support: when armed, the first message-action FFI call
+    /// (`sendText`/`replyToMessage`/`reactToMessage`/`deleteMessage`) suspends until
+    /// `releaseMessageActionGate()` is invoked, holding the first invocation in-flight so a
+    /// test can issue an overlapping second call and assert the WorkspaceState guard dropped it.
+    var messageActionGateEnabled = false
+    private(set) var didReachMessageActionGate = false
+    private var messageActionGateContinuation: CheckedContinuation<Void, Never>?
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
     private var groupDetailsById: [String: GroupDetailsFfi] = [:]
@@ -5909,22 +6088,46 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {
-        throw FakeMarmotRuntimeError.unused
+        sendTextCallCount += 1
+        sentText = SentText(groupIdHex: groupIdHex, text: text)
+        await passMessageActionGateIfArmed()
+        return SendSummaryFfi(published: 1, messageIds: ["text"])
     }
 
     func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws -> SendSummaryFfi {
+        replyToMessageCallCount += 1
         repliedMessage = SentReply(groupIdHex: groupIdHex, targetMessageId: targetMessageId, text: text)
+        await passMessageActionGateIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["reply"])
     }
 
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws -> SendSummaryFfi {
+        reactToMessageCallCount += 1
         reactedMessage = SentReaction(groupIdHex: groupIdHex, targetMessageId: targetMessageId, emoji: emoji)
+        await passMessageActionGateIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["reaction"])
     }
 
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi {
+        deleteMessageCallCount += 1
         deletedMessage = DeletedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
+        await passMessageActionGateIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["delete"])
+    }
+
+    /// Suspends the first message-action FFI call when the gate is armed, recording arrival so a
+    /// test can spin until the first invocation is in-flight, then issue the overlapping second call.
+    private func passMessageActionGateIfArmed() async {
+        guard messageActionGateEnabled, messageActionGateContinuation == nil, !didReachMessageActionGate else { return }
+        didReachMessageActionGate = true
+        await withCheckedContinuation { continuation in
+            messageActionGateContinuation = continuation
+        }
+    }
+
+    func releaseMessageActionGate() {
+        messageActionGateContinuation?.resume()
+        messageActionGateContinuation = nil
     }
 
     private func chatListRow(for group: AppGroupRecordFfi) -> ChatListRowFfi {
@@ -5967,6 +6170,11 @@ private enum FakeMarmotRuntimeError: Error {
 private struct SentReply: Equatable {
     let groupIdHex: String
     let targetMessageId: String
+    let text: String
+}
+
+private struct SentText: Equatable {
+    let groupIdHex: String
     let text: String
 }
 
