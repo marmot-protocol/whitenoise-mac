@@ -695,6 +695,9 @@ final class WorkspaceState {
         }
     }
 
+    /// Performs all account-scoped teardown before any chat or message reloads run.
+    /// Keeping listener stops, cache pruning, peer-profile invalidation, and
+    /// observability refresh together prevents reloads from seeing stale account state.
     private func prepareForActiveAccountSwitch(
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
