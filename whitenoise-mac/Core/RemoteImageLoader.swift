@@ -79,12 +79,51 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
 }
 
 /// Shared image cache + downsampling pipeline. `NSCache` is thread-safe, so this needs no
-/// actor; the heavy decode/resize runs in a detached task off the main thread.
+/// actor for decoded-image storage; in-flight work is coordinated by `RemoteImageLoadRegistry`
+/// so concurrent views that need the same URL/size await one download and decode.
+private actor RemoteImageLoadRegistry {
+    private var tasks: [String: Task<LoadedImage?, Never>] = [:]
+
+    func task(
+        for key: String,
+        create: @Sendable () -> Task<LoadedImage?, Never>
+    ) -> (task: Task<LoadedImage?, Never>, owner: Bool) {
+        if let task = tasks[key] {
+            return (task, false)
+        }
+        let task = create()
+        tasks[key] = task
+        return (task, true)
+    }
+
+    func removeTask(for key: String) {
+        tasks[key] = nil
+    }
+}
+
 nonisolated final class RemoteImageLoader: @unchecked Sendable {
     static let shared = RemoteImageLoader()
+    static let defaultDecodedCacheCountLimit = 512
+    static let defaultDecodedCacheTotalCostLimit = 64 * 1024 * 1024
 
     private let cache = NSCache<NSString, NSImage>()
-    private let session: URLSession = {
+    private let inFlight = RemoteImageLoadRegistry()
+    private let session: URLSession
+
+    var decodedCacheCountLimit: Int { cache.countLimit }
+    var decodedCacheTotalCostLimit: Int { cache.totalCostLimit }
+
+    init(
+        session: URLSession = RemoteImageLoader.makeSession(),
+        cacheCountLimit: Int = RemoteImageLoader.defaultDecodedCacheCountLimit,
+        cacheTotalCostLimit: Int = RemoteImageLoader.defaultDecodedCacheTotalCostLimit
+    ) {
+        self.session = session
+        cache.countLimit = cacheCountLimit
+        cache.totalCostLimit = cacheTotalCostLimit
+    }
+
+    private static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.default
         config.urlCache = URLCache(
             memoryCapacity: 16 * 1024 * 1024,
@@ -92,24 +131,47 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         )
         config.requestCachePolicy = .returnCacheDataElseLoad
         return URLSession(configuration: config)
-    }()
+    }
 
     func image(for url: URL, maxPixelSize: CGFloat) async -> LoadedImage? {
         // Defense-in-depth: never fetch a URL that fails the policy, even if a caller forgot
         // to sanitize. This is the network chokepoint for all remote image loads.
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
 
-        let key = "\(url.absoluteString)|\(Int(maxPixelSize))" as NSString
+        let key = Self.cacheKey(for: url, maxPixelSize: maxPixelSize)
+        if let cached = cache.object(forKey: key as NSString) {
+            return LoadedImage(nsImage: cached)
+        }
+
+        let (task, owner) = await inFlight.task(for: key) { [self] in
+            Task { [self] in
+                await loadImage(for: url, cacheKey: key, maxPixelSize: maxPixelSize)
+            }
+        }
+        let loaded = await task.value
+        if owner {
+            await inFlight.removeTask(for: key)
+        }
+        return loaded
+    }
+
+    private static func cacheKey(for url: URL, maxPixelSize: CGFloat) -> String {
+        "\(url.absoluteString)|\(Int(maxPixelSize))"
+    }
+
+    private func loadImage(for url: URL, cacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
+        let key = cacheKey as NSString
         if let cached = cache.object(forKey: key) {
             return LoadedImage(nsImage: cached)
         }
+
         guard let data = await Self.download(url, using: session) else { return nil }
         let pixelSize = maxPixelSize
         let loaded = await Task.detached(priority: .utility) {
             Self.downsample(data: data, maxPixelSize: pixelSize).map(LoadedImage.init)
         }.value
         guard let loaded else { return nil }
-        cache.setObject(loaded.nsImage, forKey: key)
+        cache.setObject(loaded.nsImage, forKey: key, cost: Self.decodedCost(for: loaded.nsImage))
         return loaded
     }
 
@@ -152,5 +214,15 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         ] as CFDictionary
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    private static func decodedCost(for image: NSImage) -> Int {
+        let representation = image.representations.first
+        let width = max(1, representation?.pixelsWide ?? Int(ceil(image.size.width)))
+        let height = max(1, representation?.pixelsHigh ?? Int(ceil(image.size.height)))
+        guard width <= Int.max / max(height, 1) / 4 else {
+            return defaultDecodedCacheTotalCostLimit
+        }
+        return width * height * 4
     }
 }

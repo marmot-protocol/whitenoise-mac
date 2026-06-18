@@ -3563,6 +3563,46 @@ struct whitenoise_macTests {
         #expect(sanitized?.absoluteString == "https://cdn.example/p.png")
     }
 
+    @Test func remoteImageLoaderCoalescesConcurrentLoadsForSameCacheKey() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0.2)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+
+        async let first = loader.image(for: url, maxPixelSize: 32)
+        async let second = loader.image(for: url, maxPixelSize: 32)
+        async let third = loader.image(for: url, maxPixelSize: 32)
+
+        let results = await [first, second, third]
+
+        #expect(results.allSatisfy { $0 != nil })
+        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+    }
+
+    @Test func remoteImageLoaderUsesBoundedDecodedCache() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+
+        #expect(loader.decodedCacheCountLimit == RemoteImageLoader.defaultDecodedCacheCountLimit)
+        #expect(loader.decodedCacheTotalCostLimit == RemoteImageLoader.defaultDecodedCacheTotalCostLimit)
+        #expect(loader.decodedCacheCountLimit > 0)
+        #expect(loader.decodedCacheTotalCostLimit > 0)
+    }
+
+    private static let singlePixelPNG = Data([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
+        0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0,
+        0x1F, 0x00, 0x05, 0x00, 0x01, 0xFF, 0x89, 0x99,
+        0x3D, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+    ])
+
     @MainActor
     @Test func loadRemoteImagesDefaultsOffAndPersists() async throws {
         let defaults = UserDefaults.standard
@@ -6798,6 +6838,68 @@ private func notificationSettings(
         localNotificationsEnabled: localEnabled,
         nativePushEnabled: false
     )
+}
+
+private final class RemoteImageURLProtocolStub: URLProtocol {
+    private static let lock = NSLock()
+    private static var responseData = Data()
+    private static var delay: TimeInterval = 0
+    private static var requests = 0
+
+    static func reset(data: Data, responseDelay: TimeInterval) {
+        lock.lock()
+        responseData = data
+        delay = responseDelay
+        requests = 0
+        lock.unlock()
+    }
+
+    static func requestCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        let (data, responseDelay) = Self.recordRequest()
+        let complete = { [weak self] in
+            guard let self, let url = self.request.url else { return }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "image/png"]
+            )!
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: data)
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+
+        if responseDelay > 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + responseDelay) {
+                complete()
+            }
+        } else {
+            complete()
+        }
+    }
+
+    override func stopLoading() {}
+
+    private static func recordRequest() -> (Data, TimeInterval) {
+        lock.lock()
+        defer { lock.unlock() }
+        requests += 1
+        return (responseData, delay)
+    }
 }
 
 private func telemetryBuildConfig(
