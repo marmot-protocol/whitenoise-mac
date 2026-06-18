@@ -3548,6 +3548,66 @@ struct whitenoise_macTests {
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https:///nohost")!))
     }
 
+    /// An `AsyncSequence` of `UInt8` that mimics `URLSession.AsyncBytes` (one byte per
+    /// iteration) so the download accumulator's cap enforcement can be tested without a
+    /// network request.
+    private struct ByteStream: AsyncSequence {
+        typealias Element = UInt8
+        let bytes: [UInt8]
+        struct Iterator: AsyncIteratorProtocol {
+            var bytes: [UInt8]
+            var index = 0
+            mutating func next() async -> UInt8? {
+                guard index < bytes.count else { return nil }
+                defer { index += 1 }
+                return bytes[index]
+            }
+        }
+        func makeAsyncIterator() -> Iterator { Iterator(bytes: bytes) }
+    }
+
+    @Test func remoteImageAccumulateReturnsAllBytesUnderCap() async throws {
+        // A payload spanning several chunk boundaries should round-trip byte-for-byte.
+        let payload = (0..<(RemoteImageLoader.downloadChunkSize * 2 + 123))
+            .map { UInt8($0 & 0xFF) }
+        let result = try await RemoteImageLoader.accumulate(
+            ByteStream(bytes: payload),
+            cap: Int64(payload.count) + 1
+        )
+        #expect(result != nil)
+        #expect(result.map(Array.init) == payload)
+    }
+
+    @Test func remoteImageAccumulateAcceptsExactlyCapBytes() async throws {
+        // Exactly `cap` bytes is allowed (the check rejects only when total exceeds cap).
+        let payload = [UInt8](repeating: 0xAB, count: RemoteImageLoader.downloadChunkSize + 7)
+        let result = try await RemoteImageLoader.accumulate(
+            ByteStream(bytes: payload),
+            cap: Int64(payload.count)
+        )
+        #expect(result?.count == payload.count)
+    }
+
+    @Test func remoteImageAccumulateRejectsOverCap() async throws {
+        // One byte past the cap aborts the download (unbounded-response protection).
+        let cap = RemoteImageLoader.downloadChunkSize
+        let payload = [UInt8](repeating: 0x01, count: cap + 1)
+        let result = try await RemoteImageLoader.accumulate(
+            ByteStream(bytes: payload),
+            cap: Int64(cap),
+            chunkSize: cap
+        )
+        #expect(result == nil)
+    }
+
+    @Test func remoteImageAccumulateHandlesEmptyResponse() async throws {
+        let result = try await RemoteImageLoader.accumulate(
+            ByteStream(bytes: []),
+            cap: 1024
+        )
+        #expect(result?.isEmpty == true)
+    }
+
     @Test func remoteImageSanitizedURLRejectsUntrustedInput() async throws {
         // nil / empty / whitespace-only -> nil (no request issued).
         #expect(RemoteImageURLPolicy.sanitizedURL(from: nil) == nil)

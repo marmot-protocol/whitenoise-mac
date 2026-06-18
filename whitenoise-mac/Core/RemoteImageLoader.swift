@@ -127,18 +127,60 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             if response.expectedContentLength > 0, response.expectedContentLength > cap {
                 return nil
             }
-            var data = Data()
-            if response.expectedContentLength > 0 {
-                data.reserveCapacity(Int(min(response.expectedContentLength, cap)))
-            }
-            for try await byte in bytes {
-                data.append(byte)
-                if Int64(data.count) > cap { return nil }
-            }
-            return data
+            let reserve = response.expectedContentLength > 0
+                ? Int(min(response.expectedContentLength, cap))
+                : nil
+            return try await accumulate(bytes, cap: cap, reservingCapacity: reserve)
         } catch {
             return nil
         }
+    }
+
+    /// Size of the temporary read buffer used to batch bytes out of `URLSession.AsyncBytes`
+    /// before flushing them to the result `Data`.
+    static let downloadChunkSize = 64 * 1024
+
+    /// Accumulates an async byte sequence into `Data` in fixed-size chunks, returning `nil`
+    /// once the running total exceeds `cap`.
+    ///
+    /// `URLSession.AsyncBytes` vends a single `UInt8` per iteration. Appending each byte to a
+    /// `Data` buffer individually turns even a modest avatar download into hundreds of
+    /// thousands of `Data.append(_:)` calls (and millions at the 8 MiB cap), which is the
+    /// pathology this loader had. We instead buffer bytes into a reusable array and flush
+    /// whole slices to `Data`, while still bounding total memory incrementally so the
+    /// unbounded-response protection is preserved (a chunk-granular check rather than a
+    /// per-byte one; at most `chunkSize - 1` bytes can be read past `cap` before we bail).
+    ///
+    /// Exposed as `internal static` (not `private`) so the cap-enforcement logic is unit
+    /// testable against a synthetic byte sequence without issuing a network request.
+    static func accumulate<S: AsyncSequence>(
+        _ bytes: S,
+        cap: Int64,
+        reservingCapacity reserve: Int? = nil,
+        chunkSize: Int = RemoteImageLoader.downloadChunkSize
+    ) async throws -> Data? where S.Element == UInt8 {
+        var data = Data()
+        if let reserve { data.reserveCapacity(reserve) }
+
+        var chunk = [UInt8]()
+        chunk.reserveCapacity(chunkSize)
+        var total: Int64 = 0
+
+        for try await byte in bytes {
+            chunk.append(byte)
+            if chunk.count >= chunkSize {
+                total += Int64(chunk.count)
+                if total > cap { return nil }
+                data.append(contentsOf: chunk)
+                chunk.removeAll(keepingCapacity: true)
+            }
+        }
+        if !chunk.isEmpty {
+            total += Int64(chunk.count)
+            if total > cap { return nil }
+            data.append(contentsOf: chunk)
+        }
+        return data
     }
 
     private static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {
