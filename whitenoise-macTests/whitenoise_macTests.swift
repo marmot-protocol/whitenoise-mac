@@ -2957,9 +2957,60 @@ struct whitenoise_macTests {
         #expect(didEnrichIncrementally)
         #expect(state.activeChats.first?.isDirect == true)
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
-        // Enrichment must have run for the delta-delivered row (incremental path), in addition
-        // to the initial snapshot enrichment.
-        #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) >= 2)
+        // The incremental row reuses the initial membership lookup for non-membership triggers;
+        // it must not re-query group details just to refresh the last-message preview (#9).
+        #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) == 1)
+    }
+
+    @MainActor
+    @Test func timelineSenderProfilesReusePrimedGroupMemberDetails() async throws {
+        // Regression for #9: loading/reprojecting a timeline should not hit `groupDetails`
+        // again after chat-list enrichment has already cached the group's members. The
+        // timeline only needs member display names as sender-name fallbacks.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didPrimeMemberCache = await waitFor {
+            (runtime.groupDetailsCallCounts["group"] ?? 0) >= 1
+                && !state.selectedTimelineIsLoadingInitialPage
+        }
+        #expect(didPrimeMemberCache)
+        let groupDetailsCallsAfterBootstrap = runtime.groupDetailsCallCounts["group"] ?? 0
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected an active group chat")
+            return
+        }
+
+        // Leave the auto-selected empty timeline so a fresh selection below reloads the
+        // subscription snapshot after installing messages, while retaining the member cache
+        // primed by chat-list enrichment.
+        state.showSettings()
+        runtime.installMessages([
+            appMessage(
+                id: "alice-message",
+                groupIdHex: "group",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                plaintext: "Timeline sender should reuse cached members.",
+                kind: 9,
+                recordedAt: 1_700_000_000
+            )
+        ], groupIdHex: "group")
+
+        state.selectChat(groupChat)
+        let didLoadTimelineMessage = await waitFor {
+            state.messagesByChat["group"]?.map(\.id) == ["alice-message"]
+        }
+
+        #expect(didLoadTimelineMessage)
+        #expect((runtime.groupDetailsCallCounts["group"] ?? 0) == groupDetailsCallsAfterBootstrap)
     }
 
     // MARK: - ChatListRowEnrichmentTracker (issue #40 ownership invariants)
