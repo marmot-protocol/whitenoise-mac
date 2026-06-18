@@ -3548,64 +3548,48 @@ struct whitenoise_macTests {
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https:///nohost")!))
     }
 
-    /// An `AsyncSequence` of `UInt8` that mimics `URLSession.AsyncBytes` (one byte per
-    /// iteration) so the download accumulator's cap enforcement can be tested without a
-    /// network request.
-    private struct ByteStream: AsyncSequence {
-        typealias Element = UInt8
-        let bytes: [UInt8]
-        struct Iterator: AsyncIteratorProtocol {
-            var bytes: [UInt8]
-            var index = 0
-            mutating func next() async -> UInt8? {
-                guard index < bytes.count else { return nil }
-                defer { index += 1 }
-                return bytes[index]
-            }
+    @Test func remoteImageCollectorReturnsAllBytesUnderCap() async throws {
+        // Several chunks spanning typical OS delivery sizes should round-trip byte-for-byte.
+        let chunkSize = 64 * 1024
+        let payload = (0..<(chunkSize * 2 + 123)).map { UInt8($0 & 0xFF) }
+        var collector = CappedDataCollector(cap: Int64(payload.count) + 1)
+        // Feed the payload in chunks the way URLSession would deliver it.
+        var offset = 0
+        while offset < payload.count {
+            let end = min(offset + chunkSize, payload.count)
+            #expect(collector.append(Data(payload[offset..<end])))
+            offset = end
         }
-        func makeAsyncIterator() -> Iterator { Iterator(bytes: bytes) }
+        #expect(!collector.exceededCap)
+        #expect(Array(collector.data) == payload)
     }
 
-    @Test func remoteImageAccumulateReturnsAllBytesUnderCap() async throws {
-        // A payload spanning several chunk boundaries should round-trip byte-for-byte.
-        let payload = (0..<(RemoteImageLoader.downloadChunkSize * 2 + 123))
-            .map { UInt8($0 & 0xFF) }
-        let result = try await RemoteImageLoader.accumulate(
-            ByteStream(bytes: payload),
-            cap: Int64(payload.count) + 1
-        )
-        #expect(result != nil)
-        #expect(result.map(Array.init) == payload)
-    }
-
-    @Test func remoteImageAccumulateAcceptsExactlyCapBytes() async throws {
+    @Test func remoteImageCollectorAcceptsExactlyCapBytes() async throws {
         // Exactly `cap` bytes is allowed (the check rejects only when total exceeds cap).
-        let payload = [UInt8](repeating: 0xAB, count: RemoteImageLoader.downloadChunkSize + 7)
-        let result = try await RemoteImageLoader.accumulate(
-            ByteStream(bytes: payload),
-            cap: Int64(payload.count)
-        )
-        #expect(result?.count == payload.count)
+        let payload = [UInt8](repeating: 0xAB, count: 64 * 1024 + 7)
+        var collector = CappedDataCollector(cap: Int64(payload.count))
+        #expect(collector.append(Data(payload)))
+        #expect(!collector.exceededCap)
+        #expect(collector.data.count == payload.count)
     }
 
-    @Test func remoteImageAccumulateRejectsOverCap() async throws {
-        // One byte past the cap aborts the download (unbounded-response protection).
-        let cap = RemoteImageLoader.downloadChunkSize
-        let payload = [UInt8](repeating: 0x01, count: cap + 1)
-        let result = try await RemoteImageLoader.accumulate(
-            ByteStream(bytes: payload),
-            cap: Int64(cap),
-            chunkSize: cap
-        )
-        #expect(result == nil)
+    @Test func remoteImageCollectorRejectsOverCap() async throws {
+        // One byte past the cap aborts the download (unbounded-response protection): the
+        // over-cap chunk is rejected, the flag is set, and subsequent chunks are ignored.
+        let cap = 64 * 1024
+        var collector = CappedDataCollector(cap: Int64(cap))
+        #expect(collector.append(Data([UInt8](repeating: 0x01, count: cap))))
+        #expect(!collector.append(Data([0x02])))
+        #expect(collector.exceededCap)
+        // Further appends stay rejected and do not grow the buffer.
+        #expect(!collector.append(Data([0x03, 0x04])))
+        #expect(collector.data.count == cap)
     }
 
-    @Test func remoteImageAccumulateHandlesEmptyResponse() async throws {
-        let result = try await RemoteImageLoader.accumulate(
-            ByteStream(bytes: []),
-            cap: 1024
-        )
-        #expect(result?.isEmpty == true)
+    @Test func remoteImageCollectorHandlesEmptyResponse() async throws {
+        let collector = CappedDataCollector(cap: 1024)
+        #expect(collector.data.isEmpty)
+        #expect(!collector.exceededCap)
     }
 
     @Test func remoteImageSanitizedURLRejectsUntrustedInput() async throws {

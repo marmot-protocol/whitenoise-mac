@@ -113,74 +113,31 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return loaded
     }
 
-    /// Streams the response, rejecting non-success HTTP status codes and aborting once the
-    /// body exceeds `RemoteImageURLPolicy.maxResponseBytes` so a malicious server cannot feed
-    /// us an unbounded image.
+    /// Downloads the response in the `Data` chunks `URLSession` delivers natively, rejecting
+    /// non-success HTTP status codes and aborting once the body exceeds
+    /// `RemoteImageURLPolicy.maxResponseBytes` so a malicious server cannot feed us an
+    /// unbounded image.
+    ///
+    /// We deliberately avoid `URLSession.AsyncBytes` (whose `Element` is a single `UInt8`, so
+    /// iterating it costs one async-sequence step per byte — 10^5–10^6 steps for a normal
+    /// avatar) and also avoid the fully-buffered `data(from:)` (which would have to hold an
+    /// entire malicious response in memory before we could check its length). Instead a
+    /// `URLSessionDataDelegate` collects the OS-sized chunks as they arrive, so a download is
+    /// O(number-of-chunks) while the incremental cap keeps peak memory bounded to roughly
+    /// `cap` plus one chunk before an oversized/length-less response is cancelled.
     private static func download(_ url: URL, using session: URLSession) async -> Data? {
         let cap = RemoteImageURLPolicy.maxResponseBytes
-        do {
-            let (bytes, response) = try await session.bytes(from: url)
-            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-                return nil
-            }
-            // Honour an advertised oversized Content-Length up front when present.
-            if response.expectedContentLength > 0, response.expectedContentLength > cap {
-                return nil
-            }
-            let reserve = response.expectedContentLength > 0
-                ? Int(min(response.expectedContentLength, cap))
-                : nil
-            return try await accumulate(bytes, cap: cap, reservingCapacity: reserve)
-        } catch {
-            return nil
-        }
-    }
-
-    /// Size of the temporary read buffer used to batch bytes out of `URLSession.AsyncBytes`
-    /// before flushing them to the result `Data`.
-    static let downloadChunkSize = 64 * 1024
-
-    /// Accumulates an async byte sequence into `Data` in fixed-size chunks, returning `nil`
-    /// once the running total exceeds `cap`.
-    ///
-    /// `URLSession.AsyncBytes` vends a single `UInt8` per iteration. Appending each byte to a
-    /// `Data` buffer individually turns even a modest avatar download into hundreds of
-    /// thousands of `Data.append(_:)` calls (and millions at the 8 MiB cap), which is the
-    /// pathology this loader had. We instead buffer bytes into a reusable array and flush
-    /// whole slices to `Data`, while still bounding total memory incrementally so the
-    /// unbounded-response protection is preserved (a chunk-granular check rather than a
-    /// per-byte one; at most `chunkSize - 1` bytes can be read past `cap` before we bail).
-    ///
-    /// Exposed as `internal static` (not `private`) so the cap-enforcement logic is unit
-    /// testable against a synthetic byte sequence without issuing a network request.
-    static func accumulate<S: AsyncSequence>(
-        _ bytes: S,
-        cap: Int64,
-        reservingCapacity reserve: Int? = nil,
-        chunkSize: Int = RemoteImageLoader.downloadChunkSize
-    ) async throws -> Data? where S.Element == UInt8 {
-        var data = Data()
-        if let reserve { data.reserveCapacity(reserve) }
-
-        var chunk = [UInt8]()
-        chunk.reserveCapacity(chunkSize)
-        var total: Int64 = 0
-
-        for try await byte in bytes {
-            chunk.append(byte)
-            if chunk.count >= chunkSize {
-                total += Int64(chunk.count)
-                if total > cap { return nil }
-                data.append(contentsOf: chunk)
-                chunk.removeAll(keepingCapacity: true)
-            }
-        }
-        if !chunk.isEmpty {
-            total += Int64(chunk.count)
-            if total > cap { return nil }
-            data.append(contentsOf: chunk)
-        }
-        return data
+        let delegate = CappedImageDownloadDelegate(cap: cap)
+        // A dedicated delegate-backed session keeps per-download collector state isolated
+        // (multiple avatars can download concurrently). It reuses the shared session's
+        // configuration, so the same `URLCache` instance still services these requests.
+        let downloadSession = URLSession(
+            configuration: session.configuration,
+            delegate: delegate,
+            delegateQueue: nil
+        )
+        defer { downloadSession.finishTasksAndInvalidate() }
+        return await delegate.download(url, using: downloadSession)
     }
 
     private static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {
@@ -194,5 +151,130 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         ] as CFDictionary
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}
+
+/// Pure, synchronously-testable accumulator for a capped chunked download. Collects the
+/// `Data` chunks `URLSession` delivers and reports when the running total exceeds `cap`, so
+/// the cap-enforcement logic can be unit tested without issuing a network request.
+///
+/// This is the chunk-granular replacement for the old per-byte loop: appends operate on
+/// whole `Data` chunks (one per `URLSession` delivery) rather than individual `UInt8`s.
+struct CappedDataCollector {
+    let cap: Int64
+    private(set) var data = Data()
+    private(set) var total: Int64 = 0
+    private(set) var exceededCap = false
+
+    init(cap: Int64, reservingCapacity reserve: Int? = nil) {
+        self.cap = cap
+        if let reserve { data.reserveCapacity(reserve) }
+    }
+
+    /// Reserves capacity for the result buffer (e.g. from an advertised `Content-Length`).
+    mutating func reserve(_ minimumCapacity: Int) {
+        data.reserveCapacity(minimumCapacity)
+    }
+
+    /// Appends a chunk, returning `false` once the running total exceeds `cap` (the caller
+    /// should then abort the download). The over-cap chunk is not retained, and once the cap
+    /// has been exceeded all further appends are rejected.
+    @discardableResult
+    mutating func append(_ chunk: Data) -> Bool {
+        if exceededCap { return false }
+        total += Int64(chunk.count)
+        if total > cap {
+            exceededCap = true
+            return false
+        }
+        data.append(chunk)
+        return true
+    }
+}
+
+/// `URLSessionDataDelegate` that downloads a single image body in the chunks `URLSession`
+/// delivers natively, enforcing an HTTP status check, an up-front `Content-Length` check,
+/// and an incremental byte cap. Bridges the delegate callbacks to a single `async` result.
+///
+/// Using the delegate's `didReceive data:` (which hands us OS-sized `Data` chunks) instead
+/// of `URLSession.AsyncBytes` is what removes the per-byte iteration: a download now costs
+/// O(number-of-chunks), not O(number-of-bytes), while the incremental cap still aborts an
+/// oversized or `Content-Length`-less response before it can exhaust memory.
+private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let cap: Int64
+    private let lock = NSLock()
+    private var collector: CappedDataCollector
+    private var continuation: CheckedContinuation<Data?, Never>?
+    private var finished = false
+
+    init(cap: Int64) {
+        self.cap = cap
+        self.collector = CappedDataCollector(cap: cap)
+    }
+
+    func download(_ url: URL, using session: URLSession) async -> Data? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            lock.lock()
+            self.continuation = continuation
+            lock.unlock()
+            session.dataTask(with: url).resume()
+        }
+    }
+
+    /// Resumes the awaiting continuation exactly once; later calls are ignored. (A cap abort
+    /// resumes with `nil`, then the resulting cancellation error's `didComplete` is a no-op.)
+    private func finish(with result: Data?) {
+        lock.lock()
+        guard !finished, let continuation else { lock.unlock(); return }
+        finished = true
+        self.continuation = nil
+        lock.unlock()
+        continuation.resume(returning: result)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            completionHandler(.cancel)
+            finish(with: nil)
+            return
+        }
+        // Honour an advertised oversized Content-Length up front when present.
+        if response.expectedContentLength > 0, response.expectedContentLength > cap {
+            completionHandler(.cancel)
+            finish(with: nil)
+            return
+        }
+        if response.expectedContentLength > 0 {
+            lock.lock()
+            collector.reserve(Int(min(response.expectedContentLength, cap)))
+            lock.unlock()
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        lock.lock()
+        let ok = collector.append(data)
+        lock.unlock()
+        if !ok {
+            dataTask.cancel()
+            finish(with: nil)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if error != nil {
+            finish(with: nil)
+            return
+        }
+        lock.lock()
+        let result: Data? = collector.exceededCap ? nil : collector.data
+        lock.unlock()
+        finish(with: result)
     }
 }
