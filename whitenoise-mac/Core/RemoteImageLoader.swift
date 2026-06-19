@@ -189,17 +189,13 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// `cap` plus one chunk before an oversized/length-less response is cancelled.
     private static func download(_ url: URL, using session: URLSession) async -> Data? {
         let cap = RemoteImageURLPolicy.maxResponseBytes
+        // A fresh per-download delegate keeps per-download collector state isolated (multiple
+        // avatars can download concurrently). The delegate is attached to the *task*, not a new
+        // session (see `CappedImageDownloadDelegate.download`), so every download runs on the
+        // shared `session` and reuses its connection pool + `URLCache` instead of paying a fresh
+        // DNS/TCP/TLS handshake and churning a throwaway `URLSession` per image.
         let delegate = CappedImageDownloadDelegate(cap: cap)
-        // A dedicated delegate-backed session keeps per-download collector state isolated
-        // (multiple avatars can download concurrently). It reuses the shared session's
-        // configuration, so the same `URLCache` instance still services these requests.
-        let downloadSession = URLSession(
-            configuration: session.configuration,
-            delegate: delegate,
-            delegateQueue: nil
-        )
-        defer { downloadSession.finishTasksAndInvalidate() }
-        return await delegate.download(url, using: downloadSession)
+        return await delegate.download(url, using: session)
     }
 
     private static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {
@@ -302,6 +298,10 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
                 }
                 self.continuation = continuation
                 let task = session.dataTask(with: url)
+                // Attach *this* delegate per task (macOS 12+) rather than backing a throwaway
+                // per-download `URLSession`. This keeps per-download collector state isolated
+                // while letting the shared `session` reuse its connection pool across avatars.
+                task.delegate = self
                 self.task = task
                 lock.unlock()
                 task.resume()
