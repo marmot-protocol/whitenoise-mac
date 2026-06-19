@@ -360,6 +360,14 @@ final class WorkspaceState {
     /// and cleared on account switch.
     private var peerProfileFFICache: [String: CachedPeerProfile] = [:]
 
+    /// Per-group membership cache used by chat-list enrichment and timeline sender-name
+    /// projection. Group rows already carry the latest group metadata; these call sites only
+    /// need members to identify direct chats and provide member-name fallbacks, so cache just
+    /// that membership slice and invalidate it on membership-changing subscription events.
+    private var groupMemberDetailsCache: [String: [GroupMemberDetailsFfi]] = [:]
+    private var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
+    private var nextGroupMemberDetailsLookupToken: UInt64 = 0
+
     /// How long a *complete* peer-profile lookup is trusted before it is re-resolved
     /// from the Rust store. Incomplete lookups ignore the TTL and re-resolve every pass.
     private static let peerProfileCacheTTL: TimeInterval = 300
@@ -426,6 +434,11 @@ final class WorkspaceState {
         func isFresh(now: Date, ttl: TimeInterval) -> Bool {
             resolved.isComplete && now.timeIntervalSince(resolvedAt) < ttl
         }
+    }
+
+    struct GroupMemberDetailsLookup {
+        var token: UInt64
+        var task: Task<[GroupMemberDetailsFfi]?, Never>
     }
 
     /// Raw output of the per-account bootstrap/settings FFI lookups.
@@ -676,10 +689,11 @@ final class WorkspaceState {
         searchText = ""
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)
-        // Peer-profile lookups are scoped to the active account's view (directory display
-        // names can differ per account); drop them on switch so the new account does not
-        // inherit stale cross-account entries (whitenoise-mac#8).
+        // Lookup caches are scoped to the active account's view (directory display names and
+        // group membership visibility can differ per account); drop them on switch so the new
+        // account does not inherit stale cross-account entries (whitenoise-mac#8/#9).
         peerProfileFFICache.removeAll()
+        clearGroupMemberCache()
         refreshObservabilityRuntime()
         selection = finalSelection
         if case let .chat(chatId)? = finalSelection {
@@ -853,6 +867,7 @@ final class WorkspaceState {
                 messageLookupByChat.removeAll()
                 messageIDsByChat.removeAll()
                 peerProfileFFICache.removeAll()
+                clearGroupMemberCache()
                 timelinePagingByChat.removeAll()
                 profileDraft = ProfileDraft()
                 keyPackages = []
@@ -2006,6 +2021,7 @@ final class WorkspaceState {
         _ details: GroupDetailsFfi,
         managementState: GroupManagementStateFfi
     ) {
+        storeGroupMembers(details.members, for: details.group.groupIdHex)
         let snapshot = groupDetailsSnapshot(from: details, managementState: managementState)
         groupDetailsSnapshot = snapshot
         groupProfileDraftName = snapshot.name
@@ -2192,6 +2208,8 @@ final class WorkspaceState {
         messagesByChat = [:]
         messageLookupByChat = [:]
         messageIDsByChat = [:]
+        peerProfileFFICache.removeAll()
+        clearGroupMemberCache()
         observabilityRuntimeConfiguration = nil
         activeAccountId = nil
         selection = nil
@@ -2776,10 +2794,30 @@ final class WorkspaceState {
         let chatItems = rows.map { baseChatItem(from: $0, account: account) }
         let previousChatIds = Set((chatsByAccount[account.id] ?? []).map(\.id))
         let nextChatIds = Set(chatItems.map(\.id))
-        clearComposerDrafts(for: Array(previousChatIds.subtracting(nextChatIds)), accountId: account.id)
+        let removedChatIds = previousChatIds.subtracting(nextChatIds)
+        for groupId in removedChatIds {
+            invalidateGroupMembers(for: groupId)
+        }
+        clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
         chatsByAccount[account.id] = sortedChatItems(chatItems)
         dismissGroupImagePickerIfSelectedChatUnavailable()
         startChatListEnrichment(rows: rows, account: account)
+    }
+
+    private func invalidateGroupMemberDetailsCacheIfNeeded(
+        trigger: ChatListUpdateTriggerFfi,
+        groupIdHex: String
+    ) {
+        switch trigger {
+        case .newGroup, .membershipChanged, .snapshotRefresh, .removed:
+            invalidateGroupMembers(for: groupIdHex)
+        case .newLastMessage,
+             .lastMessageDeleted,
+             .archiveChanged,
+             .pendingConfirmationChanged,
+             .unreadChanged:
+            break
+        }
     }
 
     private func applyChatListSubscriptionUpdate(
@@ -2787,9 +2825,11 @@ final class WorkspaceState {
         account: AccountItem
     ) async {
         switch update {
-        case .row(trigger: _, row: let row):
+        case .row(trigger: let trigger, row: let row):
+            invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
             await applyChatRow(row, account: account)
         case .removeRow(trigger: _, groupIdHex: let groupIdHex):
+            invalidateGroupMembers(for: groupIdHex)
             removeChat(groupIdHex: groupIdHex, account: account)
         }
     }
@@ -2822,6 +2862,7 @@ final class WorkspaceState {
         messagesByChat[groupIdHex] = nil
         messageLookupByChat[groupIdHex] = nil
         messageIDsByChat[groupIdHex] = nil
+        invalidateGroupMembers(for: groupIdHex)
         timelinePagingByChat[groupIdHex] = nil
         clearComposerDrafts(for: [groupIdHex], accountId: account.id)
         if timelineInitialLoadGroupId == groupIdHex {
@@ -3014,10 +3055,11 @@ final class WorkspaceState {
         client: any MarmotRuntime
     ) async -> ChatItem {
         var directPeer: ChatPeerProfile?
-        var groupAvatarURL = firstNonBlank([row.avatarUrl])
-        if let details = try? await client.groupDetails(
-            accountRef: account.accountRef,
-            groupIdHex: row.groupIdHex
+        let groupAvatarURL = firstNonBlank([row.avatarUrl])
+        if let members = await cachedGroupMembers(
+            groupIdHex: row.groupIdHex,
+            account: account,
+            client: client
         ) {
             // Bail before the second FFI hop (userProfile lookup) if this enrichment has been
             // cancelled — e.g. the listener was torn down or a newer row update for this group
@@ -3025,10 +3067,9 @@ final class WorkspaceState {
             guard !Task.isCancelled else {
                 return ChatItem(row: row, activeAccountIdHex: account.accountIdHex)
             }
-            groupAvatarURL = firstNonBlank([details.group.avatarUrl, groupAvatarURL])
             directPeer = await directPeerProfile(
-                from: details,
-                activeAccountIdHex: account.accountIdHex,
+                from: members,
+                activeAccount: account,
                 client: client
             )
         }
@@ -3330,28 +3371,80 @@ final class WorkspaceState {
         chatsByAccount[activeAccountId] = chats
     }
 
+    private func storeGroupMembers(_ members: [GroupMemberDetailsFfi], for groupIdHex: String) {
+        groupMemberDetailsLookups[groupIdHex]?.task.cancel()
+        groupMemberDetailsLookups[groupIdHex] = nil
+        groupMemberDetailsCache[groupIdHex] = members
+    }
+
+    private func invalidateGroupMembers(for groupIdHex: String) {
+        groupMemberDetailsCache[groupIdHex] = nil
+        groupMemberDetailsLookups[groupIdHex]?.task.cancel()
+        groupMemberDetailsLookups[groupIdHex] = nil
+    }
+
+    private func clearGroupMemberCache() {
+        groupMemberDetailsCache.removeAll()
+        for lookup in groupMemberDetailsLookups.values {
+            lookup.task.cancel()
+        }
+        groupMemberDetailsLookups.removeAll()
+    }
+
+    private func cachedGroupMembers(
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async -> [GroupMemberDetailsFfi]? {
+        if let cached = groupMemberDetailsCache[groupIdHex] {
+            return cached
+        }
+        if let lookup = groupMemberDetailsLookups[groupIdHex] {
+            return await lookup.task.value
+        }
+
+        nextGroupMemberDetailsLookupToken += 1
+        let token = nextGroupMemberDetailsLookupToken
+        let accountRef = account.accountRef
+        let task = Task { () -> [GroupMemberDetailsFfi]? in
+            guard let details = try? await client.groupDetails(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex
+            ) else {
+                return nil
+            }
+            return details.members
+        }
+        groupMemberDetailsLookups[groupIdHex] = GroupMemberDetailsLookup(token: token, task: task)
+
+        let members = await task.value
+        if groupMemberDetailsLookups[groupIdHex]?.token == token {
+            groupMemberDetailsLookups[groupIdHex] = nil
+            if activeAccountId == account.id, let members {
+                groupMemberDetailsCache[groupIdHex] = members
+            }
+        }
+        return members
+    }
+
     private func directPeerProfile(
-        from details: GroupDetailsFfi,
-        activeAccountIdHex: String,
+        from members: [GroupMemberDetailsFfi],
+        activeAccount: AccountItem,
         client: any MarmotRuntime
     ) async -> ChatPeerProfile? {
-        let otherMembers = details.members.filter { member in
-            !member.isSelf && member.memberIdHex != activeAccountIdHex
+        let otherMembers = members.filter { member in
+            !member.isSelf && member.memberIdHex != activeAccount.accountIdHex
         }
         guard otherMembers.count == 1,
               let otherMember = otherMembers.first
         else { return nil }
 
         let memberId = otherMember.memberIdHex
-        let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
-            let profile = try? client.userProfile(accountIdHex: memberId)
-            return ResolvedPeerFFI(
-                profileDisplayName: profile?.displayName,
-                profileName: profile?.name,
-                profilePicture: profile?.picture,
-                directoryDisplayName: client.displayName(accountIdHex: memberId)
-            )
-        }
+        let resolved = await resolvedPeerFFI(
+            accountIdHex: memberId,
+            activeAccount: activeAccount,
+            client: client
+        )
         let displayName = firstNonBlank([
             resolved?.profileDisplayName,
             resolved?.profileName,
@@ -3362,8 +3455,34 @@ final class WorkspaceState {
         return ChatPeerProfile(
             accountIdHex: memberId,
             displayName: displayName,
-            pictureURL: resolved?.profilePicture
+            pictureURL: resolved?.profilePicture?.nilIfBlank
         )
+    }
+
+    private func resolvedPeerFFI(
+        accountIdHex: String,
+        activeAccount: AccountItem,
+        client: any MarmotRuntime
+    ) async -> ResolvedPeerFFI? {
+        let now = nowProvider()
+        if let cached = peerProfileFFICache[accountIdHex],
+           cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL) {
+            return cached.resolved
+        }
+
+        let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
+            let profile = try? client.userProfile(accountIdHex: accountIdHex)
+            return ResolvedPeerFFI(
+                profileDisplayName: profile?.displayName,
+                profileName: profile?.name,
+                profilePicture: profile?.picture,
+                directoryDisplayName: client.displayName(accountIdHex: accountIdHex)
+            )
+        }
+        if activeAccountId == activeAccount.id, let resolved {
+            peerProfileFFICache[accountIdHex] = CachedPeerProfile(resolved: resolved, resolvedAt: now)
+        }
+        return resolved
     }
 
     private func messageSenderProfiles(
@@ -3372,18 +3491,6 @@ final class WorkspaceState {
         activeAccount: AccountItem,
         client: any MarmotRuntime
     ) async -> [String: ChatPeerProfile] {
-        var groupMemberNames: [String: String] = [:]
-        if let details = try? await client.groupDetails(
-            accountRef: activeAccount.accountRef,
-            groupIdHex: groupIdHex
-        ) {
-            groupMemberNames = details.members.reduce(into: [:]) { result, member in
-                if let displayName = firstNonBlank([member.displayName]) {
-                    result[member.memberIdHex] = displayName
-                }
-            }
-        }
-
         let senderIds = Set(
             records.flatMap { record in
                 [record.sender, record.replyPreview?.sender]
@@ -3391,6 +3498,24 @@ final class WorkspaceState {
             .compactMap { $0 }
             .filter { !$0.isEmpty }
         )
+        guard !senderIds.isEmpty else { return [:] }
+
+        let nonLocalSenderIds = senderIds.filter { $0 != activeAccount.accountIdHex }
+        let groupMemberNames: [String: String]
+        if nonLocalSenderIds.isEmpty {
+            groupMemberNames = [:]
+        } else {
+            let members = await cachedGroupMembers(
+                groupIdHex: groupIdHex,
+                account: activeAccount,
+                client: client
+            ) ?? []
+            groupMemberNames = members.reduce(into: [String: String]()) { result, member in
+                if let displayName = firstNonBlank([member.displayName]) {
+                    result[member.memberIdHex] = displayName
+                }
+            }
+        }
 
         // Resolve any senders whose cached lookup is missing, incomplete, or stale in a
         // single off-main FFI batch, then cache the raw lookups (timestamped) so repeated
