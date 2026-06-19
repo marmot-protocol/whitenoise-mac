@@ -682,19 +682,7 @@ final class WorkspaceState {
     }
 
     private func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
-        stopTimelineListener()
-        clearEnteredLoginIdentity()
-        activeAccountId = account.id
-        UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
-        searchText = ""
-        closeNewChatComposer()
-        pruneMessageCache(keeping: nil)
-        // Lookup caches are scoped to the active account's view (directory display names and
-        // group membership visibility can differ per account); drop them on switch so the new
-        // account does not inherit stale cross-account entries (whitenoise-mac#8/#9).
-        peerProfileFFICache.removeAll()
-        clearGroupMemberCache()
-        refreshObservabilityRuntime()
+        prepareForActiveAccountSwitch(to: account, preservingMessageCacheFor: nil)
         selection = finalSelection
         if case let .chat(chatId)? = finalSelection {
             beginTimelineInitialLoadIfNeeded(groupIdHex: chatId)
@@ -705,6 +693,29 @@ final class WorkspaceState {
                 await loadMessages(groupIdHex: selectedChat.id)
             }
         }
+    }
+
+    /// Performs all account-scoped teardown before any chat or message reloads run.
+    /// Keeping listener stops, cache pruning, peer-profile invalidation, and
+    /// observability refresh together prevents reloads from seeing stale account state.
+    private func prepareForActiveAccountSwitch(
+        to account: AccountItem,
+        preservingMessageCacheFor groupIdHex: String?
+    ) {
+        stopTimelineListener()
+        stopChatListListener()
+        clearEnteredLoginIdentity()
+        activeAccountId = account.id
+        UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
+        searchText = ""
+        closeNewChatComposer()
+        pruneMessageCache(keeping: groupIdHex)
+        // Lookup caches are scoped to the active account's view (directory display names and
+        // group membership visibility can differ per account); drop them on switch so the new
+        // account does not inherit stale cross-account entries (whitenoise-mac#8/#9).
+        peerProfileFFICache.removeAll()
+        clearGroupMemberCache()
+        refreshObservabilityRuntime()
     }
 
     private func activateReadyState() async throws {
@@ -2143,15 +2154,20 @@ final class WorkspaceState {
     func handleNotificationResponse(_ userInfo: [String: String]) {
         guard let groupIdHex = userInfo["groupIdHex"] else { return }
 
-        if let account = notificationAccount(from: userInfo) {
-            activeAccountId = account.id
-            UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
+        let switchedAccounts: Bool
+        if let account = notificationAccount(from: userInfo), activeAccountId != account.id {
+            prepareForActiveAccountSwitch(to: account, preservingMessageCacheFor: groupIdHex)
+            switchedAccounts = true
+        } else {
+            switchedAccounts = false
         }
 
         selection = .chat(groupIdHex)
         isChatListVisible = true
-        closeNewChatComposer()
-        pruneMessageCache(keeping: groupIdHex)
+        if !switchedAccounts {
+            closeNewChatComposer()
+            pruneMessageCache(keeping: groupIdHex)
+        }
         NSApplication.shared.activate(ignoringOtherApps: true)
         beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
 
@@ -3317,12 +3333,14 @@ final class WorkspaceState {
     }
 
     private func notificationAccount(from userInfo: [String: String]) -> AccountItem? {
-        let accountIdHex = userInfo["accountIdHex"]
-        let accountRef = userInfo["accountRef"]
+        if let accountIdHex = userInfo["accountIdHex"],
+           let account = accounts.first(where: { $0.accountIdHex == accountIdHex }) {
+            return account
+        }
+
+        guard let accountRef = userInfo["accountRef"] else { return nil }
         return accounts.first { account in
-            account.accountIdHex == accountIdHex
-                || account.accountRef == accountRef
-                || account.id == accountRef
+            account.accountRef == accountRef || account.id == accountRef
         }
     }
 
