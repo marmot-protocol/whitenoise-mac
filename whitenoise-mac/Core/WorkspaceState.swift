@@ -2155,11 +2155,20 @@ final class WorkspaceState {
         guard !update.isFromSelf else { return }
         guard !deliveredNotificationKeys.contains(update.notificationKey) else { return }
 
-        // Keep the published settings snapshot in sync for the active account.
-        // This is an explicit step rather than a side effect of the guard below.
-        await syncNotificationSettingsIfActive(for: update)
+        // Read the account's notification settings exactly once over the FFI
+        // boundary, then reuse the snapshot for both responsibilities below:
+        //   1. Keep the published `notificationSettings` snapshot in sync when
+        //      the update targets the active account.
+        //   2. Gate notification delivery on `localNotificationsEnabled`.
+        // A failed read (`nil`) suppresses delivery and leaves the published
+        // snapshot untouched, matching the prior early-return-on-error behavior.
+        guard let settings = await fetchNotificationSettings(for: update) else { return }
 
-        guard await localNotificationsEnabled(for: update) else { return }
+        if activeAccount?.accountIdHex == update.accountIdHex {
+            notificationSettings = NotificationSettingsSnapshot(settings: settings)
+        }
+
+        guard settings.localNotificationsEnabled else { return }
 
         if selectedChat?.id == update.groupIdHex, selectedConversationIsVisible() {
             return
@@ -3228,37 +3237,20 @@ final class WorkspaceState {
         }
     }
 
-    /// Pure predicate: reports whether local notifications are enabled for the
-    /// account targeted by `update`. Has no side effects — callers that also need
-    /// to refresh the published `notificationSettings` snapshot must invoke
-    /// `syncNotificationSettingsIfActive(for:)` explicitly.
-    private func localNotificationsEnabled(for update: NotificationUpdateFfi) async -> Bool {
-        guard let client else { return false }
+    /// Reads the notification settings for the account targeted by `update` over
+    /// the off-main FFI boundary. Returns `nil` when there is no client or the
+    /// read fails, so callers can suppress delivery without mutating UI state.
+    ///
+    /// This is intentionally side-effect free: refreshing the published
+    /// `notificationSettings` snapshot for the active account is the caller's
+    /// responsibility (see `handleNotificationUpdate(_:)`), which lets a single
+    /// fetch serve both the active-account sync and the delivery gate.
+    private func fetchNotificationSettings(for update: NotificationUpdateFfi) async -> NotificationSettingsFfi? {
+        guard let client else { return nil }
         let accountRef = update.accountRef
-        guard let settings = try? await runOffMain({
+        return try? await runOffMain({
             try client.notificationSettings(accountRef: accountRef)
-        }) else {
-            return false
-        }
-
-        return settings.localNotificationsEnabled
-    }
-
-    /// Refreshes the published `notificationSettings` snapshot when `update`
-    /// targets the active account. Kept separate from
-    /// `localNotificationsEnabled(for:)` so that evaluating the predicate does
-    /// not mutate UI state as a hidden side effect.
-    private func syncNotificationSettingsIfActive(for update: NotificationUpdateFfi) async {
-        guard activeAccount?.accountIdHex == update.accountIdHex else { return }
-        guard let client else { return }
-        let accountRef = update.accountRef
-        guard let settings = try? await runOffMain({
-            try client.notificationSettings(accountRef: accountRef)
-        }) else {
-            return
-        }
-
-        notificationSettings = NotificationSettingsSnapshot(settings: settings)
+        })
     }
 
     private func handleNotificationPermissionError(_ error: Error) async {
