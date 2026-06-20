@@ -5262,6 +5262,51 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func incomingNotificationReadsSettingsOnceForActiveAccount() async throws {
+        // Issue #111: `handleNotificationUpdate(_:)` previously read the account's
+        // notification settings twice over the FFI boundary for the active account
+        // — once to sync the published snapshot and once to gate delivery. The two
+        // responsibilities now share a single `notificationSettings(accountRef:)`
+        // read.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        // Ignore any `notificationSettings` reads performed during bootstrap; only
+        // the handler's own reads are under test.
+        runtime.clearSyncCallThreadRecords()
+
+        await state.handleNotificationUpdate(notificationUpdate(
+            account: account,
+            notificationKey: "notice-1",
+            groupIdHex: "direct-group",
+            senderName: "Alice",
+            previewText: "See you there."
+        ))
+
+        // Exactly one FFI read for the active-account path (was two before the fix),
+        // and it still runs off the main thread.
+        let reads = runtime.syncCallThreadRecord("notificationSettings")
+        #expect(reads.count == 1)
+        #expect(reads.allSatisfy { !$0 })
+        // The single read still drives both the published snapshot and delivery.
+        #expect(state.notificationSettings.localNotificationsEnabled)
+        #expect(notificationCenter.postedRequests.count == 1)
+    }
+
+    @MainActor
     @Test func senderOnlyPreviewModeOmitsDecryptedMessageBody() async throws {
         // Issue #30: notification body must never leak decrypted plaintext when
         // the user opts into sender-only previews. DM => body is generic, group
