@@ -18,3 +18,11 @@ extension AuditLogSettingsFfi: @retroactive @unchecked Sendable {}
 extension AuditLogFileFfi: @retroactive @unchecked Sendable {}
 extension AuditLogTrackerConfigFfi: @retroactive @unchecked Sendable {}
 extension MemberRefFfi: @retroactive @unchecked Sendable {}
+extension MediaAttachmentReferenceFfi: @retroactive @unchecked Sendable {}
+extension MediaUploadAttachmentRequestFfi: @retroactive @unchecked Sendable {}
+extension MediaUploadAttachmentResultFfi: @retroactive @unchecked Sendable {}
+extension MediaUploadRequestFfi: @retroactive @unchecked Sendable {}
+extension MediaUploadResultFfi: @retroactive @unchecked Sendable {}
+extension MediaDownloadResultFfi: @retroactive @unchecked Sendable {}
+extension MediaLocatorFfi: @retroactive @unchecked Sendable {}
+extension MediaRecordFfi: @retroactive @unchecked Sendable {}
