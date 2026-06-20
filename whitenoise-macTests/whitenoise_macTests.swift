@@ -839,6 +839,19 @@ struct whitenoise_macTests {
         #expect(!message.canCopyText)
     }
 
+    @Test func mediaGridPresentationUsesSquareFourTileLayout() {
+        #expect(MessageMediaGridPresentation.visibleCount(totalCount: 6) == 4)
+        #expect(MessageMediaGridPresentation.hiddenCount(totalCount: 6) == 2)
+        #expect(MessageMediaGridPresentation.columnCount(totalCount: 1) == 1)
+        #expect(MessageMediaGridPresentation.rowCount(totalCount: 1) == 1)
+        #expect(MessageMediaGridPresentation.tileSide(totalCount: 1, maxWidth: 360, spacing: 3) == 360)
+        #expect(MessageMediaGridPresentation.gridHeight(totalCount: 1, maxWidth: 360, spacing: 3) == 360)
+        #expect(MessageMediaGridPresentation.columnCount(totalCount: 4) == 2)
+        #expect(MessageMediaGridPresentation.rowCount(totalCount: 4) == 2)
+        #expect(MessageMediaGridPresentation.tileSide(totalCount: 4, maxWidth: 360, spacing: 3) == 178.5)
+        #expect(MessageMediaGridPresentation.gridHeight(totalCount: 4, maxWidth: 360, spacing: 3) == 360)
+    }
+
     @MainActor
     @Test func deeplyNestedMediaJSONDoesNotProduceAttachments() async throws {
         // Regression for whitenoise-mac#120: mediaJson is decrypted peer content.
@@ -2737,6 +2750,67 @@ struct whitenoise_macTests {
         #expect(runtime.uploadedMedia?.request.attachments.first?.plaintext == Data("hello media".utf8))
         #expect(state.pendingMediaAttachments.isEmpty)
         #expect(state.draftText.isEmpty)
+    }
+
+    @MainActor
+    @Test func mediaSendRefreshesSelectedTimelineImmediately() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let reference = mediaAttachmentReference(mediaType: "text/plain", fileName: "notes.txt")
+        runtime.timelineMessagesHandler = { query in
+            return TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: "media",
+                        direction: "outbound",
+                        groupIdHex: "direct-group",
+                        sender: account.accountIdHex,
+                        plaintext: "Project notes",
+                        recordedAt: 1_700_000_010,
+                        mediaJson: mediaJson(for: reference)
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+        let state = WorkspaceState(clientFactory: { runtime })
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let attachmentURL = directory.appendingPathComponent("notes.txt")
+        try Data("hello media".utf8).write(to: attachmentURL)
+
+        await state.bootstrap()
+        await state.addMediaAttachments(from: [attachmentURL])
+        state.draftText = "Project notes"
+        await state.sendDraft()
+
+        #expect(runtime.uploadMediaCallCount == 1)
+        #expect(runtime.timelineMessageQueries.last?.groupIdHex == "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.map(\.id) == ["media"])
+        #expect(state.messagesByChat["direct-group"]?.first?.mediaAttachments.count == 1)
+        #expect(state.messagesByChat["direct-group"]?.first?.body == "Project notes")
     }
 
     @MainActor

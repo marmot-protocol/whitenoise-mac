@@ -247,6 +247,38 @@ struct MessageMediaDownload: Hashable {
     let sizeBytes: UInt64
 }
 
+nonisolated enum MessageMediaGridPresentation {
+    static let maxVisibleItems = 4
+
+    static func visibleCount(totalCount: Int) -> Int {
+        min(max(totalCount, 0), maxVisibleItems)
+    }
+
+    static func hiddenCount(totalCount: Int) -> Int {
+        max(0, totalCount - maxVisibleItems)
+    }
+
+    static func columnCount(totalCount: Int) -> Int {
+        totalCount <= 1 ? 1 : 2
+    }
+
+    static func rowCount(totalCount: Int) -> Int {
+        totalCount <= 2 ? 1 : 2
+    }
+
+    static func tileSide(totalCount: Int, maxWidth: CGFloat, spacing: CGFloat) -> CGFloat {
+        let columns = columnCount(totalCount: totalCount)
+        let totalSpacing = CGFloat(columns - 1) * spacing
+        return max(1, (maxWidth - totalSpacing) / CGFloat(columns))
+    }
+
+    static func gridHeight(totalCount: Int, maxWidth: CGFloat, spacing: CGFloat) -> CGFloat {
+        let rows = rowCount(totalCount: totalCount)
+        let side = tileSide(totalCount: totalCount, maxWidth: maxWidth, spacing: spacing)
+        return CGFloat(rows) * side + CGFloat(rows - 1) * spacing
+    }
+}
+
 enum MediaDownloadState: Equatable {
     case idle
     case loading
