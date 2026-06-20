@@ -5467,6 +5467,45 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func relayValidatorAllowsNonCanonicalLoopbackSpellings() async throws {
+        // Issue #112: loopback membership is decided by parsing the host as an
+        // IP, so every equivalent spelling of the loopback address is accepted,
+        // not just the two canonical literals previously hard-coded.
+        for url in [
+            // Expanded / non-compressed IPv6 loopback.
+            "ws://[0:0:0:0:0:0:0:1]",
+            "ws://[0:0:0:0:0:0:0:1]:7000",
+            // Mixed-case hex with a partial zero-run — still ::1.
+            "ws://[0:0:0:0:0:0:0:0001]",
+            // IPv4-mapped IPv6 loopback.
+            "ws://[::ffff:127.0.0.1]",
+            "ws://[::ffff:127.0.0.1]:7000",
+            "ws://[::ffff:127.1.2.3]",
+            // Non-127.0.0.1 addresses inside 127.0.0.0/8 are still loopback.
+            "ws://127.255.255.254"
+        ] {
+            #expect(RelayURLValidator.classify(url) == .insecureLoopback, "expected loopback for \(url)")
+            #expect(RelayURLValidator.isAcceptable(url), "expected acceptable for \(url)")
+            #expect(RelayURLValidator.isInsecure(url), "expected insecure flag for \(url)")
+        }
+    }
+
+    @Test func relayValidatorRejectsNonLoopbackIPLiterals() async throws {
+        // Issue #112: parsing must not over-accept. Non-loopback IP literals —
+        // including IPv6 and IPv4-mapped IPv6 that point outside 127.0.0.0/8 —
+        // remain rejected cleartext relays.
+        for url in [
+            "ws://[2001:db8::1]",          // public IPv6
+            "ws://[::ffff:192.168.1.10]",  // IPv4-mapped, non-loopback
+            "ws://[fe80::1]",              // link-local IPv6
+            "ws://126.0.0.1",              // just outside 127.0.0.0/8
+            "ws://128.0.0.1"               // just outside 127.0.0.0/8
+        ] {
+            #expect(RelayURLValidator.classify(url) == .insecureRejected, "expected rejection for \(url)")
+            #expect(!RelayURLValidator.isAcceptable(url), "expected not acceptable for \(url)")
+        }
+    }
+
     @Test func relayValidatorRejectsNonRelaySchemesAndJunk() async throws {
         for url in ["", "   ", "https://relay.example.com", "relay.example.com", "wssx://foo", "ws://"] {
             #expect(!RelayURLValidator.isAcceptable(url), "expected rejection for \(String(reflecting: url))")
