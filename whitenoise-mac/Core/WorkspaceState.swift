@@ -346,6 +346,15 @@ final class WorkspaceState {
     private var deliveredNotificationKeys = Set<String>()
     private var deliveredNotificationKeyOrder: [String] = []
     private var newChatLookupGeneration = 0
+    /// Monotonic token identifying the most recently started group-image (Openverse) search.
+    /// `searchGroupImages` captures the value before its `await` and only commits results /
+    /// clears `isSearchingGroupImages` while it is still current — i.e. no newer search has
+    /// superseded it and the picker is still on screen for the same query. This makes the
+    /// search last-request-wins (a slow earlier search cannot overwrite a newer one) and
+    /// prevents a search resolving after the picker is dismissed/reopened from repopulating
+    /// `groupImageResults`. Mirrors the new-chat lookup / settings-load generation guards
+    /// (issues #2, #4). See `searchGroupImages` / issue #110.
+    private var groupImageSearchGeneration = 0
     /// Raw per-sender FFI lookups (userProfile + directory displayName), cached so that
     /// scrolling back through history does not re-resolve the same senders from Rust on
     /// every page. Keyed by sender accountIdHex.
@@ -1895,6 +1904,7 @@ final class WorkspaceState {
         guard !chat.isDirect else { return }
         lastError = nil
         closeGroupDetails()
+        invalidateGroupImageSearch()
         groupImageSearchQuery = ""
         groupImageResults = []
         isGroupImagePickerPresented = true
@@ -1902,8 +1912,8 @@ final class WorkspaceState {
 
     func closeGroupImagePicker() {
         isGroupImagePickerPresented = false
+        invalidateGroupImageSearch()
         groupImageResults = []
-        isSearchingGroupImages = false
         isSavingGroupImage = false
     }
 
@@ -1915,17 +1925,35 @@ final class WorkspaceState {
     func searchGroupImages() async {
         let query = groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
+            invalidateGroupImageSearch()
             groupImageResults = []
             return
         }
 
         lastError = nil
+        let searchGeneration = beginGroupImageSearch()
         isSearchingGroupImages = true
-        defer { isSearchingGroupImages = false }
+        defer {
+            // Spinner ownership is keyed on the generation ALONE, independent of the stricter
+            // picker/query guard used for committing results. Only a newer search or an
+            // `invalidateGroupImageSearch` (both bump the generation, and each sets the spinner
+            // state itself) supersedes this one's ownership of `isSearchingGroupImages`. Editing
+            // the query mid-flight without resubmitting must NOT strand the spinner at `true`
+            // (which would disable the Search button forever), so it is deliberately not part of
+            // this check — see issue #110 adversarial review.
+            if ownsGroupImageSearch(generation: searchGeneration) {
+                isSearchingGroupImages = false
+            }
+        }
 
         do {
-            groupImageResults = try await groupImageSearchClient.searchImages(query: query)
+            let results = try await groupImageSearchClient.searchImages(query: query)
+            // Drop results if a newer search superseded this one, the query was edited, or the
+            // picker was dismissed/reopened while the request was in flight.
+            guard isCurrentGroupImageSearch(generation: searchGeneration, query: query) else { return }
+            groupImageResults = results
         } catch {
+            guard isCurrentGroupImageSearch(generation: searchGeneration, query: query) else { return }
             groupImageResults = []
             lastError = error.localizedDescription
         }
@@ -2267,7 +2295,7 @@ final class WorkspaceState {
         isGroupImagePickerPresented = false
         groupImageSearchQuery = ""
         groupImageResults = []
-        isSearchingGroupImages = false
+        invalidateGroupImageSearch()
         isSavingGroupImage = false
         isGroupDetailsPresented = false
         groupDetailsSnapshot = nil
@@ -3365,6 +3393,36 @@ final class WorkspaceState {
     private func isCurrentNewChatLookup(generation: Int, query: String) -> Bool {
         newChatLookupGeneration == generation
             && newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
+    }
+
+    private func beginGroupImageSearch() -> Int {
+        groupImageSearchGeneration += 1
+        return groupImageSearchGeneration
+    }
+
+    private func invalidateGroupImageSearch() {
+        groupImageSearchGeneration += 1
+        isSearchingGroupImages = false
+    }
+
+    /// True while `generation` still owns the group-image search spinner — i.e. no newer
+    /// `beginGroupImageSearch` or `invalidateGroupImageSearch` has bumped the generation. This is
+    /// intentionally looser than `isCurrentGroupImageSearch`: it does NOT require the picker to be
+    /// presented or the live query to match, because spinner ownership must transfer cleanly even
+    /// when the user edits the query mid-flight without resubmitting (otherwise the spinner would
+    /// stay stuck `true` and disable the Search button — issue #110 review).
+    private func ownsGroupImageSearch(generation: Int) -> Bool {
+        groupImageSearchGeneration == generation
+    }
+
+    /// True only if `generation` is still the latest group-image search, the picker is still
+    /// presented, and the live (trimmed) query still equals the one this search was issued for.
+    /// Any of: a newer search, a dismissed/reopened picker, or an edited query invalidates the
+    /// in-flight result so it cannot overwrite current UI state.
+    private func isCurrentGroupImageSearch(generation: Int, query: String) -> Bool {
+        ownsGroupImageSearch(generation: generation)
+            && isGroupImagePickerPresented
+            && groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
 
     private func insertCreatedChatIfNeeded(groupIdHex: String, title: String, avatarSeed: String, pictureURL: String?) {
