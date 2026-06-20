@@ -2527,6 +2527,7 @@ final class WorkspaceState {
             draftText = ""
             replyDraftContext = nil
             pendingMediaAttachmentsByConversation[draftKey] = nil
+            await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
             lastError = error.localizedDescription
         }
@@ -3351,6 +3352,35 @@ final class WorkspaceState {
             timelinePagingByChat = [groupIdHex: nextPaging]
         }
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
+    }
+
+    private func refreshSelectedTimelineAfterSend(
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        let pageLimit = Self.timelinePageLimit
+        do {
+            let page = try await runOffMain {
+                try client.timelineMessages(
+                    accountRef: account.accountRef,
+                    query: TimelineMessageQueryFfi(
+                        groupIdHex: groupIdHex,
+                        search: nil,
+                        before: nil,
+                        beforeMessageId: nil,
+                        after: nil,
+                        afterMessageId: nil,
+                        limit: pageLimit
+                    )
+                )
+            }
+            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: account, client: client)
+        } catch {
+            setBackgroundStatus(error.localizedDescription)
+        }
     }
 
     private func pruneMessageCache(keeping groupIdHex: String?) {

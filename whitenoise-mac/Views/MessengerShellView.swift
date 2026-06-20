@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import AVKit
 import CoreImage
 import MarmotKit
 import SwiftUI
@@ -573,6 +574,7 @@ private struct ConversationView: View {
     @State private var bottomSentinelResetTask: Task<Void, Never>?
     @State private var isFileImporterPresented = false
     @State private var isFileDropTargeted = false
+    @State private var imageGallery: MessageImageGalleryPresentation?
     let chat: ChatItem
     private let bottomTranscriptPadding: CGFloat = 34
 
@@ -633,7 +635,9 @@ private struct ConversationView: View {
                             }
 
                             ForEach(messages) { message in
-                                ConversationMessageRow(message: message)
+                                ConversationMessageRow(message: message) { gallery in
+                                    imageGallery = gallery
+                                }
                             }
 
                             if paging.hasMoreAfter {
@@ -841,6 +845,15 @@ private struct ConversationView: View {
         .background {
             MessagesTranscriptBackground()
         }
+        .overlay {
+            if let imageGallery {
+                MessageImageGalleryOverlay(presentation: imageGallery) {
+                    self.imageGallery = nil
+                }
+                .transition(.opacity)
+                .zIndex(2)
+            }
+        }
         .fileImporter(
             isPresented: $isFileImporterPresented,
             allowedContentTypes: OutgoingMediaAttachmentPolicy.fileImporterAllowedTypes,
@@ -886,7 +899,7 @@ private struct PendingMediaDraftStrip: View {
     let attachments: [PendingMediaAttachment]
     let onRemove: (PendingMediaAttachment.ID) -> Void
 
-    private let tileSize = CGSize(width: 118, height: 66)
+    private let tileSize = CGSize(width: 74, height: 74)
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -2145,13 +2158,14 @@ private struct GroupImageResultTile: View {
 
 private struct ConversationMessageRow: View {
     let message: MessageItem
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     // Receives the resolved MessageItem by value (not via a shared @Observable lookup),
     // so SwiftUI diffs each row by value and only re-runs the rows that actually changed
     // instead of invalidating every visible row on each page load / streaming update.
     var body: some View {
         if message.presentation.isChatBubble {
-            MessageBubble(message: message)
+            MessageBubble(message: message, onOpenImageGallery: onOpenImageGallery)
         } else {
             TimelineNoticeRow(message: message)
         }
@@ -2221,12 +2235,13 @@ private struct MessageBubble: View {
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
     let message: MessageItem
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.isOutgoing { Spacer(minLength: 72) }
 
-            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 6) {
                 if !message.isOutgoing {
                     Text(message.senderName)
                         .font(.caption.weight(.medium))
@@ -2234,7 +2249,24 @@ private struct MessageBubble: View {
                         .padding(.horizontal, 4)
                 }
 
-                HStack(alignment: .center, spacing: 8) {
+                if !visualMediaAttachments.isEmpty {
+                    MessageVisualMediaGrid(
+                        message: message,
+                        attachments: visualMediaAttachments,
+                        isOutgoing: message.isOutgoing,
+                        onOpenImageGallery: onOpenImageGallery
+                    )
+                }
+
+                ForEach(nonvisualMediaAttachments) { attachment in
+                    MessageMediaAttachmentView(
+                        message: message,
+                        attachment: attachment,
+                        isOutgoing: message.isOutgoing
+                    )
+                }
+
+                if hasBubbleContent {
                     bubbleContent
                 }
 
@@ -2292,6 +2324,28 @@ private struct MessageBubble: View {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
     }
 
+    private var trimmedBody: String {
+        message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasBubbleContent: Bool {
+        workspace.streamingDebugEnabled
+            || message.replyContext != nil
+            || !trimmedBody.isEmpty
+    }
+
+    private var visualMediaAttachments: [MessageMediaAttachment] {
+        message.mediaAttachments.filter { attachment in
+            attachment.kind == .image || attachment.kind == .video
+        }
+    }
+
+    private var nonvisualMediaAttachments: [MessageMediaAttachment] {
+        message.mediaAttachments.filter { attachment in
+            attachment.kind == .audio || attachment.kind == .file
+        }
+    }
+
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if workspace.streamingDebugEnabled {
@@ -2302,15 +2356,7 @@ private struct MessageBubble: View {
                 MessageReplyContextView(context: replyContext, isOutgoing: message.isOutgoing)
             }
 
-            ForEach(message.mediaAttachments) { attachment in
-                MessageMediaAttachmentView(
-                    message: message,
-                    attachment: attachment,
-                    isOutgoing: message.isOutgoing
-                )
-            }
-
-            if !message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !trimmedBody.isEmpty {
                 Text(message.body)
                     .font(.system(size: 15.5))
                     .foregroundStyle(message.isOutgoing ? .white : .primary)
@@ -2360,6 +2406,178 @@ private struct MessageBubble: View {
     }
 }
 
+private struct MessageImageGalleryPresentation: Identifiable, Equatable {
+    let id: String
+    let message: MessageItem
+    let imageAttachments: [MessageMediaAttachment]
+    let initialIndex: Int
+
+    init?(message: MessageItem, initialAttachment: MessageMediaAttachment) {
+        let imageAttachments = message.mediaAttachments.filter { $0.kind == .image }
+        guard !imageAttachments.isEmpty else { return nil }
+        self.id = "\(message.id)-image-gallery"
+        self.message = message
+        self.imageAttachments = imageAttachments
+        self.initialIndex = imageAttachments.firstIndex(of: initialAttachment) ?? 0
+    }
+}
+
+private struct MessageVisualMediaGrid: View {
+    let message: MessageItem
+    let attachments: [MessageMediaAttachment]
+    let isOutgoing: Bool
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+
+    private let maxWidth: CGFloat = 360
+    private let spacing: CGFloat = 3
+    private let cornerRadius: CGFloat = 10
+
+    private var visibleAttachments: [MessageMediaAttachment] {
+        Array(attachments.prefix(MessageMediaGridPresentation.visibleCount(totalCount: attachments.count)))
+    }
+
+    private var hiddenCount: Int {
+        MessageMediaGridPresentation.hiddenCount(totalCount: attachments.count)
+    }
+
+    private var columnCount: Int {
+        MessageMediaGridPresentation.columnCount(totalCount: attachments.count)
+    }
+
+    private var rowCount: Int {
+        MessageMediaGridPresentation.rowCount(totalCount: attachments.count)
+    }
+
+    private var tileSide: CGFloat {
+        MessageMediaGridPresentation.tileSide(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
+    }
+
+    private var gridHeight: CGFloat {
+        MessageMediaGridPresentation.gridHeight(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
+    }
+
+    private var rowStarts: [Int] {
+        rowCount == 1 ? [0] : [0, columnCount]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(rowStarts, id: \.self) { rowStart in
+                HStack(spacing: spacing) {
+                    ForEach(0..<columnCount, id: \.self) { column in
+                        tile(at: rowStart + column)
+                    }
+                }
+            }
+        }
+        .frame(width: maxWidth, height: gridHeight, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(Color.primary.opacity(isOutgoing ? 0.16 : 0.1), lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private func tile(at index: Int) -> some View {
+        if index < visibleAttachments.count {
+            MessageVisualMediaTile(
+                message: message,
+                attachment: visibleAttachments[index],
+                isOutgoing: isOutgoing,
+                sideLength: tileSide,
+                hiddenCount: index == MessageMediaGridPresentation.maxVisibleItems - 1 ? hiddenCount : 0,
+                onOpenImageGallery: onOpenImageGallery
+            )
+        } else {
+            Color.clear
+                .frame(width: tileSide, height: tileSide)
+        }
+    }
+}
+
+private struct MessageVisualMediaTile: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let message: MessageItem
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+    let sideLength: CGFloat
+    let hiddenCount: Int
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+
+    var body: some View {
+        ZStack {
+            content
+
+            if hiddenCount > 0 {
+                Color.black.opacity(0.46)
+                Text("+\(hiddenCount)")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .contentShape(Rectangle())
+        .clipped()
+        .task(id: attachment.id) {
+            await workspace.loadMediaAttachment(attachment, for: message)
+        }
+        .onTapGesture {
+            if attachment.kind == .image,
+               let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment) {
+                onOpenImageGallery(gallery)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch workspace.mediaDownloadState(for: message, attachment: attachment) {
+        case .idle, .loading:
+            placeholder(systemImage: attachment.kind == .video ? "play.rectangle" : "photo", isLoading: true)
+        case .failed:
+            placeholder(systemImage: "arrow.clockwise", isLoading: false)
+        case .loaded(let download):
+            switch attachment.kind {
+            case .image:
+                if let image = NSImage(data: download.data) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: sideLength, height: sideLength)
+                        .clipped()
+                        .accessibilityLabel(attachment.fileName)
+                } else {
+                    placeholder(systemImage: "photo", isLoading: false)
+                }
+            case .video:
+                MessageVideoAttachmentPlayer(
+                    download: download,
+                    attachment: attachment,
+                    isOutgoing: isOutgoing,
+                    sideLength: sideLength
+                )
+            case .audio, .file:
+                placeholder(systemImage: attachment.kind.systemImageName, isLoading: false)
+            }
+        }
+    }
+
+    private func placeholder(systemImage: String, isLoading: Bool) -> some View {
+        ZStack {
+            Color.primary.opacity(0.06)
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 private struct MessageMediaAttachmentView: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
@@ -2403,8 +2621,9 @@ private struct MessageMediaAttachmentView: View {
             if let image = NSImage(data: download.data) {
                 Image(nsImage: image)
                     .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 360, maxHeight: 300)
+                    .scaledToFill()
+                    .frame(width: 260, height: 260)
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .accessibilityLabel(attachment.fileName)
             } else {
@@ -2421,11 +2640,17 @@ private struct MessageMediaAttachmentView: View {
                 fallbackFileName: attachment.fileName,
                 isOutgoing: isOutgoing
             )
-        case .video, .file:
-            MessageAttachmentStatusRow(
-                systemImage: attachment.kind == .video ? "film" : "doc",
-                title: download.fileName.nilIfBlank ?? attachment.fileName,
-                detail: mediaDetail(download),
+        case .video:
+            MessageVideoAttachmentPlayer(
+                download: download,
+                attachment: attachment,
+                isOutgoing: isOutgoing,
+                sideLength: 260
+            )
+        case .file:
+            MessageDocumentAttachmentRow(
+                download: download,
+                attachment: attachment,
                 isOutgoing: isOutgoing
             )
         }
@@ -2435,6 +2660,37 @@ private struct MessageMediaAttachmentView: View {
         let type = download.mediaType.nilIfBlank ?? attachment.mediaType
         let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
         return "\(type) - \(size)"
+    }
+}
+
+private struct MessageDocumentAttachmentRow: View {
+    let download: MessageMediaDownload
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+
+    var body: some View {
+        MessageAttachmentStatusRow(
+            systemImage: "doc",
+            title: download.fileName.nilIfBlank ?? attachment.fileName,
+            detail: mediaDetail,
+            isOutgoing: isOutgoing
+        ) {
+            openAttachment()
+        }
+    }
+
+    private var mediaDetail: String {
+        let type = download.mediaType.nilIfBlank ?? attachment.mediaType
+        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
+        return "\(type) - \(size)"
+    }
+
+    private func openAttachment() {
+        guard let url = MessageMediaPlaybackFileStore.fileURL(
+            attachment: attachment,
+            download: download
+        ) else { return }
+        NSWorkspace.shared.open(url)
     }
 }
 
@@ -2507,6 +2763,8 @@ private struct MessageAudioAttachmentPlayer: View {
     let isOutgoing: Bool
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
+    @State private var playbackProgress: CGFloat = 0
+    @State private var metadata: MediaWaveformAnalyzer.Metadata?
     @State private var playbackMonitor: Task<Void, Never>?
 
     var body: some View {
@@ -2529,10 +2787,21 @@ private struct MessageAudioAttachmentPlayer: View {
                 Text(download.fileName.nilIfBlank ?? fallbackFileName)
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
-                Text(mediaDetail)
-                    .font(.caption2)
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
-                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    ComposerAudioWaveformView(
+                        samples: metadata?.samples ?? MediaWaveformAnalyzer.fallback(),
+                        progress: playbackProgress,
+                        barColor: isOutgoing ? Color.white.opacity(0.42) : Color.secondary.opacity(0.55),
+                        playedColor: isOutgoing ? Color.white.opacity(0.9) : Color.accentColor
+                    )
+                    .frame(height: 24)
+
+                    Text(durationLabel)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -2547,11 +2816,21 @@ private struct MessageAudioAttachmentPlayer: View {
         .onDisappear {
             stopPlayback()
         }
+        .task(id: "\(download.fileName)-\(download.sizeBytes)-\(download.mediaType)") {
+            let data = download.data
+            let mediaType = download.mediaType
+            metadata = await Task.detached(priority: .utility) {
+                MediaWaveformAnalyzer.metadata(from: data, mediaType: mediaType)
+            }.value
+        }
     }
 
-    private var mediaDetail: String {
-        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
-        return "\(download.mediaType) - \(size)"
+    private var durationLabel: String {
+        if let durationSeconds = metadata?.durationSeconds {
+            let total = max(0, Int(durationSeconds.rounded(.down)))
+            return "\(total / 60):\(String(format: "%02d", total % 60))"
+        }
+        return ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
     }
 
     private func togglePlayback() {
@@ -2570,6 +2849,7 @@ private struct MessageAudioAttachmentPlayer: View {
             }
             player?.play()
             isPlaying = true
+            updatePlaybackProgress()
             monitorPlayback()
         } catch {
             isPlaying = false
@@ -2582,6 +2862,7 @@ private struct MessageAudioAttachmentPlayer: View {
         player?.stop()
         player?.currentTime = 0
         isPlaying = false
+        playbackProgress = 0
     }
 
     private func monitorPlayback() {
@@ -2591,10 +2872,284 @@ private struct MessageAudioAttachmentPlayer: View {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard player?.isPlaying == true else {
                     isPlaying = false
+                    playbackProgress = 0
                     break
                 }
+                updatePlaybackProgress()
             }
         }
+    }
+
+    private func updatePlaybackProgress() {
+        guard let player, player.duration > 0 else {
+            playbackProgress = 0
+            return
+        }
+        playbackProgress = min(1, max(0, CGFloat(player.currentTime / player.duration)))
+    }
+}
+
+private struct MessageVideoAttachmentPlayer: View {
+    let download: MessageMediaDownload
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+    let sideLength: CGFloat
+
+    @State private var player: AVPlayer?
+    @State private var playbackURL: URL?
+    @State private var isLoading = false
+    @State private var didFail = false
+
+    var body: some View {
+        ZStack {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(width: sideLength, height: sideLength)
+                    .background(Color.black)
+            } else {
+                Color.black.opacity(0.86)
+                Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Color.black.opacity(0.45), in: Circle())
+
+                VStack {
+                    Spacer()
+                    Text(download.fileName.nilIfBlank ?? attachment.fileName)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.86))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
+                }
+            }
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color.black.opacity(0.45), in: Circle())
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Task { await togglePlayback() }
+        }
+        .onDisappear {
+            player?.pause()
+        }
+        .accessibilityLabel("Video attachment")
+    }
+
+    private func togglePlayback() async {
+        if let player {
+            if player.timeControlStatus == .playing {
+                player.pause()
+            } else {
+                player.play()
+            }
+            return
+        }
+
+        isLoading = true
+        didFail = false
+        defer { isLoading = false }
+
+        guard let url = playbackURL ?? MessageMediaPlaybackFileStore.fileURL(
+            attachment: attachment,
+            download: download
+        ) else {
+            didFail = true
+            return
+        }
+        playbackURL = url
+        let next = AVPlayer(url: url)
+        player = next
+        next.play()
+    }
+}
+
+private enum MessageMediaPlaybackFileStore {
+    static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) -> URL? {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhiteNoiseMediaPlayback", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fileName = sanitizedFileName(
+                download.fileName.nilIfBlank ?? attachment.fileName,
+                fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
+                    for: download.mediaType.nilIfBlank ?? attachment.mediaType,
+                    fileName: download.fileName.nilIfBlank ?? attachment.fileName
+                )
+            )
+            let url = directory.appendingPathComponent("\(stableStem(for: attachment.id))-\(fileName)")
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try download.data.write(to: url, options: [.atomic])
+            }
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private static func stableStem(for id: String) -> String {
+        id.unicodeScalars.map { scalar in
+            CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : "-"
+        }
+        .joined()
+        .prefix(48)
+        .description
+    }
+
+    private static func sanitizedFileName(_ fileName: String, fallbackExtension: String) -> String {
+        let trimmed = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = "attachment.\(fallbackExtension)"
+        let rawName = trimmed.isEmpty ? fallback : trimmed
+        let illegal = CharacterSet(charactersIn: "/:\\")
+        let components = rawName.components(separatedBy: illegal).filter { !$0.isEmpty }
+        let sanitized = components.joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? fallback : sanitized
+    }
+}
+
+private struct MessageImageGalleryOverlay: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let presentation: MessageImageGalleryPresentation
+    let onClose: () -> Void
+    @State private var selectedIndex: Int
+
+    init(presentation: MessageImageGalleryPresentation, onClose: @escaping () -> Void) {
+        self.presentation = presentation
+        self.onClose = onClose
+        _selectedIndex = State(initialValue: presentation.initialIndex)
+    }
+
+    private var selectedAttachment: MessageMediaAttachment {
+        presentation.imageAttachments[min(max(0, selectedIndex), presentation.imageAttachments.count - 1)]
+    }
+
+    private var canNavigate: Bool {
+        presentation.imageAttachments.count > 1
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.92)
+
+                imageContent
+                    .frame(
+                        maxWidth: max(1, geometry.size.width - 104),
+                        maxHeight: max(1, geometry.size.height - 120)
+                    )
+
+                VStack {
+                    HStack(spacing: 12) {
+                        Text(selectedAttachment.fileName)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        if canNavigate {
+                            Text("\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
+                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.72))
+                        }
+
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .bold))
+                                .frame(width: 34, height: 34)
+                                .background(Color.white.opacity(0.14), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .help("Close")
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
+
+                    Spacer()
+                }
+
+                if canNavigate {
+                    HStack {
+                        navigationButton(systemName: "chevron.left", isEnabled: selectedIndex > 0) {
+                            selectedIndex = max(0, selectedIndex - 1)
+                        }
+
+                        Spacer()
+
+                        navigationButton(
+                            systemName: "chevron.right",
+                            isEnabled: selectedIndex < presentation.imageAttachments.count - 1
+                        ) {
+                            selectedIndex = min(presentation.imageAttachments.count - 1, selectedIndex + 1)
+                        }
+                    }
+                    .padding(.horizontal, 22)
+                }
+            }
+            .task(id: selectedAttachment.id) {
+                await workspace.loadMediaAttachment(selectedAttachment, for: presentation.message)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var imageContent: some View {
+        switch workspace.mediaDownloadState(for: presentation.message, attachment: selectedAttachment) {
+        case .idle, .loading:
+            ProgressView()
+                .controlSize(.regular)
+                .tint(.white)
+        case .failed:
+            VStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.title2)
+                Text("Image unavailable")
+                    .font(.callout.weight(.semibold))
+                Button {
+                    Task { await workspace.loadMediaAttachment(selectedAttachment, for: presentation.message) }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+            }
+            .foregroundStyle(.white)
+        case .loaded(let download):
+            if let image = NSImage(data: download.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .accessibilityLabel(selectedAttachment.fileName)
+            } else {
+                Text("Image unavailable")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
+    private func navigationButton(
+        systemName: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 26, weight: .bold))
+                .frame(width: 54, height: 54)
+                .background(Color.white.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.28))
+        .disabled(!isEnabled)
+        .help(systemName == "chevron.left" ? "Previous image" : "Next image")
     }
 }
 
