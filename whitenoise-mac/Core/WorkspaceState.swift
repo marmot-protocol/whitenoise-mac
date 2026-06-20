@@ -1934,10 +1934,14 @@ final class WorkspaceState {
         let searchGeneration = beginGroupImageSearch()
         isSearchingGroupImages = true
         defer {
-            // Only clear the spinner if this search is still the current one. A newer search
-            // (which bumped the generation) owns `isSearchingGroupImages` and must not have it
-            // cleared out from under it by this stale completion.
-            if isCurrentGroupImageSearch(generation: searchGeneration, query: query) {
+            // Spinner ownership is keyed on the generation ALONE, independent of the stricter
+            // picker/query guard used for committing results. Only a newer search or an
+            // `invalidateGroupImageSearch` (both bump the generation, and each sets the spinner
+            // state itself) supersedes this one's ownership of `isSearchingGroupImages`. Editing
+            // the query mid-flight without resubmitting must NOT strand the spinner at `true`
+            // (which would disable the Search button forever), so it is deliberately not part of
+            // this check — see issue #110 adversarial review.
+            if ownsGroupImageSearch(generation: searchGeneration) {
                 isSearchingGroupImages = false
             }
         }
@@ -3401,12 +3405,22 @@ final class WorkspaceState {
         isSearchingGroupImages = false
     }
 
+    /// True while `generation` still owns the group-image search spinner — i.e. no newer
+    /// `beginGroupImageSearch` or `invalidateGroupImageSearch` has bumped the generation. This is
+    /// intentionally looser than `isCurrentGroupImageSearch`: it does NOT require the picker to be
+    /// presented or the live query to match, because spinner ownership must transfer cleanly even
+    /// when the user edits the query mid-flight without resubmitting (otherwise the spinner would
+    /// stay stuck `true` and disable the Search button — issue #110 review).
+    private func ownsGroupImageSearch(generation: Int) -> Bool {
+        groupImageSearchGeneration == generation
+    }
+
     /// True only if `generation` is still the latest group-image search, the picker is still
     /// presented, and the live (trimmed) query still equals the one this search was issued for.
     /// Any of: a newer search, a dismissed/reopened picker, or an edited query invalidates the
     /// in-flight result so it cannot overwrite current UI state.
     private func isCurrentGroupImageSearch(generation: Int, query: String) -> Bool {
-        groupImageSearchGeneration == generation
+        ownsGroupImageSearch(generation: generation)
             && isGroupImagePickerPresented
             && groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
