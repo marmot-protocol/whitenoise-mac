@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 import MarmotKit
 import Observation
@@ -114,6 +115,7 @@ final class WorkspaceState {
     private(set) var accounts: [AccountItem]
     private(set) var chatsByAccount: [String: [ChatItem]]
     private(set) var messagesByChat: [String: [MessageItem]]
+    private(set) var mediaDownloads: [String: MediaDownloadState] = [:]
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.
@@ -144,8 +146,15 @@ final class WorkspaceState {
             }
         }
     }
+    var pendingMediaAttachments: [PendingMediaAttachment] {
+        guard let selectedComposerDraftKey else { return [] }
+        return pendingMediaAttachmentsByConversation[selectedComposerDraftKey] ?? []
+    }
     var isRefreshing = false
     var isSending = false
+    private(set) var isRecordingVoiceMessage = false
+    private(set) var voiceRecordingSamples: [CGFloat] = []
+    private(set) var voiceRecordingDurationSeconds: Double = 0
     /// Per-target reentrancy guards for message actions. `react`/`deleteMessage`
     /// operate on arbitrary messages, so a single in-flight bool (like `isSending`)
     /// would wrongly block acting on a *different* message. We key on the action's
@@ -248,6 +257,8 @@ final class WorkspaceState {
     var isLoadingGroupDetails = false
     var isSavingGroupProfile = false
     var isInvitingGroupMember = false
+    var isAcceptingGroupInvite = false
+    var isDecliningGroupInvite = false
     var isArchivingGroup = false
     var isLeavingGroup = false
     var isExportingGroupTranscript = false
@@ -258,6 +269,10 @@ final class WorkspaceState {
     private(set) var timelineInitialLoadGroupId: String?
     private var draftTextByConversation: [ComposerDraftKey: String] = [:]
     private var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
+    private var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
+    private var voiceRecorder: AVAudioRecorder?
+    private var voiceRecordingURL: URL?
+    private var voiceRecordingMeterTask: Task<Void, Never>?
 
     private var selectedComposerDraftKey: ComposerDraftKey? {
         guard let activeAccountId, case .chat(let chatId) = selection else { return nil }
@@ -267,6 +282,7 @@ final class WorkspaceState {
     private func clearAllComposerDrafts() {
         draftTextByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
+        pendingMediaAttachmentsByConversation.removeAll()
     }
 
     private func clearComposerDrafts(for chatIds: [String], accountId: String) {
@@ -274,6 +290,7 @@ final class WorkspaceState {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             draftTextByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
+            pendingMediaAttachmentsByConversation[key] = nil
         }
     }
 
@@ -283,6 +300,9 @@ final class WorkspaceState {
         }
         for key in replyDraftContextByConversation.keys.filter({ $0.accountId == accountId }) {
             replyDraftContextByConversation[key] = nil
+        }
+        for key in pendingMediaAttachmentsByConversation.keys.filter({ $0.accountId == accountId }) {
+            pendingMediaAttachmentsByConversation[key] = nil
         }
     }
 
@@ -536,7 +556,7 @@ final class WorkspaceState {
     }
 
     static func preview() -> WorkspaceState {
-        WorkspaceState(
+        let state = WorkspaceState(
             accounts: AccountItem.samples,
             chatsByAccount: [
                 AccountItem.samples[0].id: ChatItem.samples,
@@ -546,6 +566,9 @@ final class WorkspaceState {
             messagesByChat: MessageItem.samples,
             clientFactory: { throw PreviewRuntimeError() }
         )
+        state.activeAccountId = AccountItem.samples[0].id
+        state.selection = .chat(ChatItem.samples[0].id)
+        return state
     }
 
     var activeAccount: AccountItem? {
@@ -628,7 +651,10 @@ final class WorkspaceState {
     var canSend: Bool {
         client != nil
             && selectedChat != nil
-            && !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (
+                !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !pendingMediaAttachments.isEmpty
+            )
             && !isSending
     }
 
@@ -711,6 +737,7 @@ final class WorkspaceState {
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
+        cancelVoiceRecording()
         stopTimelineListener()
         stopChatListListener()
         clearEnteredLoginIdentity()
@@ -738,6 +765,7 @@ final class WorkspaceState {
     }
 
     func selectChat(_ chat: ChatItem) {
+        cancelVoiceRecording()
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .chat(chat.id)
@@ -1001,8 +1029,9 @@ final class WorkspaceState {
 
         settingsLoadGeneration &+= 1
         let generation = settingsLoadGeneration
-        let task = Task { [weak self] in
-            await self?.performSettingsLoad(accountId: accountId, generation: generation)
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.performSettingsLoad(accountId: accountId, generation: generation)
         }
         settingsLoadTask = task
         settingsLoadAccountId = accountId
@@ -1594,7 +1623,7 @@ final class WorkspaceState {
         replyDraftContext = MessageReplyContext(
             targetMessageId: message.id,
             senderName: message.senderName,
-            body: message.body
+            body: message.replyPreviewText
         )
     }
 
@@ -1605,6 +1634,56 @@ final class WorkspaceState {
     func copyText(of message: MessageItem) {
         guard message.canCopyText else { return }
         copyText(message.body)
+    }
+
+    func mediaDownloadState(for message: MessageItem, attachment: MessageMediaAttachment) -> MediaDownloadState {
+        mediaDownloads[mediaDownloadKey(message: message, attachment: attachment)] ?? .idle
+    }
+
+    func loadMediaAttachment(_ attachment: MessageMediaAttachment, for message: MessageItem) async {
+        let key = mediaDownloadKey(message: message, attachment: attachment)
+        if case .loaded = mediaDownloads[key] {
+            return
+        }
+        if case .loading = mediaDownloads[key] {
+            return
+        }
+
+        guard let client, let activeAccount, !message.groupIdHex.isEmpty else {
+            mediaDownloads[key] = .failed(L10n.string("Attachment unavailable"))
+            return
+        }
+
+        let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
+        let groupIdHex = message.groupIdHex
+        mediaDownloads[key] = .loading
+
+        do {
+            let reference = try await resolvedMediaReference(
+                attachment.reference,
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                client: client
+            )
+            let download = try await client.downloadMedia(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                reference: reference
+            )
+            guard activeAccountId == accountId else { return }
+            mediaDownloads[key] = .loaded(
+                MessageMediaDownload(
+                    data: download.plaintext,
+                    fileName: download.fileName,
+                    mediaType: download.mediaType,
+                    sizeBytes: download.sizeBytes
+                )
+            )
+        } catch {
+            guard activeAccountId == accountId else { return }
+            mediaDownloads[key] = .failed(error.localizedDescription)
+        }
     }
 
     /// Copies `text` to the system pasteboard.
@@ -1709,6 +1788,8 @@ final class WorkspaceState {
         isLoadingGroupDetails = false
         isSavingGroupProfile = false
         isInvitingGroupMember = false
+        isAcceptingGroupInvite = false
+        isDecliningGroupInvite = false
         isArchivingGroup = false
         isLeavingGroup = false
         isExportingGroupTranscript = false
@@ -1816,6 +1897,26 @@ final class WorkspaceState {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    func acceptGroupInvite(for chat: ChatItem) async {
+        guard !chat.isDirect else { return }
+        await acceptGroupInvite(groupIdHex: chat.id)
+    }
+
+    func declineGroupInvite(for chat: ChatItem) async {
+        guard !chat.isDirect else { return }
+        await declineGroupInvite(groupIdHex: chat.id)
+    }
+
+    func acceptSelectedGroupInvite() async {
+        guard let snapshot = groupDetailsSnapshot else { return }
+        await acceptGroupInvite(groupIdHex: snapshot.groupIdHex)
+    }
+
+    func declineSelectedGroupInvite() async {
+        guard let snapshot = groupDetailsSnapshot else { return }
+        await declineGroupInvite(groupIdHex: snapshot.groupIdHex)
     }
 
     func promoteGroupMember(_ member: GroupMemberItem) async {
@@ -1987,6 +2088,51 @@ final class WorkspaceState {
         }
     }
 
+    private func acceptGroupInvite(groupIdHex: String) async {
+        guard let client, let activeAccount, !isAcceptingGroupInvite, !isDecliningGroupInvite else { return }
+        lastError = nil
+        isAcceptingGroupInvite = true
+        defer { isAcceptingGroupInvite = false }
+
+        do {
+            _ = try await client.acceptGroupInvite(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            await reloadChats()
+            if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                await loadGroupDetails(groupIdHex: groupIdHex)
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func declineGroupInvite(groupIdHex: String) async {
+        guard let client, let activeAccount, !isDecliningGroupInvite, !isAcceptingGroupInvite else { return }
+        lastError = nil
+        isDecliningGroupInvite = true
+        defer { isDecliningGroupInvite = false }
+
+        do {
+            _ = try await client.declineGroupInvite(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            if groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                closeGroupDetails()
+            }
+            if case .chat(let selectedGroupId) = selection, selectedGroupId == groupIdHex {
+                stopTimelineListener()
+                selection = nil
+                pruneMessageCache(keeping: nil)
+            }
+            await reloadChats()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     private func loadGroupDetails(groupIdHex: String) async {
         guard let client, let activeAccount else { return }
         guard selectedChat?.id == groupIdHex else { return }
@@ -2118,19 +2264,253 @@ final class WorkspaceState {
         )
     }
 
+    func addMediaAttachments(from urls: [URL]) async {
+        guard let draftKey = selectedComposerDraftKey else { return }
+        guard canBeginMediaAttachmentSelection() else { return }
+        let fileURLs = urls.filter(\.isFileURL)
+        guard !fileURLs.isEmpty else { return }
+
+        let selected = Array(fileURLs.prefix(remainingMediaAttachmentSlots))
+        if selected.count < fileURLs.count {
+            presentMaxMediaAttachmentWarning()
+        }
+
+        for url in selected {
+            let isSecurityScoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            do {
+                let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
+                appendPendingMediaAttachment(attachment, for: draftKey)
+            } catch is CancellationError {
+                return
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    func removePendingMediaAttachment(_ id: PendingMediaAttachment.ID) {
+        guard let selectedComposerDraftKey else { return }
+        var attachments = pendingMediaAttachmentsByConversation[selectedComposerDraftKey] ?? []
+        attachments.removeAll { $0.id == id }
+        pendingMediaAttachmentsByConversation[selectedComposerDraftKey] = attachments.isEmpty ? nil : attachments
+    }
+
+    func toggleVoiceRecording() async {
+        if isRecordingVoiceMessage {
+            await finishVoiceRecording()
+        } else {
+            await startVoiceRecording()
+        }
+    }
+
+    func startVoiceRecording() async {
+        guard !isRecordingVoiceMessage else { return }
+        guard canBeginMediaAttachmentSelection() else { return }
+
+        let hasPermission = await requestMicrophoneAccess()
+        guard hasPermission else {
+            lastError = L10n.string("Microphone access is needed to record voice messages.")
+            return
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhiteNoiseVoiceRecordings", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fileName = "voice-\(Int(Date().timeIntervalSince1970)).m4a"
+            let url = directory.appendingPathComponent(fileName)
+            let settings: [String: Any] = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+            ]
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.isMeteringEnabled = true
+            guard recorder.record() else {
+                throw VoiceRecordingFailure.startFailed
+            }
+
+            voiceRecorder = recorder
+            voiceRecordingURL = url
+            voiceRecordingSamples = []
+            voiceRecordingDurationSeconds = 0
+            isRecordingVoiceMessage = true
+            startVoiceRecordingMetering()
+        } catch {
+            resetVoiceRecording(deleteFile: true)
+            lastError = L10n.string("Voice recording could not start.")
+        }
+    }
+
+    func finishVoiceRecording() async {
+        guard isRecordingVoiceMessage, let recorder = voiceRecorder, let url = voiceRecordingURL else {
+            resetVoiceRecording(deleteFile: true)
+            return
+        }
+        let draftKey = selectedComposerDraftKey
+        let duration = max(voiceRecordingDurationSeconds, recorder.currentTime)
+        let samples = voiceRecordingSamples
+        let fileName = url.lastPathComponent
+        recorder.stop()
+        resetVoiceRecording(deleteFile: false)
+
+        guard let draftKey else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+
+        do {
+            let attachment = try await OutgoingMediaDraftProcessor.preparedVoiceAttachment(
+                from: VoiceRecordingResult(
+                    url: url,
+                    fileName: fileName,
+                    durationSeconds: duration,
+                    waveformSamples: samples
+                )
+            )
+            appendPendingMediaAttachment(attachment, for: draftKey)
+        } catch is CancellationError {
+            return
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func cancelVoiceRecording() {
+        resetVoiceRecording(deleteFile: true)
+    }
+
+    private var remainingMediaAttachmentSlots: Int {
+        max(0, OutgoingMediaDraftProcessor.maxAttachmentCount - pendingMediaAttachments.count)
+    }
+
+    private func canBeginMediaAttachmentSelection() -> Bool {
+        guard client != nil, selectedChat != nil else { return false }
+        guard remainingMediaAttachmentSlots > 0 else {
+            presentMaxMediaAttachmentWarning()
+            return false
+        }
+        return true
+    }
+
+    private func appendPendingMediaAttachment(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
+        var attachments = pendingMediaAttachmentsByConversation[draftKey] ?? []
+        if attachment.kind == .audio {
+            attachments.removeAll { $0.kind == .audio }
+        }
+        guard attachments.count < OutgoingMediaDraftProcessor.maxAttachmentCount else {
+            presentMaxMediaAttachmentWarning()
+            return
+        }
+        attachments.append(attachment)
+        pendingMediaAttachmentsByConversation[draftKey] = attachments
+        if attachment.kind == .audio {
+            draftTextByConversation[draftKey] = nil
+        }
+    }
+
+    private func presentMaxMediaAttachmentWarning() {
+        lastError = String(
+            format: L10n.string("You can send up to %lld attachments at once"),
+            Int64(OutgoingMediaDraftProcessor.maxAttachmentCount)
+        )
+    }
+
+    private enum VoiceRecordingFailure: Error {
+        case startFailed
+    }
+
+    private func requestMicrophoneAccess() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        case .denied, .restricted:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
+    private func startVoiceRecordingMetering() {
+        voiceRecordingMeterTask?.cancel()
+        voiceRecordingMeterTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 70_000_000)
+                } catch {
+                    return
+                }
+                guard let self, let recorder = self.voiceRecorder else { return }
+                recorder.updateMeters()
+                self.voiceRecordingDurationSeconds = recorder.currentTime
+                let power = recorder.averagePower(forChannel: 0)
+                let normalized = max(0.05, min(1, CGFloat(pow(10, power / 36))))
+                self.voiceRecordingSamples.append(normalized)
+                if self.voiceRecordingSamples.count > MediaWaveformAnalyzer.sampleCount {
+                    self.voiceRecordingSamples.removeFirst(self.voiceRecordingSamples.count - MediaWaveformAnalyzer.sampleCount)
+                }
+            }
+        }
+    }
+
+    private func resetVoiceRecording(deleteFile: Bool) {
+        voiceRecordingMeterTask?.cancel()
+        voiceRecordingMeterTask = nil
+        voiceRecorder?.stop()
+        voiceRecorder = nil
+        let url = voiceRecordingURL
+        voiceRecordingURL = nil
+        isRecordingVoiceMessage = false
+        voiceRecordingSamples = []
+        voiceRecordingDurationSeconds = 0
+        if deleteFile, let url {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     func sendDraft() async {
         let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mediaAttachments = pendingMediaAttachments
         // `!isSending` is the reentrancy guard: `isSending` flips synchronously here,
         // but the model only suspends (and `draftText` is only cleared) at the `await`
         // below. Without this guard a second invocation delivered before SwiftUI
         // re-renders the disabled send button (⌘-Return auto-repeat, double events)
         // would still observe the old `draftText` and re-send the same message.
-        guard let client, let activeAccount, let selectedChat, !text.isEmpty, !isSending else { return }
+        guard let client,
+              let activeAccount,
+              let selectedChat,
+              let draftKey = selectedComposerDraftKey,
+              (!text.isEmpty || !mediaAttachments.isEmpty),
+              !isSending
+        else { return }
         isSending = true
         defer { isSending = false }
 
         do {
-            if let replyDraftContext {
+            if !mediaAttachments.isEmpty {
+                _ = try await client.uploadMedia(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: selectedChat.id,
+                    request: MediaUploadRequestFfi(
+                        attachments: mediaAttachments.map(\.uploadRequest),
+                        caption: text.isEmpty ? nil : text,
+                        send: true,
+                        blossomServer: nil
+                    )
+                )
+            } else if let replyDraftContext {
                 _ = try await client.replyToMessage(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: selectedChat.id,
@@ -2146,6 +2526,7 @@ final class WorkspaceState {
             }
             draftText = ""
             replyDraftContext = nil
+            pendingMediaAttachmentsByConversation[draftKey] = nil
         } catch {
             lastError = error.localizedDescription
         }
@@ -2250,6 +2631,7 @@ final class WorkspaceState {
         accounts = []
         chatsByAccount = [:]
         messagesByChat = [:]
+        mediaDownloads = [:]
         messageLookupByChat = [:]
         messageIDsByChat = [:]
         peerProfileFFICache.removeAll()
@@ -2305,6 +2687,8 @@ final class WorkspaceState {
         isLoadingGroupDetails = false
         isSavingGroupProfile = false
         isInvitingGroupMember = false
+        isAcceptingGroupInvite = false
+        isDecliningGroupInvite = false
         isArchivingGroup = false
         isLeavingGroup = false
         isExportingGroupTranscript = false
@@ -2361,6 +2745,10 @@ final class WorkspaceState {
     /// later background operation succeeded).
     func clearBackgroundStatus() {
         backgroundStatus = nil
+    }
+
+    func reportUserActionError(_ message: String) {
+        lastError = message
     }
 
     private func waitBeforeListenerReconnect(attempt: Int) async throws {
@@ -2957,6 +3345,10 @@ final class WorkspaceState {
     }
 
     private func pruneMessageCache(keeping groupIdHex: String?) {
+        defer {
+            pruneMediaDownloadCache(keeping: groupIdHex)
+        }
+
         guard let groupIdHex else {
             messagesByChat = [:]
             messageLookupByChat = [:]
@@ -2985,6 +3377,41 @@ final class WorkspaceState {
         } else if messagesByChat[groupIdHex] != nil {
             timelineInitialLoadGroupId = nil
         }
+    }
+
+    private func mediaDownloadKey(message: MessageItem, attachment: MessageMediaAttachment) -> String {
+        [activeAccountId ?? "", message.groupIdHex, attachment.id].joined(separator: "\u{1F}")
+    }
+
+    private func pruneMediaDownloadCache(keeping groupIdHex: String?) {
+        guard let activeAccountId, let groupIdHex else {
+            mediaDownloads = [:]
+            return
+        }
+
+        let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
+        mediaDownloads = mediaDownloads.filter { key, _ in
+            key.hasPrefix(prefix)
+        }
+    }
+
+    private func resolvedMediaReference(
+        _ reference: MediaAttachmentReferenceFfi,
+        accountRef: String,
+        groupIdHex: String,
+        client: any MarmotRuntime
+    ) async throws -> MediaAttachmentReferenceFfi {
+        guard reference.sourceEpoch == 0 else {
+            return reference
+        }
+
+        let records = try await runOffMain {
+            try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+        }
+        return records.first { record in
+            record.reference.plaintextSha256 == reference.plaintextSha256
+                || record.reference.ciphertextSha256 == reference.ciphertextSha256
+        }?.reference ?? reference
     }
 
     private func beginTimelineInitialLoadIfNeeded(groupIdHex: String) {
@@ -3081,7 +3508,8 @@ final class WorkspaceState {
                 avatarSeed: enrichedItem.avatarSeed,
                 pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
                 unreadCount: current.unreadCount,
-                isDirect: enrichedItem.isDirect
+                isDirect: enrichedItem.isDirect,
+                pendingConfirmation: current.pendingConfirmation
             )
             guard next != current else { continue }
             chats[index] = next

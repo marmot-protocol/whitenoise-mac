@@ -1,6 +1,9 @@
 import AppKit
+import AVFoundation
+import CoreImage
 import MarmotKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
@@ -374,6 +377,13 @@ private struct SettingsListDrawerView: View {
             }
 
             Spacer(minLength: 0)
+
+            if let account = workspace.activeAccount {
+                PublicIdentityQRCodeButton(
+                    accountIdHex: account.accountIdHex,
+                    displayName: account.displayName
+                )
+            }
         }
         .padding(10)
         .glassCard()
@@ -434,6 +444,9 @@ private struct ChatRowContent: View {
                     Text(chat.title)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
+                    if chat.pendingConfirmation {
+                        PendingInviteBadge()
+                    }
                     Spacer(minLength: 8)
                     Text(chat.timestampLabel)
                         .font(.caption)
@@ -464,6 +477,19 @@ private struct ChatRowContent: View {
             MessagesSidebarRowBackground(isSelected: isSelected)
         }
         .contentShape(Rectangle())
+    }
+}
+
+private struct PendingInviteBadge: View {
+    var body: some View {
+        Label("Invite", systemImage: "envelope.badge")
+            .font(.caption2.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(.secondary)
+            .background(.quaternary, in: Capsule())
+            .help(L10n.string("Group invite pending"))
     }
 }
 
@@ -545,6 +571,8 @@ private struct ConversationView: View {
     @State private var didRequestNewerForVisibleBottomSentinel = false
     @State private var lastNewerLoadTriggerAnchorId: String?
     @State private var bottomSentinelResetTask: Task<Void, Never>?
+    @State private var isFileImporterPresented = false
+    @State private var isFileDropTargeted = false
     let chat: ChatItem
     private let bottomTranscriptPadding: CGFloat = 34
 
@@ -730,9 +758,29 @@ private struct ConversationView: View {
                     }
                 }
 
-                HStack(spacing: 8) {
-                    Button {} label: {
-                        Image(systemName: "plus")
+                if !workspace.pendingMediaAttachments.isEmpty {
+                    PendingMediaDraftStrip(
+                        attachments: workspace.pendingMediaAttachments,
+                        onRemove: workspace.removePendingMediaAttachment
+                    )
+                }
+
+                if workspace.isRecordingVoiceMessage {
+                    VoiceRecordingComposerView(
+                        samples: workspace.voiceRecordingSamples,
+                        durationSeconds: workspace.voiceRecordingDurationSeconds,
+                        onCancel: workspace.cancelVoiceRecording,
+                        onStop: {
+                            Task { await workspace.finishVoiceRecording() }
+                        }
+                    )
+                }
+
+                HStack(alignment: .bottom, spacing: 8) {
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Image(systemName: "paperclip")
                             .font(.system(size: 18, weight: .medium))
                             .frame(width: 30, height: 30)
                             .background {
@@ -740,7 +788,8 @@ private struct ConversationView: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .disabled(true)
+                    .disabled(workspace.isSending || workspace.isRecordingVoiceMessage)
+                    .help("Attach files")
 
                     TextField("Message", text: $workspace.draftText, axis: .vertical)
                         .textFieldStyle(.plain)
@@ -750,6 +799,21 @@ private struct ConversationView: View {
                         .background {
                             MessagesComposerFieldBackground()
                         }
+                        .disabled(workspace.isRecordingVoiceMessage)
+
+                    Button {
+                        Task { await workspace.toggleVoiceRecording() }
+                    } label: {
+                        Image(systemName: workspace.isRecordingVoiceMessage ? "stop.fill" : "mic.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .background {
+                                MessagesCircleControlBackground(isActive: workspace.isRecordingVoiceMessage)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isSending)
+                    .help(workspace.isRecordingVoiceMessage ? "Finish recording" : "Voice message")
 
                     Button {
                         Task { await workspace.sendDraft() }
@@ -777,6 +841,32 @@ private struct ConversationView: View {
         .background {
             MessagesTranscriptBackground()
         }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: OutgoingMediaAttachmentPolicy.fileImporterAllowedTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                Task { await workspace.addMediaAttachments(from: urls) }
+            case .failure(let error):
+                workspace.reportUserActionError(error.localizedDescription)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            Task { await workspace.addMediaAttachments(from: urls) }
+            return !urls.isEmpty
+        } isTargeted: { isTargeted in
+            isFileDropTargeted = isTargeted
+        }
+        .overlay {
+            if isFileDropTargeted {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
+                    .padding(10)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     private var bottomAnchorId: String {
@@ -789,6 +879,261 @@ private struct ConversationView: View {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
         }
+    }
+}
+
+private struct PendingMediaDraftStrip: View {
+    let attachments: [PendingMediaAttachment]
+    let onRemove: (PendingMediaAttachment.ID) -> Void
+
+    private let tileSize = CGSize(width: 118, height: 66)
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(attachments) { attachment in
+                    ZStack(alignment: .topTrailing) {
+                        PendingMediaDraftTile(attachment: attachment, tileSize: tileSize)
+
+                        Button {
+                            onRemove(attachment.id)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(Color(nsColor: .windowBackgroundColor), Color.primary.opacity(0.82))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove attachment")
+                        .offset(x: 7, y: -7)
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+        }
+    }
+}
+
+private struct PendingMediaDraftTile: View {
+    let attachment: PendingMediaAttachment
+    let tileSize: CGSize
+
+    var body: some View {
+        Group {
+            switch attachment.kind {
+            case .image:
+                imagePreview
+            case .audio:
+                audioPreview
+            case .video, .file:
+                filePreview
+            }
+        }
+        .frame(width: tileSize.width, height: tileSize.height)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var imagePreview: some View {
+        if let image = NSImage(data: attachment.data) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+                .accessibilityLabel(attachment.fileName)
+        } else {
+            iconPreview(systemName: attachment.kind.systemImageName)
+        }
+    }
+
+    private var audioPreview: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 5) {
+                ComposerAudioWaveformView(
+                    samples: attachment.waveformSamples,
+                    progress: 0,
+                    barColor: Color.accentColor.opacity(0.82),
+                    playedColor: Color.accentColor
+                )
+                .frame(height: 24)
+
+                Text(attachment.durationLabel ?? attachment.sizeLabel)
+                    .font(.caption2.monospacedDigit().weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+    }
+
+    private var filePreview: some View {
+        VStack(spacing: 5) {
+            Image(systemName: attachment.kind.systemImageName)
+                .font(.system(size: 18, weight: .semibold))
+            Text(attachment.fileName)
+                .font(.caption2.weight(.medium))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+    }
+
+    private func iconPreview(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(.secondary)
+    }
+}
+
+private struct VoiceRecordingComposerView: View {
+    let samples: [CGFloat]
+    let durationSeconds: Double
+    let onCancel: () -> Void
+    let onStop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.red)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .help("Cancel recording")
+
+            ComposerAudioWaveformView(
+                samples: samples,
+                progress: 0,
+                barColor: Color.accentColor.opacity(0.70),
+                playedColor: Color.accentColor,
+                mode: .liveRecording
+            )
+            .frame(height: 30)
+
+            Text(Self.durationLabel(durationSeconds))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
+
+            Button(action: onStop) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.accentColor, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Finish recording")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+    }
+
+    private static func durationLabel(_ duration: Double) -> String {
+        let total = max(0, Int(duration.rounded(.down)))
+        return "\(total / 60):\(String(format: "%02d", total % 60))"
+    }
+}
+
+nonisolated private enum ComposerAudioWaveformMode {
+    case playback
+    case liveRecording
+}
+
+nonisolated private struct ComposerAudioWaveformBar: Equatable {
+    let amplitude: CGFloat?
+}
+
+nonisolated private enum ComposerAudioWaveformPresentation {
+    static let amplitudeCurveExponent: Double = 0.45
+
+    static func bars(
+        for samples: [CGFloat],
+        mode: ComposerAudioWaveformMode,
+        count: Int = MediaWaveformAnalyzer.sampleCount
+    ) -> [ComposerAudioWaveformBar] {
+        let targetCount = max(0, count)
+        guard targetCount > 0 else { return [] }
+        switch mode {
+        case .playback:
+            return MediaWaveformAnalyzer.normalized(samples, count: targetCount)
+                .map(displayAmplitude)
+                .map { ComposerAudioWaveformBar(amplitude: $0) }
+        case .liveRecording:
+            let visibleSamples = samples.suffix(targetCount)
+                .map(displayAmplitude)
+                .map { ComposerAudioWaveformBar(amplitude: $0) }
+            let blankCount = max(0, targetCount - visibleSamples.count)
+            return Array(repeating: ComposerAudioWaveformBar(amplitude: nil), count: blankCount) + visibleSamples
+        }
+    }
+
+    private static func displayAmplitude(_ sample: CGFloat) -> CGFloat {
+        let bounded = min(1, max(0.05, sample))
+        return min(1, max(0.05, CGFloat(pow(Double(bounded), amplitudeCurveExponent))))
+    }
+}
+
+private struct ComposerAudioWaveformView: View {
+    let samples: [CGFloat]
+    let progress: CGFloat
+    let barColor: Color
+    let playedColor: Color
+    var mode: ComposerAudioWaveformMode = .playback
+
+    var body: some View {
+        GeometryReader { geometry in
+            let bars = ComposerAudioWaveformPresentation.bars(for: samples, mode: mode)
+            let spacing: CGFloat = 2
+            let barCount = max(1, bars.count)
+            let availableWidth = geometry.size.width - spacing * CGFloat(max(0, barCount - 1))
+            let barWidth = max(2, availableWidth / CGFloat(barCount))
+
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(Array(bars.enumerated()), id: \.offset) { index, bar in
+                    Capsule()
+                        .fill(fillColor(for: bar, index: index, count: bars.count))
+                        .frame(
+                            width: barWidth,
+                            height: barHeight(for: bar, in: geometry.size.height)
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func fillColor(for bar: ComposerAudioWaveformBar, index: Int, count: Int) -> Color {
+        guard bar.amplitude != nil else { return .clear }
+        let played = CGFloat(index) / CGFloat(max(1, count - 1)) <= progress
+        return played ? playedColor : barColor
+    }
+
+    private func barHeight(for bar: ComposerAudioWaveformBar, in availableHeight: CGFloat) -> CGFloat {
+        guard let amplitude = bar.amplitude else { return 4 }
+        return max(4, availableHeight * min(1, max(0.08, amplitude)))
     }
 }
 
@@ -1114,6 +1459,36 @@ private struct ConversationHeader: View {
                 Spacer()
 
                 if !chat.isDirect {
+                    if chat.pendingConfirmation {
+                        Button {
+                            Task { await workspace.acceptGroupInvite(for: chat) }
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                        .help("Accept invite")
+
+                        Button(role: .destructive) {
+                            Task { await workspace.declineGroupInvite(for: chat) }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                        .help("Decline invite")
+                    }
+
                     Button {
                         Task { await workspace.showGroupDetails(for: chat) }
                     } label: {
@@ -1216,6 +1591,42 @@ private struct GroupDetailsSheet: View {
 
             if let snapshot = workspace.groupDetailsSnapshot {
                 Form {
+                    if snapshot.pendingConfirmation {
+                        Section("Invitation") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Accept this invite to confirm membership, or decline it to remove the group from your chat list.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 10) {
+                                    Button {
+                                        Task { await workspace.acceptSelectedGroupInvite() }
+                                    } label: {
+                                        Label(
+                                            workspace.isAcceptingGroupInvite ? L10n.string("Accepting...") : L10n.string("Accept Invite"),
+                                            systemImage: "checkmark.circle"
+                                        )
+                                    }
+                                    .nativeGlassProminentButtonStyle()
+                                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+
+                                    Button(role: .destructive) {
+                                        Task { await workspace.declineSelectedGroupInvite() }
+                                    } label: {
+                                        Label(
+                                            workspace.isDecliningGroupInvite ? L10n.string("Declining...") : L10n.string("Decline"),
+                                            systemImage: "xmark.circle"
+                                        )
+                                    }
+                                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+
                     Section("Profile") {
                         TextField("Group name", text: $workspace.groupProfileDraftName)
                             .textFieldStyle(.roundedBorder)
@@ -1891,10 +2302,20 @@ private struct MessageBubble: View {
                 MessageReplyContextView(context: replyContext, isOutgoing: message.isOutgoing)
             }
 
-            Text(message.body)
-                .font(.system(size: 15.5))
-                .foregroundStyle(message.isOutgoing ? .white : .primary)
-                .lineSpacing(2)
+            ForEach(message.mediaAttachments) { attachment in
+                MessageMediaAttachmentView(
+                    message: message,
+                    attachment: attachment,
+                    isOutgoing: message.isOutgoing
+                )
+            }
+
+            if !message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(message.body)
+                    .font(.system(size: 15.5))
+                    .foregroundStyle(message.isOutgoing ? .white : .primary)
+                    .lineSpacing(2)
+            }
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
@@ -1935,6 +2356,244 @@ private struct MessageBubble: View {
                     shape
                         .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.24), lineWidth: 1)
                 }
+        }
+    }
+}
+
+private struct MessageMediaAttachmentView: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let message: MessageItem
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+
+    var body: some View {
+        Group {
+            switch workspace.mediaDownloadState(for: message, attachment: attachment) {
+            case .idle, .loading:
+                MessageAttachmentStatusRow(
+                    systemImage: "arrow.down.circle",
+                    title: attachment.fileName,
+                    detail: attachment.mediaType,
+                    isOutgoing: isOutgoing,
+                    isLoading: true
+                )
+            case .loaded(let download):
+                loadedContent(download)
+            case .failed:
+                MessageAttachmentStatusRow(
+                    systemImage: "exclamationmark.triangle",
+                    title: attachment.fileName,
+                    detail: L10n.string("Attachment unavailable"),
+                    isOutgoing: isOutgoing,
+                    isLoading: false
+                ) {
+                    Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                }
+            }
+        }
+        .task(id: attachment.id) {
+            await workspace.loadMediaAttachment(attachment, for: message)
+        }
+    }
+
+    @ViewBuilder
+    private func loadedContent(_ download: MessageMediaDownload) -> some View {
+        switch attachment.kind {
+        case .image:
+            if let image = NSImage(data: download.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 360, maxHeight: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityLabel(attachment.fileName)
+            } else {
+                MessageAttachmentStatusRow(
+                    systemImage: "photo",
+                    title: download.fileName.nilIfBlank ?? attachment.fileName,
+                    detail: mediaDetail(download),
+                    isOutgoing: isOutgoing
+                )
+            }
+        case .audio:
+            MessageAudioAttachmentPlayer(
+                download: download,
+                fallbackFileName: attachment.fileName,
+                isOutgoing: isOutgoing
+            )
+        case .video, .file:
+            MessageAttachmentStatusRow(
+                systemImage: attachment.kind == .video ? "film" : "doc",
+                title: download.fileName.nilIfBlank ?? attachment.fileName,
+                detail: mediaDetail(download),
+                isOutgoing: isOutgoing
+            )
+        }
+    }
+
+    private func mediaDetail(_ download: MessageMediaDownload) -> String {
+        let type = download.mediaType.nilIfBlank ?? attachment.mediaType
+        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
+        return "\(type) - \(size)"
+    }
+}
+
+private struct MessageAttachmentStatusRow: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+    let isOutgoing: Bool
+    var isLoading = false
+    var retryAction: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(iconBackground)
+                    .frame(width: 30, height: 30)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(isOutgoing ? Color.white : Color.primary)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let retryAction {
+                Button(action: retryAction) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Retry"))
+            }
+        }
+        .foregroundStyle(isOutgoing ? Color.white : Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(width: 260, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(rowBackground)
+        }
+    }
+
+    private var iconBackground: Color {
+        isOutgoing ? Color.white.opacity(0.18) : Color.primary.opacity(0.08)
+    }
+
+    private var rowBackground: Color {
+        isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06)
+    }
+}
+
+private struct MessageAudioAttachmentPlayer: View {
+    let download: MessageMediaDownload
+    let fallbackFileName: String
+    let isOutgoing: Bool
+    @State private var player: AVAudioPlayer?
+    @State private var isPlaying = false
+    @State private var playbackMonitor: Task<Void, Never>?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                togglePlayback()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .frame(width: 30, height: 30)
+                    .background {
+                        Circle()
+                            .fill(isOutgoing ? Color.white.opacity(0.18) : Color.primary.opacity(0.08))
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(isPlaying ? L10n.string("Pause") : L10n.string("Play"))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(download.fileName.nilIfBlank ?? fallbackFileName)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(mediaDetail)
+                    .font(.caption2)
+                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .foregroundStyle(isOutgoing ? Color.white : Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(width: 260, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06))
+        }
+        .onDisappear {
+            stopPlayback()
+        }
+    }
+
+    private var mediaDetail: String {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
+        return "\(download.mediaType) - \(size)"
+    }
+
+    private func togglePlayback() {
+        if isPlaying {
+            stopPlayback()
+        } else {
+            startPlayback()
+        }
+    }
+
+    private func startPlayback() {
+        do {
+            if player == nil {
+                player = try AVAudioPlayer(data: download.data)
+                player?.prepareToPlay()
+            }
+            player?.play()
+            isPlaying = true
+            monitorPlayback()
+        } catch {
+            isPlaying = false
+        }
+    }
+
+    private func stopPlayback() {
+        playbackMonitor?.cancel()
+        playbackMonitor = nil
+        player?.stop()
+        player?.currentTime = 0
+        isPlaying = false
+    }
+
+    private func monitorPlayback() {
+        playbackMonitor?.cancel()
+        playbackMonitor = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard player?.isPlaying == true else {
+                    isPlaying = false
+                    break
+                }
+            }
         }
     }
 }
@@ -2487,6 +3146,12 @@ private struct AccountSettingsRow: View {
             .buttonStyle(.plain)
             .disabled(isRemoving)
 
+            PublicIdentityQRCodeButton(
+                accountIdHex: account.accountIdHex,
+                displayName: account.displayName
+            )
+            .disabled(isRemoving)
+
             Button(role: .destructive, action: onRemove) {
                 Image(systemName: "person.crop.circle.badge.minus")
             }
@@ -2496,6 +3161,143 @@ private struct AccountSettingsRow: View {
             .help(L10n.string("Remove this account from this Mac"))
             .accessibilityLabel(Text(String(format: L10n.string("Remove %@"), account.displayName)))
         }
+    }
+}
+
+private struct PublicIdentityQRCodeButton: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var isPresented = false
+    let accountIdHex: String
+    let displayName: String
+
+    private var npub: String {
+        workspace.npub(forAccountIdHex: accountIdHex)
+    }
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Image(systemName: "qrcode")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.borderless)
+        .help("Show npub QR code")
+        .accessibilityLabel(Text("Show npub QR code"))
+        .sheet(isPresented: $isPresented) {
+            PublicIdentityQRCodeSheet(displayName: displayName, npub: npub)
+        }
+    }
+}
+
+private struct PublicIdentityQRCodeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(WorkspaceState.self) private var workspace
+    let displayName: String
+    let npub: String
+
+    var body: some View {
+        VStack(spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(displayName)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text("Public identity")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .nativeGlassCircleButtonStyle()
+                .help("Close")
+            }
+
+            ZStack {
+                Color.white
+                QRCodeImageView(payload: npub)
+                    .padding(22)
+            }
+            .frame(width: 320, height: 320)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            }
+
+            Text(DisplayText.short(npub, head: 24, tail: 24))
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity)
+
+            HStack(spacing: 10) {
+                Button {
+                    workspace.copyText(npub)
+                } label: {
+                    Label("Copy npub", systemImage: "doc.on.doc")
+                }
+                .nativeGlassButtonStyle()
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Label("Done", systemImage: "checkmark")
+                }
+                .nativeGlassProminentButtonStyle()
+            }
+        }
+        .padding(22)
+        .frame(width: 420)
+        .background {
+            LiquidGlassBackground()
+        }
+    }
+}
+
+private struct QRCodeImageView: View {
+    let payload: String
+
+    var body: some View {
+        if let image = Self.image(for: payload) {
+            Image(nsImage: image)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+        } else {
+            ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+                .foregroundStyle(.black)
+        }
+    }
+
+    private static func image(for payload: String) -> NSImage? {
+        guard !payload.isEmpty,
+              let filter = CIFilter(name: "CIQRCodeGenerator")
+        else { return nil }
+
+        filter.setValue(Data(payload.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let outputImage = filter.outputImage else { return nil }
+
+        let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        let representation = NSCIImageRep(ciImage: scaledImage)
+        let image = NSImage(size: representation.size)
+        image.addRepresentation(representation)
+        return image
     }
 }
 
@@ -2539,6 +3341,13 @@ private struct ProfileSettingsView: View {
                                 .lineLimit(1)
                             CopyableKeyLabel(accountIdHex: account.accountIdHex)
                         }
+
+                        Spacer()
+
+                        PublicIdentityQRCodeButton(
+                            accountIdHex: account.accountIdHex,
+                            displayName: profilePreviewName(fallback: account)
+                        )
                     }
                 }
             }
@@ -2617,8 +3426,27 @@ private struct IdentityKeysSettingsView: View {
 
                 Section("Public Identity") {
                     let npub = workspace.npub(forAccountIdHex: account.accountIdHex)
-                    CopyableLabeledValue(title: "npub", value: npub) {
-                        workspace.copyText(npub)
+                    LabeledContent("npub") {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(npub)
+                                .font(.system(.callout, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                                .textSelection(.enabled)
+
+                            Button {
+                                workspace.copyText(npub)
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("\(L10n.string("Copy")) npub")
+
+                            PublicIdentityQRCodeButton(
+                                accountIdHex: account.accountIdHex,
+                                displayName: account.displayName
+                            )
+                        }
                     }
                 }
 
@@ -2708,30 +3536,6 @@ private struct CopyableKeyLabel: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help(L10n.string("Copy npub"))
-            }
-        }
-    }
-}
-
-private struct CopyableLabeledValue: View {
-    let title: LocalizedStringKey
-    let value: String
-    let copy: () -> Void
-
-    var body: some View {
-        LabeledContent(title) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(value)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
-
-                Button(action: copy) {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(.borderless)
-                .help("\(L10n.string("Copy")) \(value)")
             }
         }
     }
@@ -3509,19 +4313,33 @@ private struct MessagesSearchField: View {
 private struct MessagesCircleControlBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     var isSelected = false
+    var isActive = false
 
     var body: some View {
         Circle()
-            .fill(
-                isSelected
-                    ? Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34)
-                    : Color.white.opacity(colorScheme == .dark ? 0.06 : 0.18)
-            )
+            .fill(fillColor)
             .overlay {
                 Circle()
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.32), lineWidth: 1)
+                    .stroke(strokeColor, lineWidth: 1)
             }
             .nativeBackgroundExtensionEffect()
+    }
+
+    private var fillColor: Color {
+        if isActive {
+            return Color.red.opacity(colorScheme == .dark ? 0.28 : 0.18)
+        }
+        if isSelected {
+            return Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34)
+        }
+        return Color.white.opacity(colorScheme == .dark ? 0.06 : 0.18)
+    }
+
+    private var strokeColor: Color {
+        if isActive {
+            return Color.red.opacity(colorScheme == .dark ? 0.42 : 0.30)
+        }
+        return Color.white.opacity(colorScheme == .dark ? 0.08 : 0.32)
     }
 }
 
@@ -3569,10 +4387,10 @@ private struct MessagesComposerFieldBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Capsule(style: .continuous)
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
             .fill(Color.white.opacity(colorScheme == .dark ? 0.06 : 0.22))
             .overlay {
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.32), lineWidth: 1)
             }
     }

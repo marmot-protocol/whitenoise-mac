@@ -39,6 +39,8 @@ nonisolated protocol MarmotRuntime: Sendable {
     func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
     func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws -> String
+    func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi
+    func declineGroupInvite(accountRef: String, groupIdHex: String) async throws -> GroupInviteDeclineResultFfi
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi
     func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi
     func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi
@@ -56,6 +58,9 @@ nonisolated protocol MarmotRuntime: Sendable {
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription
     func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi?
     func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi?
+    func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi]
+    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws -> MediaDownloadResultFfi
+    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws -> MediaUploadResultFfi
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi
     func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws -> SendSummaryFfi
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws -> SendSummaryFfi
@@ -247,6 +252,14 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
+    func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi {
+        try await marmot.acceptGroupInvite(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func declineGroupInvite(accountRef: String, groupIdHex: String) async throws -> GroupInviteDeclineResultFfi {
+        try await marmot.declineGroupInvite(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
         try await marmot.groupDetails(accountRef: accountRef, groupIdHex: groupIdHex)
     }
@@ -348,6 +361,18 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             messageIdHex: messageIdHex
         )
+    }
+
+    func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi] {
+        try marmot.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: limit)
+    }
+
+    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws -> MediaDownloadResultFfi {
+        try await marmot.downloadMedia(accountRef: accountRef, groupIdHex: groupIdHex, reference: reference)
+    }
+
+    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws -> MediaUploadResultFfi {
+        try await marmot.uploadMedia(accountRef: accountRef, groupIdHex: groupIdHex, request: request)
     }
 
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {
