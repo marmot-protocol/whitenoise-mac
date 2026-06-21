@@ -32,6 +32,7 @@
 		1F5D022F2FC5862F0016665B /* whitenoise-macTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5D02392FC5862F0016665B /* whitenoise-macUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/AppBuild.xcconfig; sourceTree = "<group>"; };
+		2B616D052FCF100000010001 /* PR.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PR.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -82,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */,
+				2B616D072FCF100000010001 /* TestPlans */,
 				1F5D02222FC5862E0016665B /* whitenoise-mac */,
 				1F5D02322FC5862F0016665B /* whitenoise-macTests */,
 				1F5D023C2FC5862F0016665B /* whitenoise-macUITests */,
@@ -97,6 +99,14 @@
 				1F5D02392FC5862F0016665B /* whitenoise-macUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		2B616D072FCF100000010001 /* TestPlans */ = {
+			isa = PBXGroup;
+			children = (
+				2B616D052FCF100000010001 /* PR.xctestplan */,
+			);
+			path = TestPlans;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

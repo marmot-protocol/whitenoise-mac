@@ -175,7 +175,8 @@ enum RelayURLValidator {
         // embedded IPv4 falls in 127.0.0.0/8.
         if bytes[0..<10].allSatisfy({ $0 == 0 })
             && bytes[10] == 0xff && bytes[11] == 0xff
-            && bytes[12] == 127 {
+            && bytes[12] == 127
+        {
             return true
         }
 

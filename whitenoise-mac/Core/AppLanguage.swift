@@ -27,7 +27,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
             .russian,
             .turkish,
             .chineseSimplified,
-            .chineseTraditional
+            .chineseTraditional,
         ]
     }
 

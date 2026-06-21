@@ -25,7 +25,8 @@ enum L10n {
 
         for candidate in candidates {
             if let path = Bundle.main.path(forResource: candidate, ofType: "lproj"),
-               let bundle = Bundle(path: path) {
+                let bundle = Bundle(path: path)
+            {
                 return bundle
             }
         }

@@ -81,9 +81,9 @@ extension ChatItem {
             return presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
         }
         guard presentation.isChatBubble,
-              preview.sender != activeAccountIdHex,
-              let senderName = preview.senderDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !senderName.isEmpty
+            preview.sender != activeAccountIdHex,
+            let senderName = preview.senderDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !senderName.isEmpty
         else {
             return text
         }
@@ -143,7 +143,8 @@ extension MessageItem {
             timelineKind: record.kind,
             isDeleted: record.deleted,
             invalidationStatus: record.invalidationStatus,
-            isOutgoing: presentation.isChatBubble && (record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound"),
+            isOutgoing: presentation.isChatBubble
+                && (record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound"),
             reactions: presentation.isChatBubble ? reactions : [],
             replyContext: presentation.isChatBubble ? replyContext : nil,
             mediaAttachments: presentation.isChatBubble ? mediaAttachments : [],
@@ -235,14 +236,15 @@ extension MessageItem {
             return firstNonBlank([
                 payload?.text,
                 payload?.status.map { "\(L10n.string("Agent activity")): \(humanized($0))" },
-                payload == nil ? body : nil
+                payload == nil ? body : nil,
             ]) ?? L10n.string("Agent activity")
         case .agentOperation:
             if let text = firstNonBlank([payload?.text, payload?.preview]) {
                 return text
             }
             if let name = payload?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
-               let status = payload?.status?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+                let status = payload?.status?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty
+            {
                 return "\(name) \(humanized(status))"
             }
             if let eventType = payload?.eventType?.trimmingCharacters(in: .whitespacesAndNewlines), !eventType.isEmpty {
@@ -356,7 +358,8 @@ private nonisolated enum MessageMediaParser {
         tags: [MessageTagFfi],
         messageIdHex: String
     ) -> [MessageMediaAttachment] {
-        let tagReferences = tags
+        let tagReferences =
+            tags
             .filter { $0.values.first == "imeta" }
             .compactMap { reference(fromIMetaTag: $0.values, sourceEpoch: 0) }
         let jsonReferences = references(fromMediaJson: mediaJson)
@@ -372,9 +375,9 @@ private nonisolated enum MessageMediaParser {
 
     private static func references(fromMediaJson mediaJson: String?) -> [MediaAttachmentReferenceFfi] {
         guard let mediaJson,
-              !mediaJSONNestingExceedsLimit(mediaJson, maxDepth: maxMediaJSONTraversalDepth),
-              let data = mediaJson.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data)
+            !mediaJSONNestingExceedsLimit(mediaJson, maxDepth: maxMediaJSONTraversalDepth),
+            let data = mediaJson.data(using: .utf8),
+            let root = try? JSONSerialization.jsonObject(with: data)
         else { return [] }
 
         return references(fromJSONObject: root, remainingDepth: maxMediaJSONTraversalDepth)
@@ -428,23 +431,23 @@ private nonisolated enum MessageMediaParser {
             if isInsideString {
                 if isEscaped {
                     isEscaped = false
-                } else if scalar.value == 0x5C { // \\
+                } else if scalar.value == 0x5C {  // \\
                     isEscaped = true
-                } else if scalar.value == 0x22 { // "
+                } else if scalar.value == 0x22 {  // "
                     isInsideString = false
                 }
                 continue
             }
 
             switch scalar.value {
-            case 0x22: // "
+            case 0x22:  // "
                 isInsideString = true
-            case 0x7B, 0x5B: // { or [
+            case 0x7B, 0x5B:  // { or [
                 depth += 1
                 if depth > maxDepth {
                     return true
                 }
-            case 0x7D, 0x5D: // } or ]
+            case 0x7D, 0x5D:  // } or ]
                 depth = max(0, depth - 1)
             default:
                 continue
@@ -456,12 +459,13 @@ private nonisolated enum MessageMediaParser {
 
     private static func references(fromIMetaValue value: Any, sourceEpoch: UInt64?) -> [MediaAttachmentReferenceFfi] {
         guard let array = value as? [Any],
-              let references = references(fromIMetaArray: array, sourceEpoch: sourceEpoch)
+            let references = references(fromIMetaArray: array, sourceEpoch: sourceEpoch)
         else { return [] }
         return references
     }
 
-    private static func references(fromIMetaArray array: [Any], sourceEpoch: UInt64?) -> [MediaAttachmentReferenceFfi]? {
+    private static func references(fromIMetaArray array: [Any], sourceEpoch: UInt64?) -> [MediaAttachmentReferenceFfi]?
+    {
         let stringArray = array.compactMap { $0 as? String }
         if stringArray.count == array.count, stringArray.first == "imeta" {
             return reference(fromIMetaTag: stringArray, sourceEpoch: sourceEpoch ?? 0).map { [$0] } ?? []
@@ -483,11 +487,11 @@ private nonisolated enum MessageMediaParser {
 
     private static func reference(fromJSONObject dictionary: [String: Any]) -> MediaAttachmentReferenceFfi? {
         guard let ciphertextSha256 = string(dictionary, keys: ["ciphertext_sha256", "ciphertextSha256"]),
-              let plaintextSha256 = string(dictionary, keys: ["plaintext_sha256", "plaintextSha256"]),
-              let nonceHex = string(dictionary, keys: ["nonce_hex", "nonceHex", "nonce"]),
-              let fileName = string(dictionary, keys: ["file_name", "fileName", "filename"]),
-              let mediaType = string(dictionary, keys: ["media_type", "mediaType", "m"]),
-              let version = string(dictionary, keys: ["version", "v"])
+            let plaintextSha256 = string(dictionary, keys: ["plaintext_sha256", "plaintextSha256"]),
+            let nonceHex = string(dictionary, keys: ["nonce_hex", "nonceHex", "nonce"]),
+            let fileName = string(dictionary, keys: ["file_name", "fileName", "filename"]),
+            let mediaType = string(dictionary, keys: ["media_type", "mediaType", "m"]),
+            let version = string(dictionary, keys: ["version", "v"])
         else { return nil }
 
         return MediaAttachmentReferenceFfi(
@@ -513,7 +517,8 @@ private nonisolated enum MessageMediaParser {
                 return nil
             }
             if let locator = field.dropPrefix("locator "),
-               let split = locator.firstIndex(of: " ") {
+                let split = locator.firstIndex(of: " ")
+            {
                 let kind = String(locator[..<split])
                 let value = String(locator[locator.index(after: split)...])
                 guard !kind.isEmpty, !value.isEmpty else { continue }
@@ -527,11 +532,11 @@ private nonisolated enum MessageMediaParser {
         }
 
         guard let ciphertextSha256 = required("ciphertext_sha256", in: fields),
-              let plaintextSha256 = required("plaintext_sha256", in: fields),
-              let nonce = required("nonce", in: fields),
-              let fileName = required("filename", in: fields),
-              let mediaType = required("m", in: fields),
-              let version = required("v", in: fields)
+            let plaintextSha256 = required("plaintext_sha256", in: fields),
+            let nonce = required("nonce", in: fields),
+            let fileName = required("filename", in: fields),
+            let mediaType = required("m", in: fields),
+            let version = required("v", in: fields)
         else { return nil }
 
         return MediaAttachmentReferenceFfi(
@@ -552,7 +557,7 @@ private nonisolated enum MessageMediaParser {
         guard let locators = value as? [[String: Any]] else { return [] }
         return locators.compactMap { locator in
             guard let kind = string(locator, keys: ["kind"]),
-                  let value = string(locator, keys: ["value"])
+                let value = string(locator, keys: ["value"])
             else { return nil }
             return MediaLocatorFfi(kind: kind, value: value)
         }
@@ -591,7 +596,8 @@ private nonisolated enum MessageMediaParser {
         reference: MediaAttachmentReferenceFfi,
         index: Int
     ) -> String {
-        let stableHash = reference.plaintextSha256.nilIfBlank
+        let stableHash =
+            reference.plaintextSha256.nilIfBlank
             ?? reference.ciphertextSha256.nilIfBlank
             ?? reference.fileName
         return "\(messageIdHex)#\(index)#\(stableHash)"

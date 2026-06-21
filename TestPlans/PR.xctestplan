@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "2294B282-AF8F-4AB9-9954-7D7DA1021E49",
+      "name" : "PR",
+      "options" : {
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : {
+      "targets" : [
+        {
+          "containerPath" : "container:whitenoise-mac.xcodeproj",
+          "identifier" : "1F5D021F2FC5862E0016665B",
+          "name" : "whitenoise-mac"
+        }
+      ]
+    },
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:whitenoise-mac.xcodeproj",
+      "identifier" : "1F5D021F2FC5862E0016665B",
+      "name" : "whitenoise-mac"
+    },
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:whitenoise-mac.xcodeproj",
+        "identifier" : "1F5D022E2FC5862F0016665B",
+        "name" : "whitenoise-macTests"
+      }
+    }
+  ],
+  "version" : 1
+}

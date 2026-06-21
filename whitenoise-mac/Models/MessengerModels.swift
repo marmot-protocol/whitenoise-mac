@@ -1,5 +1,5 @@
-import AppKit
 import AVFoundation
+import AppKit
 import Foundation
 import ImageIO
 import MarmotKit
@@ -404,7 +404,8 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
     }
 
     static func canonicalMediaType(_ mediaType: String) -> String {
-        let base = mediaType
+        let base =
+            mediaType
             .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
             .first
             .map(String.init) ?? mediaType
@@ -425,7 +426,7 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         if supportedAudioMediaTypes.contains(canonical) { return true }
         if supportedDocumentMediaTypes.contains(canonical) { return true }
         if let fileName,
-           let fileExtension = fileName.split(separator: ".").last.map(String.init)
+            let fileExtension = fileName.split(separator: ".").last.map(String.init)
         {
             return supportedDocumentExtensions.contains(fileExtension.lowercased())
         }
@@ -434,14 +435,14 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
 
     static func mediaType(typeIdentifier: String?, fileName: String?, fallbackKind: MessageMediaKind?) -> String? {
         if let typeIdentifier,
-           let type = UTType(typeIdentifier),
-           let mediaType = type.preferredMIMEType
+            let type = UTType(typeIdentifier),
+            let mediaType = type.preferredMIMEType
         {
             return canonicalMediaType(mediaType)
         }
         if let fileName,
-           let fileExtension = fileName.split(separator: ".").last.map(String.init),
-           let mediaType = mediaType(forFileExtension: fileExtension)
+            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            let mediaType = mediaType(forFileExtension: fileExtension)
         {
             return canonicalMediaType(mediaType)
         }
@@ -498,8 +499,8 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
 
     static func fileExtension(for mediaType: String, fileName: String? = nil) -> String {
         if let fileName,
-           let ext = fileName.split(separator: ".").last.map(String.init),
-           !ext.isEmpty
+            let ext = fileName.split(separator: ".").last.map(String.init),
+            !ext.isEmpty
         {
             return ext.lowercased()
         }
@@ -592,7 +593,9 @@ nonisolated enum OutgoingMediaDraftProcessor {
 
     static func preparedAttachment(fromFileURL url: URL) async throws -> PendingMediaAttachment {
         let prepared = try await Task.detached(priority: .userInitiated) { () async throws -> SendableAttachment in
-            let resourceValues = try url.resourceValues(forKeys: [.contentTypeKey, .nameKey, .fileSizeKey, .isDirectoryKey])
+            let resourceValues = try url.resourceValues(forKeys: [
+                .contentTypeKey, .nameKey, .fileSizeKey, .isDirectoryKey,
+            ])
             guard resourceValues.isDirectory != true else {
                 throw Failure.unsupportedAttachment
             }
@@ -600,11 +603,12 @@ nonisolated enum OutgoingMediaDraftProcessor {
                 throw Failure.attachmentTooLarge(fileSize)
             }
             let data = try Data(contentsOf: url)
-            return try await SendableAttachment(attachment: preparedAttachmentValue(
-                from: data,
-                fileName: resourceValues.name ?? url.lastPathComponent,
-                typeIdentifier: resourceValues.contentType?.identifier
-            ))
+            return try await SendableAttachment(
+                attachment: preparedAttachmentValue(
+                    from: data,
+                    fileName: resourceValues.name ?? url.lastPathComponent,
+                    typeIdentifier: resourceValues.contentType?.identifier
+                ))
         }.value
         return prepared.attachment
     }
@@ -616,18 +620,19 @@ nonisolated enum OutgoingMediaDraftProcessor {
             guard data.count <= maxAttachmentBytes else {
                 throw Failure.attachmentTooLarge(data.count)
             }
-            return SendableAttachment(attachment: PendingMediaAttachment(
-                fileName: sanitizedFileName(
-                    recording.fileName,
-                    fallbackStem: "voice-\(Int(Date().timeIntervalSince1970))",
-                    fallbackExtension: "m4a"
-                ),
-                mediaType: "audio/mp4",
-                data: data,
-                dim: nil,
-                durationSeconds: recording.durationSeconds,
-                waveformSamples: MediaWaveformAnalyzer.normalized(recording.waveformSamples)
-            ))
+            return SendableAttachment(
+                attachment: PendingMediaAttachment(
+                    fileName: sanitizedFileName(
+                        recording.fileName,
+                        fallbackStem: "voice-\(Int(Date().timeIntervalSince1970))",
+                        fallbackExtension: "m4a"
+                    ),
+                    mediaType: "audio/mp4",
+                    data: data,
+                    dim: nil,
+                    durationSeconds: recording.durationSeconds,
+                    waveformSamples: MediaWaveformAnalyzer.normalized(recording.waveformSamples)
+                ))
         }.value
         return prepared.attachment
     }
@@ -641,12 +646,13 @@ nonisolated enum OutgoingMediaDraftProcessor {
         if kind == .image {
             return try imageAttachment(from: data, fileName: fileName)
         }
-        guard let mediaType = OutgoingMediaAttachmentPolicy.mediaType(
-            typeIdentifier: typeIdentifier,
-            fileName: fileName,
-            fallbackKind: kind
-        ),
-              OutgoingMediaAttachmentPolicy.isSupported(mediaType: mediaType, fileName: fileName)
+        guard
+            let mediaType = OutgoingMediaAttachmentPolicy.mediaType(
+                typeIdentifier: typeIdentifier,
+                fileName: fileName,
+                fallbackKind: kind
+            ),
+            OutgoingMediaAttachmentPolicy.isSupported(mediaType: mediaType, fileName: fileName)
         else {
             throw Failure.unsupportedAttachment
         }
@@ -673,8 +679,8 @@ nonisolated enum OutgoingMediaDraftProcessor {
             }
         }
         if let fileName,
-           let fileExtension = fileName.split(separator: ".").last.map(String.init),
-           let mediaType = OutgoingMediaAttachmentPolicy.mediaType(forFileExtension: fileExtension)
+            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            let mediaType = OutgoingMediaAttachmentPolicy.mediaType(forFileExtension: fileExtension)
         {
             return OutgoingMediaAttachmentPolicy.kind(mediaType: mediaType, fileName: fileName)
         }
@@ -690,7 +696,8 @@ nonisolated enum OutgoingMediaDraftProcessor {
     ) throws -> PendingMediaAttachment {
         let sanitizedName = sanitizedFileName(
             fileName,
-            fallbackStem: kind == .audio ? "audio-\(Int(Date().timeIntervalSince1970))" : "attachment-\(Int(Date().timeIntervalSince1970))",
+            fallbackStem: kind == .audio
+                ? "audio-\(Int(Date().timeIntervalSince1970))" : "attachment-\(Int(Date().timeIntervalSince1970))",
             fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType, fileName: fileName)
         )
         let audioMetadata = kind == .audio ? MediaWaveformAnalyzer.metadata(from: data, mediaType: mediaType) : nil
@@ -739,7 +746,8 @@ nonisolated enum OutgoingMediaDraftProcessor {
 
     private static func jpegData(from image: CGImage, quality: CGFloat) -> Data? {
         let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else {
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)
+        else {
             return nil
         }
         CGImageDestinationAddImage(
@@ -879,7 +887,8 @@ nonisolated enum MediaWaveformAnalyzer {
                 }
 
                 let bitsPerChannel = Int(format.streamDescription.pointee.mBitsPerChannel)
-                let bytesPerSample = bitsPerChannel > 0
+                let bytesPerSample =
+                    bitsPerChannel > 0
                     ? (bitsPerChannel + 7) / 8
                     : MemoryLayout<Float>.size
                 let chunkCapacity = chunkFrameCapacity(
@@ -964,7 +973,8 @@ nonisolated private enum TemporaryOutgoingMediaFile {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WhiteNoiseMediaWork", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory
+        let url =
+            directory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension(fileExtension)
         try? data.write(to: url, options: [.atomic])
@@ -976,7 +986,8 @@ nonisolated private enum TemporaryOutgoingMediaFile {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WhiteNoiseMediaWork", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory
+        let url =
+            directory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension(fileExtension)
         try? data.write(to: url, options: [.atomic])
@@ -1178,7 +1189,7 @@ enum SettingsPage: Equatable {
         .appearance,
         .privacySecurity,
         .notifications,
-        .developerMode
+        .developerMode,
     ]
 
     var title: String {
@@ -1466,7 +1477,8 @@ struct RelaySettingsSnapshot: Equatable {
 
     nonisolated private static func normalizedRelayURLs(_ relays: [String]) -> [String] {
         var seen = Set<String>()
-        return relays
+        return
+            relays
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { seen.insert($0).inserted }
@@ -1520,7 +1532,7 @@ struct NewChatRecipient: Equatable {
 
     var title: String {
         guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !displayName.isEmpty
+            !displayName.isEmpty
         else { return DisplayText.short(accountIdHex) }
 
         return displayName
@@ -1563,7 +1575,8 @@ nonisolated enum DisplayText {
 
     static func initials(for value: String, fallback: String) -> String {
         let source = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : value
-        let parts = source
+        let parts =
+            source
             .split(whereSeparator: { $0.isWhitespace || $0 == "-" || $0 == "_" })
             .prefix(2)
         let letters = parts.compactMap(\.first).map { String($0).uppercased() }.joined()
@@ -1571,7 +1584,9 @@ nonisolated enum DisplayText {
         return String(source.prefix(2)).uppercased()
     }
 
-    static func relativeTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale) -> String {
+    static func relativeTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale)
+        -> String
+    {
         if calendar.isDateInToday(date) {
             return date.formatted(timeOnlyStyle.locale(locale))
         }
@@ -1581,7 +1596,9 @@ nonisolated enum DisplayText {
         return date.formatted(monthDayStyle.locale(locale))
     }
 
-    static func messageTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale) -> String {
+    static func messageTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale)
+        -> String
+    {
         if calendar.isDateInToday(date) {
             return date.formatted(timeOnlyStyle.locale(locale))
         }
@@ -1615,7 +1632,7 @@ extension AccountItem {
             displayName: "Field",
             accountIdHex: "20b014f1701db12b8d4732ad506ce310419eb86539913b010fe09f114d9ae51f",
             initials: "FD"
-        )
+        ),
     ]
 }
 
@@ -1651,7 +1668,7 @@ extension ChatItem {
             avatarSeed: "chat-relays",
             pictureURL: nil,
             unreadCount: 1
-        )
+        ),
     ]
 }
 
@@ -1661,7 +1678,8 @@ extension MessageItem {
             MessageItem(
                 id: "m1",
                 senderName: "NVK",
-                body: "We should keep accounts visible all the time. Switching identities is core, not a settings errand.",
+                body:
+                    "We should keep accounts visible all the time. Switching identities is core, not a settings errand.",
                 sentAt: Date().addingTimeInterval(-4_500),
                 isOutgoing: false
             ),
@@ -1678,7 +1696,7 @@ extension MessageItem {
                 body: "I will wire the app frame around MarmotKit so real accounts and chats have a place to land.",
                 sentAt: Date().addingTimeInterval(-800),
                 isOutgoing: false
-            )
+            ),
         ],
         "chat-nvk": [
             MessageItem(
@@ -1697,6 +1715,6 @@ extension MessageItem {
                 sentAt: Date().addingTimeInterval(-90_000),
                 isOutgoing: false
             )
-        ]
+        ],
     ]
 }

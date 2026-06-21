@@ -1,6 +1,6 @@
-import SwiftUI
 import AppKit
 import ImageIO
+import SwiftUI
 
 /// An NSImage wrapper that is safe to hand back from the background loader.
 struct LoadedImage: @unchecked Sendable {
@@ -34,9 +34,9 @@ enum RemoteImageURLPolicy {
     /// input so callers can fall back to a generated avatar without ever issuing a request.
     static func sanitizedURL(from raw: String?) -> URL? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty,
-              let url = URL(string: trimmed),
-              isAllowed(url)
+            !trimmed.isEmpty,
+            let url = URL(string: trimmed),
+            isAllowed(url)
         else { return nil }
         return url
     }
@@ -201,12 +201,13 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     private static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
-        let options = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixelSize))
-        ] as CFDictionary
+        let options =
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixelSize)),
+            ] as CFDictionary
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
@@ -327,7 +328,10 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
     /// resumes with `nil`, then the resulting cancellation error's `didComplete` is a no-op.)
     private func finish(with result: Data?) {
         lock.lock()
-        guard !finished, let continuation else { lock.unlock(); return }
+        guard !finished, let continuation else {
+            lock.unlock()
+            return
+        }
         finished = true
         self.continuation = nil
         lock.unlock()

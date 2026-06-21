@@ -1,5 +1,5 @@
-import AppKit
 import AVFoundation
+import AppKit
 import Foundation
 import MarmotKit
 import Observation
@@ -502,7 +502,9 @@ final class WorkspaceState {
             WorkspaceState.defaultConversationWindowVisibilityProvider()
         },
         copyTextHandler: @escaping @MainActor (String, Bool) -> Void = WorkspaceState.copyToGeneralPasteboard,
-        telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = { TelemetryBuildConfig.current() },
+        telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = {
+            TelemetryBuildConfig.current()
+        },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
@@ -533,7 +535,8 @@ final class WorkspaceState {
         self.notificationPreviewMode = storedPreviewMode.flatMap(NotificationPreviewMode.init(rawValue:)) ?? .full
         let storedLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
         self.languagePreference = AppLanguage.resolved(rawValue: storedLanguage)
-        self.activeAccountId = UserDefaults.standard.string(forKey: Self.activeAccountKey)
+        self.activeAccountId =
+            UserDefaults.standard.string(forKey: Self.activeAccountKey)
             ?? accounts.first?.id
         if let firstChat = activeChats.first {
             self.selection = .chat(firstChat.id)
@@ -561,7 +564,7 @@ final class WorkspaceState {
             chatsByAccount: [
                 AccountItem.samples[0].id: ChatItem.samples,
                 AccountItem.samples[1].id: Array(ChatItem.samples.dropFirst()),
-                AccountItem.samples[2].id: [ChatItem.samples[2]]
+                AccountItem.samples[2].id: [ChatItem.samples[2]],
             ],
             messagesByChat: MessageItem.samples,
             clientFactory: { throw PreviewRuntimeError() }
@@ -592,7 +595,7 @@ final class WorkspaceState {
 
     var resolvedNewChatRecipient: NewChatRecipient? {
         guard let newChatRecipient,
-              newChatRecipient.matches(query: newChatQuery)
+            newChatRecipient.matches(query: newChatQuery)
         else { return nil }
 
         return newChatRecipient
@@ -643,18 +646,17 @@ final class WorkspaceState {
                 value: config.auditLogCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing")
             ),
             DiagnosticsInfoItem(title: L10n.string("OS"), value: config.osVersion),
-            DiagnosticsInfoItem(title: L10n.string("Device model"), value: config.deviceModelIdentifier ?? L10n.string("Unknown")),
-            DiagnosticsInfoItem(title: L10n.string("Marmot"), value: marmotBuildSummary)
+            DiagnosticsInfoItem(
+                title: L10n.string("Device model"), value: config.deviceModelIdentifier ?? L10n.string("Unknown")),
+            DiagnosticsInfoItem(title: L10n.string("Marmot"), value: marmotBuildSummary),
         ]
     }
 
     var canSend: Bool {
         client != nil
             && selectedChat != nil
-            && (
-                !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !pendingMediaAttachments.isEmpty
-            )
+            && (!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !pendingMediaAttachments.isEmpty)
             && !isSending
     }
 
@@ -719,7 +721,7 @@ final class WorkspaceState {
     private func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
         prepareForActiveAccountSwitch(to: account, preservingMessageCacheFor: nil)
         selection = finalSelection
-        if case let .chat(chatId)? = finalSelection {
+        if case .chat(let chatId)? = finalSelection {
             beginTimelineInitialLoadIfNeeded(groupIdHex: chatId)
         }
         Task {
@@ -904,7 +906,8 @@ final class WorkspaceState {
             // so we never leave `activeAccountId`/UserDefaults pointing at a removed
             // account. `needsActiveReset` is true if the removed account was driving the
             // UI, or if the (possibly newly-selected) active account no longer exists.
-            let activeAccountInvalid = activeAccountId == nil
+            let activeAccountInvalid =
+                activeAccountId == nil
                 || !accounts.contains(where: { $0.id == activeAccountId })
             let needsActiveReset = wasActive || activeAccountInvalid
 
@@ -1082,12 +1085,14 @@ final class WorkspaceState {
         } catch {
             lastError = error.localizedDescription
             profileDraft = ProfileDraft(fallbackName: fallbackName)
-            let displayName = (try? await runOffMain {
-                client.displayName(accountIdHex: accountIdHex)
-            }) ?? nil
+            let displayName =
+                (try? await runOffMain {
+                    client.displayName(accountIdHex: accountIdHex)
+                }) ?? nil
             if let displayName = displayName?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-                !displayName.isEmpty {
+                !displayName.isEmpty
+            {
                 updateActiveAccountProfile(displayName: displayName, pictureURL: pictureURL)
             }
         }
@@ -1374,7 +1379,7 @@ final class WorkspaceState {
             let displayName = firstNonBlank([
                 resolved?.profileDisplayName,
                 resolved?.profileName,
-                resolved?.directoryDisplayName
+                resolved?.directoryDisplayName,
             ])
             let recipient = NewChatRecipient(
                 sourceQuery: query,
@@ -1509,11 +1514,13 @@ final class WorkspaceState {
             )
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
 
-            let page = subscription.snapshot() ?? TimelinePageFfi(
-                messages: [],
-                hasMoreBefore: false,
-                hasMoreAfter: false
-            )
+            let page =
+                subscription.snapshot()
+                ?? TimelinePageFfi(
+                    messages: [],
+                    hasMoreBefore: false,
+                    hasMoreAfter: false
+                )
             await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
             // Start the listener first (it tears down any prior listener, which would clear
             // these), then record the subscription so scroll-back pagination can reach it.
@@ -1530,8 +1537,8 @@ final class WorkspaceState {
         guard selectedChat?.id == groupIdHex, activeTimelineGroupId == groupIdHex else { return }
         guard let subscription = activeTimelineSubscription else { return }
         guard var paging = timelinePagingByChat[groupIdHex],
-              paging.hasMoreBefore,
-              !paging.isLoadingBefore
+            paging.hasMoreBefore,
+            !paging.isLoadingBefore
         else { return }
 
         paging.isLoadingBefore = true
@@ -1560,8 +1567,8 @@ final class WorkspaceState {
         guard selectedChat?.id == groupIdHex, activeTimelineGroupId == groupIdHex else { return }
         guard let subscription = activeTimelineSubscription else { return }
         guard var paging = timelinePagingByChat[groupIdHex],
-              paging.hasMoreAfter,
-              !paging.isLoadingAfter
+            paging.hasMoreAfter,
+            !paging.isLoadingAfter
         else { return }
 
         paging.isLoadingAfter = true
@@ -1799,9 +1806,9 @@ final class WorkspaceState {
 
     func copySelectedGroupTranscriptJSON() async {
         guard !isExportingGroupTranscript,
-              let client,
-              let activeAccount,
-              let snapshot = groupDetailsSnapshot
+            let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot
         else { return }
 
         lastError = nil
@@ -2459,7 +2466,8 @@ final class WorkspaceState {
                 let normalized = max(0.05, min(1, CGFloat(pow(10, power / 36))))
                 self.voiceRecordingSamples.append(normalized)
                 if self.voiceRecordingSamples.count > MediaWaveformAnalyzer.sampleCount {
-                    self.voiceRecordingSamples.removeFirst(self.voiceRecordingSamples.count - MediaWaveformAnalyzer.sampleCount)
+                    self.voiceRecordingSamples.removeFirst(
+                        self.voiceRecordingSamples.count - MediaWaveformAnalyzer.sampleCount)
                 }
             }
         }
@@ -2489,11 +2497,11 @@ final class WorkspaceState {
         // re-renders the disabled send button (⌘-Return auto-repeat, double events)
         // would still observe the old `draftText` and re-send the same message.
         guard let client,
-              let activeAccount,
-              let selectedChat,
-              let draftKey = selectedComposerDraftKey,
-              (!text.isEmpty || !mediaAttachments.isEmpty),
-              !isSending
+            let activeAccount,
+            let selectedChat,
+            let draftKey = selectedComposerDraftKey,
+            !text.isEmpty || !mediaAttachments.isEmpty,
+            !isSending
         else { return }
         isSending = true
         defer { isSending = false }
@@ -2779,8 +2787,9 @@ final class WorkspaceState {
         let config = telemetryBuildConfig
         let accountLabel = activeAccount?.displayName
         if let cached = observabilityRuntimeConfiguration,
-           cached.buildConfig == config,
-           cached.accountLabel == accountLabel {
+            cached.buildConfig == config,
+            cached.accountLabel == accountLabel
+        {
             privacySecuritySettings.telemetryCredentialsAvailable = config.telemetryCredentialsAvailable
             privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable
             return
@@ -2788,7 +2797,8 @@ final class WorkspaceState {
 
         let relayRuntimeConfig: RelayTelemetryRuntimeConfigFfi
         if let cached = observabilityRuntimeConfiguration,
-           cached.buildConfig == config {
+            cached.buildConfig == config
+        {
             relayRuntimeConfig = cached.relayTelemetryRuntimeConfig
         } else {
             let installId = try await runOffMain {
@@ -3153,8 +3163,9 @@ final class WorkspaceState {
         var pendingSubscription = existingSubscription
 
         while !Task.isCancelled,
-              activeAccountId == account.id,
-              selectedChat?.id == groupIdHex {
+            activeAccountId == account.id,
+            selectedChat?.id == groupIdHex
+        {
             do {
                 let subscription: TimelineMessagesSubscription
                 if let existing = pendingSubscription {
@@ -3167,8 +3178,8 @@ final class WorkspaceState {
                         limit: Self.timelinePageLimit
                     )
                     guard activeAccountId == account.id,
-                          selectedChat?.id == groupIdHex,
-                          !Task.isCancelled
+                        selectedChat?.id == groupIdHex,
+                        !Task.isCancelled
                     else { break }
                     activeTimelineSubscription = subscription
                     activeTimelineGroupId = groupIdHex
@@ -3185,12 +3196,13 @@ final class WorkspaceState {
                 // authoritative window (ordering, dedup, head-anchoring while scrolled back,
                 // and the cap are all owned by the runtime), so we render it directly.
                 while !Task.isCancelled,
-                      activeAccountId == account.id,
-                      selectedChat?.id == groupIdHex {
+                    activeAccountId == account.id,
+                    selectedChat?.id == groupIdHex
+                {
                     guard let page = await subscription.next() else { break }
                     guard !Task.isCancelled,
-                          activeAccountId == account.id,
-                          selectedChat?.id == groupIdHex
+                        activeAccountId == account.id,
+                        selectedChat?.id == groupIdHex
                     else { break }
                     reconnectAttempt = 0
                     await applyTimelineWindow(
@@ -3209,8 +3221,8 @@ final class WorkspaceState {
             }
 
             guard !Task.isCancelled,
-                  activeAccountId == account.id,
-                  selectedChat?.id == groupIdHex
+                activeAccountId == account.id,
+                selectedChat?.id == groupIdHex
             else { break }
             do {
                 try await waitBeforeListenerReconnect(attempt: reconnectAttempt)
@@ -3254,10 +3266,10 @@ final class WorkspaceState {
         case .newGroup, .membershipChanged, .snapshotRefresh, .removed:
             invalidateGroupMembers(for: groupIdHex)
         case .newLastMessage,
-             .lastMessageDeleted,
-             .archiveChanged,
-             .pendingConfirmationChanged,
-             .unreadChanged:
+            .lastMessageDeleted,
+            .archiveChanged,
+            .pendingConfirmationChanged,
+            .unreadChanged:
             break
         }
     }
@@ -3267,10 +3279,10 @@ final class WorkspaceState {
         account: AccountItem
     ) async {
         switch update {
-        case .row(trigger: let trigger, row: let row):
+        case .row(let trigger, let row):
             invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
             await applyChatRow(row, account: account)
-        case .removeRow(trigger: _, groupIdHex: let groupIdHex):
+        case .removeRow(trigger: _, let groupIdHex):
             invalidateGroupMembers(for: groupIdHex)
             removeChat(groupIdHex: groupIdHex, account: account)
         }
@@ -3313,7 +3325,7 @@ final class WorkspaceState {
         lastMarkedReadMarkers[groupIdHex] = nil
 
         guard case .chat(let selectedGroupId) = selection,
-              selectedGroupId == groupIdHex
+            selectedGroupId == groupIdHex
         else { return }
 
         closeGroupImagePicker()
@@ -3595,8 +3607,8 @@ final class WorkspaceState {
 
     private func selectMostRecentChatIfNeeded() async {
         guard selectedChat == nil,
-              !isShowingSettings,
-              let chat = mostRecentChat(in: activeChats)
+            !isShowingSettings,
+            let chat = mostRecentChat(in: activeChats)
         else { return }
 
         selection = .chat(chat.id)
@@ -3613,7 +3625,7 @@ final class WorkspaceState {
     private func sortedChatItems(_ chatItems: [ChatItem]) -> [ChatItem] {
         chatItems.sorted { lhs, rhs in
             switch (lhs.updatedAt, rhs.updatedAt) {
-            case let (left?, right?) where left != right:
+            case (let left?, let right?) where left != right:
                 return left > right
             case (_?, nil):
                 return true
@@ -3639,9 +3651,11 @@ final class WorkspaceState {
         // handleNotificationUpdate(_:). Marking is deferred until the conversation becomes
         // visible again (see handleConversationVisibilityChange()).
         guard selectedConversationIsVisible() else { return }
-        guard let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
-            message.timelineKind == 9 && !message.isDeleted
-        }) else {
+        guard
+            let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
+                message.timelineKind == 9 && !message.isDeleted
+            })
+        else {
             return
         }
         let marker = ReadMarker(sentAt: latest.sentAt, messageId: latest.id)
@@ -3728,7 +3742,8 @@ final class WorkspaceState {
     private func isNotificationsNotAllowedError(_ error: Error) -> Bool {
         let nsError = error as NSError
         if nsError.domain == UNErrorDomain,
-           nsError.code == UNError.Code.notificationsNotAllowed.rawValue {
+            nsError.code == UNError.Code.notificationsNotAllowed.rawValue
+        {
             return true
         }
 
@@ -3738,10 +3753,11 @@ final class WorkspaceState {
     }
 
     private func localNotificationRequest(for update: NotificationUpdateFfi) -> LocalNotificationRequest {
-        let senderName = firstNonBlank([
-            update.sender.displayName,
-            update.sender.accountIdHex
-        ]) ?? L10n.string("Someone")
+        let senderName =
+            firstNonBlank([
+                update.sender.displayName,
+                update.sender.accountIdHex,
+            ]) ?? L10n.string("Someone")
         let previewText = firstNonBlank([update.previewText]) ?? L10n.string("New message")
 
         // For an E2EE messenger, notification content is rendered as banners,
@@ -3802,7 +3818,7 @@ final class WorkspaceState {
             "accountIdHex": update.accountIdHex,
             "groupIdHex": update.groupIdHex,
             "conversationKey": update.conversationKey,
-            "notificationKey": update.notificationKey
+            "notificationKey": update.notificationKey,
         ]
         if let messageIdHex = update.messageIdHex {
             userInfo["messageIdHex"] = messageIdHex
@@ -3812,7 +3828,8 @@ final class WorkspaceState {
 
     private func notificationAccount(from userInfo: [String: String]) -> AccountItem? {
         if let accountIdHex = userInfo["accountIdHex"],
-           let account = accounts.first(where: { $0.accountIdHex == accountIdHex }) {
+            let account = accounts.first(where: { $0.accountIdHex == accountIdHex })
+        {
             return account
         }
 
@@ -3933,10 +3950,12 @@ final class WorkspaceState {
         let token = nextGroupMemberDetailsLookupToken
         let accountRef = account.accountRef
         let task = Task { () -> [GroupMemberDetailsFfi]? in
-            guard let details = try? await client.groupDetails(
-                accountRef: accountRef,
-                groupIdHex: groupIdHex
-            ) else {
+            guard
+                let details = try? await client.groupDetails(
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 return nil
             }
             return details.members
@@ -3962,7 +3981,7 @@ final class WorkspaceState {
             !member.isSelf && member.memberIdHex != activeAccount.accountIdHex
         }
         guard otherMembers.count == 1,
-              let otherMember = otherMembers.first
+            let otherMember = otherMembers.first
         else { return nil }
 
         let memberId = otherMember.memberIdHex
@@ -3975,7 +3994,7 @@ final class WorkspaceState {
             resolved?.profileDisplayName,
             resolved?.profileName,
             otherMember.displayName,
-            resolved?.directoryDisplayName
+            resolved?.directoryDisplayName,
         ])
 
         return ChatPeerProfile(
@@ -3992,7 +4011,8 @@ final class WorkspaceState {
     ) async -> ResolvedPeerFFI? {
         let now = nowProvider()
         if let cached = peerProfileFFICache[accountIdHex],
-           cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL) {
+            cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL)
+        {
             return cached.resolved
         }
 
@@ -4031,11 +4051,12 @@ final class WorkspaceState {
         if nonLocalSenderIds.isEmpty {
             groupMemberNames = [:]
         } else {
-            let members = await cachedGroupMembers(
-                groupIdHex: groupIdHex,
-                account: activeAccount,
-                client: client
-            ) ?? []
+            let members =
+                await cachedGroupMembers(
+                    groupIdHex: groupIdHex,
+                    account: activeAccount,
+                    client: client
+                ) ?? []
             groupMemberNames = members.reduce(into: [String: String]()) { result, member in
                 if let displayName = firstNonBlank([member.displayName]) {
                     result[member.memberIdHex] = displayName
@@ -4057,19 +4078,20 @@ final class WorkspaceState {
             return !cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL)
         }
         if !unresolvedIds.isEmpty {
-            let resolved = (try? await runOffMain { () -> [String: ResolvedPeerFFI] in
-                var output: [String: ResolvedPeerFFI] = [:]
-                for senderId in unresolvedIds {
-                    let profile = try? client.userProfile(accountIdHex: senderId)
-                    output[senderId] = ResolvedPeerFFI(
-                        profileDisplayName: profile?.displayName,
-                        profileName: profile?.name,
-                        profilePicture: profile?.picture,
-                        directoryDisplayName: client.displayName(accountIdHex: senderId)
-                    )
-                }
-                return output
-            }) ?? [:]
+            let resolved =
+                (try? await runOffMain { () -> [String: ResolvedPeerFFI] in
+                    var output: [String: ResolvedPeerFFI] = [:]
+                    for senderId in unresolvedIds {
+                        let profile = try? client.userProfile(accountIdHex: senderId)
+                        output[senderId] = ResolvedPeerFFI(
+                            profileDisplayName: profile?.displayName,
+                            profileName: profile?.name,
+                            profilePicture: profile?.picture,
+                            directoryDisplayName: client.displayName(accountIdHex: senderId)
+                        )
+                    }
+                    return output
+                }) ?? [:]
             // The off-main resolution above suspends this actor. If the user switched
             // accounts while the batch was in flight, `selectAccount`/
             // `selectAccountFromSettings` already cleared `peerProfileFFICache` for the
@@ -4105,7 +4127,7 @@ final class WorkspaceState {
                     resolved?.profileDisplayName,
                     resolved?.profileName,
                     groupMemberNames[senderId],
-                    resolved?.directoryDisplayName
+                    resolved?.directoryDisplayName,
                 ]),
                 pictureURL: resolved?.profilePicture?.nilIfBlank
             )
@@ -4152,11 +4174,12 @@ final class WorkspaceState {
         resolved: ResolvedAccountFFI?
     ) -> AccountItem {
         let base = AccountItem(summary: summary)
-        let displayName = firstNonBlank([
-            resolved?.profileDisplayName,
-            resolved?.profileName,
-            resolved?.directoryDisplayName
-        ]) ?? base.displayName
+        let displayName =
+            firstNonBlank([
+                resolved?.profileDisplayName,
+                resolved?.profileName,
+                resolved?.directoryDisplayName,
+            ]) ?? base.displayName
 
         return AccountItem(
             id: base.id,
@@ -4172,7 +4195,7 @@ final class WorkspaceState {
 
     private func updateActiveAccountProfile(displayName: String, pictureURL: String?) {
         guard let activeAccountId,
-              let index = accounts.firstIndex(where: { $0.id == activeAccountId })
+            let index = accounts.firstIndex(where: { $0.id == activeAccountId })
         else { return }
 
         let account = accounts[index]
@@ -4190,7 +4213,8 @@ final class WorkspaceState {
 
     private func normalizedRelays(_ relays: [String]) -> [String] {
         var seen = Set<String>()
-        return relays
+        return
+            relays
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { seen.insert($0).inserted }
@@ -4327,7 +4351,8 @@ final class MacLocalNotificationCenter: NSObject, LocalNotificationCenter, UNUse
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo.reduce(into: [String: String]()) { result, element in
+        let userInfo = response.notification.request.content.userInfo.reduce(into: [String: String]()) {
+            result, element in
             guard let key = element.key as? String else { return }
             if let value = element.value as? String {
                 result[key] = value
@@ -4398,11 +4423,11 @@ struct GroupImageSearchResult: Identifiable, Hashable, Sendable {
         let licenseText = license?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         switch (creatorText?.isEmpty == false ? creatorText : nil, licenseText?.isEmpty == false ? licenseText : nil) {
-        case let (creator?, license?):
+        case (let creator?, let license?):
             return "\(creator) · \(license.uppercased())"
-        case let (creator?, nil):
+        case (let creator?, nil):
             return creator
-        case let (nil, license?):
+        case (nil, let license?):
             return license.uppercased()
         default:
             return L10n.string("Openverse")
@@ -4422,7 +4447,7 @@ struct OpenverseGroupImageSearchClient: GroupImageSearchClient, Sendable {
         components?.queryItems = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "page_size", value: "24"),
-            URLQueryItem(name: "mature", value: "false")
+            URLQueryItem(name: "mature", value: "false"),
         ]
 
         guard let url = components?.url else { throw GroupImageSearchError.invalidURL }
@@ -4474,9 +4499,9 @@ private struct OpenverseImageRecord: Decodable {
 
     var groupImageSearchResult: GroupImageSearchResult? {
         guard let url = url?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !url.isEmpty,
-              let parsedURL = URL(string: url),
-              ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
+            !url.isEmpty,
+            let parsedURL = URL(string: url),
+            ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
         else { return nil }
 
         let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4569,7 +4594,8 @@ private extension KeyPackageItem {
             keyPackageId: package.keyPackageId,
             keyPackageRefHex: package.keyPackageRefHex,
             eventIdHex: package.eventIdHex,
-            publishedAt: package.publishedAt == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(package.publishedAt)),
+            publishedAt: package.publishedAt == 0
+                ? nil : Date(timeIntervalSince1970: TimeInterval(package.publishedAt)),
             keyPackageBytes: package.keyPackageBytes,
             sourceRelays: package.sourceRelays,
             isLocal: package.local,
