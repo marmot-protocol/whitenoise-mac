@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import Foundation
 import MarmotKit
@@ -114,6 +115,7 @@ final class WorkspaceState {
     private(set) var accounts: [AccountItem]
     private(set) var chatsByAccount: [String: [ChatItem]]
     private(set) var messagesByChat: [String: [MessageItem]]
+    private(set) var mediaDownloads: [String: MediaDownloadState] = [:]
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.
@@ -144,8 +146,15 @@ final class WorkspaceState {
             }
         }
     }
+    var pendingMediaAttachments: [PendingMediaAttachment] {
+        guard let selectedComposerDraftKey else { return [] }
+        return pendingMediaAttachmentsByConversation[selectedComposerDraftKey] ?? []
+    }
     var isRefreshing = false
     var isSending = false
+    private(set) var isRecordingVoiceMessage = false
+    private(set) var voiceRecordingSamples: [CGFloat] = []
+    private(set) var voiceRecordingDurationSeconds: Double = 0
     /// Per-target reentrancy guards for message actions. `react`/`deleteMessage`
     /// operate on arbitrary messages, so a single in-flight bool (like `isSending`)
     /// would wrongly block acting on a *different* message. We key on the action's
@@ -248,6 +257,8 @@ final class WorkspaceState {
     var isLoadingGroupDetails = false
     var isSavingGroupProfile = false
     var isInvitingGroupMember = false
+    var isAcceptingGroupInvite = false
+    var isDecliningGroupInvite = false
     var isArchivingGroup = false
     var isLeavingGroup = false
     var isExportingGroupTranscript = false
@@ -258,6 +269,10 @@ final class WorkspaceState {
     private(set) var timelineInitialLoadGroupId: String?
     private var draftTextByConversation: [ComposerDraftKey: String] = [:]
     private var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
+    private var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
+    private var voiceRecorder: AVAudioRecorder?
+    private var voiceRecordingURL: URL?
+    private var voiceRecordingMeterTask: Task<Void, Never>?
 
     private var selectedComposerDraftKey: ComposerDraftKey? {
         guard let activeAccountId, case .chat(let chatId) = selection else { return nil }
@@ -267,6 +282,7 @@ final class WorkspaceState {
     private func clearAllComposerDrafts() {
         draftTextByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
+        pendingMediaAttachmentsByConversation.removeAll()
     }
 
     private func clearComposerDrafts(for chatIds: [String], accountId: String) {
@@ -274,6 +290,7 @@ final class WorkspaceState {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             draftTextByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
+            pendingMediaAttachmentsByConversation[key] = nil
         }
     }
 
@@ -283,6 +300,9 @@ final class WorkspaceState {
         }
         for key in replyDraftContextByConversation.keys.filter({ $0.accountId == accountId }) {
             replyDraftContextByConversation[key] = nil
+        }
+        for key in pendingMediaAttachmentsByConversation.keys.filter({ $0.accountId == accountId }) {
+            pendingMediaAttachmentsByConversation[key] = nil
         }
     }
 
@@ -482,7 +502,9 @@ final class WorkspaceState {
             WorkspaceState.defaultConversationWindowVisibilityProvider()
         },
         copyTextHandler: @escaping @MainActor (String, Bool) -> Void = WorkspaceState.copyToGeneralPasteboard,
-        telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = { TelemetryBuildConfig.current() },
+        telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = {
+            TelemetryBuildConfig.current()
+        },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
@@ -513,7 +535,8 @@ final class WorkspaceState {
         self.notificationPreviewMode = storedPreviewMode.flatMap(NotificationPreviewMode.init(rawValue:)) ?? .full
         let storedLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
         self.languagePreference = AppLanguage.resolved(rawValue: storedLanguage)
-        self.activeAccountId = UserDefaults.standard.string(forKey: Self.activeAccountKey)
+        self.activeAccountId =
+            UserDefaults.standard.string(forKey: Self.activeAccountKey)
             ?? accounts.first?.id
         if let firstChat = activeChats.first {
             self.selection = .chat(firstChat.id)
@@ -536,16 +559,19 @@ final class WorkspaceState {
     }
 
     static func preview() -> WorkspaceState {
-        WorkspaceState(
+        let state = WorkspaceState(
             accounts: AccountItem.samples,
             chatsByAccount: [
                 AccountItem.samples[0].id: ChatItem.samples,
                 AccountItem.samples[1].id: Array(ChatItem.samples.dropFirst()),
-                AccountItem.samples[2].id: [ChatItem.samples[2]]
+                AccountItem.samples[2].id: [ChatItem.samples[2]],
             ],
             messagesByChat: MessageItem.samples,
             clientFactory: { throw PreviewRuntimeError() }
         )
+        state.activeAccountId = AccountItem.samples[0].id
+        state.selection = .chat(ChatItem.samples[0].id)
+        return state
     }
 
     var activeAccount: AccountItem? {
@@ -569,7 +595,7 @@ final class WorkspaceState {
 
     var resolvedNewChatRecipient: NewChatRecipient? {
         guard let newChatRecipient,
-              newChatRecipient.matches(query: newChatQuery)
+            newChatRecipient.matches(query: newChatQuery)
         else { return nil }
 
         return newChatRecipient
@@ -620,15 +646,17 @@ final class WorkspaceState {
                 value: config.auditLogCredentialsAvailable ? L10n.string("Configured") : L10n.string("Missing")
             ),
             DiagnosticsInfoItem(title: L10n.string("OS"), value: config.osVersion),
-            DiagnosticsInfoItem(title: L10n.string("Device model"), value: config.deviceModelIdentifier ?? L10n.string("Unknown")),
-            DiagnosticsInfoItem(title: L10n.string("Marmot"), value: marmotBuildSummary)
+            DiagnosticsInfoItem(
+                title: L10n.string("Device model"), value: config.deviceModelIdentifier ?? L10n.string("Unknown")),
+            DiagnosticsInfoItem(title: L10n.string("Marmot"), value: marmotBuildSummary),
         ]
     }
 
     var canSend: Bool {
         client != nil
             && selectedChat != nil
-            && !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !pendingMediaAttachments.isEmpty)
             && !isSending
     }
 
@@ -693,7 +721,7 @@ final class WorkspaceState {
     private func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
         prepareForActiveAccountSwitch(to: account, preservingMessageCacheFor: nil)
         selection = finalSelection
-        if case let .chat(chatId)? = finalSelection {
+        if case .chat(let chatId)? = finalSelection {
             beginTimelineInitialLoadIfNeeded(groupIdHex: chatId)
         }
         Task {
@@ -711,6 +739,7 @@ final class WorkspaceState {
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
+        cancelVoiceRecording()
         stopTimelineListener()
         stopChatListListener()
         clearEnteredLoginIdentity()
@@ -738,6 +767,7 @@ final class WorkspaceState {
     }
 
     func selectChat(_ chat: ChatItem) {
+        cancelVoiceRecording()
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .chat(chat.id)
@@ -876,7 +906,8 @@ final class WorkspaceState {
             // so we never leave `activeAccountId`/UserDefaults pointing at a removed
             // account. `needsActiveReset` is true if the removed account was driving the
             // UI, or if the (possibly newly-selected) active account no longer exists.
-            let activeAccountInvalid = activeAccountId == nil
+            let activeAccountInvalid =
+                activeAccountId == nil
                 || !accounts.contains(where: { $0.id == activeAccountId })
             let needsActiveReset = wasActive || activeAccountInvalid
 
@@ -1001,8 +1032,9 @@ final class WorkspaceState {
 
         settingsLoadGeneration &+= 1
         let generation = settingsLoadGeneration
-        let task = Task { [weak self] in
-            await self?.performSettingsLoad(accountId: accountId, generation: generation)
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.performSettingsLoad(accountId: accountId, generation: generation)
         }
         settingsLoadTask = task
         settingsLoadAccountId = accountId
@@ -1053,12 +1085,14 @@ final class WorkspaceState {
         } catch {
             lastError = error.localizedDescription
             profileDraft = ProfileDraft(fallbackName: fallbackName)
-            let displayName = (try? await runOffMain {
-                client.displayName(accountIdHex: accountIdHex)
-            }) ?? nil
+            let displayName =
+                (try? await runOffMain {
+                    client.displayName(accountIdHex: accountIdHex)
+                }) ?? nil
             if let displayName = displayName?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-                !displayName.isEmpty {
+                !displayName.isEmpty
+            {
                 updateActiveAccountProfile(displayName: displayName, pictureURL: pictureURL)
             }
         }
@@ -1345,7 +1379,7 @@ final class WorkspaceState {
             let displayName = firstNonBlank([
                 resolved?.profileDisplayName,
                 resolved?.profileName,
-                resolved?.directoryDisplayName
+                resolved?.directoryDisplayName,
             ])
             let recipient = NewChatRecipient(
                 sourceQuery: query,
@@ -1480,11 +1514,13 @@ final class WorkspaceState {
             )
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
 
-            let page = subscription.snapshot() ?? TimelinePageFfi(
-                messages: [],
-                hasMoreBefore: false,
-                hasMoreAfter: false
-            )
+            let page =
+                subscription.snapshot()
+                ?? TimelinePageFfi(
+                    messages: [],
+                    hasMoreBefore: false,
+                    hasMoreAfter: false
+                )
             await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
             // Start the listener first (it tears down any prior listener, which would clear
             // these), then record the subscription so scroll-back pagination can reach it.
@@ -1501,8 +1537,8 @@ final class WorkspaceState {
         guard selectedChat?.id == groupIdHex, activeTimelineGroupId == groupIdHex else { return }
         guard let subscription = activeTimelineSubscription else { return }
         guard var paging = timelinePagingByChat[groupIdHex],
-              paging.hasMoreBefore,
-              !paging.isLoadingBefore
+            paging.hasMoreBefore,
+            !paging.isLoadingBefore
         else { return }
 
         paging.isLoadingBefore = true
@@ -1531,8 +1567,8 @@ final class WorkspaceState {
         guard selectedChat?.id == groupIdHex, activeTimelineGroupId == groupIdHex else { return }
         guard let subscription = activeTimelineSubscription else { return }
         guard var paging = timelinePagingByChat[groupIdHex],
-              paging.hasMoreAfter,
-              !paging.isLoadingAfter
+            paging.hasMoreAfter,
+            !paging.isLoadingAfter
         else { return }
 
         paging.isLoadingAfter = true
@@ -1594,7 +1630,7 @@ final class WorkspaceState {
         replyDraftContext = MessageReplyContext(
             targetMessageId: message.id,
             senderName: message.senderName,
-            body: message.body
+            body: message.replyPreviewText
         )
     }
 
@@ -1605,6 +1641,56 @@ final class WorkspaceState {
     func copyText(of message: MessageItem) {
         guard message.canCopyText else { return }
         copyText(message.body)
+    }
+
+    func mediaDownloadState(for message: MessageItem, attachment: MessageMediaAttachment) -> MediaDownloadState {
+        mediaDownloads[mediaDownloadKey(message: message, attachment: attachment)] ?? .idle
+    }
+
+    func loadMediaAttachment(_ attachment: MessageMediaAttachment, for message: MessageItem) async {
+        let key = mediaDownloadKey(message: message, attachment: attachment)
+        if case .loaded = mediaDownloads[key] {
+            return
+        }
+        if case .loading = mediaDownloads[key] {
+            return
+        }
+
+        guard let client, let activeAccount, !message.groupIdHex.isEmpty else {
+            mediaDownloads[key] = .failed(L10n.string("Attachment unavailable"))
+            return
+        }
+
+        let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
+        let groupIdHex = message.groupIdHex
+        mediaDownloads[key] = .loading
+
+        do {
+            let reference = try await resolvedMediaReference(
+                attachment.reference,
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                client: client
+            )
+            let download = try await client.downloadMedia(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                reference: reference
+            )
+            guard activeAccountId == accountId else { return }
+            mediaDownloads[key] = .loaded(
+                MessageMediaDownload(
+                    data: download.plaintext,
+                    fileName: download.fileName,
+                    mediaType: download.mediaType,
+                    sizeBytes: download.sizeBytes
+                )
+            )
+        } catch {
+            guard activeAccountId == accountId else { return }
+            mediaDownloads[key] = .failed(error.localizedDescription)
+        }
     }
 
     /// Copies `text` to the system pasteboard.
@@ -1709,6 +1795,8 @@ final class WorkspaceState {
         isLoadingGroupDetails = false
         isSavingGroupProfile = false
         isInvitingGroupMember = false
+        isAcceptingGroupInvite = false
+        isDecliningGroupInvite = false
         isArchivingGroup = false
         isLeavingGroup = false
         isExportingGroupTranscript = false
@@ -1718,9 +1806,9 @@ final class WorkspaceState {
 
     func copySelectedGroupTranscriptJSON() async {
         guard !isExportingGroupTranscript,
-              let client,
-              let activeAccount,
-              let snapshot = groupDetailsSnapshot
+            let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot
         else { return }
 
         lastError = nil
@@ -1816,6 +1904,26 @@ final class WorkspaceState {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    func acceptGroupInvite(for chat: ChatItem) async {
+        guard !chat.isDirect else { return }
+        await acceptGroupInvite(groupIdHex: chat.id)
+    }
+
+    func declineGroupInvite(for chat: ChatItem) async {
+        guard !chat.isDirect else { return }
+        await declineGroupInvite(groupIdHex: chat.id)
+    }
+
+    func acceptSelectedGroupInvite() async {
+        guard let snapshot = groupDetailsSnapshot else { return }
+        await acceptGroupInvite(groupIdHex: snapshot.groupIdHex)
+    }
+
+    func declineSelectedGroupInvite() async {
+        guard let snapshot = groupDetailsSnapshot else { return }
+        await declineGroupInvite(groupIdHex: snapshot.groupIdHex)
     }
 
     func promoteGroupMember(_ member: GroupMemberItem) async {
@@ -1987,6 +2095,51 @@ final class WorkspaceState {
         }
     }
 
+    private func acceptGroupInvite(groupIdHex: String) async {
+        guard let client, let activeAccount, !isAcceptingGroupInvite, !isDecliningGroupInvite else { return }
+        lastError = nil
+        isAcceptingGroupInvite = true
+        defer { isAcceptingGroupInvite = false }
+
+        do {
+            _ = try await client.acceptGroupInvite(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            await reloadChats()
+            if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                await loadGroupDetails(groupIdHex: groupIdHex)
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func declineGroupInvite(groupIdHex: String) async {
+        guard let client, let activeAccount, !isDecliningGroupInvite, !isAcceptingGroupInvite else { return }
+        lastError = nil
+        isDecliningGroupInvite = true
+        defer { isDecliningGroupInvite = false }
+
+        do {
+            _ = try await client.declineGroupInvite(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            if groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                closeGroupDetails()
+            }
+            if case .chat(let selectedGroupId) = selection, selectedGroupId == groupIdHex {
+                stopTimelineListener()
+                selection = nil
+                pruneMessageCache(keeping: nil)
+            }
+            await reloadChats()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     private func loadGroupDetails(groupIdHex: String) async {
         guard let client, let activeAccount else { return }
         guard selectedChat?.id == groupIdHex else { return }
@@ -2118,19 +2271,254 @@ final class WorkspaceState {
         )
     }
 
+    func addMediaAttachments(from urls: [URL]) async {
+        guard let draftKey = selectedComposerDraftKey else { return }
+        guard canBeginMediaAttachmentSelection() else { return }
+        let fileURLs = urls.filter(\.isFileURL)
+        guard !fileURLs.isEmpty else { return }
+
+        let selected = Array(fileURLs.prefix(remainingMediaAttachmentSlots))
+        if selected.count < fileURLs.count {
+            presentMaxMediaAttachmentWarning()
+        }
+
+        for url in selected {
+            let isSecurityScoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            do {
+                let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
+                appendPendingMediaAttachment(attachment, for: draftKey)
+            } catch is CancellationError {
+                return
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    func removePendingMediaAttachment(_ id: PendingMediaAttachment.ID) {
+        guard let selectedComposerDraftKey else { return }
+        var attachments = pendingMediaAttachmentsByConversation[selectedComposerDraftKey] ?? []
+        attachments.removeAll { $0.id == id }
+        pendingMediaAttachmentsByConversation[selectedComposerDraftKey] = attachments.isEmpty ? nil : attachments
+    }
+
+    func toggleVoiceRecording() async {
+        if isRecordingVoiceMessage {
+            await finishVoiceRecording()
+        } else {
+            await startVoiceRecording()
+        }
+    }
+
+    func startVoiceRecording() async {
+        guard !isRecordingVoiceMessage else { return }
+        guard canBeginMediaAttachmentSelection() else { return }
+
+        let hasPermission = await requestMicrophoneAccess()
+        guard hasPermission else {
+            lastError = L10n.string("Microphone access is needed to record voice messages.")
+            return
+        }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhiteNoiseVoiceRecordings", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fileName = "voice-\(Int(Date().timeIntervalSince1970)).m4a"
+            let url = directory.appendingPathComponent(fileName)
+            let settings: [String: Any] = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue,
+            ]
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.isMeteringEnabled = true
+            guard recorder.record() else {
+                throw VoiceRecordingFailure.startFailed
+            }
+
+            voiceRecorder = recorder
+            voiceRecordingURL = url
+            voiceRecordingSamples = []
+            voiceRecordingDurationSeconds = 0
+            isRecordingVoiceMessage = true
+            startVoiceRecordingMetering()
+        } catch {
+            resetVoiceRecording(deleteFile: true)
+            lastError = L10n.string("Voice recording could not start.")
+        }
+    }
+
+    func finishVoiceRecording() async {
+        guard isRecordingVoiceMessage, let recorder = voiceRecorder, let url = voiceRecordingURL else {
+            resetVoiceRecording(deleteFile: true)
+            return
+        }
+        let draftKey = selectedComposerDraftKey
+        let duration = max(voiceRecordingDurationSeconds, recorder.currentTime)
+        let samples = voiceRecordingSamples
+        let fileName = url.lastPathComponent
+        recorder.stop()
+        resetVoiceRecording(deleteFile: false)
+
+        guard let draftKey else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+
+        do {
+            let attachment = try await OutgoingMediaDraftProcessor.preparedVoiceAttachment(
+                from: VoiceRecordingResult(
+                    url: url,
+                    fileName: fileName,
+                    durationSeconds: duration,
+                    waveformSamples: samples
+                )
+            )
+            appendPendingMediaAttachment(attachment, for: draftKey)
+        } catch is CancellationError {
+            return
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func cancelVoiceRecording() {
+        resetVoiceRecording(deleteFile: true)
+    }
+
+    private var remainingMediaAttachmentSlots: Int {
+        max(0, OutgoingMediaDraftProcessor.maxAttachmentCount - pendingMediaAttachments.count)
+    }
+
+    private func canBeginMediaAttachmentSelection() -> Bool {
+        guard client != nil, selectedChat != nil else { return false }
+        guard remainingMediaAttachmentSlots > 0 else {
+            presentMaxMediaAttachmentWarning()
+            return false
+        }
+        return true
+    }
+
+    private func appendPendingMediaAttachment(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
+        var attachments = pendingMediaAttachmentsByConversation[draftKey] ?? []
+        if attachment.kind == .audio {
+            attachments.removeAll { $0.kind == .audio }
+        }
+        guard attachments.count < OutgoingMediaDraftProcessor.maxAttachmentCount else {
+            presentMaxMediaAttachmentWarning()
+            return
+        }
+        attachments.append(attachment)
+        pendingMediaAttachmentsByConversation[draftKey] = attachments
+        if attachment.kind == .audio {
+            draftTextByConversation[draftKey] = nil
+        }
+    }
+
+    private func presentMaxMediaAttachmentWarning() {
+        lastError = String(
+            format: L10n.string("You can send up to %lld attachments at once"),
+            Int64(OutgoingMediaDraftProcessor.maxAttachmentCount)
+        )
+    }
+
+    private enum VoiceRecordingFailure: Error {
+        case startFailed
+    }
+
+    private func requestMicrophoneAccess() async -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    continuation.resume(returning: granted)
+                }
+            }
+        case .denied, .restricted:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
+    private func startVoiceRecordingMetering() {
+        voiceRecordingMeterTask?.cancel()
+        voiceRecordingMeterTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 70_000_000)
+                } catch {
+                    return
+                }
+                guard let self, let recorder = self.voiceRecorder else { return }
+                recorder.updateMeters()
+                self.voiceRecordingDurationSeconds = recorder.currentTime
+                let power = recorder.averagePower(forChannel: 0)
+                let normalized = max(0.05, min(1, CGFloat(pow(10, power / 36))))
+                self.voiceRecordingSamples.append(normalized)
+                if self.voiceRecordingSamples.count > MediaWaveformAnalyzer.sampleCount {
+                    self.voiceRecordingSamples.removeFirst(
+                        self.voiceRecordingSamples.count - MediaWaveformAnalyzer.sampleCount)
+                }
+            }
+        }
+    }
+
+    private func resetVoiceRecording(deleteFile: Bool) {
+        voiceRecordingMeterTask?.cancel()
+        voiceRecordingMeterTask = nil
+        voiceRecorder?.stop()
+        voiceRecorder = nil
+        let url = voiceRecordingURL
+        voiceRecordingURL = nil
+        isRecordingVoiceMessage = false
+        voiceRecordingSamples = []
+        voiceRecordingDurationSeconds = 0
+        if deleteFile, let url {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     func sendDraft() async {
         let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mediaAttachments = pendingMediaAttachments
         // `!isSending` is the reentrancy guard: `isSending` flips synchronously here,
         // but the model only suspends (and `draftText` is only cleared) at the `await`
         // below. Without this guard a second invocation delivered before SwiftUI
         // re-renders the disabled send button (⌘-Return auto-repeat, double events)
         // would still observe the old `draftText` and re-send the same message.
-        guard let client, let activeAccount, let selectedChat, !text.isEmpty, !isSending else { return }
+        guard let client,
+            let activeAccount,
+            let selectedChat,
+            let draftKey = selectedComposerDraftKey,
+            !text.isEmpty || !mediaAttachments.isEmpty,
+            !isSending
+        else { return }
         isSending = true
         defer { isSending = false }
 
         do {
-            if let replyDraftContext {
+            if !mediaAttachments.isEmpty {
+                _ = try await client.uploadMedia(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: selectedChat.id,
+                    request: MediaUploadRequestFfi(
+                        attachments: mediaAttachments.map(\.uploadRequest),
+                        caption: text.isEmpty ? nil : text,
+                        send: true,
+                        blossomServer: nil
+                    )
+                )
+            } else if let replyDraftContext {
                 _ = try await client.replyToMessage(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: selectedChat.id,
@@ -2146,6 +2534,8 @@ final class WorkspaceState {
             }
             draftText = ""
             replyDraftContext = nil
+            pendingMediaAttachmentsByConversation[draftKey] = nil
+            await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
             lastError = error.localizedDescription
         }
@@ -2155,11 +2545,20 @@ final class WorkspaceState {
         guard !update.isFromSelf else { return }
         guard !deliveredNotificationKeys.contains(update.notificationKey) else { return }
 
-        // Keep the published settings snapshot in sync for the active account.
-        // This is an explicit step rather than a side effect of the guard below.
-        await syncNotificationSettingsIfActive(for: update)
+        // Read the account's notification settings exactly once over the FFI
+        // boundary, then reuse the snapshot for both responsibilities below:
+        //   1. Keep the published `notificationSettings` snapshot in sync when
+        //      the update targets the active account.
+        //   2. Gate notification delivery on `localNotificationsEnabled`.
+        // A failed read (`nil`) suppresses delivery and leaves the published
+        // snapshot untouched, matching the prior early-return-on-error behavior.
+        guard let settings = await fetchNotificationSettings(for: update) else { return }
 
-        guard await localNotificationsEnabled(for: update) else { return }
+        if activeAccount?.accountIdHex == update.accountIdHex {
+            notificationSettings = NotificationSettingsSnapshot(settings: settings)
+        }
+
+        guard settings.localNotificationsEnabled else { return }
 
         if selectedChat?.id == update.groupIdHex, selectedConversationIsVisible() {
             return
@@ -2250,6 +2649,7 @@ final class WorkspaceState {
         accounts = []
         chatsByAccount = [:]
         messagesByChat = [:]
+        mediaDownloads = [:]
         messageLookupByChat = [:]
         messageIDsByChat = [:]
         peerProfileFFICache.removeAll()
@@ -2305,6 +2705,8 @@ final class WorkspaceState {
         isLoadingGroupDetails = false
         isSavingGroupProfile = false
         isInvitingGroupMember = false
+        isAcceptingGroupInvite = false
+        isDecliningGroupInvite = false
         isArchivingGroup = false
         isLeavingGroup = false
         isExportingGroupTranscript = false
@@ -2363,6 +2765,10 @@ final class WorkspaceState {
         backgroundStatus = nil
     }
 
+    func reportUserActionError(_ message: String) {
+        lastError = message
+    }
+
     private func waitBeforeListenerReconnect(attempt: Int) async throws {
         let delay = Self.listenerReconnectDelayNanoseconds(forAttempt: attempt)
         guard delay > 0 else {
@@ -2381,8 +2787,9 @@ final class WorkspaceState {
         let config = telemetryBuildConfig
         let accountLabel = activeAccount?.displayName
         if let cached = observabilityRuntimeConfiguration,
-           cached.buildConfig == config,
-           cached.accountLabel == accountLabel {
+            cached.buildConfig == config,
+            cached.accountLabel == accountLabel
+        {
             privacySecuritySettings.telemetryCredentialsAvailable = config.telemetryCredentialsAvailable
             privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable
             return
@@ -2390,7 +2797,8 @@ final class WorkspaceState {
 
         let relayRuntimeConfig: RelayTelemetryRuntimeConfigFfi
         if let cached = observabilityRuntimeConfiguration,
-           cached.buildConfig == config {
+            cached.buildConfig == config
+        {
             relayRuntimeConfig = cached.relayTelemetryRuntimeConfig
         } else {
             let installId = try await runOffMain {
@@ -2755,8 +3163,9 @@ final class WorkspaceState {
         var pendingSubscription = existingSubscription
 
         while !Task.isCancelled,
-              activeAccountId == account.id,
-              selectedChat?.id == groupIdHex {
+            activeAccountId == account.id,
+            selectedChat?.id == groupIdHex
+        {
             do {
                 let subscription: TimelineMessagesSubscription
                 if let existing = pendingSubscription {
@@ -2769,8 +3178,8 @@ final class WorkspaceState {
                         limit: Self.timelinePageLimit
                     )
                     guard activeAccountId == account.id,
-                          selectedChat?.id == groupIdHex,
-                          !Task.isCancelled
+                        selectedChat?.id == groupIdHex,
+                        !Task.isCancelled
                     else { break }
                     activeTimelineSubscription = subscription
                     activeTimelineGroupId = groupIdHex
@@ -2787,12 +3196,13 @@ final class WorkspaceState {
                 // authoritative window (ordering, dedup, head-anchoring while scrolled back,
                 // and the cap are all owned by the runtime), so we render it directly.
                 while !Task.isCancelled,
-                      activeAccountId == account.id,
-                      selectedChat?.id == groupIdHex {
+                    activeAccountId == account.id,
+                    selectedChat?.id == groupIdHex
+                {
                     guard let page = await subscription.next() else { break }
                     guard !Task.isCancelled,
-                          activeAccountId == account.id,
-                          selectedChat?.id == groupIdHex
+                        activeAccountId == account.id,
+                        selectedChat?.id == groupIdHex
                     else { break }
                     reconnectAttempt = 0
                     await applyTimelineWindow(
@@ -2811,8 +3221,8 @@ final class WorkspaceState {
             }
 
             guard !Task.isCancelled,
-                  activeAccountId == account.id,
-                  selectedChat?.id == groupIdHex
+                activeAccountId == account.id,
+                selectedChat?.id == groupIdHex
             else { break }
             do {
                 try await waitBeforeListenerReconnect(attempt: reconnectAttempt)
@@ -2856,10 +3266,10 @@ final class WorkspaceState {
         case .newGroup, .membershipChanged, .snapshotRefresh, .removed:
             invalidateGroupMembers(for: groupIdHex)
         case .newLastMessage,
-             .lastMessageDeleted,
-             .archiveChanged,
-             .pendingConfirmationChanged,
-             .unreadChanged:
+            .lastMessageDeleted,
+            .archiveChanged,
+            .pendingConfirmationChanged,
+            .unreadChanged:
             break
         }
     }
@@ -2869,10 +3279,10 @@ final class WorkspaceState {
         account: AccountItem
     ) async {
         switch update {
-        case .row(trigger: let trigger, row: let row):
+        case .row(let trigger, let row):
             invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
             await applyChatRow(row, account: account)
-        case .removeRow(trigger: _, groupIdHex: let groupIdHex):
+        case .removeRow(trigger: _, let groupIdHex):
             invalidateGroupMembers(for: groupIdHex)
             removeChat(groupIdHex: groupIdHex, account: account)
         }
@@ -2915,7 +3325,7 @@ final class WorkspaceState {
         lastMarkedReadMarkers[groupIdHex] = nil
 
         guard case .chat(let selectedGroupId) = selection,
-              selectedGroupId == groupIdHex
+            selectedGroupId == groupIdHex
         else { return }
 
         closeGroupImagePicker()
@@ -2956,7 +3366,40 @@ final class WorkspaceState {
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
     }
 
+    private func refreshSelectedTimelineAfterSend(
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        let pageLimit = Self.timelinePageLimit
+        do {
+            let page = try await runOffMain {
+                try client.timelineMessages(
+                    accountRef: account.accountRef,
+                    query: TimelineMessageQueryFfi(
+                        groupIdHex: groupIdHex,
+                        search: nil,
+                        before: nil,
+                        beforeMessageId: nil,
+                        after: nil,
+                        afterMessageId: nil,
+                        limit: pageLimit
+                    )
+                )
+            }
+            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: account, client: client)
+        } catch {
+            setBackgroundStatus(error.localizedDescription)
+        }
+    }
+
     private func pruneMessageCache(keeping groupIdHex: String?) {
+        defer {
+            pruneMediaDownloadCache(keeping: groupIdHex)
+        }
+
         guard let groupIdHex else {
             messagesByChat = [:]
             messageLookupByChat = [:]
@@ -2985,6 +3428,41 @@ final class WorkspaceState {
         } else if messagesByChat[groupIdHex] != nil {
             timelineInitialLoadGroupId = nil
         }
+    }
+
+    private func mediaDownloadKey(message: MessageItem, attachment: MessageMediaAttachment) -> String {
+        [activeAccountId ?? "", message.groupIdHex, attachment.id].joined(separator: "\u{1F}")
+    }
+
+    private func pruneMediaDownloadCache(keeping groupIdHex: String?) {
+        guard let activeAccountId, let groupIdHex else {
+            mediaDownloads = [:]
+            return
+        }
+
+        let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
+        mediaDownloads = mediaDownloads.filter { key, _ in
+            key.hasPrefix(prefix)
+        }
+    }
+
+    private func resolvedMediaReference(
+        _ reference: MediaAttachmentReferenceFfi,
+        accountRef: String,
+        groupIdHex: String,
+        client: any MarmotRuntime
+    ) async throws -> MediaAttachmentReferenceFfi {
+        guard reference.sourceEpoch == 0 else {
+            return reference
+        }
+
+        let records = try await runOffMain {
+            try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+        }
+        return records.first { record in
+            record.reference.plaintextSha256 == reference.plaintextSha256
+                || record.reference.ciphertextSha256 == reference.ciphertextSha256
+        }?.reference ?? reference
     }
 
     private func beginTimelineInitialLoadIfNeeded(groupIdHex: String) {
@@ -3081,7 +3559,8 @@ final class WorkspaceState {
                 avatarSeed: enrichedItem.avatarSeed,
                 pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
                 unreadCount: current.unreadCount,
-                isDirect: enrichedItem.isDirect
+                isDirect: enrichedItem.isDirect,
+                pendingConfirmation: current.pendingConfirmation
             )
             guard next != current else { continue }
             chats[index] = next
@@ -3128,8 +3607,8 @@ final class WorkspaceState {
 
     private func selectMostRecentChatIfNeeded() async {
         guard selectedChat == nil,
-              !isShowingSettings,
-              let chat = mostRecentChat(in: activeChats)
+            !isShowingSettings,
+            let chat = mostRecentChat(in: activeChats)
         else { return }
 
         selection = .chat(chat.id)
@@ -3146,7 +3625,7 @@ final class WorkspaceState {
     private func sortedChatItems(_ chatItems: [ChatItem]) -> [ChatItem] {
         chatItems.sorted { lhs, rhs in
             switch (lhs.updatedAt, rhs.updatedAt) {
-            case let (left?, right?) where left != right:
+            case (let left?, let right?) where left != right:
                 return left > right
             case (_?, nil):
                 return true
@@ -3172,9 +3651,11 @@ final class WorkspaceState {
         // handleNotificationUpdate(_:). Marking is deferred until the conversation becomes
         // visible again (see handleConversationVisibilityChange()).
         guard selectedConversationIsVisible() else { return }
-        guard let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
-            message.timelineKind == 9 && !message.isDeleted
-        }) else {
+        guard
+            let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
+                message.timelineKind == 9 && !message.isDeleted
+            })
+        else {
             return
         }
         let marker = ReadMarker(sentAt: latest.sentAt, messageId: latest.id)
@@ -3228,37 +3709,20 @@ final class WorkspaceState {
         }
     }
 
-    /// Pure predicate: reports whether local notifications are enabled for the
-    /// account targeted by `update`. Has no side effects — callers that also need
-    /// to refresh the published `notificationSettings` snapshot must invoke
-    /// `syncNotificationSettingsIfActive(for:)` explicitly.
-    private func localNotificationsEnabled(for update: NotificationUpdateFfi) async -> Bool {
-        guard let client else { return false }
+    /// Reads the notification settings for the account targeted by `update` over
+    /// the off-main FFI boundary. Returns `nil` when there is no client or the
+    /// read fails, so callers can suppress delivery without mutating UI state.
+    ///
+    /// This is intentionally side-effect free: refreshing the published
+    /// `notificationSettings` snapshot for the active account is the caller's
+    /// responsibility (see `handleNotificationUpdate(_:)`), which lets a single
+    /// fetch serve both the active-account sync and the delivery gate.
+    private func fetchNotificationSettings(for update: NotificationUpdateFfi) async -> NotificationSettingsFfi? {
+        guard let client else { return nil }
         let accountRef = update.accountRef
-        guard let settings = try? await runOffMain({
+        return try? await runOffMain({
             try client.notificationSettings(accountRef: accountRef)
-        }) else {
-            return false
-        }
-
-        return settings.localNotificationsEnabled
-    }
-
-    /// Refreshes the published `notificationSettings` snapshot when `update`
-    /// targets the active account. Kept separate from
-    /// `localNotificationsEnabled(for:)` so that evaluating the predicate does
-    /// not mutate UI state as a hidden side effect.
-    private func syncNotificationSettingsIfActive(for update: NotificationUpdateFfi) async {
-        guard activeAccount?.accountIdHex == update.accountIdHex else { return }
-        guard let client else { return }
-        let accountRef = update.accountRef
-        guard let settings = try? await runOffMain({
-            try client.notificationSettings(accountRef: accountRef)
-        }) else {
-            return
-        }
-
-        notificationSettings = NotificationSettingsSnapshot(settings: settings)
+        })
     }
 
     private func handleNotificationPermissionError(_ error: Error) async {
@@ -3278,7 +3742,8 @@ final class WorkspaceState {
     private func isNotificationsNotAllowedError(_ error: Error) -> Bool {
         let nsError = error as NSError
         if nsError.domain == UNErrorDomain,
-           nsError.code == UNError.Code.notificationsNotAllowed.rawValue {
+            nsError.code == UNError.Code.notificationsNotAllowed.rawValue
+        {
             return true
         }
 
@@ -3288,10 +3753,11 @@ final class WorkspaceState {
     }
 
     private func localNotificationRequest(for update: NotificationUpdateFfi) -> LocalNotificationRequest {
-        let senderName = firstNonBlank([
-            update.sender.displayName,
-            update.sender.accountIdHex
-        ]) ?? L10n.string("Someone")
+        let senderName =
+            firstNonBlank([
+                update.sender.displayName,
+                update.sender.accountIdHex,
+            ]) ?? L10n.string("Someone")
         let previewText = firstNonBlank([update.previewText]) ?? L10n.string("New message")
 
         // For an E2EE messenger, notification content is rendered as banners,
@@ -3352,7 +3818,7 @@ final class WorkspaceState {
             "accountIdHex": update.accountIdHex,
             "groupIdHex": update.groupIdHex,
             "conversationKey": update.conversationKey,
-            "notificationKey": update.notificationKey
+            "notificationKey": update.notificationKey,
         ]
         if let messageIdHex = update.messageIdHex {
             userInfo["messageIdHex"] = messageIdHex
@@ -3362,7 +3828,8 @@ final class WorkspaceState {
 
     private func notificationAccount(from userInfo: [String: String]) -> AccountItem? {
         if let accountIdHex = userInfo["accountIdHex"],
-           let account = accounts.first(where: { $0.accountIdHex == accountIdHex }) {
+            let account = accounts.first(where: { $0.accountIdHex == accountIdHex })
+        {
             return account
         }
 
@@ -3483,10 +3950,12 @@ final class WorkspaceState {
         let token = nextGroupMemberDetailsLookupToken
         let accountRef = account.accountRef
         let task = Task { () -> [GroupMemberDetailsFfi]? in
-            guard let details = try? await client.groupDetails(
-                accountRef: accountRef,
-                groupIdHex: groupIdHex
-            ) else {
+            guard
+                let details = try? await client.groupDetails(
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 return nil
             }
             return details.members
@@ -3512,7 +3981,7 @@ final class WorkspaceState {
             !member.isSelf && member.memberIdHex != activeAccount.accountIdHex
         }
         guard otherMembers.count == 1,
-              let otherMember = otherMembers.first
+            let otherMember = otherMembers.first
         else { return nil }
 
         let memberId = otherMember.memberIdHex
@@ -3525,7 +3994,7 @@ final class WorkspaceState {
             resolved?.profileDisplayName,
             resolved?.profileName,
             otherMember.displayName,
-            resolved?.directoryDisplayName
+            resolved?.directoryDisplayName,
         ])
 
         return ChatPeerProfile(
@@ -3542,7 +4011,8 @@ final class WorkspaceState {
     ) async -> ResolvedPeerFFI? {
         let now = nowProvider()
         if let cached = peerProfileFFICache[accountIdHex],
-           cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL) {
+            cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL)
+        {
             return cached.resolved
         }
 
@@ -3581,11 +4051,12 @@ final class WorkspaceState {
         if nonLocalSenderIds.isEmpty {
             groupMemberNames = [:]
         } else {
-            let members = await cachedGroupMembers(
-                groupIdHex: groupIdHex,
-                account: activeAccount,
-                client: client
-            ) ?? []
+            let members =
+                await cachedGroupMembers(
+                    groupIdHex: groupIdHex,
+                    account: activeAccount,
+                    client: client
+                ) ?? []
             groupMemberNames = members.reduce(into: [String: String]()) { result, member in
                 if let displayName = firstNonBlank([member.displayName]) {
                     result[member.memberIdHex] = displayName
@@ -3607,19 +4078,20 @@ final class WorkspaceState {
             return !cached.isFresh(now: now, ttl: Self.peerProfileCacheTTL)
         }
         if !unresolvedIds.isEmpty {
-            let resolved = (try? await runOffMain { () -> [String: ResolvedPeerFFI] in
-                var output: [String: ResolvedPeerFFI] = [:]
-                for senderId in unresolvedIds {
-                    let profile = try? client.userProfile(accountIdHex: senderId)
-                    output[senderId] = ResolvedPeerFFI(
-                        profileDisplayName: profile?.displayName,
-                        profileName: profile?.name,
-                        profilePicture: profile?.picture,
-                        directoryDisplayName: client.displayName(accountIdHex: senderId)
-                    )
-                }
-                return output
-            }) ?? [:]
+            let resolved =
+                (try? await runOffMain { () -> [String: ResolvedPeerFFI] in
+                    var output: [String: ResolvedPeerFFI] = [:]
+                    for senderId in unresolvedIds {
+                        let profile = try? client.userProfile(accountIdHex: senderId)
+                        output[senderId] = ResolvedPeerFFI(
+                            profileDisplayName: profile?.displayName,
+                            profileName: profile?.name,
+                            profilePicture: profile?.picture,
+                            directoryDisplayName: client.displayName(accountIdHex: senderId)
+                        )
+                    }
+                    return output
+                }) ?? [:]
             // The off-main resolution above suspends this actor. If the user switched
             // accounts while the batch was in flight, `selectAccount`/
             // `selectAccountFromSettings` already cleared `peerProfileFFICache` for the
@@ -3655,7 +4127,7 @@ final class WorkspaceState {
                     resolved?.profileDisplayName,
                     resolved?.profileName,
                     groupMemberNames[senderId],
-                    resolved?.directoryDisplayName
+                    resolved?.directoryDisplayName,
                 ]),
                 pictureURL: resolved?.profilePicture?.nilIfBlank
             )
@@ -3702,11 +4174,12 @@ final class WorkspaceState {
         resolved: ResolvedAccountFFI?
     ) -> AccountItem {
         let base = AccountItem(summary: summary)
-        let displayName = firstNonBlank([
-            resolved?.profileDisplayName,
-            resolved?.profileName,
-            resolved?.directoryDisplayName
-        ]) ?? base.displayName
+        let displayName =
+            firstNonBlank([
+                resolved?.profileDisplayName,
+                resolved?.profileName,
+                resolved?.directoryDisplayName,
+            ]) ?? base.displayName
 
         return AccountItem(
             id: base.id,
@@ -3722,7 +4195,7 @@ final class WorkspaceState {
 
     private func updateActiveAccountProfile(displayName: String, pictureURL: String?) {
         guard let activeAccountId,
-              let index = accounts.firstIndex(where: { $0.id == activeAccountId })
+            let index = accounts.firstIndex(where: { $0.id == activeAccountId })
         else { return }
 
         let account = accounts[index]
@@ -3740,7 +4213,8 @@ final class WorkspaceState {
 
     private func normalizedRelays(_ relays: [String]) -> [String] {
         var seen = Set<String>()
-        return relays
+        return
+            relays
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { seen.insert($0).inserted }
@@ -3877,7 +4351,8 @@ final class MacLocalNotificationCenter: NSObject, LocalNotificationCenter, UNUse
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        let userInfo = response.notification.request.content.userInfo.reduce(into: [String: String]()) { result, element in
+        let userInfo = response.notification.request.content.userInfo.reduce(into: [String: String]()) {
+            result, element in
             guard let key = element.key as? String else { return }
             if let value = element.value as? String {
                 result[key] = value
@@ -3948,11 +4423,11 @@ struct GroupImageSearchResult: Identifiable, Hashable, Sendable {
         let licenseText = license?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         switch (creatorText?.isEmpty == false ? creatorText : nil, licenseText?.isEmpty == false ? licenseText : nil) {
-        case let (creator?, license?):
+        case (let creator?, let license?):
             return "\(creator) · \(license.uppercased())"
-        case let (creator?, nil):
+        case (let creator?, nil):
             return creator
-        case let (nil, license?):
+        case (nil, let license?):
             return license.uppercased()
         default:
             return L10n.string("Openverse")
@@ -3972,7 +4447,7 @@ struct OpenverseGroupImageSearchClient: GroupImageSearchClient, Sendable {
         components?.queryItems = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "page_size", value: "24"),
-            URLQueryItem(name: "mature", value: "false")
+            URLQueryItem(name: "mature", value: "false"),
         ]
 
         guard let url = components?.url else { throw GroupImageSearchError.invalidURL }
@@ -4024,9 +4499,9 @@ private struct OpenverseImageRecord: Decodable {
 
     var groupImageSearchResult: GroupImageSearchResult? {
         guard let url = url?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !url.isEmpty,
-              let parsedURL = URL(string: url),
-              ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
+            !url.isEmpty,
+            let parsedURL = URL(string: url),
+            ["http", "https"].contains(parsedURL.scheme?.lowercased() ?? "")
         else { return nil }
 
         let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4119,7 +4594,8 @@ private extension KeyPackageItem {
             keyPackageId: package.keyPackageId,
             keyPackageRefHex: package.keyPackageRefHex,
             eventIdHex: package.eventIdHex,
-            publishedAt: package.publishedAt == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(package.publishedAt)),
+            publishedAt: package.publishedAt == 0
+                ? nil : Date(timeIntervalSince1970: TimeInterval(package.publishedAt)),
             keyPackageBytes: package.keyPackageBytes,
             sourceRelays: package.sourceRelays,
             isLocal: package.local,

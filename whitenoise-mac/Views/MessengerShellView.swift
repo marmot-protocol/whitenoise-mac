@@ -1,6 +1,10 @@
+import AVFoundation
+import AVKit
 import AppKit
+import CoreImage
 import MarmotKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
@@ -100,10 +104,12 @@ private struct WelcomeAuthView: View {
                 Button {
                     Task { await workspace.signUp() }
                 } label: {
-                    Text(workspace.isAuthenticating && workspace.authenticationMode == .landing
-                        ? L10n.string("Creating...")
-                        : L10n.string("Create New Identity"))
-                        .frame(maxWidth: .infinity)
+                    Text(
+                        workspace.isAuthenticating && workspace.authenticationMode == .landing
+                            ? L10n.string("Creating...")
+                            : L10n.string("Create New Identity")
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .controlSize(.extraLarge)
                 .buttonBorderShape(.capsule)
@@ -142,7 +148,9 @@ private struct WelcomeAuthView: View {
                             Task { await workspace.login() }
                         }
                         .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
+                        .disabled(
+                            workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || workspace.isAuthenticating)
                     }
                 }
                 .padding(.top, 4)
@@ -374,6 +382,13 @@ private struct SettingsListDrawerView: View {
             }
 
             Spacer(minLength: 0)
+
+            if let account = workspace.activeAccount {
+                PublicIdentityQRCodeButton(
+                    accountIdHex: account.accountIdHex,
+                    displayName: account.displayName
+                )
+            }
         }
         .padding(10)
         .glassCard()
@@ -434,6 +449,9 @@ private struct ChatRowContent: View {
                     Text(chat.title)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
+                    if chat.pendingConfirmation {
+                        PendingInviteBadge()
+                    }
                     Spacer(minLength: 8)
                     Text(chat.timestampLabel)
                         .font(.caption)
@@ -464,6 +482,19 @@ private struct ChatRowContent: View {
             MessagesSidebarRowBackground(isSelected: isSelected)
         }
         .contentShape(Rectangle())
+    }
+}
+
+private struct PendingInviteBadge: View {
+    var body: some View {
+        Label("Invite", systemImage: "envelope.badge")
+            .font(.caption2.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(.secondary)
+            .background(.quaternary, in: Capsule())
+            .help(L10n.string("Group invite pending"))
     }
 }
 
@@ -520,7 +551,7 @@ func timelineNewestMessageScrollAction(
     }
 
     guard newMessageId != nil,
-          pendingPrependAnchorId == nil
+        pendingPrependAnchorId == nil
     else { return .none }
 
     // `hasMoreBefore` only means older history is loadable. It must not suppress
@@ -545,6 +576,9 @@ private struct ConversationView: View {
     @State private var didRequestNewerForVisibleBottomSentinel = false
     @State private var lastNewerLoadTriggerAnchorId: String?
     @State private var bottomSentinelResetTask: Task<Void, Never>?
+    @State private var isFileImporterPresented = false
+    @State private var isFileDropTargeted = false
+    @State private var imageGallery: MessageImageGalleryPresentation?
     let chat: ChatItem
     private let bottomTranscriptPadding: CGFloat = 34
 
@@ -574,10 +608,10 @@ private struct ConversationView: View {
                                     .onAppear {
                                         topSentinelResetTask?.cancel()
                                         guard let anchorId = messageIDs.first,
-                                              pendingPrependAnchorId == nil,
-                                              !paging.isLoadingBefore,
-                                              !didRequestOlderForVisibleTopSentinel,
-                                              lastOlderLoadTriggerAnchorId != anchorId
+                                            pendingPrependAnchorId == nil,
+                                            !paging.isLoadingBefore,
+                                            !didRequestOlderForVisibleTopSentinel,
+                                            lastOlderLoadTriggerAnchorId != anchorId
                                         else { return }
                                         didRequestOlderForVisibleTopSentinel = true
                                         lastOlderLoadTriggerAnchorId = anchorId
@@ -585,7 +619,8 @@ private struct ConversationView: View {
                                         Task {
                                             await workspace.loadOlderMessages(groupIdHex: chat.id)
                                             if pendingPrependAnchorId == anchorId,
-                                               workspace.selectedMessageIDs.first == anchorId {
+                                                workspace.selectedMessageIDs.first == anchorId
+                                            {
                                                 pendingPrependAnchorId = nil
                                             }
                                         }
@@ -605,7 +640,9 @@ private struct ConversationView: View {
                             }
 
                             ForEach(messages) { message in
-                                ConversationMessageRow(message: message)
+                                ConversationMessageRow(message: message) { gallery in
+                                    imageGallery = gallery
+                                }
                             }
 
                             if paging.hasMoreAfter {
@@ -613,10 +650,10 @@ private struct ConversationView: View {
                                     .onAppear {
                                         bottomSentinelResetTask?.cancel()
                                         guard let anchorId = messageIDs.last,
-                                              pendingAppendAnchorId == nil,
-                                              !paging.isLoadingAfter,
-                                              !didRequestNewerForVisibleBottomSentinel,
-                                              lastNewerLoadTriggerAnchorId != anchorId
+                                            pendingAppendAnchorId == nil,
+                                            !paging.isLoadingAfter,
+                                            !didRequestNewerForVisibleBottomSentinel,
+                                            lastNewerLoadTriggerAnchorId != anchorId
                                         else { return }
                                         didRequestNewerForVisibleBottomSentinel = true
                                         lastNewerLoadTriggerAnchorId = anchorId
@@ -624,7 +661,8 @@ private struct ConversationView: View {
                                         Task {
                                             await workspace.loadNewerMessages(groupIdHex: chat.id)
                                             if pendingAppendAnchorId == anchorId,
-                                               workspace.selectedMessageIDs.last == anchorId {
+                                                workspace.selectedMessageIDs.last == anchorId
+                                            {
                                                 pendingAppendAnchorId = nil
                                             }
                                         }
@@ -636,6 +674,7 @@ private struct ConversationView: View {
                                             try? await Task.sleep(nanoseconds: 300_000_000)
                                             guard !Task.isCancelled else { return }
                                             await MainActor.run {
+                                                guard pendingAppendAnchorId == nil else { return }
                                                 didRequestNewerForVisibleBottomSentinel = false
                                             }
                                         }
@@ -684,8 +723,8 @@ private struct ConversationView: View {
                             // chats or a newer paging request may have landed since this
                             // scroll restoration was scheduled.
                             guard workspace.selectedChat?.id == chat.id,
-                                  pendingAppendAnchorId == anchorId,
-                                  workspace.selectedMessageIDs.contains(anchorId)
+                                pendingAppendAnchorId == anchorId,
+                                workspace.selectedMessageIDs.contains(anchorId)
                             else { return }
                             proxy.scrollTo(anchorId, anchor: .bottom)
                             pendingAppendAnchorId = nil
@@ -702,7 +741,7 @@ private struct ConversationView: View {
                 }
                 .onChange(of: messageIDs.first) { _, _ in
                     guard let anchorId = pendingPrependAnchorId,
-                          messageIDs.contains(anchorId)
+                        messageIDs.contains(anchorId)
                     else { return }
                     DispatchQueue.main.async {
                         // Re-validate against live state: the user may have switched
@@ -712,8 +751,8 @@ private struct ConversationView: View {
                         // conversation using a stale anchor, and the unconditional clear
                         // would drop restoration for a subsequent legitimate prepend.
                         guard workspace.selectedChat?.id == chat.id,
-                              pendingPrependAnchorId == anchorId,
-                              workspace.selectedMessageIDs.contains(anchorId)
+                            pendingPrependAnchorId == anchorId,
+                            workspace.selectedMessageIDs.contains(anchorId)
                         else { return }
                         proxy.scrollTo(anchorId, anchor: .top)
                         pendingPrependAnchorId = nil
@@ -730,9 +769,29 @@ private struct ConversationView: View {
                     }
                 }
 
-                HStack(spacing: 8) {
-                    Button {} label: {
-                        Image(systemName: "plus")
+                if !workspace.pendingMediaAttachments.isEmpty {
+                    PendingMediaDraftStrip(
+                        attachments: workspace.pendingMediaAttachments,
+                        onRemove: workspace.removePendingMediaAttachment
+                    )
+                }
+
+                if workspace.isRecordingVoiceMessage {
+                    VoiceRecordingComposerView(
+                        samples: workspace.voiceRecordingSamples,
+                        durationSeconds: workspace.voiceRecordingDurationSeconds,
+                        onCancel: workspace.cancelVoiceRecording,
+                        onStop: {
+                            Task { await workspace.finishVoiceRecording() }
+                        }
+                    )
+                }
+
+                HStack(alignment: .bottom, spacing: 8) {
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Image(systemName: "paperclip")
                             .font(.system(size: 18, weight: .medium))
                             .frame(width: 30, height: 30)
                             .background {
@@ -740,7 +799,8 @@ private struct ConversationView: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .disabled(true)
+                    .disabled(workspace.isSending || workspace.isRecordingVoiceMessage)
+                    .help("Attach files")
 
                     TextField("Message", text: $workspace.draftText, axis: .vertical)
                         .textFieldStyle(.plain)
@@ -750,6 +810,21 @@ private struct ConversationView: View {
                         .background {
                             MessagesComposerFieldBackground()
                         }
+                        .disabled(workspace.isRecordingVoiceMessage)
+
+                    Button {
+                        Task { await workspace.toggleVoiceRecording() }
+                    } label: {
+                        Image(systemName: workspace.isRecordingVoiceMessage ? "stop.fill" : "mic.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .background {
+                                MessagesCircleControlBackground(isActive: workspace.isRecordingVoiceMessage)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isSending)
+                    .help(workspace.isRecordingVoiceMessage ? "Finish recording" : "Voice message")
 
                     Button {
                         Task { await workspace.sendDraft() }
@@ -777,6 +852,41 @@ private struct ConversationView: View {
         .background {
             MessagesTranscriptBackground()
         }
+        .overlay {
+            if let imageGallery {
+                MessageImageGalleryOverlay(presentation: imageGallery) {
+                    self.imageGallery = nil
+                }
+                .transition(.opacity)
+                .zIndex(2)
+            }
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: OutgoingMediaAttachmentPolicy.fileImporterAllowedTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                Task { await workspace.addMediaAttachments(from: urls) }
+            case .failure(let error):
+                workspace.reportUserActionError(error.localizedDescription)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            Task { await workspace.addMediaAttachments(from: urls) }
+            return !urls.isEmpty
+        } isTargeted: { isTargeted in
+            isFileDropTargeted = isTargeted
+        }
+        .overlay {
+            if isFileDropTargeted {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
+                    .padding(10)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     private var bottomAnchorId: String {
@@ -789,6 +899,261 @@ private struct ConversationView: View {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             }
         }
+    }
+}
+
+private struct PendingMediaDraftStrip: View {
+    let attachments: [PendingMediaAttachment]
+    let onRemove: (PendingMediaAttachment.ID) -> Void
+
+    private let tileSize = CGSize(width: 74, height: 74)
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(attachments) { attachment in
+                    ZStack(alignment: .topTrailing) {
+                        PendingMediaDraftTile(attachment: attachment, tileSize: tileSize)
+
+                        Button {
+                            onRemove(attachment.id)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(Color(nsColor: .windowBackgroundColor), Color.primary.opacity(0.82))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove attachment")
+                        .offset(x: 7, y: -7)
+                    }
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+        }
+    }
+}
+
+private struct PendingMediaDraftTile: View {
+    let attachment: PendingMediaAttachment
+    let tileSize: CGSize
+
+    var body: some View {
+        Group {
+            switch attachment.kind {
+            case .image:
+                imagePreview
+            case .audio:
+                audioPreview
+            case .video, .file:
+                filePreview
+            }
+        }
+        .frame(width: tileSize.width, height: tileSize.height)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var imagePreview: some View {
+        if let image = NSImage(data: attachment.data) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+                .accessibilityLabel(attachment.fileName)
+        } else {
+            iconPreview(systemName: attachment.kind.systemImageName)
+        }
+    }
+
+    private var audioPreview: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 5) {
+                ComposerAudioWaveformView(
+                    samples: attachment.waveformSamples,
+                    progress: 0,
+                    barColor: Color.accentColor.opacity(0.82),
+                    playedColor: Color.accentColor
+                )
+                .frame(height: 24)
+
+                Text(attachment.durationLabel ?? attachment.sizeLabel)
+                    .font(.caption2.monospacedDigit().weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+    }
+
+    private var filePreview: some View {
+        VStack(spacing: 5) {
+            Image(systemName: attachment.kind.systemImageName)
+                .font(.system(size: 18, weight: .semibold))
+            Text(attachment.fileName)
+                .font(.caption2.weight(.medium))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+    }
+
+    private func iconPreview(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(.secondary)
+    }
+}
+
+private struct VoiceRecordingComposerView: View {
+    let samples: [CGFloat]
+    let durationSeconds: Double
+    let onCancel: () -> Void
+    let onStop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.red)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .help("Cancel recording")
+
+            ComposerAudioWaveformView(
+                samples: samples,
+                progress: 0,
+                barColor: Color.accentColor.opacity(0.70),
+                playedColor: Color.accentColor,
+                mode: .liveRecording
+            )
+            .frame(height: 30)
+
+            Text(Self.durationLabel(durationSeconds))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .trailing)
+
+            Button(action: onStop) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(Color.accentColor, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Finish recording")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+    }
+
+    private static func durationLabel(_ duration: Double) -> String {
+        let total = max(0, Int(duration.rounded(.down)))
+        return "\(total / 60):\(String(format: "%02d", total % 60))"
+    }
+}
+
+nonisolated private enum ComposerAudioWaveformMode {
+    case playback
+    case liveRecording
+}
+
+nonisolated private struct ComposerAudioWaveformBar: Equatable {
+    let amplitude: CGFloat?
+}
+
+nonisolated private enum ComposerAudioWaveformPresentation {
+    static let amplitudeCurveExponent: Double = 0.45
+
+    static func bars(
+        for samples: [CGFloat],
+        mode: ComposerAudioWaveformMode,
+        count: Int = MediaWaveformAnalyzer.sampleCount
+    ) -> [ComposerAudioWaveformBar] {
+        let targetCount = max(0, count)
+        guard targetCount > 0 else { return [] }
+        switch mode {
+        case .playback:
+            return MediaWaveformAnalyzer.normalized(samples, count: targetCount)
+                .map(displayAmplitude)
+                .map { ComposerAudioWaveformBar(amplitude: $0) }
+        case .liveRecording:
+            let visibleSamples = samples.suffix(targetCount)
+                .map(displayAmplitude)
+                .map { ComposerAudioWaveformBar(amplitude: $0) }
+            let blankCount = max(0, targetCount - visibleSamples.count)
+            return Array(repeating: ComposerAudioWaveformBar(amplitude: nil), count: blankCount) + visibleSamples
+        }
+    }
+
+    private static func displayAmplitude(_ sample: CGFloat) -> CGFloat {
+        let bounded = min(1, max(0.05, sample))
+        return min(1, max(0.05, CGFloat(pow(Double(bounded), amplitudeCurveExponent))))
+    }
+}
+
+private struct ComposerAudioWaveformView: View {
+    let samples: [CGFloat]
+    let progress: CGFloat
+    let barColor: Color
+    let playedColor: Color
+    var mode: ComposerAudioWaveformMode = .playback
+
+    var body: some View {
+        GeometryReader { geometry in
+            let bars = ComposerAudioWaveformPresentation.bars(for: samples, mode: mode)
+            let spacing: CGFloat = 2
+            let barCount = max(1, bars.count)
+            let availableWidth = geometry.size.width - spacing * CGFloat(max(0, barCount - 1))
+            let barWidth = max(2, availableWidth / CGFloat(barCount))
+
+            HStack(alignment: .center, spacing: spacing) {
+                ForEach(Array(bars.enumerated()), id: \.offset) { index, bar in
+                    Capsule()
+                        .fill(fillColor(for: bar, index: index, count: bars.count))
+                        .frame(
+                            width: barWidth,
+                            height: barHeight(for: bar, in: geometry.size.height)
+                        )
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func fillColor(for bar: ComposerAudioWaveformBar, index: Int, count: Int) -> Color {
+        guard bar.amplitude != nil else { return .clear }
+        let played = CGFloat(index) / CGFloat(max(1, count - 1)) <= progress
+        return played ? playedColor : barColor
+    }
+
+    private func barHeight(for bar: ComposerAudioWaveformBar, in availableHeight: CGFloat) -> CGFloat {
+        guard let amplitude = bar.amplitude else { return 4 }
+        return max(4, availableHeight * min(1, max(0.08, amplitude)))
     }
 }
 
@@ -987,8 +1352,11 @@ private struct NewChatDetailsForm: View {
             Button {
                 Task { await workspace.createNewChat() }
             } label: {
-                Label(workspace.isCreatingChat ? L10n.string("Creating...") : L10n.string("Create Chat"), systemImage: "message")
-                    .frame(maxWidth: .infinity)
+                Label(
+                    workspace.isCreatingChat ? L10n.string("Creating...") : L10n.string("Create Chat"),
+                    systemImage: "message"
+                )
+                .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
             .nativeGlassProminentButtonStyle()
@@ -1078,7 +1446,8 @@ private struct ProfileImageAvatarView: View {
         .clipShape(Circle())
         .overlay {
             Circle()
-                .strokeBorder(isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
+                .strokeBorder(
+                    isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
         }
         .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
@@ -1114,6 +1483,36 @@ private struct ConversationHeader: View {
                 Spacer()
 
                 if !chat.isDirect {
+                    if chat.pendingConfirmation {
+                        Button {
+                            Task { await workspace.acceptGroupInvite(for: chat) }
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                        .help("Accept invite")
+
+                        Button(role: .destructive) {
+                            Task { await workspace.declineGroupInvite(for: chat) }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                        .help("Decline invite")
+                    }
+
                     Button {
                         Task { await workspace.showGroupDetails(for: chat) }
                     } label: {
@@ -1168,7 +1567,8 @@ private struct GroupDetailsSheet: View {
     private var hasProfileChanges: Bool {
         guard let snapshot = workspace.groupDetailsSnapshot else { return false }
         return workspace.groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines) != snapshot.name
-            || workspace.groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines) != snapshot.description
+            || workspace.groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                != snapshot.description
     }
 
     var body: some View {
@@ -1216,6 +1616,46 @@ private struct GroupDetailsSheet: View {
 
             if let snapshot = workspace.groupDetailsSnapshot {
                 Form {
+                    if snapshot.pendingConfirmation {
+                        Section("Invitation") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(
+                                    "Accept this invite to confirm membership, or decline it to remove the group from your chat list."
+                                )
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                                HStack(spacing: 10) {
+                                    Button {
+                                        Task { await workspace.acceptSelectedGroupInvite() }
+                                    } label: {
+                                        Label(
+                                            workspace.isAcceptingGroupInvite
+                                                ? L10n.string("Accepting...") : L10n.string("Accept Invite"),
+                                            systemImage: "checkmark.circle"
+                                        )
+                                    }
+                                    .nativeGlassProminentButtonStyle()
+                                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+
+                                    Button(role: .destructive) {
+                                        Task { await workspace.declineSelectedGroupInvite() }
+                                    } label: {
+                                        Label(
+                                            workspace.isDecliningGroupInvite
+                                                ? L10n.string("Declining...") : L10n.string("Decline"),
+                                            systemImage: "xmark.circle"
+                                        )
+                                    }
+                                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+
                     Section("Profile") {
                         TextField("Group name", text: $workspace.groupProfileDraftName)
                             .textFieldStyle(.roundedBorder)
@@ -1237,7 +1677,9 @@ private struct GroupDetailsSheet: View {
                             Button {
                                 Task { await workspace.saveGroupProfile() }
                             } label: {
-                                Label(workspace.isSavingGroupProfile ? L10n.string("Saving...") : L10n.string("Save"), systemImage: "checkmark.circle")
+                                Label(
+                                    workspace.isSavingGroupProfile ? L10n.string("Saving...") : L10n.string("Save"),
+                                    systemImage: "checkmark.circle")
                             }
                             .nativeGlassProminentButtonStyle()
                             .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
@@ -1258,17 +1700,24 @@ private struct GroupDetailsSheet: View {
                     if snapshot.canInvite {
                         Section("Invite") {
                             HStack(spacing: 10) {
-                                TextField("npub, profile link, or hex public key", text: $workspace.groupInviteMemberQuery)
-                                    .textFieldStyle(.roundedBorder)
+                                TextField(
+                                    "npub, profile link, or hex public key", text: $workspace.groupInviteMemberQuery
+                                )
+                                .textFieldStyle(.roundedBorder)
 
                                 Button {
                                     Task { await workspace.inviteMemberToSelectedGroup() }
                                 } label: {
-                                    Label(workspace.isInvitingGroupMember ? L10n.string("Inviting...") : L10n.string("Invite"), systemImage: "person.badge.plus")
+                                    Label(
+                                        workspace.isInvitingGroupMember
+                                            ? L10n.string("Inviting...") : L10n.string("Invite"),
+                                        systemImage: "person.badge.plus")
                                 }
                                 .disabled(
                                     workspace.isInvitingGroupMember
-                                        || workspace.groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        || workspace.groupInviteMemberQuery.trimmingCharacters(
+                                            in: .whitespacesAndNewlines
+                                        ).isEmpty
                                 )
                             }
                         }
@@ -1298,9 +1747,13 @@ private struct GroupDetailsSheet: View {
                             Button(role: .destructive) {
                                 showLeaveConfirmation = true
                             } label: {
-                                Label(workspace.isLeavingGroup ? L10n.string("Leaving...") : L10n.string("Leave Group"), systemImage: "rectangle.portrait.and.arrow.right")
+                                Label(
+                                    workspace.isLeavingGroup ? L10n.string("Leaving...") : L10n.string("Leave Group"),
+                                    systemImage: "rectangle.portrait.and.arrow.right")
                             }
-                            .disabled(workspace.isLeavingGroup || !snapshot.canLeave || snapshot.requiresSelfDemoteBeforeLeave)
+                            .disabled(
+                                workspace.isLeavingGroup || !snapshot.canLeave || snapshot.requiresSelfDemoteBeforeLeave
+                            )
 
                             Spacer()
                         }
@@ -1343,13 +1796,26 @@ private struct GroupDetailsSheet: View {
                             GroupDiagnosticsValueRow(title: "Endpoint", value: snapshot.endpoint)
                             GroupDiagnosticsValueRow(title: "Avatar URL", value: snapshot.avatarURL ?? "")
                             GroupDiagnosticsValueRow(title: "Avatar dimension", value: snapshot.avatarDimension ?? "")
-                            GroupDiagnosticsValueRow(title: "Relays", value: snapshot.relays.joined(separator: "\n"), lineLimit: 4)
-                            GroupDiagnosticsValueRow(title: "Admins", value: snapshot.adminIds.joined(separator: "\n"), lineLimit: 4)
-                            GroupDiagnosticsValueRow(title: "Self admin", value: snapshot.isSelfAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Last admin", value: snapshot.isLastAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Can invite", value: snapshot.canInvite ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Can leave", value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Pending confirmation", value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Relays", value: snapshot.relays.joined(separator: "\n"), lineLimit: 4)
+                            GroupDiagnosticsValueRow(
+                                title: "Admins", value: snapshot.adminIds.joined(separator: "\n"), lineLimit: 4)
+                            GroupDiagnosticsValueRow(
+                                title: "Self admin",
+                                value: snapshot.isSelfAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Last admin",
+                                value: snapshot.isLastAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Can invite", value: snapshot.canInvite ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Can leave", value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Pending confirmation",
+                                value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
                         }
                     }
 
@@ -1376,7 +1842,10 @@ private struct GroupDetailsSheet: View {
             titleVisibility: .visible
         ) {
             if let snapshot = workspace.groupDetailsSnapshot {
-                Button(snapshot.archived ? "Unarchive Group" : "Archive Group", role: snapshot.archived ? nil : .destructive) {
+                Button(
+                    snapshot.archived ? "Unarchive Group" : "Archive Group",
+                    role: snapshot.archived ? nil : .destructive
+                ) {
                     Task { await workspace.setSelectedGroupArchived(!snapshot.archived) }
                 }
             }
@@ -1624,7 +2093,10 @@ private struct GroupImagePickerSheet: View {
                             Label("Search", systemImage: "magnifyingglass")
                         }
                         .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isSearchingGroupImages)
+                        .disabled(
+                            workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || workspace.isSearchingGroupImages
+                        )
                         .help("Search")
                     }
 
@@ -1734,13 +2206,14 @@ private struct GroupImageResultTile: View {
 
 private struct ConversationMessageRow: View {
     let message: MessageItem
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     // Receives the resolved MessageItem by value (not via a shared @Observable lookup),
     // so SwiftUI diffs each row by value and only re-runs the rows that actually changed
     // instead of invalidating every visible row on each page load / streaming update.
     var body: some View {
         if message.presentation.isChatBubble {
-            MessageBubble(message: message)
+            MessageBubble(message: message, onOpenImageGallery: onOpenImageGallery)
         } else {
             TimelineNoticeRow(message: message)
         }
@@ -1810,12 +2283,13 @@ private struct MessageBubble: View {
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
     let message: MessageItem
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.isOutgoing { Spacer(minLength: 72) }
 
-            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
+            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 6) {
                 if !message.isOutgoing {
                     Text(message.senderName)
                         .font(.caption.weight(.medium))
@@ -1823,7 +2297,24 @@ private struct MessageBubble: View {
                         .padding(.horizontal, 4)
                 }
 
-                HStack(alignment: .center, spacing: 8) {
+                if !visualMediaAttachments.isEmpty {
+                    MessageVisualMediaGrid(
+                        message: message,
+                        attachments: visualMediaAttachments,
+                        isOutgoing: message.isOutgoing,
+                        onOpenImageGallery: onOpenImageGallery
+                    )
+                }
+
+                ForEach(nonvisualMediaAttachments) { attachment in
+                    MessageMediaAttachmentView(
+                        message: message,
+                        attachment: attachment,
+                        isOutgoing: message.isOutgoing
+                    )
+                }
+
+                if hasBubbleContent {
                     bubbleContent
                 }
 
@@ -1850,13 +2341,16 @@ private struct MessageBubble: View {
                                     .padding(.vertical, 3)
                                     .background {
                                         GlassCapsuleBackground(
-                                            borderColor: reaction.canRemoveOwnReaction ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
+                                            borderColor: reaction.canRemoveOwnReaction
+                                                ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
                                         )
                                     }
                             }
                             .buttonStyle(.plain)
                             .contentShape(Capsule())
-                            .help(reaction.canRemoveOwnReaction ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
+                            .help(
+                                reaction.canRemoveOwnReaction
+                                    ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
                         }
                     }
                     .padding(.horizontal, 4)
@@ -1881,6 +2375,28 @@ private struct MessageBubble: View {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
     }
 
+    private var trimmedBody: String {
+        message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasBubbleContent: Bool {
+        workspace.streamingDebugEnabled
+            || message.replyContext != nil
+            || !trimmedBody.isEmpty
+    }
+
+    private var visualMediaAttachments: [MessageMediaAttachment] {
+        message.mediaAttachments.filter { attachment in
+            attachment.kind == .image || attachment.kind == .video
+        }
+    }
+
+    private var nonvisualMediaAttachments: [MessageMediaAttachment] {
+        message.mediaAttachments.filter { attachment in
+            attachment.kind == .audio || attachment.kind == .file
+        }
+    }
+
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if workspace.streamingDebugEnabled {
@@ -1891,10 +2407,12 @@ private struct MessageBubble: View {
                 MessageReplyContextView(context: replyContext, isOutgoing: message.isOutgoing)
             }
 
-            Text(message.body)
-                .font(.system(size: 15.5))
-                .foregroundStyle(message.isOutgoing ? .white : .primary)
-                .lineSpacing(2)
+            if !trimmedBody.isEmpty {
+                Text(message.body)
+                    .font(.system(size: 15.5))
+                    .foregroundStyle(message.isOutgoing ? .white : .primary)
+                    .lineSpacing(2)
+            }
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
@@ -1936,6 +2454,759 @@ private struct MessageBubble: View {
                         .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.24), lineWidth: 1)
                 }
         }
+    }
+}
+
+private struct MessageImageGalleryPresentation: Identifiable, Equatable {
+    let id: String
+    let message: MessageItem
+    let imageAttachments: [MessageMediaAttachment]
+    let initialIndex: Int
+
+    init?(message: MessageItem, initialAttachment: MessageMediaAttachment) {
+        let imageAttachments = message.mediaAttachments.filter { $0.kind == .image }
+        guard !imageAttachments.isEmpty else { return nil }
+        self.id = "\(message.id)-image-gallery"
+        self.message = message
+        self.imageAttachments = imageAttachments
+        self.initialIndex = imageAttachments.firstIndex(of: initialAttachment) ?? 0
+    }
+}
+
+private struct MessageVisualMediaGrid: View {
+    let message: MessageItem
+    let attachments: [MessageMediaAttachment]
+    let isOutgoing: Bool
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+
+    private let maxWidth: CGFloat = 360
+    private let spacing: CGFloat = 3
+    private let cornerRadius: CGFloat = 10
+
+    private var visibleAttachments: [MessageMediaAttachment] {
+        Array(attachments.prefix(MessageMediaGridPresentation.visibleCount(totalCount: attachments.count)))
+    }
+
+    private var hiddenCount: Int {
+        MessageMediaGridPresentation.hiddenCount(totalCount: attachments.count)
+    }
+
+    private var columnCount: Int {
+        MessageMediaGridPresentation.columnCount(totalCount: attachments.count)
+    }
+
+    private var rowCount: Int {
+        MessageMediaGridPresentation.rowCount(totalCount: attachments.count)
+    }
+
+    private var tileSide: CGFloat {
+        MessageMediaGridPresentation.tileSide(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
+    }
+
+    private var gridHeight: CGFloat {
+        MessageMediaGridPresentation.gridHeight(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
+    }
+
+    private var rowStarts: [Int] {
+        rowCount == 1 ? [0] : [0, columnCount]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(rowStarts, id: \.self) { rowStart in
+                HStack(spacing: spacing) {
+                    ForEach(0..<columnCount, id: \.self) { column in
+                        tile(at: rowStart + column)
+                    }
+                }
+            }
+        }
+        .frame(width: maxWidth, height: gridHeight, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(Color.primary.opacity(isOutgoing ? 0.16 : 0.1), lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private func tile(at index: Int) -> some View {
+        if index < visibleAttachments.count {
+            MessageVisualMediaTile(
+                message: message,
+                attachment: visibleAttachments[index],
+                isOutgoing: isOutgoing,
+                sideLength: tileSide,
+                hiddenCount: index == MessageMediaGridPresentation.maxVisibleItems - 1 ? hiddenCount : 0,
+                onOpenImageGallery: onOpenImageGallery
+            )
+        } else {
+            Color.clear
+                .frame(width: tileSide, height: tileSide)
+        }
+    }
+}
+
+private struct MessageVisualMediaTile: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let message: MessageItem
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+    let sideLength: CGFloat
+    let hiddenCount: Int
+    let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+
+    var body: some View {
+        ZStack {
+            content
+
+            if hiddenCount > 0 {
+                Color.black.opacity(0.46)
+                Text("+\(hiddenCount)")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .contentShape(Rectangle())
+        .clipped()
+        .task(id: attachment.id) {
+            await workspace.loadMediaAttachment(attachment, for: message)
+        }
+        .onTapGesture {
+            if attachment.kind == .image,
+                let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment)
+            {
+                onOpenImageGallery(gallery)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch workspace.mediaDownloadState(for: message, attachment: attachment) {
+        case .idle, .loading:
+            placeholder(systemImage: attachment.kind == .video ? "play.rectangle" : "photo", isLoading: true)
+        case .failed:
+            placeholder(systemImage: "arrow.clockwise", isLoading: false)
+        case .loaded(let download):
+            switch attachment.kind {
+            case .image:
+                if let image = NSImage(data: download.data) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: sideLength, height: sideLength)
+                        .clipped()
+                        .accessibilityLabel(attachment.fileName)
+                } else {
+                    placeholder(systemImage: "photo", isLoading: false)
+                }
+            case .video:
+                MessageVideoAttachmentPlayer(
+                    download: download,
+                    attachment: attachment,
+                    isOutgoing: isOutgoing,
+                    sideLength: sideLength
+                )
+            case .audio, .file:
+                placeholder(systemImage: attachment.kind.systemImageName, isLoading: false)
+            }
+        }
+    }
+
+    private func placeholder(systemImage: String, isLoading: Bool) -> some View {
+        ZStack {
+            Color.primary.opacity(0.06)
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct MessageMediaAttachmentView: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let message: MessageItem
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+
+    var body: some View {
+        Group {
+            switch workspace.mediaDownloadState(for: message, attachment: attachment) {
+            case .idle, .loading:
+                MessageAttachmentStatusRow(
+                    systemImage: "arrow.down.circle",
+                    title: attachment.fileName,
+                    detail: attachment.mediaType,
+                    isOutgoing: isOutgoing,
+                    isLoading: true
+                )
+            case .loaded(let download):
+                loadedContent(download)
+            case .failed:
+                MessageAttachmentStatusRow(
+                    systemImage: "exclamationmark.triangle",
+                    title: attachment.fileName,
+                    detail: L10n.string("Attachment unavailable"),
+                    isOutgoing: isOutgoing,
+                    isLoading: false
+                ) {
+                    Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                }
+            }
+        }
+        .task(id: attachment.id) {
+            await workspace.loadMediaAttachment(attachment, for: message)
+        }
+    }
+
+    @ViewBuilder
+    private func loadedContent(_ download: MessageMediaDownload) -> some View {
+        switch attachment.kind {
+        case .image:
+            if let image = NSImage(data: download.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 260, height: 260)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityLabel(attachment.fileName)
+            } else {
+                MessageAttachmentStatusRow(
+                    systemImage: "photo",
+                    title: download.fileName.nilIfBlank ?? attachment.fileName,
+                    detail: mediaDetail(download),
+                    isOutgoing: isOutgoing
+                )
+            }
+        case .audio:
+            MessageAudioAttachmentPlayer(
+                download: download,
+                fallbackFileName: attachment.fileName,
+                isOutgoing: isOutgoing
+            )
+        case .video:
+            MessageVideoAttachmentPlayer(
+                download: download,
+                attachment: attachment,
+                isOutgoing: isOutgoing,
+                sideLength: 260
+            )
+        case .file:
+            MessageDocumentAttachmentRow(
+                download: download,
+                attachment: attachment,
+                isOutgoing: isOutgoing
+            )
+        }
+    }
+
+    private func mediaDetail(_ download: MessageMediaDownload) -> String {
+        let type = download.mediaType.nilIfBlank ?? attachment.mediaType
+        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
+        return "\(type) - \(size)"
+    }
+}
+
+private struct MessageDocumentAttachmentRow: View {
+    let download: MessageMediaDownload
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+
+    var body: some View {
+        MessageAttachmentStatusRow(
+            systemImage: "doc",
+            title: download.fileName.nilIfBlank ?? attachment.fileName,
+            detail: mediaDetail,
+            isOutgoing: isOutgoing
+        ) {
+            openAttachment()
+        }
+    }
+
+    private var mediaDetail: String {
+        let type = download.mediaType.nilIfBlank ?? attachment.mediaType
+        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
+        return "\(type) - \(size)"
+    }
+
+    private func openAttachment() {
+        guard
+            let url = MessageMediaPlaybackFileStore.fileURL(
+                attachment: attachment,
+                download: download
+            )
+        else { return }
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private struct MessageAttachmentStatusRow: View {
+    let systemImage: String
+    let title: String
+    let detail: String
+    let isOutgoing: Bool
+    var isLoading = false
+    var retryAction: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(iconBackground)
+                    .frame(width: 30, height: 30)
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(isOutgoing ? Color.white : Color.primary)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let retryAction {
+                Button(action: retryAction) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Retry"))
+            }
+        }
+        .foregroundStyle(isOutgoing ? Color.white : Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(width: 260, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(rowBackground)
+        }
+    }
+
+    private var iconBackground: Color {
+        isOutgoing ? Color.white.opacity(0.18) : Color.primary.opacity(0.08)
+    }
+
+    private var rowBackground: Color {
+        isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06)
+    }
+}
+
+private struct MessageAudioAttachmentPlayer: View {
+    let download: MessageMediaDownload
+    let fallbackFileName: String
+    let isOutgoing: Bool
+    @State private var player: AVAudioPlayer?
+    @State private var isPlaying = false
+    @State private var playbackProgress: CGFloat = 0
+    @State private var metadata: MediaWaveformAnalyzer.Metadata?
+    @State private var playbackMonitor: Task<Void, Never>?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                togglePlayback()
+            } label: {
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .frame(width: 30, height: 30)
+                    .background {
+                        Circle()
+                            .fill(isOutgoing ? Color.white.opacity(0.18) : Color.primary.opacity(0.08))
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(isPlaying ? L10n.string("Pause") : L10n.string("Play"))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(download.fileName.nilIfBlank ?? fallbackFileName)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+
+                HStack(spacing: 8) {
+                    ComposerAudioWaveformView(
+                        samples: metadata?.samples ?? MediaWaveformAnalyzer.fallback(),
+                        progress: playbackProgress,
+                        barColor: isOutgoing ? Color.white.opacity(0.42) : Color.secondary.opacity(0.55),
+                        playedColor: isOutgoing ? Color.white.opacity(0.9) : Color.accentColor
+                    )
+                    .frame(height: 24)
+
+                    Text(durationLabel)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .foregroundStyle(isOutgoing ? Color.white : Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(width: 260, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06))
+        }
+        .onDisappear {
+            stopPlayback()
+        }
+        .task(id: "\(download.fileName)-\(download.sizeBytes)-\(download.mediaType)") {
+            let data = download.data
+            let mediaType = download.mediaType
+            metadata = await Task.detached(priority: .utility) {
+                MediaWaveformAnalyzer.metadata(from: data, mediaType: mediaType)
+            }.value
+        }
+    }
+
+    private var durationLabel: String {
+        if let durationSeconds = metadata?.durationSeconds {
+            let total = max(0, Int(durationSeconds.rounded(.down)))
+            return "\(total / 60):\(String(format: "%02d", total % 60))"
+        }
+        return ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
+    }
+
+    private func togglePlayback() {
+        if isPlaying {
+            stopPlayback()
+        } else {
+            startPlayback()
+        }
+    }
+
+    private func startPlayback() {
+        do {
+            if player == nil {
+                player = try AVAudioPlayer(data: download.data)
+                player?.prepareToPlay()
+            }
+            player?.play()
+            isPlaying = true
+            updatePlaybackProgress()
+            monitorPlayback()
+        } catch {
+            isPlaying = false
+        }
+    }
+
+    private func stopPlayback() {
+        playbackMonitor?.cancel()
+        playbackMonitor = nil
+        player?.stop()
+        player?.currentTime = 0
+        isPlaying = false
+        playbackProgress = 0
+    }
+
+    private func monitorPlayback() {
+        playbackMonitor?.cancel()
+        playbackMonitor = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard player?.isPlaying == true else {
+                    isPlaying = false
+                    playbackProgress = 0
+                    break
+                }
+                updatePlaybackProgress()
+            }
+        }
+    }
+
+    private func updatePlaybackProgress() {
+        guard let player, player.duration > 0 else {
+            playbackProgress = 0
+            return
+        }
+        playbackProgress = min(1, max(0, CGFloat(player.currentTime / player.duration)))
+    }
+}
+
+private struct MessageVideoAttachmentPlayer: View {
+    let download: MessageMediaDownload
+    let attachment: MessageMediaAttachment
+    let isOutgoing: Bool
+    let sideLength: CGFloat
+
+    @State private var player: AVPlayer?
+    @State private var playbackURL: URL?
+    @State private var isLoading = false
+    @State private var didFail = false
+
+    var body: some View {
+        ZStack {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(width: sideLength, height: sideLength)
+                    .background(Color.black)
+            } else {
+                Color.black.opacity(0.86)
+                Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Color.black.opacity(0.45), in: Circle())
+
+                VStack {
+                    Spacer()
+                    Text(download.fileName.nilIfBlank ?? attachment.fileName)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.86))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
+                }
+            }
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color.black.opacity(0.45), in: Circle())
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Task { await togglePlayback() }
+        }
+        .onDisappear {
+            player?.pause()
+        }
+        .accessibilityLabel("Video attachment")
+    }
+
+    private func togglePlayback() async {
+        if let player {
+            if player.timeControlStatus == .playing {
+                player.pause()
+            } else {
+                player.play()
+            }
+            return
+        }
+
+        isLoading = true
+        didFail = false
+        defer { isLoading = false }
+
+        guard
+            let url = playbackURL
+                ?? MessageMediaPlaybackFileStore.fileURL(
+                    attachment: attachment,
+                    download: download
+                )
+        else {
+            didFail = true
+            return
+        }
+        playbackURL = url
+        let next = AVPlayer(url: url)
+        player = next
+        next.play()
+    }
+}
+
+private enum MessageMediaPlaybackFileStore {
+    static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) -> URL? {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhiteNoiseMediaPlayback", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fileName = sanitizedFileName(
+                download.fileName.nilIfBlank ?? attachment.fileName,
+                fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
+                    for: download.mediaType.nilIfBlank ?? attachment.mediaType,
+                    fileName: download.fileName.nilIfBlank ?? attachment.fileName
+                )
+            )
+            let url = directory.appendingPathComponent("\(stableStem(for: attachment.id))-\(fileName)")
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try download.data.write(to: url, options: [.atomic])
+            }
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    private static func stableStem(for id: String) -> String {
+        id.unicodeScalars.map { scalar in
+            CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : "-"
+        }
+        .joined()
+        .prefix(48)
+        .description
+    }
+
+    private static func sanitizedFileName(_ fileName: String, fallbackExtension: String) -> String {
+        let trimmed = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = "attachment.\(fallbackExtension)"
+        let rawName = trimmed.isEmpty ? fallback : trimmed
+        let illegal = CharacterSet(charactersIn: "/:\\")
+        let components = rawName.components(separatedBy: illegal).filter { !$0.isEmpty }
+        let sanitized = components.joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? fallback : sanitized
+    }
+}
+
+private struct MessageImageGalleryOverlay: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let presentation: MessageImageGalleryPresentation
+    let onClose: () -> Void
+    @State private var selectedIndex: Int
+
+    init(presentation: MessageImageGalleryPresentation, onClose: @escaping () -> Void) {
+        self.presentation = presentation
+        self.onClose = onClose
+        _selectedIndex = State(initialValue: presentation.initialIndex)
+    }
+
+    private var selectedAttachment: MessageMediaAttachment {
+        presentation.imageAttachments[min(max(0, selectedIndex), presentation.imageAttachments.count - 1)]
+    }
+
+    private var canNavigate: Bool {
+        presentation.imageAttachments.count > 1
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.92)
+
+                imageContent
+                    .frame(
+                        maxWidth: max(1, geometry.size.width - 104),
+                        maxHeight: max(1, geometry.size.height - 120)
+                    )
+
+                VStack {
+                    HStack(spacing: 12) {
+                        Text(selectedAttachment.fileName)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        if canNavigate {
+                            Text("\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
+                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.72))
+                        }
+
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .bold))
+                                .frame(width: 34, height: 34)
+                                .background(Color.white.opacity(0.14), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .help("Close")
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.top, 18)
+
+                    Spacer()
+                }
+
+                if canNavigate {
+                    HStack {
+                        navigationButton(systemName: "chevron.left", isEnabled: selectedIndex > 0) {
+                            selectedIndex = max(0, selectedIndex - 1)
+                        }
+
+                        Spacer()
+
+                        navigationButton(
+                            systemName: "chevron.right",
+                            isEnabled: selectedIndex < presentation.imageAttachments.count - 1
+                        ) {
+                            selectedIndex = min(presentation.imageAttachments.count - 1, selectedIndex + 1)
+                        }
+                    }
+                    .padding(.horizontal, 22)
+                }
+            }
+            .task(id: selectedAttachment.id) {
+                await workspace.loadMediaAttachment(selectedAttachment, for: presentation.message)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var imageContent: some View {
+        switch workspace.mediaDownloadState(for: presentation.message, attachment: selectedAttachment) {
+        case .idle, .loading:
+            ProgressView()
+                .controlSize(.regular)
+                .tint(.white)
+        case .failed:
+            VStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.title2)
+                Text("Image unavailable")
+                    .font(.callout.weight(.semibold))
+                Button {
+                    Task { await workspace.loadMediaAttachment(selectedAttachment, for: presentation.message) }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+            }
+            .foregroundStyle(.white)
+        case .loaded(let download):
+            if let image = NSImage(data: download.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .accessibilityLabel(selectedAttachment.fileName)
+            } else {
+                Text("Image unavailable")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
+    private func navigationButton(
+        systemName: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 26, weight: .bold))
+                .frame(width: 54, height: 54)
+                .background(Color.white.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.28))
+        .disabled(!isEnabled)
+        .help(systemName == "chevron.left" ? "Previous image" : "Next image")
     }
 }
 
@@ -2050,7 +3321,7 @@ private struct MessageEmojiPickerPopover: View {
         "🚀", "👋", "🤙", "🫡", "🫶", "😬", "😇", "🤩",
         "🥹", "😆", "😁", "😄", "😋", "😌", "😐", "🙃",
         "😉", "😏", "😤", "😮‍💨", "🤗", "🤪", "🤨", "🧐",
-        "💙", "💚", "💛", "🧡", "💜", "🤍", "🖤", "💔"
+        "💙", "💚", "💛", "🧡", "💜", "🤍", "🖤", "💔",
     ]
 
     var body: some View {
@@ -2366,9 +3637,11 @@ private struct AccountsSettingsView: View {
             } header: {
                 Text("Accounts")
             } footer: {
-                Text("Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Add Account") {
@@ -2384,10 +3657,14 @@ private struct AccountsSettingsView: View {
                             workspace.showSettingsPage(.accounts)
                         }
                     } label: {
-                        Label(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"), systemImage: "key")
+                        Label(
+                            workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"),
+                            systemImage: "key")
                     }
                     .nativeGlassProminentButtonStyle()
-                    .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
+                    .disabled(
+                        workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || workspace.isAuthenticating)
 
                     Button {
                         workspace.loginIdentity = ""
@@ -2396,7 +3673,9 @@ private struct AccountsSettingsView: View {
                             workspace.showSettingsPage(.accounts)
                         }
                     } label: {
-                        Label(workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"), systemImage: "plus.circle")
+                        Label(
+                            workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"),
+                            systemImage: "plus.circle")
                     }
                     .nativeGlassButtonStyle()
                     .disabled(workspace.isAuthenticating)
@@ -2420,7 +3699,9 @@ private struct AccountsSettingsView: View {
                 accountPendingRemoval = nil
             }
         } message: { _ in
-            Text("This deletes the private key and local message history for this identity from this Mac. This cannot be undone.")
+            Text(
+                "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
+            )
         }
     }
 
@@ -2487,6 +3768,12 @@ private struct AccountSettingsRow: View {
             .buttonStyle(.plain)
             .disabled(isRemoving)
 
+            PublicIdentityQRCodeButton(
+                accountIdHex: account.accountIdHex,
+                displayName: account.displayName
+            )
+            .disabled(isRemoving)
+
             Button(role: .destructive, action: onRemove) {
                 Image(systemName: "person.crop.circle.badge.minus")
             }
@@ -2496,6 +3783,143 @@ private struct AccountSettingsRow: View {
             .help(L10n.string("Remove this account from this Mac"))
             .accessibilityLabel(Text(String(format: L10n.string("Remove %@"), account.displayName)))
         }
+    }
+}
+
+private struct PublicIdentityQRCodeButton: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var isPresented = false
+    let accountIdHex: String
+    let displayName: String
+
+    private var npub: String {
+        workspace.npub(forAccountIdHex: accountIdHex)
+    }
+
+    var body: some View {
+        Button {
+            isPresented = true
+        } label: {
+            Image(systemName: "qrcode")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.borderless)
+        .help("Show npub QR code")
+        .accessibilityLabel(Text("Show npub QR code"))
+        .sheet(isPresented: $isPresented) {
+            PublicIdentityQRCodeSheet(displayName: displayName, npub: npub)
+        }
+    }
+}
+
+private struct PublicIdentityQRCodeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(WorkspaceState.self) private var workspace
+    let displayName: String
+    let npub: String
+
+    var body: some View {
+        VStack(spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(displayName)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text("Public identity")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .nativeGlassCircleButtonStyle()
+                .help("Close")
+            }
+
+            ZStack {
+                Color.white
+                QRCodeImageView(payload: npub)
+                    .padding(22)
+            }
+            .frame(width: 320, height: 320)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            }
+
+            Text(DisplayText.short(npub, head: 24, tail: 24))
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity)
+
+            HStack(spacing: 10) {
+                Button {
+                    workspace.copyText(npub)
+                } label: {
+                    Label("Copy npub", systemImage: "doc.on.doc")
+                }
+                .nativeGlassButtonStyle()
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Label("Done", systemImage: "checkmark")
+                }
+                .nativeGlassProminentButtonStyle()
+            }
+        }
+        .padding(22)
+        .frame(width: 420)
+        .background {
+            LiquidGlassBackground()
+        }
+    }
+}
+
+private struct QRCodeImageView: View {
+    let payload: String
+
+    var body: some View {
+        if let image = Self.image(for: payload) {
+            Image(nsImage: image)
+                .interpolation(.none)
+                .resizable()
+                .scaledToFit()
+        } else {
+            ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+                .foregroundStyle(.black)
+        }
+    }
+
+    private static func image(for payload: String) -> NSImage? {
+        guard !payload.isEmpty,
+            let filter = CIFilter(name: "CIQRCodeGenerator")
+        else { return nil }
+
+        filter.setValue(Data(payload.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        guard let outputImage = filter.outputImage else { return nil }
+
+        let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
+        let representation = NSCIImageRep(ciImage: scaledImage)
+        let image = NSImage(size: representation.size)
+        image.addRepresentation(representation)
+        return image
     }
 }
 
@@ -2539,6 +3963,13 @@ private struct ProfileSettingsView: View {
                                 .lineLimit(1)
                             CopyableKeyLabel(accountIdHex: account.accountIdHex)
                         }
+
+                        Spacer()
+
+                        PublicIdentityQRCodeButton(
+                            accountIdHex: account.accountIdHex,
+                            displayName: profilePreviewName(fallback: account)
+                        )
                     }
                 }
             }
@@ -2558,7 +3989,9 @@ private struct ProfileSettingsView: View {
                     Button {
                         Task { await workspace.saveProfile() }
                     } label: {
-                        Label(workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"), systemImage: "checkmark.circle")
+                        Label(
+                            workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"),
+                            systemImage: "checkmark.circle")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(workspace.isSavingProfile || workspace.activeAccount == nil)
@@ -2579,7 +4012,7 @@ private struct ProfileSettingsView: View {
         firstNonBlank([
             workspace.profileDraft.displayName,
             workspace.profileDraft.name,
-            account.displayName
+            account.displayName,
         ]) ?? account.displayName
     }
 }
@@ -2608,24 +4041,49 @@ private struct IdentityKeysSettingsView: View {
                             Text(account.displayName)
                                 .font(.headline)
                                 .lineLimit(1)
-                            Text(account.localSigning ? L10n.string("Local signing account") : L10n.string("Watch-only account"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Text(
+                                account.localSigning
+                                    ? L10n.string("Local signing account") : L10n.string("Watch-only account")
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                     }
                 }
 
                 Section("Public Identity") {
                     let npub = workspace.npub(forAccountIdHex: account.accountIdHex)
-                    CopyableLabeledValue(title: "npub", value: npub) {
-                        workspace.copyText(npub)
+                    LabeledContent("npub") {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(npub)
+                                .font(.system(.callout, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                                .textSelection(.enabled)
+
+                            Button {
+                                workspace.copyText(npub)
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("\(L10n.string("Copy")) npub")
+
+                            PublicIdentityQRCodeButton(
+                                accountIdHex: account.accountIdHex,
+                                displayName: account.displayName
+                            )
+                        }
                     }
                 }
 
                 Section("Private Key") {
                     LabeledContent("Private key") {
-                        Text(account.localSigning ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac"))
-                            .foregroundStyle(.secondary)
+                        Text(
+                            account.localSigning
+                                ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac")
+                        )
+                        .foregroundStyle(.secondary)
                     }
 
                     Button {
@@ -2637,14 +4095,18 @@ private struct IdentityKeysSettingsView: View {
                 }
 
                 Section("Account Removal") {
-                    Text("Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.")
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally."
+                    )
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                     Button(role: .destructive) {
                         showRemoveAccountConfirmation = true
                     } label: {
-                        Label(workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
+                        Label(
+                            workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"),
+                            systemImage: "person.crop.circle.badge.minus")
                     }
                     .disabled(workspace.isRemovingAccount)
                 }
@@ -2713,30 +4175,6 @@ private struct CopyableKeyLabel: View {
     }
 }
 
-private struct CopyableLabeledValue: View {
-    let title: LocalizedStringKey
-    let value: String
-    let copy: () -> Void
-
-    var body: some View {
-        LabeledContent(title) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(value)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
-
-                Button(action: copy) {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(.borderless)
-                .help("\(L10n.string("Copy")) \(value)")
-            }
-        }
-    }
-}
-
 private struct AppearanceSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -2780,35 +4218,43 @@ private struct PrivacySecuritySettingsView: View {
             subtitle: "Telemetry and audit logs stay off until you enable them."
         ) {
             Section("Remote Content") {
-                Toggle(isOn: Binding(
-                    get: { workspace.loadRemoteImages },
-                    set: { workspace.loadRemoteImages = $0 }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.loadRemoteImages },
+                        set: { workspace.loadRemoteImages = $0 }
+                    )
+                ) {
                     Label("Load Remote Profile Images", systemImage: "person.crop.circle.badge.exclamationmark")
                 }
 
-                Text("Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Data Sharing") {
-                Toggle(isOn: Binding(
-                    get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
-                    set: { enabled in
-                        Task { await workspace.setRelayTelemetryEnabled(enabled) }
-                    }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
+                        set: { enabled in
+                            Task { await workspace.setRelayTelemetryEnabled(enabled) }
+                        }
+                    )
+                ) {
                     Label("Anonymous Telemetry", systemImage: "waveform.path.ecg")
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
 
-                Toggle(isOn: Binding(
-                    get: { workspace.privacySecuritySettings.auditLoggingEnabled },
-                    set: { enabled in
-                        Task { await workspace.setAuditLoggingEnabled(enabled) }
-                    }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.privacySecuritySettings.auditLoggingEnabled },
+                        set: { enabled in
+                            Task { await workspace.setAuditLoggingEnabled(enabled) }
+                        }
+                    )
+                ) {
                     Label("Audit Logging", systemImage: "doc.text.magnifyingglass")
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
@@ -2858,7 +4304,9 @@ private struct PrivacySecuritySettingsView: View {
                     Button {
                         Task { await workspace.uploadAuditLogFiles() }
                     } label: {
-                        Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
+                        Label(
+                            workspace.isUploadingAuditLogFiles
+                                ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(
@@ -2869,7 +4317,9 @@ private struct PrivacySecuritySettingsView: View {
                     Button(role: .destructive) {
                         showDeleteAuditLogsConfirmation = true
                     } label: {
-                        Label(workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"), systemImage: "trash")
+                        Label(
+                            workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"),
+                            systemImage: "trash")
                     }
                     .disabled(workspace.auditLogFiles.isEmpty || workspace.isDeletingAuditLogFiles)
                 }
@@ -2920,7 +4370,9 @@ private struct PrivacySecuritySettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This clears all accounts, chats, and messages from this Mac and resets White Noise to a newly installed state. This cannot be undone.")
+            Text(
+                "This clears all accounts, chats, and messages from this Mac and resets White Noise to a newly installed state. This cannot be undone."
+            )
         }
     }
 }
@@ -2987,12 +4439,14 @@ private struct NotificationsSettingsView: View {
             subtitle: "Local alerts for this Mac."
         ) {
             Section("Local Alerts") {
-                Toggle(isOn: Binding(
-                    get: { workspace.notificationSettings.localNotificationsEnabled },
-                    set: { enabled in
-                        Task { await workspace.setLocalNotificationsEnabled(enabled) }
-                    }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.notificationSettings.localNotificationsEnabled },
+                        set: { enabled in
+                            Task { await workspace.setLocalNotificationsEnabled(enabled) }
+                        }
+                    )
+                ) {
                     Label("Local notifications", systemImage: "bell.badge")
                 }
                 .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications)
@@ -3158,7 +4612,9 @@ private struct RelaySettingsView: View {
                     Button {
                         Task { await workspace.saveRelaySettings() }
                     } label: {
-                        Label(workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"), systemImage: "checkmark.circle")
+                        Label(
+                            workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"),
+                            systemImage: "checkmark.circle")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(workspace.isSavingRelays || workspace.activeAccount == nil)
@@ -3200,7 +4656,8 @@ private struct RelayDiagnosticsView: View {
             }
 
             RelayDiagnosticsRow(title: "Default", systemImage: "network", relays: settings.defaultRelays)
-            RelayDiagnosticsRow(title: "Bootstrap", systemImage: "antenna.radiowaves.left.and.right", relays: settings.bootstrapRelays)
+            RelayDiagnosticsRow(
+                title: "Bootstrap", systemImage: "antenna.radiowaves.left.and.right", relays: settings.bootstrapRelays)
             RelayDiagnosticsRow(title: "NIP-65", systemImage: "list.bullet", relays: settings.publishedNip65)
             RelayDiagnosticsRow(title: "Inbox", systemImage: "tray.and.arrow.down", relays: settings.publishedInbox)
 
@@ -3267,7 +4724,9 @@ private struct KeyPackageSettingsView: View {
                     Button {
                         Task { await workspace.publishNewKeyPackage() }
                     } label: {
-                        Label(workspace.isPublishingKeyPackage ? L10n.string("Publishing...") : L10n.string("Publish new"), systemImage: "plus.circle")
+                        Label(
+                            workspace.isPublishingKeyPackage
+                                ? L10n.string("Publishing...") : L10n.string("Publish new"), systemImage: "plus.circle")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(workspace.isPublishingKeyPackage || workspace.activeAccount == nil)
@@ -3275,7 +4734,10 @@ private struct KeyPackageSettingsView: View {
                     Button {
                         Task { await workspace.republishKeyPackage() }
                     } label: {
-                        Label(workspace.isRepublishingKeyPackage ? L10n.string("Republishing...") : L10n.string("Republish latest"), systemImage: "arrow.triangle.2.circlepath")
+                        Label(
+                            workspace.isRepublishingKeyPackage
+                                ? L10n.string("Republishing...") : L10n.string("Republish latest"),
+                            systemImage: "arrow.triangle.2.circlepath")
                     }
                     .disabled(workspace.isRepublishingKeyPackage || workspace.activeAccount == nil)
 
@@ -3398,7 +4860,10 @@ private struct RelayRow: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(isInsecure ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .frame(width: 20)
-                .help(isInsecure ? L10n.string("Insecure cleartext relay (ws://). Relay metadata is not encrypted in transit.") : "")
+                .help(
+                    isInsecure
+                        ? L10n.string("Insecure cleartext relay (ws://). Relay metadata is not encrypted in transit.")
+                        : "")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(url)
@@ -3406,11 +4871,13 @@ private struct RelayRow: View {
                     .textSelection(.enabled)
 
                 if isInsecure {
-                    Text(RelayURLValidator.classify(url) == .insecureLoopback
-                        ? "Insecure — cleartext ws:// (loopback only)"
-                        : "Insecure — cleartext ws:// (public host)")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
+                    Text(
+                        RelayURLValidator.classify(url) == .insecureLoopback
+                            ? "Insecure — cleartext ws:// (loopback only)"
+                            : "Insecure — cleartext ws:// (public host)"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
                 }
             }
 
@@ -3444,7 +4911,9 @@ private struct AvatarView: View {
             }
             .overlay {
                 Circle()
-                    .strokeBorder(isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
+                    .strokeBorder(
+                        isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2),
+                        lineWidth: isSelected ? 3 : 1)
             }
             .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
@@ -3456,7 +4925,7 @@ private enum AvatarPalette {
         [Color(white: 0.30), Color(white: 0.58)],
         [Color(white: 0.18), Color(white: 0.42)],
         [Color(white: 0.36), Color(white: 0.64)],
-        [Color(white: 0.22), Color(white: 0.54)]
+        [Color(white: 0.22), Color(white: 0.54)],
     ]
 
     static func gradient(for seed: String) -> LinearGradient {
@@ -3471,8 +4940,8 @@ private enum AvatarPalette {
     /// FNV-1a (64-bit) over the seed's UTF-8 bytes. Deterministic across
     /// launches and overflow-safe via wrapping arithmetic.
     private static func stableHash(_ seed: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
-        let prime: UInt64 = 0x0000_0100_0000_01b3 // FNV prime
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325  // FNV offset basis
+        let prime: UInt64 = 0x0000_0100_0000_01b3  // FNV prime
         for byte in seed.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* prime
@@ -3509,19 +4978,33 @@ private struct MessagesSearchField: View {
 private struct MessagesCircleControlBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     var isSelected = false
+    var isActive = false
 
     var body: some View {
         Circle()
-            .fill(
-                isSelected
-                    ? Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34)
-                    : Color.white.opacity(colorScheme == .dark ? 0.06 : 0.18)
-            )
+            .fill(fillColor)
             .overlay {
                 Circle()
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.32), lineWidth: 1)
+                    .stroke(strokeColor, lineWidth: 1)
             }
             .nativeBackgroundExtensionEffect()
+    }
+
+    private var fillColor: Color {
+        if isActive {
+            return Color.red.opacity(colorScheme == .dark ? 0.28 : 0.18)
+        }
+        if isSelected {
+            return Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34)
+        }
+        return Color.white.opacity(colorScheme == .dark ? 0.06 : 0.18)
+    }
+
+    private var strokeColor: Color {
+        if isActive {
+            return Color.red.opacity(colorScheme == .dark ? 0.42 : 0.30)
+        }
+        return Color.white.opacity(colorScheme == .dark ? 0.08 : 0.32)
     }
 }
 
@@ -3569,10 +5052,10 @@ private struct MessagesComposerFieldBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Capsule(style: .continuous)
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
             .fill(Color.white.opacity(colorScheme == .dark ? 0.06 : 0.22))
             .overlay {
-                Capsule(style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.32), lineWidth: 1)
             }
     }
@@ -3821,11 +5304,12 @@ extension View {
         material: Material = .ultraThinMaterial,
         borderColor: Color? = nil
     ) -> some View {
-        modifier(GlassCardModifier(
-            cornerRadius: cornerRadius,
-            material: material,
-            borderColor: borderColor
-        ))
+        modifier(
+            GlassCardModifier(
+                cornerRadius: cornerRadius,
+                material: material,
+                borderColor: borderColor
+            ))
     }
 
     @ViewBuilder
@@ -3919,7 +5403,9 @@ private struct EmptyDetailView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label(workspace.accounts.isEmpty ? L10n.string("No accounts") : L10n.string("Select a chat"), systemImage: "bubble.left.and.bubble.right")
+            Label(
+                workspace.accounts.isEmpty ? L10n.string("No accounts") : L10n.string("Select a chat"),
+                systemImage: "bubble.left.and.bubble.right")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -104,23 +104,82 @@ enum RelayURLValidator {
             // URLComponents.host strips brackets from IPv6 literals, but be defensive.
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
 
-        if normalized == "localhost" || normalized == "::1" {
+        if normalized == "localhost" {
             return true
         }
 
-        // 127.0.0.0/8 is the IPv4 loopback range.
-        let octets = normalized.split(separator: ".", omittingEmptySubsequences: false)
-        if octets.count == 4, octets.first == "127", octets.allSatisfy({ isByte($0) }) {
-            return true
+        // Parse the host as a literal IP and test loopback membership on the
+        // parsed bytes, rather than string-matching a couple of canonical
+        // spellings. This accepts every equivalent spelling of the same
+        // loopback address — e.g. the compressed `::1`, the expanded
+        // `0:0:0:0:0:0:0:1`, and the IPv4-mapped `::ffff:127.0.0.1` — while
+        // still rejecting non-loopback addresses and hostnames that merely
+        // *contain* a loopback token (`127.0.0.1.evil.com`, `localhost.evil`).
+        if let v4 = parseIPv4(normalized) {
+            // 127.0.0.0/8 is the IPv4 loopback range.
+            return v4.0 == 127
+        }
+
+        if let v6 = parseIPv6(normalized) {
+            return isLoopbackIPv6(v6)
         }
 
         return false
     }
 
-    private static func isByte(_ component: Substring) -> Bool {
-        guard !component.isEmpty, component.allSatisfy({ $0.isNumber }), let value = Int(component) else {
-            return false
+    /// Parses a strict dotted-decimal IPv4 literal into its four octets.
+    ///
+    /// Uses `inet_pton`, which accepts *only* canonical dotted-decimal form
+    /// (e.g. `127.0.0.1`). Non-decimal IPv4 spellings — octal, hexadecimal, or
+    /// abbreviated forms like `127.1` — are intentionally **not** accepted:
+    /// they are an SSRF/parsing-ambiguity footgun, and a relay URL has no
+    /// legitimate need for them.
+    private static func parseIPv4(_ host: String) -> (UInt8, UInt8, UInt8, UInt8)? {
+        var addr = in_addr()
+        guard host.withCString({ inet_pton(AF_INET, $0, &addr) }) == 1 else {
+            return nil
         }
-        return (0...255).contains(value)
+        // s_addr is in network byte order (big-endian): the first octet is the
+        // least-significant byte of the network-order value.
+        let raw = addr.s_addr
+        return (
+            UInt8(truncatingIfNeeded: raw),
+            UInt8(truncatingIfNeeded: raw >> 8),
+            UInt8(truncatingIfNeeded: raw >> 16),
+            UInt8(truncatingIfNeeded: raw >> 24)
+        )
+    }
+
+    /// Parses an IPv6 literal into its 16 bytes. `inet_pton` normalizes every
+    /// valid spelling (compressed, expanded, IPv4-mapped) to the same bytes.
+    private static func parseIPv6(_ host: String) -> [UInt8]? {
+        var addr = in6_addr()
+        guard host.withCString({ inet_pton(AF_INET6, $0, &addr) }) == 1 else {
+            return nil
+        }
+        return withUnsafeBytes(of: &addr) { Array($0) }
+    }
+
+    /// Whether a parsed 16-byte IPv6 address points at loopback:
+    /// the canonical `::1`, or an IPv4-mapped loopback `::ffff:127.0.0.0/104`.
+    private static func isLoopbackIPv6(_ bytes: [UInt8]) -> Bool {
+        guard bytes.count == 16 else { return false }
+
+        // ::1 — fifteen zero bytes followed by 0x01.
+        if bytes[0..<15].allSatisfy({ $0 == 0 }) && bytes[15] == 1 {
+            return true
+        }
+
+        // ::ffff:a.b.c.d — IPv4-mapped IPv6. Bytes 0...9 are zero, 10...11 are
+        // 0xffff, and 12...15 hold the embedded IPv4 address. Loopback when the
+        // embedded IPv4 falls in 127.0.0.0/8.
+        if bytes[0..<10].allSatisfy({ $0 == 0 })
+            && bytes[10] == 0xff && bytes[11] == 0xff
+            && bytes[12] == 127
+        {
+            return true
+        }
+
+        return false
     }
 }

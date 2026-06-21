@@ -26,7 +26,8 @@ enum NativeAppearanceController {
     }
 
     private static var systemColorScheme: ColorScheme {
-        let appearance = NSApp.keyWindow?.effectiveAppearance
+        let appearance =
+            NSApp.keyWindow?.effectiveAppearance
             ?? NSApp.mainWindow?.effectiveAppearance
             ?? NSApp.effectiveAppearance
         return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light

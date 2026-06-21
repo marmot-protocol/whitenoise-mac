@@ -11,7 +11,7 @@ import Foundation
 extension String {
     /// The string trimmed of surrounding whitespace and newlines, or `nil`
     /// when the trimmed result is empty.
-    var nilIfBlank: String? {
+    nonisolated var nilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -22,7 +22,7 @@ extension String {
 ///
 /// The returned value is always trimmed. Prefer this (and `String.nilIfBlank`)
 /// over re-implementing trim/empty checks inline.
-func firstNonBlank(_ values: [String?]) -> String? {
+nonisolated func firstNonBlank(_ values: [String?]) -> String? {
     for value in values {
         if let trimmed = value?.nilIfBlank { return trimmed }
     }

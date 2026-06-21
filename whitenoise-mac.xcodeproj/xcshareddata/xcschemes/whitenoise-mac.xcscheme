@@ -28,7 +28,13 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldAutocreateTestPlan = "NO">
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:TestPlans/PR.xctestplan"
+            default = "YES">
+         </TestPlanReference>
+      </TestPlans>
       <Testables>
          <TestableReference
             skipped = "NO">
@@ -37,16 +43,6 @@
                BlueprintIdentifier = "1F5D022E2FC5862F0016665B"
                BuildableName = "whitenoise-macTests.xctest"
                BlueprintName = "whitenoise-macTests"
-               ReferencedContainer = "container:whitenoise-mac.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
-         <TestableReference
-            skipped = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "1F5D02382FC5862F0016665B"
-               BuildableName = "whitenoise-macUITests.xctest"
-               BlueprintName = "whitenoise-macUITests"
                ReferencedContainer = "container:whitenoise-mac.xcodeproj">
             </BuildableReference>
          </TestableReference>

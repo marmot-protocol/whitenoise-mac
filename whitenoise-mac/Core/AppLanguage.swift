@@ -27,7 +27,7 @@ enum AppLanguage: String, CaseIterable, Identifiable {
             .russian,
             .turkish,
             .chineseSimplified,
-            .chineseTraditional
+            .chineseTraditional,
         ]
     }
 
@@ -59,10 +59,14 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 
     /// Recompute the cached locale from the stored language preference. Call this
     /// whenever the preference changes so `currentLocale` remains an
-    /// allocation-free in-memory read in the common case.
+    /// allocation-free in-memory read in the common case. Also invalidates
+    /// `L10n`'s cached `.lproj` bundle, which is keyed on the same preference.
     static func refreshCachedLocale() {
         let locale = resolvedLocaleFromDefaults()
         cachedLocale.withLock { $0 = locale }
+        // The localized `.lproj` bundle is cached against this same preference,
+        // so invalidate it here too (the single shared invalidation point).
+        L10n.refreshCachedLocalizedBundle()
     }
 
     private static func resolvedLocaleFromDefaults() -> Locale {
