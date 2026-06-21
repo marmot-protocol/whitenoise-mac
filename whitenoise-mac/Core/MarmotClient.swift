@@ -16,7 +16,9 @@ nonisolated protocol MarmotRuntime: Sendable {
     func refreshProfile(accountIdHex: String, relays: [String]) async throws
     func createIdentity(defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi
     func login(identity: String, defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi
-    func publishUserProfile(accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]) async throws -> UserProfileMetadataFfi
+    func publishUserProfile(
+        accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]
+    ) async throws -> UserProfileMetadataFfi
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi]
     func auditLogFiles() throws -> [AuditLogFileFfi]
@@ -36,34 +38,48 @@ nonisolated protocol MarmotRuntime: Sendable {
     func publishNewKeyPackage(accountRef: String) async throws -> UInt64
     func republishKeyPackage(accountRef: String) async throws -> UInt64
     func deleteAccountKeyPackage(accountRef: String, eventIdHex: String, relays: [String]) async throws -> UInt64
-    func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
-    func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi
-    func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws -> String
+    func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+        -> AccountRelayListsFfi
+    func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+        -> AccountRelayListsFfi
+    func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
+        -> String
     func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi
     func declineGroupInvite(accountRef: String, groupIdHex: String) async throws -> GroupInviteDeclineResultFfi
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi
     func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi
-    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi
+    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+        -> GroupMutationResultFfi
     func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi
-    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi
-    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi
-    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi
+    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+        -> GroupMutationResultFfi
+    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+        -> GroupMutationResultFfi
+    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+        -> GroupMutationResultFfi
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi
-    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi
-    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi
+    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?)
+        async throws -> SendSummaryFfi
+    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
+        -> SendSummaryFfi
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription
     func subscribeNotifications() async throws -> NotificationsSubscription
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi
-    func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription
+    func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws
+        -> TimelineMessagesSubscription
     func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi?
     func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi?
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi]
-    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws -> MediaDownloadResultFfi
-    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws -> MediaUploadResultFfi
+    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
+        -> MediaDownloadResultFfi
+    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws
+        -> MediaUploadResultFfi
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi
-    func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws -> SendSummaryFfi
-    func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws -> SendSummaryFfi
+    func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws
+        -> SendSummaryFfi
+    func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
+        -> SendSummaryFfi
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi
 }
 
@@ -72,7 +88,7 @@ nonisolated protocol MarmotRuntime: Sendable {
 nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
     static let seedRelays: [String] = [
         "wss://relay.eu.whitenoise.chat",
-        "wss://relay.us.whitenoise.chat"
+        "wss://relay.us.whitenoise.chat",
     ]
 
     let marmot: Marmot
@@ -128,7 +144,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.login(identity: identity, defaultRelays: defaultRelays, bootstrapRelays: bootstrapRelays)
     }
 
-    func publishUserProfile(accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]) async throws -> UserProfileMetadataFfi {
+    func publishUserProfile(
+        accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]
+    ) async throws -> UserProfileMetadataFfi {
         try await marmot.publishUserProfile(
             accountRef: accountRef,
             profile: profile,
@@ -227,7 +245,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
+    func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+        -> AccountRelayListsFfi
+    {
         try await marmot.setAccountInboxRelays(
             accountRef: accountRef,
             relays: relays,
@@ -235,7 +255,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
+    func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+        -> AccountRelayListsFfi
+    {
         try await marmot.setAccountNip65Relays(
             accountRef: accountRef,
             relays: relays,
@@ -243,7 +265,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws -> String {
+    func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
+        -> String
+    {
         try await marmot.createGroup(
             accountRef: accountRef,
             name: name,
@@ -268,7 +292,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.groupManagementState(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
-    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+        -> GroupMutationResultFfi
+    {
         try await marmot.inviteMembersDetailed(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -280,7 +306,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.leaveGroup(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
-    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+        -> GroupMutationResultFfi
+    {
         try await marmot.promoteAdminDetailed(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -288,7 +316,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+        -> GroupMutationResultFfi
+    {
         try await marmot.demoteAdminDetailed(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -296,7 +326,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+        -> GroupMutationResultFfi
+    {
         try await marmot.removeMembersDetailed(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -312,7 +344,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.setGroupArchived(accountRef: accountRef, groupIdHex: groupIdHex, archived: archived)
     }
 
-    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi {
+    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?)
+        async throws -> SendSummaryFfi
+    {
         try await marmot.updateGroupAvatarUrl(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -322,7 +356,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi {
+    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
+        -> SendSummaryFfi
+    {
         try await marmot.updateGroupProfile(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -343,7 +379,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try marmot.timelineMessages(accountRef: accountRef, query: query)
     }
 
-    func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription {
+    func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws
+        -> TimelineMessagesSubscription
+    {
         try await marmot.subscribeTimelineMessages(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -355,7 +393,8 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try marmot.initializeChatReadState(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
-    func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi? {
+    func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi?
+    {
         try marmot.markTimelineMessageRead(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -367,11 +406,15 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try marmot.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: limit)
     }
 
-    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws -> MediaDownloadResultFfi {
+    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
+        -> MediaDownloadResultFfi
+    {
         try await marmot.downloadMedia(accountRef: accountRef, groupIdHex: groupIdHex, reference: reference)
     }
 
-    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws -> MediaUploadResultFfi {
+    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws
+        -> MediaUploadResultFfi
+    {
         try await marmot.uploadMedia(accountRef: accountRef, groupIdHex: groupIdHex, request: request)
     }
 
@@ -379,7 +422,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try await marmot.sendText(accountRef: accountRef, groupIdHex: groupIdHex, text: text)
     }
 
-    func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws -> SendSummaryFfi {
+    func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws
+        -> SendSummaryFfi
+    {
         try await marmot.replyToMessage(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -388,7 +433,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         )
     }
 
-    func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws -> SendSummaryFfi {
+    func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
+        -> SendSummaryFfi
+    {
         try await marmot.reactToMessage(
             accountRef: accountRef,
             groupIdHex: groupIdHex,
@@ -414,7 +461,8 @@ enum MarmotStorageRootError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .applicationSupportUnavailable(let error):
-            return "Unable to resolve a durable Application Support directory for Marmot storage: \(error.localizedDescription)"
+            return
+                "Unable to resolve a durable Application Support directory for Marmot storage: \(error.localizedDescription)"
         case .createDirectoryFailed(let path, let error):
             return "Unable to create durable Marmot storage directory at \(path): \(error.localizedDescription)"
         case .rootIsNotDirectory(let path):

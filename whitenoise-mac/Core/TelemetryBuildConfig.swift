@@ -58,7 +58,7 @@ struct TelemetryBuildConfig: Equatable {
                 in: info,
                 environmentKeys: [
                     "DARKMATTER_OTLP_BEARER_TOKEN",
-                    "OTLP_TOKEN_DARKMATTER_MAC"
+                    "OTLP_TOKEN_DARKMATTER_MAC",
                 ],
                 environment: environment
             ),
@@ -67,7 +67,7 @@ struct TelemetryBuildConfig: Equatable {
                 in: info,
                 environmentKeys: [
                     "DARKMATTER_AUDIT_LOG_BEARER_TOKEN",
-                    "AUDIT_LOG_TOKEN_DARKMATTER_MAC"
+                    "AUDIT_LOG_TOKEN_DARKMATTER_MAC",
                 ],
                 environment: environment
             ),
@@ -121,7 +121,8 @@ struct TelemetryBuildConfig: Equatable {
         environment: [String: String] = [:]
     ) -> String? {
         if let raw = info[key] as? String,
-           let value = resolvedStringValue(raw) {
+            let value = resolvedStringValue(raw)
+        {
             return value
         }
         return environmentKeys.lazy

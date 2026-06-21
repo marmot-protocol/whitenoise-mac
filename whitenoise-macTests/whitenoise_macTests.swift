@@ -6,11 +6,12 @@
 //
 
 import Darwin
-import Testing
 import Foundation
 import MarmotKit
 import SwiftUI
+import Testing
 import UserNotifications
+
 @testable import whitenoise_mac
 
 @Suite(.serialized)
@@ -494,7 +495,8 @@ struct whitenoise_macTests {
         let blockedParent = sandbox.appendingPathComponent("White Noise", isDirectory: false)
         try Data().write(to: blockedParent)
 
-        let expectedRoot = sandbox
+        let expectedRoot =
+            sandbox
             .appendingPathComponent("White Noise", isDirectory: true)
             .appendingPathComponent("Marmot", isDirectory: true)
             .path
@@ -755,7 +757,7 @@ struct whitenoise_macTests {
                     kind: 1200,
                     tags: [
                         MessageTagFfi(values: ["stream", "abc"]),
-                        MessageTagFfi(values: ["route", "quic"])
+                        MessageTagFfi(values: ["route", "quic"]),
                     ],
                     recordedAt: 1_700_000_000
                 ),
@@ -771,7 +773,8 @@ struct whitenoise_macTests {
                     id: "operation",
                     groupIdHex: "group",
                     sender: "agent",
-                    plaintext: #"{"v":1,"event_type":"tool_call","status":"started","name":"search","preview":"glp-1"}"#,
+                    plaintext:
+                        #"{"v":1,"event_type":"tool_call","status":"started","name":"search","preview":"glp-1"}"#,
                     kind: 1202,
                     recordedAt: 1_700_000_002
                 ),
@@ -782,7 +785,7 @@ struct whitenoise_macTests {
                     plaintext: #"{"v":1,"system_type":"group_renamed","text":"Group renamed"}"#,
                     kind: 1210,
                     recordedAt: 1_700_000_003
-                )
+                ),
             ],
             hasMoreBefore: false,
             hasMoreAfter: false
@@ -793,18 +796,20 @@ struct whitenoise_macTests {
             activeAccountIdHex: "self"
         )
 
-        #expect(messages.map(\.presentation) == [
-            .agentStreamStart,
-            .agentActivity,
-            .agentOperation,
-            .groupSystem
-        ])
-        #expect(messages.map(\.body) == [
-            "Agent started a live response",
-            "Thinking",
-            "glp-1",
-            "Group renamed"
-        ])
+        #expect(
+            messages.map(\.presentation) == [
+                .agentStreamStart,
+                .agentActivity,
+                .agentOperation,
+                .groupSystem,
+            ])
+        #expect(
+            messages.map(\.body) == [
+                "Agent started a live response",
+                "Thinking",
+                "glp-1",
+                "Group renamed",
+            ])
         #expect(messages.allSatisfy { !$0.supportsChatActions })
         #expect(messages.allSatisfy { $0.statusLabel == nil })
     }
@@ -875,7 +880,7 @@ struct whitenoise_macTests {
                     plaintext: "",
                     recordedAt: 1_700_000_001,
                     mediaJson: mediaJson(for: reference, arrayDepth: 40)
-                )
+                ),
             ],
             hasMoreBefore: false,
             hasMoreAfter: false
@@ -913,7 +918,7 @@ struct whitenoise_macTests {
                     plaintext: "",
                     recordedAt: 1_700_000_003,
                     mediaJson: mediaJson(for: reference, arrayDepth: 29)
-                )
+                ),
             ],
             hasMoreBefore: false,
             hasMoreAfter: false
@@ -961,16 +966,17 @@ struct whitenoise_macTests {
         )
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
-        state.selectChat(ChatItem(
-            id: "group",
-            title: "Test Group",
-            subtitle: "Group message",
-            preview: "Attachment",
-            updatedAt: nil,
-            avatarSeed: "group",
-            pictureURL: nil,
-            unreadCount: 0
-        ))
+        state.selectChat(
+            ChatItem(
+                id: "group",
+                title: "Test Group",
+                subtitle: "Group message",
+                preview: "Attachment",
+                updatedAt: nil,
+                avatarSeed: "group",
+                pictureURL: nil,
+                unreadCount: 0
+            ))
         let message = MessageItem(
             id: "media-message",
             groupIdHex: "group",
@@ -1032,7 +1038,7 @@ struct whitenoise_macTests {
                     sender: "alice",
                     plaintext: "storage order 2",
                     recordedAt: 1_700_000_000
-                )
+                ),
             ],
             hasMoreBefore: false,
             hasMoreAfter: false
@@ -1043,11 +1049,12 @@ struct whitenoise_macTests {
             activeAccountIdHex: "self"
         )
 
-        #expect(messages.map(\.id) == [
-            "runtime-third",
-            "runtime-first",
-            "runtime-second"
-        ])
+        #expect(
+            messages.map(\.id) == [
+                "runtime-third",
+                "runtime-first",
+                "runtime-second",
+            ])
     }
 
     @MainActor
@@ -1076,26 +1083,27 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
-        runtime.installMessages([
-            appMessage(
-                id: "parent",
-                groupIdHex: "group",
-                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
-                plaintext: "The launch plan is ready.",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            ),
-            appMessage(
-                id: "reaction",
-                direction: "outbound",
-                groupIdHex: "group",
-                sender: account.accountIdHex,
-                plaintext: "👍",
-                kind: 7,
-                tags: [MessageTagFfi(values: ["e", "parent"])],
-                recordedAt: 1_700_000_001
-            )
-        ], groupIdHex: "group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "parent",
+                    groupIdHex: "group",
+                    sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    plaintext: "The launch plan is ready.",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                ),
+                appMessage(
+                    id: "reaction",
+                    direction: "outbound",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "👍",
+                    kind: 7,
+                    tags: [MessageTagFfi(values: ["e", "parent"])],
+                    recordedAt: 1_700_000_001
+                ),
+            ], groupIdHex: "group")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -1103,9 +1111,10 @@ struct whitenoise_macTests {
 
         #expect(state.messagesByChat["group"]?.count == 1)
         #expect(state.messagesByChat["group"]?.first?.body == "The launch plan is ready.")
-        #expect(state.messagesByChat["group"]?.first?.reactions == [
-            MessageReaction(emoji: "👍", count: 1, isOwn: true, ownReactionMessageId: "reaction")
-        ])
+        #expect(
+            state.messagesByChat["group"]?.first?.reactions == [
+                MessageReaction(emoji: "👍", count: 1, isOwn: true, ownReactionMessageId: "reaction")
+            ])
     }
 
     @MainActor
@@ -1130,36 +1139,37 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "parent",
-                groupIdHex: "group",
-                sender: aliceId,
-                plaintext: "The launch plan is ready.",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            ),
-            appMessage(
-                id: "reaction",
-                direction: "outbound",
-                groupIdHex: "group",
-                sender: account.accountIdHex,
-                plaintext: "👍",
-                kind: 7,
-                tags: [MessageTagFfi(values: ["e", "parent"])],
-                recordedAt: 1_700_000_001
-            ),
-            appMessage(
-                id: "delete-reaction",
-                direction: "outbound",
-                groupIdHex: "group",
-                sender: account.accountIdHex,
-                plaintext: "",
-                kind: 5,
-                tags: [MessageTagFfi(values: ["e", "reaction"])],
-                recordedAt: 1_700_000_002
-            )
-        ], groupIdHex: "group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "parent",
+                    groupIdHex: "group",
+                    sender: aliceId,
+                    plaintext: "The launch plan is ready.",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                ),
+                appMessage(
+                    id: "reaction",
+                    direction: "outbound",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "👍",
+                    kind: 7,
+                    tags: [MessageTagFfi(values: ["e", "parent"])],
+                    recordedAt: 1_700_000_001
+                ),
+                appMessage(
+                    id: "delete-reaction",
+                    direction: "outbound",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "",
+                    kind: 5,
+                    tags: [MessageTagFfi(values: ["e", "reaction"])],
+                    recordedAt: 1_700_000_002
+                ),
+            ], groupIdHex: "group")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -1191,29 +1201,30 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "parent",
-                groupIdHex: "group",
-                sender: aliceId,
-                plaintext: "The launch plan is ready.",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            ),
-            appMessage(
-                id: "reply",
-                direction: "outbound",
-                groupIdHex: "group",
-                sender: account.accountIdHex,
-                plaintext: "Looks good to me.",
-                kind: 9,
-                tags: [
-                    MessageTagFfi(values: ["e", "parent"]),
-                    MessageTagFfi(values: ["q", "parent"])
-                ],
-                recordedAt: 1_700_000_001
-            )
-        ], groupIdHex: "group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "parent",
+                    groupIdHex: "group",
+                    sender: aliceId,
+                    plaintext: "The launch plan is ready.",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                ),
+                appMessage(
+                    id: "reply",
+                    direction: "outbound",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Looks good to me.",
+                    kind: 9,
+                    tags: [
+                        MessageTagFfi(values: ["e", "parent"]),
+                        MessageTagFfi(values: ["q", "parent"]),
+                    ],
+                    recordedAt: 1_700_000_001
+                ),
+            ], groupIdHex: "group")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -1221,11 +1232,13 @@ struct whitenoise_macTests {
 
         let messages = state.messagesByChat["group"] ?? []
         #expect(messages.map(\.id) == ["parent", "reply"])
-        #expect(messages.last?.replyContext == MessageReplyContext(
-            targetMessageId: "parent",
-            senderName: "Alice",
-            body: "The launch plan is ready."
-        ))
+        #expect(
+            messages.last?.replyContext
+                == MessageReplyContext(
+                    targetMessageId: "parent",
+                    senderName: "Alice",
+                    body: "The launch plan is ready."
+                ))
     }
 
     @MainActor
@@ -1251,16 +1264,17 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "stale",
-                groupIdHex: "direct-group",
-                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
-                plaintext: "This should disappear.",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "stale",
+                    groupIdHex: "direct-group",
+                    sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    plaintext: "This should disappear.",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "direct-group")
         let projected = timelineMessage(
             id: "stream",
             groupIdHex: "direct-group",
@@ -1276,22 +1290,24 @@ struct whitenoise_macTests {
             sender: account.accountIdHex,
             timelineAt: 1_700_000_010
         )
-        runtime.installTimelineUpdates([
-            .projection(update: RuntimeProjectionUpdateFfi(
-                accountIdHex: account.accountIdHex,
-                accountLabel: account.label,
-                update: TimelineProjectionUpdateFfi(
-                    groupIdHex: "direct-group",
-                    messages: [],
-                    changes: [
-                        .remove(messageIdHex: "stale", reason: .noLongerMatchesQuery),
-                        .upsert(trigger: .agentStreamStarted, message: projected)
-                    ],
-                    chatListRow: streamingChatRow,
-                    chatListTrigger: .newLastMessage
-                )
-            ))
-        ], groupIdHex: "direct-group")
+        runtime.installTimelineUpdates(
+            [
+                .projection(
+                    update: RuntimeProjectionUpdateFfi(
+                        accountIdHex: account.accountIdHex,
+                        accountLabel: account.label,
+                        update: TimelineProjectionUpdateFfi(
+                            groupIdHex: "direct-group",
+                            messages: [],
+                            changes: [
+                                .remove(messageIdHex: "stale", reason: .noLongerMatchesQuery),
+                                .upsert(trigger: .agentStreamStarted, message: projected),
+                            ],
+                            chatListRow: streamingChatRow,
+                            chatListTrigger: .newLastMessage
+                        )
+                    ))
+            ], groupIdHex: "direct-group")
         runtime.installChatListUpdates([
             .row(trigger: .newLastMessage, row: streamingChatRow)
         ])
@@ -1336,24 +1352,25 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "m1",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "First.",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            ),
-            appMessage(
-                id: "m2",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Second.",
-                kind: 9,
-                recordedAt: 1_700_000_001
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "m1",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "First.",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                ),
+                appMessage(
+                    id: "m2",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Second.",
+                    kind: 9,
+                    recordedAt: 1_700_000_001
+                ),
+            ], groupIdHex: "direct-group")
         let projected = timelineMessage(
             id: "stream",
             groupIdHex: "direct-group",
@@ -1369,22 +1386,24 @@ struct whitenoise_macTests {
             sender: account.accountIdHex,
             timelineAt: 1_700_000_010
         )
-        runtime.installTimelineUpdates([
-            .projection(update: RuntimeProjectionUpdateFfi(
-                accountIdHex: account.accountIdHex,
-                accountLabel: account.label,
-                update: TimelineProjectionUpdateFfi(
-                    groupIdHex: "direct-group",
-                    messages: [],
-                    changes: [
-                        .remove(messageIdHex: "m1", reason: .noLongerMatchesQuery),
-                        .upsert(trigger: .agentStreamStarted, message: projected)
-                    ],
-                    chatListRow: streamingChatRow,
-                    chatListTrigger: .newLastMessage
-                )
-            ))
-        ], groupIdHex: "direct-group")
+        runtime.installTimelineUpdates(
+            [
+                .projection(
+                    update: RuntimeProjectionUpdateFfi(
+                        accountIdHex: account.accountIdHex,
+                        accountLabel: account.label,
+                        update: TimelineProjectionUpdateFfi(
+                            groupIdHex: "direct-group",
+                            messages: [],
+                            changes: [
+                                .remove(messageIdHex: "m1", reason: .noLongerMatchesQuery),
+                                .upsert(trigger: .agentStreamStarted, message: projected),
+                            ],
+                            chatListRow: streamingChatRow,
+                            chatListTrigger: .newLastMessage
+                        )
+                    ))
+            ], groupIdHex: "direct-group")
         runtime.installChatListUpdates([
             .row(trigger: .newLastMessage, row: streamingChatRow)
         ])
@@ -1431,24 +1450,25 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "older",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Earlier message",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            ),
-            appMessage(
-                id: "latest",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Latest message",
-                kind: 9,
-                recordedAt: 1_700_000_010
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "older",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Earlier message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                ),
+                appMessage(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Latest message",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                ),
+            ], groupIdHex: "direct-group")
         let reprojectedOlder = timelineMessage(
             id: "older",
             groupIdHex: "direct-group",
@@ -1456,21 +1476,23 @@ struct whitenoise_macTests {
             plaintext: "Earlier message edited by projection",
             recordedAt: 1_700_000_000
         )
-        runtime.installTimelineUpdates([
-            .projection(update: RuntimeProjectionUpdateFfi(
-                accountIdHex: account.accountIdHex,
-                accountLabel: account.label,
-                update: TimelineProjectionUpdateFfi(
-                    groupIdHex: "direct-group",
-                    messages: [],
-                    changes: [
-                        .upsert(trigger: .reactionAdded, message: reprojectedOlder)
-                    ],
-                    chatListRow: nil,
-                    chatListTrigger: .unreadChanged
-                )
-            ))
-        ], groupIdHex: "direct-group")
+        runtime.installTimelineUpdates(
+            [
+                .projection(
+                    update: RuntimeProjectionUpdateFfi(
+                        accountIdHex: account.accountIdHex,
+                        accountLabel: account.label,
+                        update: TimelineProjectionUpdateFfi(
+                            groupIdHex: "direct-group",
+                            messages: [],
+                            changes: [
+                                .upsert(trigger: .reactionAdded, message: reprojectedOlder)
+                            ],
+                            chatListRow: nil,
+                            chatListTrigger: .unreadChanged
+                        )
+                    ))
+            ], groupIdHex: "direct-group")
         let state = WorkspaceState(
             appActivityProvider: { true },
             conversationWindowVisibilityProvider: { true },
@@ -1480,7 +1502,8 @@ struct whitenoise_macTests {
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
         let didApplyProjection = await waitFor {
-            state.messagesByChat["direct-group"]?.first(where: { $0.id == "older" })?.body == "Earlier message edited by projection"
+            state.messagesByChat["direct-group"]?.first(where: { $0.id == "older" })?.body
+                == "Earlier message edited by projection"
         }
 
         #expect(didApplyProjection)
@@ -1511,16 +1534,17 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "latest",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Latest message",
-                kind: 9,
-                recordedAt: 1_700_000_010
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Latest message",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
         // App is backgrounded: a selected chat must NOT advance the read marker just
         // because a message is visible in the timeline window.
         let state = WorkspaceState(appActivityProvider: { false }, clientFactory: { runtime })
@@ -1556,16 +1580,17 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "latest",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Latest message",
-                kind: 9,
-                recordedAt: 1_700_000_010
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Latest message",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
         // The app process can stay active while its only window is minimized or has no
         // key window; a selected chat is still not visible in that state.
         let state = WorkspaceState(
@@ -1605,16 +1630,17 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "latest",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Latest message",
-                kind: 9,
-                recordedAt: 1_700_000_010
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Latest message",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
         // Start inactive so the initial open defers marking, then flip to active and
         // simulate the app regaining focus.
         var isActive = false
@@ -1658,16 +1684,17 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "latest",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Latest message",
-                kind: 9,
-                recordedAt: 1_700_000_010
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Latest message",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
         var isWindowVisible = false
         let state = WorkspaceState(
             appActivityProvider: { true },
@@ -1719,26 +1746,28 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
-        runtime.installMessages([
-            appMessage(
-                id: "group-old",
-                groupIdHex: "group",
-                sender: account.accountIdHex,
-                plaintext: "Older group message",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            )
-        ], groupIdHex: "group")
-        runtime.installMessages([
-            appMessage(
-                id: "direct-new",
-                groupIdHex: "direct-group",
-                sender: account.accountIdHex,
-                plaintext: "Newest direct message",
-                kind: 9,
-                recordedAt: 1_700_000_100
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "group-old",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Older group message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "direct-new",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Newest direct message",
+                    kind: 9,
+                    recordedAt: 1_700_000_100
+                )
+            ], groupIdHex: "direct-group")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -1761,31 +1790,33 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
-        runtime.installMessages([
-            appMessage(
-                id: "group-message",
-                groupIdHex: "group",
-                sender: account.accountIdHex,
-                plaintext: "Group cache candidate",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            )
-        ], groupIdHex: "group")
-        runtime.installMessages([
-            appMessage(
-                id: "direct-message",
-                groupIdHex: "direct-group",
-                sender: account.accountIdHex,
-                plaintext: "Direct cache candidate",
-                kind: 9,
-                recordedAt: 1_700_000_010
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "group-message",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Group cache candidate",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "direct-message",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Direct cache candidate",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         guard let group = state.activeChats.first(where: { $0.id == "group" }),
-              let direct = state.activeChats.first(where: { $0.id == "direct-group" })
+            let direct = state.activeChats.first(where: { $0.id == "direct-group" })
         else {
             Issue.record("Expected both test chats")
             return
@@ -1816,26 +1847,28 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroups([messageGroup(), directGroup()])
-        runtime.installMessages([
-            appMessage(
-                id: "group-message",
-                groupIdHex: "group",
-                sender: account.accountIdHex,
-                plaintext: "Group history should not look empty while loading",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            )
-        ], groupIdHex: "group")
-        runtime.installMessages([
-            appMessage(
-                id: "direct-message",
-                groupIdHex: "direct-group",
-                sender: account.accountIdHex,
-                plaintext: "Most recent chat loads during bootstrap",
-                kind: 9,
-                recordedAt: 1_700_000_010
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "group-message",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Group history should not look empty while loading",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "direct-message",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Most recent chat loads during bootstrap",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -2085,42 +2118,46 @@ struct whitenoise_macTests {
             isLoadingAfter: false
         )
 
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-150", "message-249", "message-349"],
-            newMessageIsOutgoing: false,
-            paging: historicalPaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: "message-249",
-            newMessageId: "message-349",
-            isPinnedToBottom: false
-        ) == .restorePendingAppendAnchor("message-249"))
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-350", "message-449"],
-            newMessageIsOutgoing: false,
-            paging: historicalPaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: "message-249",
-            newMessageId: "message-449",
-            isPinnedToBottom: false
-        ) == .clearPendingAppendAnchor)
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-350", "message-449"],
-            newMessageIsOutgoing: false,
-            paging: historicalPaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: nil,
-            newMessageId: "message-449",
-            isPinnedToBottom: true
-        ) == .none)
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-350", "message-449"],
-            newMessageIsOutgoing: false,
-            paging: liveEdgePaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: nil,
-            newMessageId: "message-449",
-            isPinnedToBottom: true
-        ) == .scrollToBottom)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-150", "message-249", "message-349"],
+                newMessageIsOutgoing: false,
+                paging: historicalPaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: "message-249",
+                newMessageId: "message-349",
+                isPinnedToBottom: false
+            ) == .restorePendingAppendAnchor("message-249"))
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-350", "message-449"],
+                newMessageIsOutgoing: false,
+                paging: historicalPaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: "message-249",
+                newMessageId: "message-449",
+                isPinnedToBottom: false
+            ) == .clearPendingAppendAnchor)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-350", "message-449"],
+                newMessageIsOutgoing: false,
+                paging: historicalPaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: nil,
+                newMessageId: "message-449",
+                isPinnedToBottom: true
+            ) == .none)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-350", "message-449"],
+                newMessageIsOutgoing: false,
+                paging: liveEdgePaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: nil,
+                newMessageId: "message-449",
+                isPinnedToBottom: true
+            ) == .scrollToBottom)
     }
 
     @Test func newestMessageAutoScrollUsesBottomProximityNotOlderHistoryAvailability() {
@@ -2137,51 +2174,56 @@ struct whitenoise_macTests {
             isLoadingAfter: false
         )
 
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-001", "message-101"],
-            newMessageIsOutgoing: false,
-            paging: longLiveEdgePaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: nil,
-            newMessageId: "message-101",
-            isPinnedToBottom: true
-        ) == .scrollToBottom)
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-001", "message-101"],
-            newMessageIsOutgoing: false,
-            paging: longLiveEdgePaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: nil,
-            newMessageId: "message-101",
-            isPinnedToBottom: false
-        ) == .none)
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-001", "message-101"],
-            newMessageIsOutgoing: true,
-            paging: longLiveEdgePaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: nil,
-            newMessageId: "message-101",
-            isPinnedToBottom: false
-        ) == .scrollToBottom)
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-001", "message-101"],
-            newMessageIsOutgoing: false,
-            paging: detachedHistoryPaging,
-            pendingPrependAnchorId: nil,
-            pendingAppendAnchorId: nil,
-            newMessageId: "message-101",
-            isPinnedToBottom: true
-        ) == .none)
-        #expect(timelineNewestMessageScrollAction(
-            messageIDs: ["message-001", "message-101"],
-            newMessageIsOutgoing: false,
-            paging: longLiveEdgePaging,
-            pendingPrependAnchorId: "message-000",
-            pendingAppendAnchorId: nil,
-            newMessageId: "message-101",
-            isPinnedToBottom: true
-        ) == .none)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-001", "message-101"],
+                newMessageIsOutgoing: false,
+                paging: longLiveEdgePaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: nil,
+                newMessageId: "message-101",
+                isPinnedToBottom: true
+            ) == .scrollToBottom)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-001", "message-101"],
+                newMessageIsOutgoing: false,
+                paging: longLiveEdgePaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: nil,
+                newMessageId: "message-101",
+                isPinnedToBottom: false
+            ) == .none)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-001", "message-101"],
+                newMessageIsOutgoing: true,
+                paging: longLiveEdgePaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: nil,
+                newMessageId: "message-101",
+                isPinnedToBottom: false
+            ) == .scrollToBottom)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-001", "message-101"],
+                newMessageIsOutgoing: false,
+                paging: detachedHistoryPaging,
+                pendingPrependAnchorId: nil,
+                pendingAppendAnchorId: nil,
+                newMessageId: "message-101",
+                isPinnedToBottom: true
+            ) == .none)
+        #expect(
+            timelineNewestMessageScrollAction(
+                messageIDs: ["message-001", "message-101"],
+                newMessageIsOutgoing: false,
+                paging: longLiveEdgePaging,
+                pendingPrependAnchorId: "message-000",
+                pendingAppendAnchorId: nil,
+                newMessageId: "message-101",
+                isPinnedToBottom: true
+            ) == .none)
     }
 
     @MainActor
@@ -2221,21 +2263,23 @@ struct whitenoise_macTests {
             )
         }
         runtime.installMessages(messages, groupIdHex: "direct-group")
-        runtime.installTimelineUpdates([
-            .page(page: TimelinePageFfi(
-                messages: (350..<450).map { index in
-                    timelineMessage(
-                        id: String(format: "message-%03d", index),
-                        groupIdHex: "direct-group",
-                        sender: aliceId,
-                        plaintext: "Live latest \(index)",
-                        recordedAt: baseTime + UInt64(index)
-                    )
-                },
-                hasMoreBefore: true,
-                hasMoreAfter: false
-            ))
-        ], groupIdHex: "direct-group")
+        runtime.installTimelineUpdates(
+            [
+                .page(
+                    page: TimelinePageFfi(
+                        messages: (350..<450).map { index in
+                            timelineMessage(
+                                id: String(format: "message-%03d", index),
+                                groupIdHex: "direct-group",
+                                sender: aliceId,
+                                plaintext: "Live latest \(index)",
+                                recordedAt: baseTime + UInt64(index)
+                            )
+                        },
+                        hasMoreBefore: true,
+                        hasMoreAfter: false
+                    ))
+            ], groupIdHex: "direct-group")
         let state = WorkspaceState(
             appActivityProvider: { true },
             conversationWindowVisibilityProvider: { true },
@@ -2310,28 +2354,30 @@ struct whitenoise_macTests {
             plaintext: "Offscreen latest message",
             recordedAt: baseTime + 500
         )
-        runtime.installTimelineUpdates([
-            .projection(update: RuntimeProjectionUpdateFfi(
-                accountIdHex: account.accountIdHex,
-                accountLabel: account.label,
-                update: TimelineProjectionUpdateFfi(
-                    groupIdHex: "direct-group",
-                    messages: [visibleUpdate, offscreenLatest],
-                    changes: [
-                        .upsert(trigger: .reactionAdded, message: visibleUpdate),
-                        .upsert(trigger: .newMessage, message: offscreenLatest)
-                    ],
-                    chatListRow: chatListRow(
-                        groupIdHex: "direct-group",
-                        title: "Alice",
-                        preview: "Offscreen latest message",
-                        sender: aliceId,
-                        timelineAt: baseTime + 500
-                    ),
-                    chatListTrigger: .newLastMessage
-                )
-            ))
-        ], groupIdHex: "direct-group")
+        runtime.installTimelineUpdates(
+            [
+                .projection(
+                    update: RuntimeProjectionUpdateFfi(
+                        accountIdHex: account.accountIdHex,
+                        accountLabel: account.label,
+                        update: TimelineProjectionUpdateFfi(
+                            groupIdHex: "direct-group",
+                            messages: [visibleUpdate, offscreenLatest],
+                            changes: [
+                                .upsert(trigger: .reactionAdded, message: visibleUpdate),
+                                .upsert(trigger: .newMessage, message: offscreenLatest),
+                            ],
+                            chatListRow: chatListRow(
+                                groupIdHex: "direct-group",
+                                title: "Alice",
+                                preview: "Offscreen latest message",
+                                sender: aliceId,
+                                timelineAt: baseTime + 500
+                            ),
+                            chatListTrigger: .newLastMessage
+                        )
+                    ))
+            ], groupIdHex: "direct-group")
         let state = WorkspaceState(
             appActivityProvider: { true },
             conversationWindowVisibilityProvider: { true },
@@ -2349,7 +2395,8 @@ struct whitenoise_macTests {
         #expect(loadedMessages.count == 200)
         #expect(loadedMessages.map(\.id).first == "message-050")
         #expect(loadedMessages.map(\.id).last == "message-249")
-        #expect(loadedMessages.first(where: { $0.id == "message-120" })?.body == "Visible message updated by projection")
+        #expect(
+            loadedMessages.first(where: { $0.id == "message-120" })?.body == "Visible message updated by projection")
         #expect(!loadedMessages.contains { $0.id == "message-500" })
         #expect(state.selectedTimelinePaging.hasMoreAfter)
         #expect(runtime.markedReadMessageIds == ["message-449"])
@@ -2634,21 +2681,24 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
-        state.startReply(to: MessageItem(
-            id: "parent",
-            senderName: "Alice",
-            body: "The launch plan is ready.",
-            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
-            isOutgoing: false
-        ))
+        state.startReply(
+            to: MessageItem(
+                id: "parent",
+                senderName: "Alice",
+                body: "The launch plan is ready.",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false
+            ))
         state.draftText = "Looks good to me."
         await state.sendDraft()
 
-        #expect(runtime.repliedMessage == SentReply(
-            groupIdHex: "direct-group",
-            targetMessageId: "parent",
-            text: "Looks good to me."
-        ))
+        #expect(
+            runtime.repliedMessage
+                == SentReply(
+                    groupIdHex: "direct-group",
+                    targetMessageId: "parent",
+                    text: "Looks good to me."
+                ))
         #expect(state.replyDraftContext == nil)
         #expect(state.draftText.isEmpty)
     }
@@ -2689,15 +2739,19 @@ struct whitenoise_macTests {
         await state.react(to: message, emoji: "👍")
         await state.deleteMessage(message)
 
-        #expect(runtime.reactedMessage == SentReaction(
-            groupIdHex: "direct-group",
-            targetMessageId: "parent",
-            emoji: "👍"
-        ))
-        #expect(runtime.deletedMessage == DeletedMessage(
-            groupIdHex: "direct-group",
-            targetMessageId: "parent"
-        ))
+        #expect(
+            runtime.reactedMessage
+                == SentReaction(
+                    groupIdHex: "direct-group",
+                    targetMessageId: "parent",
+                    emoji: "👍"
+                ))
+        #expect(
+            runtime.deletedMessage
+                == DeletedMessage(
+                    groupIdHex: "direct-group",
+                    targetMessageId: "parent"
+                ))
     }
 
     @MainActor
@@ -3058,10 +3112,12 @@ struct whitenoise_macTests {
         await state.bootstrap()
         await state.removeReaction(ownReaction, from: message)
 
-        #expect(runtime.deletedMessage == DeletedMessage(
-            groupIdHex: "direct-group",
-            targetMessageId: "reaction-event"
-        ))
+        #expect(
+            runtime.deletedMessage
+                == DeletedMessage(
+                    groupIdHex: "direct-group",
+                    targetMessageId: "reaction-event"
+                ))
         #expect(runtime.reactedMessage == nil)
     }
 
@@ -3086,15 +3142,19 @@ struct whitenoise_macTests {
     @Test func copyingMessageTextUsesConfiguredClipboardWriter() async throws {
         var copiedText = ""
         var copiedConcealed = false
-        let state = WorkspaceState(copyTextHandler: { copiedText = $0; copiedConcealed = $1 })
+        let state = WorkspaceState(copyTextHandler: {
+            copiedText = $0
+            copiedConcealed = $1
+        })
 
-        state.copyText(of: MessageItem(
-            id: "message",
-            senderName: "Alice",
-            body: "Copy this",
-            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
-            isOutgoing: false
-        ))
+        state.copyText(
+            of: MessageItem(
+                id: "message",
+                senderName: "Alice",
+                body: "Copy this",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false
+            ))
 
         #expect(copiedText == "Copy this")
         // Decrypted message bodies are private content and must be marked concealed so
@@ -3118,22 +3178,24 @@ struct whitenoise_macTests {
         let state = WorkspaceState(copyTextHandler: { text, _ in copiedText = text })
         let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
 
-        state.copyText(of: MessageItem(
-            id: "deleted",
-            senderName: "Alice",
-            body: "Message deleted",
-            sentAt: sentAt,
-            isDeleted: true,
-            isOutgoing: false
-        ))
-        state.copyText(of: MessageItem(
-            id: "failed",
-            senderName: "Alice",
-            body: "Message did not reach the group",
-            sentAt: sentAt,
-            invalidationStatus: "signature-check-failed",
-            isOutgoing: true
-        ))
+        state.copyText(
+            of: MessageItem(
+                id: "deleted",
+                senderName: "Alice",
+                body: "Message deleted",
+                sentAt: sentAt,
+                isDeleted: true,
+                isOutgoing: false
+            ))
+        state.copyText(
+            of: MessageItem(
+                id: "failed",
+                senderName: "Alice",
+                body: "Message did not reach the group",
+                sentAt: sentAt,
+                invalidationStatus: "signature-check-failed",
+                isOutgoing: true
+            ))
 
         #expect(copiedText == "initial")
     }
@@ -3171,7 +3233,7 @@ struct whitenoise_macTests {
                 tags: [MessageTagFfi(values: ["stream", "abcd"])],
                 recordedAt: 1,
                 agentTextStreamJson: #"{"status":"started"}"#
-            )
+            ),
         ]
 
         let document = ConversationTranscriptExport.makeDocument(
@@ -3291,11 +3353,22 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
-        let didEnrichIncrementally = await waitFor {
+        let didEnrichIncrementally = await waitFor(attempts: 300) {
             state.activeChats.first?.title == "Alice Actual"
                 && state.activeChats.first?.preview == "See you soon."
         }
 
+        if !didEnrichIncrementally {
+            let chat = state.activeChats.first
+            Issue.record(
+                """
+                Expected incremental direct-chat enrichment. \
+                title=\(chat?.title ?? "nil") preview=\(chat?.preview ?? "nil") \
+                pictureURL=\(chat?.pictureURL ?? "nil") \
+                detailsCalls=\(runtime.groupDetailsCallCounts["direct-group"] ?? 0)
+                """
+            )
+        }
         #expect(didEnrichIncrementally)
         #expect(state.activeChats.first?.isDirect == true)
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
@@ -3335,16 +3408,17 @@ struct whitenoise_macTests {
         // subscription snapshot after installing messages, while retaining the member cache
         // primed by chat-list enrichment.
         state.showSettings()
-        runtime.installMessages([
-            appMessage(
-                id: "alice-message",
-                groupIdHex: "group",
-                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
-                plaintext: "Timeline sender should reuse cached members.",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            )
-        ], groupIdHex: "group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "alice-message",
+                    groupIdHex: "group",
+                    sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    plaintext: "Timeline sender should reuse cached members.",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "group")
 
         state.selectChat(groupChat)
         let didLoadTimelineMessage = await waitFor {
@@ -3479,12 +3553,14 @@ struct whitenoise_macTests {
 
         let imageSearchQueries = await imageSearchClient.queries
         #expect(imageSearchQueries == ["aurora"])
-        #expect(runtime.updatedGroupAvatar == UpdatedGroupAvatar(
-            groupIdHex: "group",
-            url: "https://example.com/aurora.jpg",
-            dim: "1024x680",
-            thumbhash: nil
-        ))
+        #expect(
+            runtime.updatedGroupAvatar
+                == UpdatedGroupAvatar(
+                    groupIdHex: "group",
+                    url: "https://example.com/aurora.jpg",
+                    dim: "1024x680",
+                    thumbhash: nil
+                ))
         #expect(!state.isGroupImagePickerPresented)
         #expect(state.activeChats.first?.pictureURL == "https://example.com/aurora.jpg")
     }
@@ -3623,10 +3699,12 @@ struct whitenoise_macTests {
         // guards the user-facing toolbar affordance directly: the info button
         // must remain wired to the group details sheet instead of an empty action.
         let testFileURL = URL(fileURLWithPath: #filePath)
-        let projectRootURL = testFileURL
+        let projectRootURL =
+            testFileURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let messengerShellURL = projectRootURL
+        let messengerShellURL =
+            projectRootURL
             .appendingPathComponent("whitenoise-mac")
             .appendingPathComponent("Views")
             .appendingPathComponent("MessengerShellView.swift")
@@ -3640,7 +3718,8 @@ struct whitenoise_macTests {
         #expect(headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
         #expect(headerSource.contains("GroupDetailsSheet(chat: chat)"))
         #expect(!headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle"))
-        #expect(!headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle.fill"))
+        #expect(
+            !headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle.fill"))
     }
 
     @MainActor
@@ -3674,11 +3753,13 @@ struct whitenoise_macTests {
         state.groupProfileDraftDescription = "Planning room"
         await state.saveGroupProfile()
 
-        #expect(runtime.updatedGroupProfile == UpdatedGroupProfile(
-            groupIdHex: "group",
-            name: "Renamed Group",
-            description: "Planning room"
-        ))
+        #expect(
+            runtime.updatedGroupProfile
+                == UpdatedGroupProfile(
+                    groupIdHex: "group",
+                    name: "Renamed Group",
+                    description: "Planning room"
+                ))
         #expect(state.groupDetailsSnapshot?.name == "Renamed Group")
         #expect(state.activeChats.first?.title == "Renamed Group")
 
@@ -3835,10 +3916,11 @@ struct whitenoise_macTests {
     @Test func groupDetailsSelfDemoteUsesDetailedMutation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installGroupDetails(groupDetailsFixture(
-            selfAccountIdHex: account.accountIdHex,
-            otherIsAdmin: true
-        ))
+        runtime.installGroupDetails(
+            groupDetailsFixture(
+                selfAccountIdHex: account.accountIdHex,
+                otherIsAdmin: true
+            ))
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -4093,7 +4175,7 @@ struct whitenoise_macTests {
         0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0,
         0x1F, 0x00, 0x05, 0x00, 0x01, 0xFF, 0x89, 0x99,
         0x3D, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
-        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ])
 
     @MainActor
@@ -4135,7 +4217,7 @@ struct whitenoise_macTests {
     @Test func defaultRelaysUseWhiteNoiseEuAndUsOnly() async throws {
         let defaults = [
             "wss://relay.eu.whitenoise.chat",
-            "wss://relay.us.whitenoise.chat"
+            "wss://relay.us.whitenoise.chat",
         ]
 
         #expect(MarmotClient.seedRelays == defaults)
@@ -4223,18 +4305,22 @@ struct whitenoise_macTests {
         state.startReply(to: nvkReply)
 
         state.selectChat(design)
-        #expect(state.replyDraftContext == MessageReplyContext(
-            targetMessageId: "design-parent",
-            senderName: "NVK",
-            body: "Design plan"
-        ))
+        #expect(
+            state.replyDraftContext
+                == MessageReplyContext(
+                    targetMessageId: "design-parent",
+                    senderName: "NVK",
+                    body: "Design plan"
+                ))
 
         state.selectChat(nvk)
-        #expect(state.replyDraftContext == MessageReplyContext(
-            targetMessageId: "nvk-parent",
-            senderName: "NVK",
-            body: "Direct ping"
-        ))
+        #expect(
+            state.replyDraftContext
+                == MessageReplyContext(
+                    targetMessageId: "nvk-parent",
+                    senderName: "NVK",
+                    body: "Direct ping"
+                ))
     }
 
     @MainActor
@@ -4693,7 +4779,7 @@ struct whitenoise_macTests {
                 "DarkmatterAuditLogBearerToken": "audit-token",
                 "DarkmatterTelemetryEnvironment": "production",
                 "CFBundleShortVersionString": "2026.6",
-                "CFBundleVersion": "12"
+                "CFBundleVersion": "12",
             ],
             environment: [:],
             osVersion: "Version 26.0",
@@ -4735,13 +4821,13 @@ struct whitenoise_macTests {
                 "DarkmatterAuditLogBearerToken": "$(DARKMATTER_AUDIT_LOG_BEARER_TOKEN)",
                 "DarkmatterTelemetryEnvironment": "$(DARKMATTER_TELEMETRY_ENVIRONMENT)",
                 "CFBundleShortVersionString": "1.2.3",
-                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)"
+                "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
             ],
             environment: [
                 "DARKMATTER_OTLP_ENDPOINT": "https://env.example/v1/metrics",
                 "OTLP_TOKEN_DARKMATTER_MAC": "env-otlp-token",
                 "AUDIT_LOG_TOKEN_DARKMATTER_MAC": "env-audit-token",
-                "DARKMATTER_TELEMETRY_ENVIRONMENT": "staging"
+                "DARKMATTER_TELEMETRY_ENVIRONMENT": "staging",
             ],
             osVersion: "Version 26.0",
             deviceModelIdentifier: nil
@@ -4949,7 +5035,7 @@ struct whitenoise_macTests {
         state.handleNotificationResponse([
             "groupIdHex": "direct-group",
             "accountIdHex": secondary.accountIdHex,
-            "accountRef": primary.label
+            "accountRef": primary.label,
         ])
         let didRefreshAccountLabel = await waitFor {
             runtime.auditLogTrackerConfig?.source.accountLabel == "Secondary Account"
@@ -5017,16 +5103,17 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "initial",
-                groupIdHex: "direct-group",
-                sender: senderId,
-                plaintext: "Initial message",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "initial",
+                    groupIdHex: "direct-group",
+                    sender: senderId,
+                    plaintext: "Initial message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "direct-group")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -5048,7 +5135,7 @@ struct whitenoise_macTests {
         state.handleNotificationResponse([
             "groupIdHex": "direct-group",
             "accountIdHex": secondary.accountIdHex,
-            "accountRef": secondary.label
+            "accountRef": secondary.label,
         ])
         let didResolveWithSecondaryProfile = await waitFor {
             state.messagesByChat["direct-group"]?.first?.senderName == "Secondary Alias"
@@ -5199,16 +5286,17 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        runtime.installMessages([
-            appMessage(
-                id: "initial",
-                groupIdHex: "direct-group",
-                sender: aliceId,
-                plaintext: "Initial message",
-                kind: 9,
-                recordedAt: 1_700_000_000
-            )
-        ], groupIdHex: "direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "initial",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Initial message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "direct-group")
         runtime.timelineStreamEndsAfterUpdates = true
         let state = WorkspaceState(clientFactory: { runtime })
 
@@ -5250,13 +5338,14 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "notice-1",
-            groupIdHex: "direct-group",
-            senderName: "Alice",
-            previewText: "See you there."
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "notice-1",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "See you there."
+            ))
 
         #expect(state.backgroundStatus == "notification delivery failed")
         // The user-facing per-screen error field must remain untouched.
@@ -5287,13 +5376,13 @@ struct whitenoise_macTests {
                 fileName: "audit-2.jsonl",
                 sizeBytes: 456,
                 modifiedAtMs: nil
-            )
+            ),
         ]
         runtime.nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(
             enabled: true,
             uploaded: [
                 AuditLogUploadResultFfi(path: "/tmp/audit-1.jsonl", status: 200, bytesSent: 123),
-                AuditLogUploadResultFfi(path: "/tmp/audit-2.jsonl", status: 200, bytesSent: 456)
+                AuditLogUploadResultFfi(path: "/tmp/audit-2.jsonl", status: 200, bytesSent: 456),
             ],
             skippedReason: nil
         )
@@ -5373,7 +5462,9 @@ struct whitenoise_macTests {
         #expect(runtime.localNotificationsEnabledSet == nil)
         #expect(!state.notificationSettings.localNotificationsEnabled)
         #expect(state.notificationAuthorizationStatus == .denied)
-        #expect(state.lastError == "Open System Settings > Notifications and allow White Noise notifications, then try again.")
+        #expect(
+            state.lastError
+                == "Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
 
     @MainActor
@@ -5394,13 +5485,14 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "notice-1",
-            groupIdHex: "direct-group",
-            senderName: "Alice",
-            previewText: "See you there."
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "notice-1",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "See you there."
+            ))
 
         #expect(notificationCenter.postedRequests.count == 1)
         #expect(notificationCenter.postedRequests.first?.identifier == "notice-1")
@@ -5437,13 +5529,14 @@ struct whitenoise_macTests {
         // the handler's own reads are under test.
         runtime.clearSyncCallThreadRecords()
 
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "notice-1",
-            groupIdHex: "direct-group",
-            senderName: "Alice",
-            previewText: "See you there."
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "notice-1",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "See you there."
+            ))
 
         // Exactly one FFI read for the active-account path (was two before the fix),
         // and it still runs off the main thread.
@@ -5476,22 +5569,24 @@ struct whitenoise_macTests {
         await state.bootstrap()
         state.notificationPreviewMode = .senderOnly
 
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "dm-notice",
-            groupIdHex: "direct-group",
-            senderName: "Alice",
-            previewText: "Top secret plaintext."
-        ))
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "group-notice",
-            groupIdHex: "team-group",
-            senderName: "Bob",
-            previewText: "More secret plaintext.",
-            isDm: false,
-            groupName: "Engineering"
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "dm-notice",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "Top secret plaintext."
+            ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "group-notice",
+                groupIdHex: "team-group",
+                senderName: "Bob",
+                previewText: "More secret plaintext.",
+                isDm: false,
+                groupName: "Engineering"
+            ))
 
         #expect(notificationCenter.postedRequests.count == 2)
         let dm = notificationCenter.postedRequests[0]
@@ -5525,22 +5620,24 @@ struct whitenoise_macTests {
         await state.bootstrap()
         state.notificationPreviewMode = .hidden
 
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "dm-notice",
-            groupIdHex: "direct-group",
-            senderName: "Alice",
-            previewText: "Top secret plaintext."
-        ))
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "group-notice",
-            groupIdHex: "team-group",
-            senderName: "Bob",
-            previewText: "More secret plaintext.",
-            isDm: false,
-            groupName: "Engineering"
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "dm-notice",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "Top secret plaintext."
+            ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "group-notice",
+                groupIdHex: "team-group",
+                senderName: "Bob",
+                previewText: "More secret plaintext.",
+                isDm: false,
+                groupName: "Engineering"
+            ))
 
         #expect(notificationCenter.postedRequests.count == 2)
         for request in notificationCenter.postedRequests {
@@ -5573,21 +5670,21 @@ struct whitenoise_macTests {
         await state.bootstrap()
         #expect(state.notificationPreviewMode == .full)
 
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "group-notice",
-            groupIdHex: "team-group",
-            senderName: "Bob",
-            previewText: "The launch plan is ready.",
-            isDm: false,
-            groupName: "Engineering"
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "group-notice",
+                groupIdHex: "team-group",
+                senderName: "Bob",
+                previewText: "The launch plan is ready.",
+                isDm: false,
+                groupName: "Engineering"
+            ))
 
         #expect(notificationCenter.postedRequests.count == 1)
         #expect(notificationCenter.postedRequests.first?.title == "Engineering")
         #expect(notificationCenter.postedRequests.first?.body == "Bob: The launch plan is ready.")
     }
-
 
     @MainActor
     @Test func activeChatNotificationIsSuppressedWhileAppIsActive() async throws {
@@ -5622,13 +5719,14 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "notice-1",
-            groupIdHex: "direct-group",
-            senderName: "Alice",
-            previewText: "See you there."
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "notice-1",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "See you there."
+            ))
 
         #expect(state.selection == .chat("direct-group"))
         #expect(notificationCenter.postedRequests.isEmpty)
@@ -5667,13 +5765,14 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "notice-1",
-            groupIdHex: "direct-group",
-            senderName: "Alice",
-            previewText: "See you there."
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "notice-1",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "See you there."
+            ))
 
         #expect(state.selection == .chat("direct-group"))
         #expect(notificationCenter.postedRequests.map(\.identifier) == ["notice-1"])
@@ -5697,13 +5796,14 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        await state.handleNotificationUpdate(notificationUpdate(
-            account: account,
-            notificationKey: "self-notice",
-            senderName: "Desktop Account",
-            previewText: "Sent by me.",
-            isFromSelf: true
-        ))
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "self-notice",
+                senderName: "Desktop Account",
+                previewText: "Sent by me.",
+                isFromSelf: true
+            ))
         let incoming = notificationUpdate(
             account: account,
             notificationKey: "duplicate-notice",
@@ -5750,7 +5850,7 @@ struct whitenoise_macTests {
         notificationCenter.simulateResponse([
             "accountRef": account.label,
             "accountIdHex": account.accountIdHex,
-            "groupIdHex": "direct-group"
+            "groupIdHex": "direct-group",
         ])
 
         #expect(state.activeAccountId == account.label)
@@ -5902,7 +6002,7 @@ struct whitenoise_macTests {
             "ws://127.0.0.1",
             "ws://127.0.0.1:8080/relay",
             "ws://127.1.2.3",
-            "ws://[::1]:7000"
+            "ws://[::1]:7000",
         ] {
             #expect(RelayURLValidator.classify(url) == .insecureLoopback, "expected loopback for \(url)")
             #expect(RelayURLValidator.isAcceptable(url), "expected acceptable for \(url)")
@@ -5925,7 +6025,7 @@ struct whitenoise_macTests {
             "ws://[::ffff:127.0.0.1]:7000",
             "ws://[::ffff:127.1.2.3]",
             // Non-127.0.0.1 addresses inside 127.0.0.0/8 are still loopback.
-            "ws://127.255.255.254"
+            "ws://127.255.255.254",
         ] {
             #expect(RelayURLValidator.classify(url) == .insecureLoopback, "expected loopback for \(url)")
             #expect(RelayURLValidator.isAcceptable(url), "expected acceptable for \(url)")
@@ -5938,11 +6038,11 @@ struct whitenoise_macTests {
         // including IPv6 and IPv4-mapped IPv6 that point outside 127.0.0.0/8 —
         // remain rejected cleartext relays.
         for url in [
-            "ws://[2001:db8::1]",          // public IPv6
+            "ws://[2001:db8::1]",  // public IPv6
             "ws://[::ffff:192.168.1.10]",  // IPv4-mapped, non-loopback
-            "ws://[fe80::1]",              // link-local IPv6
-            "ws://126.0.0.1",              // just outside 127.0.0.0/8
-            "ws://128.0.0.1"               // just outside 127.0.0.0/8
+            "ws://[fe80::1]",  // link-local IPv6
+            "ws://126.0.0.1",  // just outside 127.0.0.0/8
+            "ws://128.0.0.1",  // just outside 127.0.0.0/8
         ] {
             #expect(RelayURLValidator.classify(url) == .insecureRejected, "expected rejection for \(url)")
             #expect(!RelayURLValidator.isAcceptable(url), "expected not acceptable for \(url)")
@@ -6087,7 +6187,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             sourceRelays: [],
             local: false,
             relay: true
-        )
+        ),
     ]
     private var groups: [AppGroupRecordFfi] = []
     private var messagesByGroupId: [String: [AppMessageRecordFfi]] = [:]
@@ -6319,7 +6419,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                     isSelf: false,
                     npub: "npub1alice",
                     displayName: otherDisplayName
-                )
+                ),
             ]
         )
         groupDetailsById[group.groupIdHex] = details
@@ -6350,7 +6450,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func installGroupDetails(_ details: GroupDetailsFfi, managementState: GroupManagementStateFfi? = nil) {
         groups = [details.group]
         groupDetailsById[details.group.groupIdHex] = details
-        groupManagementStateById[details.group.groupIdHex] = managementState ?? defaultGroupManagementState(for: details)
+        groupManagementStateById[details.group.groupIdHex] =
+            managementState ?? defaultGroupManagementState(for: details)
     }
 
     func installChatListUpdates(_ updates: [ChatListSubscriptionUpdateFfi]) {
@@ -6421,7 +6522,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         }
     }
 
-    func publishUserProfile(accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]) async throws -> UserProfileMetadataFfi {
+    func publishUserProfile(
+        accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]
+    ) async throws -> UserProfileMetadataFfi {
         lastPublishedProfileDefaultRelays = defaultRelays
         lastPublishedProfileBootstrapRelays = bootstrapRelays
         self.profile = profile
@@ -6558,7 +6661,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return 1
     }
 
-    func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws -> String {
+    func createGroup(accountRef: String, name: String, memberRefs: [String], description: String?) async throws
+        -> String
+    {
         createdGroupMemberRefs = memberRefs
         createdGroupName = name
         createdGroupDescription = description
@@ -6639,7 +6744,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return state
     }
 
-    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+    func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+        -> GroupMutationResultFfi
+    {
         invitedMemberRefs = memberRefs
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -6676,7 +6783,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["group-leave"])
     }
 
-    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+    func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+        -> GroupMutationResultFfi
+    {
         promotedAdminRef = memberRef
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = true
@@ -6684,7 +6793,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-promote")
     }
 
-    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws -> GroupMutationResultFfi {
+    func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
+        -> GroupMutationResultFfi
+    {
         demotedAdminRef = memberRef
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = false
@@ -6692,7 +6803,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-demote")
     }
 
-    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws -> GroupMutationResultFfi {
+    func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
+        -> GroupMutationResultFfi
+    {
         removedMemberRefs = memberRefs
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -6731,7 +6844,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return groups[index]
     }
 
-    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?) async throws -> SendSummaryFfi {
+    func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?)
+        async throws -> SendSummaryFfi
+    {
         updatedGroupAvatar = UpdatedGroupAvatar(groupIdHex: groupIdHex, url: url, dim: dim, thumbhash: thumbhash)
 
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
@@ -6750,7 +6865,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["group-avatar"])
     }
 
-    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws -> SendSummaryFfi {
+    func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
+        -> SendSummaryFfi
+    {
         updatedGroupProfile = UpdatedGroupProfile(groupIdHex: groupIdHex, name: name, description: description)
 
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
@@ -6775,13 +6892,17 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["group-profile"])
     }
 
-    func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
+    func setAccountInboxRelays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+        -> AccountRelayListsFfi
+    {
         lastSetInboxBootstrapRelays = bootstrapRelays
         relayLists.inbox = RelayListFfi(kind: relayLists.inbox.kind, relays: relays)
         return relayLists
     }
 
-    func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws -> AccountRelayListsFfi {
+    func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
+        -> AccountRelayListsFfi
+    {
         lastSetNip65BootstrapRelays = bootstrapRelays
         relayLists.nip65 = RelayListFfi(kind: relayLists.nip65.kind, relays: relays)
         return relayLists
@@ -6820,7 +6941,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         update: (inout GroupMemberDetailsFfi) -> Void
     ) {
         guard var details = groupDetailsById[groupIdHex],
-              let index = details.members.firstIndex(where: { memberMatches($0, ref: memberRef) })
+            let index = details.members.firstIndex(where: { memberMatches($0, ref: memberRef) })
         else { return }
 
         update(&details.members[index])
@@ -6883,7 +7004,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return pagedTimeline(from: messages, query: query)
     }
 
-    func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws -> TimelineMessagesSubscription {
+    func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws
+        -> TimelineMessagesSubscription
+    {
         timelineSubscriptionCount += 1
         if timelineSubscriptionDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: timelineSubscriptionDelayNanoseconds)
@@ -6911,7 +7034,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
     }
 
-    func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi? {
+    func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi?
+    {
         recordSyncCall("markTimelineMessageRead")
         markedReadMessageIds.append(messageIdHex)
         return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
@@ -6924,7 +7048,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return Array(records.prefix(Int(limit)))
     }
 
-    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws -> MediaDownloadResultFfi {
+    func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
+        -> MediaDownloadResultFfi
+    {
         downloadMediaCallCount += 1
         guard let download = mediaDownloadsByPlaintextSha256[reference.plaintextSha256] else {
             throw FakeMarmotRuntimeError.unused
@@ -6932,7 +7058,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return download
     }
 
-    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws -> MediaUploadResultFfi {
+    func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws
+        -> MediaUploadResultFfi
+    {
         uploadMediaCallCount += 1
         uploadedMedia = UploadedMedia(groupIdHex: groupIdHex, request: request)
         await passMessageActionGateIfArmed()
@@ -6966,14 +7094,18 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["text"])
     }
 
-    func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws -> SendSummaryFfi {
+    func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws
+        -> SendSummaryFfi
+    {
         replyToMessageCallCount += 1
         repliedMessage = SentReply(groupIdHex: groupIdHex, targetMessageId: targetMessageId, text: text)
         await passMessageActionGateIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["reply"])
     }
 
-    func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws -> SendSummaryFfi {
+    func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
+        -> SendSummaryFfi
+    {
         reactToMessageCallCount += 1
         reactedMessage = SentReaction(groupIdHex: groupIdHex, targetMessageId: targetMessageId, emoji: emoji)
         await passMessageActionGateIfArmed()
@@ -7227,7 +7359,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         let priorSpan = hi - lo
         let wasAnchored = hi >= fullSet.messages.count
         switch update {
-        case .page(page: let page):
+        case .page(let page):
             // A head `.page` refresh never replaces a scrolled-back (detached) window.
             guard wasAnchored else { return windowPage() }
             for message in page.messages {
@@ -7281,9 +7413,9 @@ private extension TimelinePageFfi {
         } else {
             for change in update.changes {
                 switch change {
-                case .upsert(trigger: _, message: let message):
+                case .upsert(trigger: _, let message):
                     upsert(message)
-                case .remove(messageIdHex: let messageIdHex, reason: _):
+                case .remove(let messageIdHex, reason: _):
                     messages.removeAll { $0.messageIdHex == messageIdHex }
                 }
             }
@@ -7449,24 +7581,25 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
     let visibleById = visibleMessages.reduce(into: [String: AppMessageRecordFfi]()) { result, message in
         result[message.messageIdHex] = message
     }
-    let reactionsByTarget = Dictionary(grouping: messages.compactMap { message -> TimelineUserReactionFfi? in
-        guard message.kind == 7,
-              !deletedMessageIds.contains(message.messageIdHex),
-              let targetMessageId = firstTagValue("e", in: message.tags)
-        else {
-            return nil
-        }
+    let reactionsByTarget = Dictionary(
+        grouping: messages.compactMap { message -> TimelineUserReactionFfi? in
+            guard message.kind == 7,
+                !deletedMessageIds.contains(message.messageIdHex),
+                let targetMessageId = firstTagValue("e", in: message.tags)
+            else {
+                return nil
+            }
 
-        let emoji = message.plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !emoji.isEmpty else { return nil }
-        return TimelineUserReactionFfi(
-            reactionMessageIdHex: message.messageIdHex,
-            targetMessageIdHex: targetMessageId,
-            sender: message.sender,
-            emoji: emoji,
-            reactedAt: message.recordedAt
-        )
-    }, by: \.targetMessageIdHex)
+            let emoji = message.plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !emoji.isEmpty else { return nil }
+            return TimelineUserReactionFfi(
+                reactionMessageIdHex: message.messageIdHex,
+                targetMessageIdHex: targetMessageId,
+                sender: message.sender,
+                emoji: emoji,
+                reactedAt: message.recordedAt
+            )
+        }, by: \.targetMessageIdHex)
 
     let timelineMessages = visibleMessages.map { message in
         TimelineMessageRecordFfi(
@@ -7657,8 +7790,8 @@ private func emptyTimelinePage() -> TimelinePageFfi {
 }
 
 @MainActor
-private func waitFor(_ predicate: @MainActor () -> Bool) async -> Bool {
-    for _ in 0..<100 {
+private func waitFor(attempts: Int = 100, _ predicate: @MainActor () -> Bool) async -> Bool {
+    for _ in 0..<attempts {
         if predicate() { return true }
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
@@ -7803,7 +7936,8 @@ private func notificationUpdate(
         isDm: isDm,
         messageIdHex: "\(notificationKey)-message",
         sender: NotificationUserFfi(
-            accountIdHex: isFromSelf ? account.accountIdHex : "alice1234567890alice1234567890alice1234567890alice1234567890",
+            accountIdHex: isFromSelf
+                ? account.accountIdHex : "alice1234567890alice1234567890alice1234567890alice1234567890",
             displayName: senderName,
             pictureUrl: nil
         ),
@@ -7839,7 +7973,7 @@ private func groupDetailsFixture(
     let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
     group.admins = [
         selfIsAdmin ? selfAccountIdHex : nil,
-        otherIsAdmin ? aliceIdHex : nil
+        otherIsAdmin ? aliceIdHex : nil,
     ].compactMap(\.self)
     return GroupDetailsFfi(
         group: group,
@@ -7870,7 +8004,7 @@ private func groupDetailsFixture(
                 isSelf: false,
                 npub: "npub1bob",
                 displayName: "Bob"
-            )
+            ),
         ]
     )
 }

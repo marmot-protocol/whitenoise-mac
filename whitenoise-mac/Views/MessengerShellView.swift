@@ -1,6 +1,6 @@
-import AppKit
 import AVFoundation
 import AVKit
+import AppKit
 import CoreImage
 import MarmotKit
 import SwiftUI
@@ -104,10 +104,12 @@ private struct WelcomeAuthView: View {
                 Button {
                     Task { await workspace.signUp() }
                 } label: {
-                    Text(workspace.isAuthenticating && workspace.authenticationMode == .landing
-                        ? L10n.string("Creating...")
-                        : L10n.string("Create New Identity"))
-                        .frame(maxWidth: .infinity)
+                    Text(
+                        workspace.isAuthenticating && workspace.authenticationMode == .landing
+                            ? L10n.string("Creating...")
+                            : L10n.string("Create New Identity")
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .controlSize(.extraLarge)
                 .buttonBorderShape(.capsule)
@@ -146,7 +148,9 @@ private struct WelcomeAuthView: View {
                             Task { await workspace.login() }
                         }
                         .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
+                        .disabled(
+                            workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || workspace.isAuthenticating)
                     }
                 }
                 .padding(.top, 4)
@@ -547,7 +551,7 @@ func timelineNewestMessageScrollAction(
     }
 
     guard newMessageId != nil,
-          pendingPrependAnchorId == nil
+        pendingPrependAnchorId == nil
     else { return .none }
 
     // `hasMoreBefore` only means older history is loadable. It must not suppress
@@ -604,10 +608,10 @@ private struct ConversationView: View {
                                     .onAppear {
                                         topSentinelResetTask?.cancel()
                                         guard let anchorId = messageIDs.first,
-                                              pendingPrependAnchorId == nil,
-                                              !paging.isLoadingBefore,
-                                              !didRequestOlderForVisibleTopSentinel,
-                                              lastOlderLoadTriggerAnchorId != anchorId
+                                            pendingPrependAnchorId == nil,
+                                            !paging.isLoadingBefore,
+                                            !didRequestOlderForVisibleTopSentinel,
+                                            lastOlderLoadTriggerAnchorId != anchorId
                                         else { return }
                                         didRequestOlderForVisibleTopSentinel = true
                                         lastOlderLoadTriggerAnchorId = anchorId
@@ -615,7 +619,8 @@ private struct ConversationView: View {
                                         Task {
                                             await workspace.loadOlderMessages(groupIdHex: chat.id)
                                             if pendingPrependAnchorId == anchorId,
-                                               workspace.selectedMessageIDs.first == anchorId {
+                                                workspace.selectedMessageIDs.first == anchorId
+                                            {
                                                 pendingPrependAnchorId = nil
                                             }
                                         }
@@ -645,10 +650,10 @@ private struct ConversationView: View {
                                     .onAppear {
                                         bottomSentinelResetTask?.cancel()
                                         guard let anchorId = messageIDs.last,
-                                              pendingAppendAnchorId == nil,
-                                              !paging.isLoadingAfter,
-                                              !didRequestNewerForVisibleBottomSentinel,
-                                              lastNewerLoadTriggerAnchorId != anchorId
+                                            pendingAppendAnchorId == nil,
+                                            !paging.isLoadingAfter,
+                                            !didRequestNewerForVisibleBottomSentinel,
+                                            lastNewerLoadTriggerAnchorId != anchorId
                                         else { return }
                                         didRequestNewerForVisibleBottomSentinel = true
                                         lastNewerLoadTriggerAnchorId = anchorId
@@ -656,7 +661,8 @@ private struct ConversationView: View {
                                         Task {
                                             await workspace.loadNewerMessages(groupIdHex: chat.id)
                                             if pendingAppendAnchorId == anchorId,
-                                               workspace.selectedMessageIDs.last == anchorId {
+                                                workspace.selectedMessageIDs.last == anchorId
+                                            {
                                                 pendingAppendAnchorId = nil
                                             }
                                         }
@@ -716,8 +722,8 @@ private struct ConversationView: View {
                             // chats or a newer paging request may have landed since this
                             // scroll restoration was scheduled.
                             guard workspace.selectedChat?.id == chat.id,
-                                  pendingAppendAnchorId == anchorId,
-                                  workspace.selectedMessageIDs.contains(anchorId)
+                                pendingAppendAnchorId == anchorId,
+                                workspace.selectedMessageIDs.contains(anchorId)
                             else { return }
                             proxy.scrollTo(anchorId, anchor: .bottom)
                             pendingAppendAnchorId = nil
@@ -734,7 +740,7 @@ private struct ConversationView: View {
                 }
                 .onChange(of: messageIDs.first) { _, _ in
                     guard let anchorId = pendingPrependAnchorId,
-                          messageIDs.contains(anchorId)
+                        messageIDs.contains(anchorId)
                     else { return }
                     DispatchQueue.main.async {
                         // Re-validate against live state: the user may have switched
@@ -744,8 +750,8 @@ private struct ConversationView: View {
                         // conversation using a stale anchor, and the unconditional clear
                         // would drop restoration for a subsequent legitimate prepend.
                         guard workspace.selectedChat?.id == chat.id,
-                              pendingPrependAnchorId == anchorId,
-                              workspace.selectedMessageIDs.contains(anchorId)
+                            pendingPrependAnchorId == anchorId,
+                            workspace.selectedMessageIDs.contains(anchorId)
                         else { return }
                         proxy.scrollTo(anchorId, anchor: .top)
                         pendingPrependAnchorId = nil
@@ -1345,8 +1351,11 @@ private struct NewChatDetailsForm: View {
             Button {
                 Task { await workspace.createNewChat() }
             } label: {
-                Label(workspace.isCreatingChat ? L10n.string("Creating...") : L10n.string("Create Chat"), systemImage: "message")
-                    .frame(maxWidth: .infinity)
+                Label(
+                    workspace.isCreatingChat ? L10n.string("Creating...") : L10n.string("Create Chat"),
+                    systemImage: "message"
+                )
+                .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
             .nativeGlassProminentButtonStyle()
@@ -1436,7 +1445,8 @@ private struct ProfileImageAvatarView: View {
         .clipShape(Circle())
         .overlay {
             Circle()
-                .strokeBorder(isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
+                .strokeBorder(
+                    isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
         }
         .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
@@ -1556,7 +1566,8 @@ private struct GroupDetailsSheet: View {
     private var hasProfileChanges: Bool {
         guard let snapshot = workspace.groupDetailsSnapshot else { return false }
         return workspace.groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines) != snapshot.name
-            || workspace.groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines) != snapshot.description
+            || workspace.groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                != snapshot.description
     }
 
     var body: some View {
@@ -1607,17 +1618,20 @@ private struct GroupDetailsSheet: View {
                     if snapshot.pendingConfirmation {
                         Section("Invitation") {
                             VStack(alignment: .leading, spacing: 10) {
-                                Text("Accept this invite to confirm membership, or decline it to remove the group from your chat list.")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(
+                                    "Accept this invite to confirm membership, or decline it to remove the group from your chat list."
+                                )
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
 
                                 HStack(spacing: 10) {
                                     Button {
                                         Task { await workspace.acceptSelectedGroupInvite() }
                                     } label: {
                                         Label(
-                                            workspace.isAcceptingGroupInvite ? L10n.string("Accepting...") : L10n.string("Accept Invite"),
+                                            workspace.isAcceptingGroupInvite
+                                                ? L10n.string("Accepting...") : L10n.string("Accept Invite"),
                                             systemImage: "checkmark.circle"
                                         )
                                     }
@@ -1628,7 +1642,8 @@ private struct GroupDetailsSheet: View {
                                         Task { await workspace.declineSelectedGroupInvite() }
                                     } label: {
                                         Label(
-                                            workspace.isDecliningGroupInvite ? L10n.string("Declining...") : L10n.string("Decline"),
+                                            workspace.isDecliningGroupInvite
+                                                ? L10n.string("Declining...") : L10n.string("Decline"),
                                             systemImage: "xmark.circle"
                                         )
                                     }
@@ -1661,7 +1676,9 @@ private struct GroupDetailsSheet: View {
                             Button {
                                 Task { await workspace.saveGroupProfile() }
                             } label: {
-                                Label(workspace.isSavingGroupProfile ? L10n.string("Saving...") : L10n.string("Save"), systemImage: "checkmark.circle")
+                                Label(
+                                    workspace.isSavingGroupProfile ? L10n.string("Saving...") : L10n.string("Save"),
+                                    systemImage: "checkmark.circle")
                             }
                             .nativeGlassProminentButtonStyle()
                             .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
@@ -1682,17 +1699,24 @@ private struct GroupDetailsSheet: View {
                     if snapshot.canInvite {
                         Section("Invite") {
                             HStack(spacing: 10) {
-                                TextField("npub, profile link, or hex public key", text: $workspace.groupInviteMemberQuery)
-                                    .textFieldStyle(.roundedBorder)
+                                TextField(
+                                    "npub, profile link, or hex public key", text: $workspace.groupInviteMemberQuery
+                                )
+                                .textFieldStyle(.roundedBorder)
 
                                 Button {
                                     Task { await workspace.inviteMemberToSelectedGroup() }
                                 } label: {
-                                    Label(workspace.isInvitingGroupMember ? L10n.string("Inviting...") : L10n.string("Invite"), systemImage: "person.badge.plus")
+                                    Label(
+                                        workspace.isInvitingGroupMember
+                                            ? L10n.string("Inviting...") : L10n.string("Invite"),
+                                        systemImage: "person.badge.plus")
                                 }
                                 .disabled(
                                     workspace.isInvitingGroupMember
-                                        || workspace.groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        || workspace.groupInviteMemberQuery.trimmingCharacters(
+                                            in: .whitespacesAndNewlines
+                                        ).isEmpty
                                 )
                             }
                         }
@@ -1722,9 +1746,13 @@ private struct GroupDetailsSheet: View {
                             Button(role: .destructive) {
                                 showLeaveConfirmation = true
                             } label: {
-                                Label(workspace.isLeavingGroup ? L10n.string("Leaving...") : L10n.string("Leave Group"), systemImage: "rectangle.portrait.and.arrow.right")
+                                Label(
+                                    workspace.isLeavingGroup ? L10n.string("Leaving...") : L10n.string("Leave Group"),
+                                    systemImage: "rectangle.portrait.and.arrow.right")
                             }
-                            .disabled(workspace.isLeavingGroup || !snapshot.canLeave || snapshot.requiresSelfDemoteBeforeLeave)
+                            .disabled(
+                                workspace.isLeavingGroup || !snapshot.canLeave || snapshot.requiresSelfDemoteBeforeLeave
+                            )
 
                             Spacer()
                         }
@@ -1767,13 +1795,26 @@ private struct GroupDetailsSheet: View {
                             GroupDiagnosticsValueRow(title: "Endpoint", value: snapshot.endpoint)
                             GroupDiagnosticsValueRow(title: "Avatar URL", value: snapshot.avatarURL ?? "")
                             GroupDiagnosticsValueRow(title: "Avatar dimension", value: snapshot.avatarDimension ?? "")
-                            GroupDiagnosticsValueRow(title: "Relays", value: snapshot.relays.joined(separator: "\n"), lineLimit: 4)
-                            GroupDiagnosticsValueRow(title: "Admins", value: snapshot.adminIds.joined(separator: "\n"), lineLimit: 4)
-                            GroupDiagnosticsValueRow(title: "Self admin", value: snapshot.isSelfAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Last admin", value: snapshot.isLastAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Can invite", value: snapshot.canInvite ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Can leave", value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"), copyable: false)
-                            GroupDiagnosticsValueRow(title: "Pending confirmation", value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Relays", value: snapshot.relays.joined(separator: "\n"), lineLimit: 4)
+                            GroupDiagnosticsValueRow(
+                                title: "Admins", value: snapshot.adminIds.joined(separator: "\n"), lineLimit: 4)
+                            GroupDiagnosticsValueRow(
+                                title: "Self admin",
+                                value: snapshot.isSelfAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Last admin",
+                                value: snapshot.isLastAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Can invite", value: snapshot.canInvite ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Can leave", value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Pending confirmation",
+                                value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
                         }
                     }
 
@@ -1800,7 +1841,10 @@ private struct GroupDetailsSheet: View {
             titleVisibility: .visible
         ) {
             if let snapshot = workspace.groupDetailsSnapshot {
-                Button(snapshot.archived ? "Unarchive Group" : "Archive Group", role: snapshot.archived ? nil : .destructive) {
+                Button(
+                    snapshot.archived ? "Unarchive Group" : "Archive Group",
+                    role: snapshot.archived ? nil : .destructive
+                ) {
                     Task { await workspace.setSelectedGroupArchived(!snapshot.archived) }
                 }
             }
@@ -2048,7 +2092,10 @@ private struct GroupImagePickerSheet: View {
                             Label("Search", systemImage: "magnifyingglass")
                         }
                         .nativeGlassProminentButtonStyle()
-                        .disabled(workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isSearchingGroupImages)
+                        .disabled(
+                            workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || workspace.isSearchingGroupImages
+                        )
                         .help("Search")
                     }
 
@@ -2293,13 +2340,16 @@ private struct MessageBubble: View {
                                     .padding(.vertical, 3)
                                     .background {
                                         GlassCapsuleBackground(
-                                            borderColor: reaction.canRemoveOwnReaction ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
+                                            borderColor: reaction.canRemoveOwnReaction
+                                                ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
                                         )
                                     }
                             }
                             .buttonStyle(.plain)
                             .contentShape(Capsule())
-                            .help(reaction.canRemoveOwnReaction ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
+                            .help(
+                                reaction.canRemoveOwnReaction
+                                    ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
                         }
                     }
                     .padding(.horizontal, 4)
@@ -2524,7 +2574,8 @@ private struct MessageVisualMediaTile: View {
         }
         .onTapGesture {
             if attachment.kind == .image,
-               let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment) {
+                let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment)
+            {
                 onOpenImageGallery(gallery)
             }
         }
@@ -2686,10 +2737,12 @@ private struct MessageDocumentAttachmentRow: View {
     }
 
     private func openAttachment() {
-        guard let url = MessageMediaPlaybackFileStore.fileURL(
-            attachment: attachment,
-            download: download
-        ) else { return }
+        guard
+            let url = MessageMediaPlaybackFileStore.fileURL(
+                attachment: attachment,
+                download: download
+            )
+        else { return }
         NSWorkspace.shared.open(url)
     }
 }
@@ -2958,10 +3011,13 @@ private struct MessageVideoAttachmentPlayer: View {
         didFail = false
         defer { isLoading = false }
 
-        guard let url = playbackURL ?? MessageMediaPlaybackFileStore.fileURL(
-            attachment: attachment,
-            download: download
-        ) else {
+        guard
+            let url = playbackURL
+                ?? MessageMediaPlaybackFileStore.fileURL(
+                    attachment: attachment,
+                    download: download
+                )
+        else {
             didFail = true
             return
         }
@@ -3264,7 +3320,7 @@ private struct MessageEmojiPickerPopover: View {
         "🚀", "👋", "🤙", "🫡", "🫶", "😬", "😇", "🤩",
         "🥹", "😆", "😁", "😄", "😋", "😌", "😐", "🙃",
         "😉", "😏", "😤", "😮‍💨", "🤗", "🤪", "🤨", "🧐",
-        "💙", "💚", "💛", "🧡", "💜", "🤍", "🖤", "💔"
+        "💙", "💚", "💛", "🧡", "💜", "🤍", "🖤", "💔",
     ]
 
     var body: some View {
@@ -3580,9 +3636,11 @@ private struct AccountsSettingsView: View {
             } header: {
                 Text("Accounts")
             } footer: {
-                Text("Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Add Account") {
@@ -3598,10 +3656,14 @@ private struct AccountsSettingsView: View {
                             workspace.showSettingsPage(.accounts)
                         }
                     } label: {
-                        Label(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"), systemImage: "key")
+                        Label(
+                            workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"),
+                            systemImage: "key")
                     }
                     .nativeGlassProminentButtonStyle()
-                    .disabled(workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || workspace.isAuthenticating)
+                    .disabled(
+                        workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || workspace.isAuthenticating)
 
                     Button {
                         workspace.loginIdentity = ""
@@ -3610,7 +3672,9 @@ private struct AccountsSettingsView: View {
                             workspace.showSettingsPage(.accounts)
                         }
                     } label: {
-                        Label(workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"), systemImage: "plus.circle")
+                        Label(
+                            workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"),
+                            systemImage: "plus.circle")
                     }
                     .nativeGlassButtonStyle()
                     .disabled(workspace.isAuthenticating)
@@ -3634,7 +3698,9 @@ private struct AccountsSettingsView: View {
                 accountPendingRemoval = nil
             }
         } message: { _ in
-            Text("This deletes the private key and local message history for this identity from this Mac. This cannot be undone.")
+            Text(
+                "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
+            )
         }
     }
 
@@ -3841,7 +3907,7 @@ private struct QRCodeImageView: View {
 
     private static func image(for payload: String) -> NSImage? {
         guard !payload.isEmpty,
-              let filter = CIFilter(name: "CIQRCodeGenerator")
+            let filter = CIFilter(name: "CIQRCodeGenerator")
         else { return nil }
 
         filter.setValue(Data(payload.utf8), forKey: "inputMessage")
@@ -3922,7 +3988,9 @@ private struct ProfileSettingsView: View {
                     Button {
                         Task { await workspace.saveProfile() }
                     } label: {
-                        Label(workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"), systemImage: "checkmark.circle")
+                        Label(
+                            workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"),
+                            systemImage: "checkmark.circle")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(workspace.isSavingProfile || workspace.activeAccount == nil)
@@ -3943,7 +4011,7 @@ private struct ProfileSettingsView: View {
         firstNonBlank([
             workspace.profileDraft.displayName,
             workspace.profileDraft.name,
-            account.displayName
+            account.displayName,
         ]) ?? account.displayName
     }
 }
@@ -3972,9 +4040,12 @@ private struct IdentityKeysSettingsView: View {
                             Text(account.displayName)
                                 .font(.headline)
                                 .lineLimit(1)
-                            Text(account.localSigning ? L10n.string("Local signing account") : L10n.string("Watch-only account"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Text(
+                                account.localSigning
+                                    ? L10n.string("Local signing account") : L10n.string("Watch-only account")
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -4007,8 +4078,11 @@ private struct IdentityKeysSettingsView: View {
 
                 Section("Private Key") {
                     LabeledContent("Private key") {
-                        Text(account.localSigning ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac"))
-                            .foregroundStyle(.secondary)
+                        Text(
+                            account.localSigning
+                                ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac")
+                        )
+                        .foregroundStyle(.secondary)
                     }
 
                     Button {
@@ -4020,14 +4094,18 @@ private struct IdentityKeysSettingsView: View {
                 }
 
                 Section("Account Removal") {
-                    Text("Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.")
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally."
+                    )
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                     Button(role: .destructive) {
                         showRemoveAccountConfirmation = true
                     } label: {
-                        Label(workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
+                        Label(
+                            workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"),
+                            systemImage: "person.crop.circle.badge.minus")
                     }
                     .disabled(workspace.isRemovingAccount)
                 }
@@ -4139,35 +4217,43 @@ private struct PrivacySecuritySettingsView: View {
             subtitle: "Telemetry and audit logs stay off until you enable them."
         ) {
             Section("Remote Content") {
-                Toggle(isOn: Binding(
-                    get: { workspace.loadRemoteImages },
-                    set: { workspace.loadRemoteImages = $0 }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.loadRemoteImages },
+                        set: { workspace.loadRemoteImages = $0 }
+                    )
+                ) {
                     Label("Load Remote Profile Images", systemImage: "person.crop.circle.badge.exclamationmark")
                 }
 
-                Text("Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Section("Data Sharing") {
-                Toggle(isOn: Binding(
-                    get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
-                    set: { enabled in
-                        Task { await workspace.setRelayTelemetryEnabled(enabled) }
-                    }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
+                        set: { enabled in
+                            Task { await workspace.setRelayTelemetryEnabled(enabled) }
+                        }
+                    )
+                ) {
                     Label("Anonymous Telemetry", systemImage: "waveform.path.ecg")
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
 
-                Toggle(isOn: Binding(
-                    get: { workspace.privacySecuritySettings.auditLoggingEnabled },
-                    set: { enabled in
-                        Task { await workspace.setAuditLoggingEnabled(enabled) }
-                    }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.privacySecuritySettings.auditLoggingEnabled },
+                        set: { enabled in
+                            Task { await workspace.setAuditLoggingEnabled(enabled) }
+                        }
+                    )
+                ) {
                     Label("Audit Logging", systemImage: "doc.text.magnifyingglass")
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
@@ -4217,7 +4303,9 @@ private struct PrivacySecuritySettingsView: View {
                     Button {
                         Task { await workspace.uploadAuditLogFiles() }
                     } label: {
-                        Label(workspace.isUploadingAuditLogFiles ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
+                        Label(
+                            workspace.isUploadingAuditLogFiles
+                                ? L10n.string("Uploading...") : L10n.string("Upload Now"), systemImage: "arrow.up.doc")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(
@@ -4228,7 +4316,9 @@ private struct PrivacySecuritySettingsView: View {
                     Button(role: .destructive) {
                         showDeleteAuditLogsConfirmation = true
                     } label: {
-                        Label(workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"), systemImage: "trash")
+                        Label(
+                            workspace.isDeletingAuditLogFiles ? L10n.string("Deleting...") : L10n.string("Delete All"),
+                            systemImage: "trash")
                     }
                     .disabled(workspace.auditLogFiles.isEmpty || workspace.isDeletingAuditLogFiles)
                 }
@@ -4279,7 +4369,9 @@ private struct PrivacySecuritySettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This clears all accounts, chats, and messages from this Mac and resets White Noise to a newly installed state. This cannot be undone.")
+            Text(
+                "This clears all accounts, chats, and messages from this Mac and resets White Noise to a newly installed state. This cannot be undone."
+            )
         }
     }
 }
@@ -4346,12 +4438,14 @@ private struct NotificationsSettingsView: View {
             subtitle: "Local alerts for this Mac."
         ) {
             Section("Local Alerts") {
-                Toggle(isOn: Binding(
-                    get: { workspace.notificationSettings.localNotificationsEnabled },
-                    set: { enabled in
-                        Task { await workspace.setLocalNotificationsEnabled(enabled) }
-                    }
-                )) {
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.notificationSettings.localNotificationsEnabled },
+                        set: { enabled in
+                            Task { await workspace.setLocalNotificationsEnabled(enabled) }
+                        }
+                    )
+                ) {
                     Label("Local notifications", systemImage: "bell.badge")
                 }
                 .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications)
@@ -4517,7 +4611,9 @@ private struct RelaySettingsView: View {
                     Button {
                         Task { await workspace.saveRelaySettings() }
                     } label: {
-                        Label(workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"), systemImage: "checkmark.circle")
+                        Label(
+                            workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"),
+                            systemImage: "checkmark.circle")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(workspace.isSavingRelays || workspace.activeAccount == nil)
@@ -4559,7 +4655,8 @@ private struct RelayDiagnosticsView: View {
             }
 
             RelayDiagnosticsRow(title: "Default", systemImage: "network", relays: settings.defaultRelays)
-            RelayDiagnosticsRow(title: "Bootstrap", systemImage: "antenna.radiowaves.left.and.right", relays: settings.bootstrapRelays)
+            RelayDiagnosticsRow(
+                title: "Bootstrap", systemImage: "antenna.radiowaves.left.and.right", relays: settings.bootstrapRelays)
             RelayDiagnosticsRow(title: "NIP-65", systemImage: "list.bullet", relays: settings.publishedNip65)
             RelayDiagnosticsRow(title: "Inbox", systemImage: "tray.and.arrow.down", relays: settings.publishedInbox)
 
@@ -4626,7 +4723,9 @@ private struct KeyPackageSettingsView: View {
                     Button {
                         Task { await workspace.publishNewKeyPackage() }
                     } label: {
-                        Label(workspace.isPublishingKeyPackage ? L10n.string("Publishing...") : L10n.string("Publish new"), systemImage: "plus.circle")
+                        Label(
+                            workspace.isPublishingKeyPackage
+                                ? L10n.string("Publishing...") : L10n.string("Publish new"), systemImage: "plus.circle")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(workspace.isPublishingKeyPackage || workspace.activeAccount == nil)
@@ -4634,7 +4733,10 @@ private struct KeyPackageSettingsView: View {
                     Button {
                         Task { await workspace.republishKeyPackage() }
                     } label: {
-                        Label(workspace.isRepublishingKeyPackage ? L10n.string("Republishing...") : L10n.string("Republish latest"), systemImage: "arrow.triangle.2.circlepath")
+                        Label(
+                            workspace.isRepublishingKeyPackage
+                                ? L10n.string("Republishing...") : L10n.string("Republish latest"),
+                            systemImage: "arrow.triangle.2.circlepath")
                     }
                     .disabled(workspace.isRepublishingKeyPackage || workspace.activeAccount == nil)
 
@@ -4757,7 +4859,10 @@ private struct RelayRow: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(isInsecure ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .frame(width: 20)
-                .help(isInsecure ? L10n.string("Insecure cleartext relay (ws://). Relay metadata is not encrypted in transit.") : "")
+                .help(
+                    isInsecure
+                        ? L10n.string("Insecure cleartext relay (ws://). Relay metadata is not encrypted in transit.")
+                        : "")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(url)
@@ -4765,11 +4870,13 @@ private struct RelayRow: View {
                     .textSelection(.enabled)
 
                 if isInsecure {
-                    Text(RelayURLValidator.classify(url) == .insecureLoopback
-                        ? "Insecure — cleartext ws:// (loopback only)"
-                        : "Insecure — cleartext ws:// (public host)")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
+                    Text(
+                        RelayURLValidator.classify(url) == .insecureLoopback
+                            ? "Insecure — cleartext ws:// (loopback only)"
+                            : "Insecure — cleartext ws:// (public host)"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
                 }
             }
 
@@ -4803,7 +4910,9 @@ private struct AvatarView: View {
             }
             .overlay {
                 Circle()
-                    .strokeBorder(isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
+                    .strokeBorder(
+                        isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2),
+                        lineWidth: isSelected ? 3 : 1)
             }
             .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
     }
@@ -4815,7 +4924,7 @@ private enum AvatarPalette {
         [Color(white: 0.30), Color(white: 0.58)],
         [Color(white: 0.18), Color(white: 0.42)],
         [Color(white: 0.36), Color(white: 0.64)],
-        [Color(white: 0.22), Color(white: 0.54)]
+        [Color(white: 0.22), Color(white: 0.54)],
     ]
 
     static func gradient(for seed: String) -> LinearGradient {
@@ -4830,8 +4939,8 @@ private enum AvatarPalette {
     /// FNV-1a (64-bit) over the seed's UTF-8 bytes. Deterministic across
     /// launches and overflow-safe via wrapping arithmetic.
     private static func stableHash(_ seed: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
-        let prime: UInt64 = 0x0000_0100_0000_01b3 // FNV prime
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325  // FNV offset basis
+        let prime: UInt64 = 0x0000_0100_0000_01b3  // FNV prime
         for byte in seed.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* prime
@@ -5194,11 +5303,12 @@ extension View {
         material: Material = .ultraThinMaterial,
         borderColor: Color? = nil
     ) -> some View {
-        modifier(GlassCardModifier(
-            cornerRadius: cornerRadius,
-            material: material,
-            borderColor: borderColor
-        ))
+        modifier(
+            GlassCardModifier(
+                cornerRadius: cornerRadius,
+                material: material,
+                borderColor: borderColor
+            ))
     }
 
     @ViewBuilder
@@ -5292,7 +5402,9 @@ private struct EmptyDetailView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label(workspace.accounts.isEmpty ? L10n.string("No accounts") : L10n.string("Select a chat"), systemImage: "bubble.left.and.bubble.right")
+            Label(
+                workspace.accounts.isEmpty ? L10n.string("No accounts") : L10n.string("Select a chat"),
+                systemImage: "bubble.left.and.bubble.right")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
