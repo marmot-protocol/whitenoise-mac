@@ -4125,7 +4125,7 @@ struct whitenoise_macTests {
             "https://172.16.0.1/x.png",
             "https://172.31.255.255/x.png",
             "https://192.168.1.1/x.png",
-            "https://169.254.169.254/x.png", // cloud metadata endpoint
+            "https://169.254.169.254/x.png",  // cloud metadata endpoint
             "https://0.0.0.0/x.png",
         ]
         for s in blockedV4 {
@@ -4136,9 +4136,9 @@ struct whitenoise_macTests {
         // (Parser-level coverage of every BSD form lives in `ipAddressParserHandlesLiteralForms`;
         // here we assert the end-to-end URL path for the forms `URL(string:)` parses as a host.)
         let blockedV4Obfuscated = [
-            "https://2130706433/x.png",   // decimal 127.0.0.1
-            "https://127.1/x.png",        // shorthand 127.0.0.1
-            "https://10.0.0.16/x.png",    // plain private, sanity
+            "https://2130706433/x.png",  // decimal 127.0.0.1
+            "https://127.1/x.png",  // shorthand 127.0.0.1
+            "https://10.0.0.16/x.png",  // plain private, sanity
         ]
         for s in blockedV4Obfuscated {
             #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
@@ -4169,10 +4169,10 @@ struct whitenoise_macTests {
             "https://cdn.example.org/p.jpg",
             "https://8.8.8.8/x.png",
             "https://1.1.1.1/x.png",
-            "https://172.32.0.1/x.png",   // just outside 172.16/12
+            "https://172.32.0.1/x.png",  // just outside 172.16/12
             "https://192.169.0.1/x.png",  // just outside 192.168/16
-            "https://[2606:4700:4700::1111]/x.png", // public IPv6 (Cloudflare)
-            "https://[::ffff:8.8.8.8]/x.png",       // IPv4-mapped public address
+            "https://[2606:4700:4700::1111]/x.png",  // public IPv6 (Cloudflare)
+            "https://[::ffff:8.8.8.8]/x.png",  // IPv4-mapped public address
         ]
         for s in allowed {
             #expect(RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected allow for \(s)")
@@ -4186,7 +4186,8 @@ struct whitenoise_macTests {
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[::1]/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost/x.png") == nil)
         // A public host still round-trips.
-        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://cdn.example/p.png")?.absoluteString
+        #expect(
+            RemoteImageURLPolicy.sanitizedURL(from: "https://cdn.example/p.png")?.absoluteString
                 == "https://cdn.example/p.png")
     }
 
@@ -4201,14 +4202,14 @@ struct whitenoise_macTests {
         #expect(IPAddress.parseIPv4("10.0.0.16").map { [$0.0, $0.1, $0.2, $0.3] } == [10, 0, 0, 16])
         // Not IPv4 literals.
         #expect(IPAddress.parseIPv4("example.com") == nil)
-        #expect(IPAddress.parseIPv4("256.0.0.1") == nil) // octet overflow
-        #expect(IPAddress.parseIPv4("1.2.3.4.5") == nil) // too many parts
+        #expect(IPAddress.parseIPv4("256.0.0.1") == nil)  // octet overflow
+        #expect(IPAddress.parseIPv4("1.2.3.4.5") == nil)  // too many parts
 
         // IPv6: `::` compression, full form, and IPv4-mapped tail.
         #expect(IPAddress.parseIPv6("::1") == [0, 0, 0, 0, 0, 0, 0, 1])
         #expect(IPAddress.parseIPv6("fe80::1")?.first == 0xFE80)
         #expect(IPAddress.parseIPv6("::ffff:192.168.0.1") == [0, 0, 0, 0, 0, 0xFFFF, 0xC0A8, 0x0001])
-        #expect(IPAddress.parseIPv6("fe80:::1") == nil)   // malformed: empty group
+        #expect(IPAddress.parseIPv6("fe80:::1") == nil)  // malformed: empty group
         #expect(IPAddress.parseIPv6("example.com") == nil)
     }
 

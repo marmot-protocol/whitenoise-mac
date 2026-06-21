@@ -55,7 +55,8 @@ enum RemoteImageURLPolicy {
     /// a private/loopback/link-local/unspecified literal IP, or a local hostname.
     static func isDisallowedHost(_ host: String) -> Bool {
         // `URL.host` does not lowercase or strip IPv6 brackets in all cases; normalize defensively.
-        let normalized = host
+        let normalized =
+            host
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
             .lowercased()
 
@@ -101,7 +102,7 @@ enum RemoteImageURLPolicy {
     /// ULA `fc00::/7`, link-local `fe80::/10`, and IPv4-mapped `::ffff:0:0/96` /
     /// IPv4-compatible addresses whose embedded IPv4 is itself private.
     private static func isPrivateIPv6(_ groups: [UInt16]) -> Bool {
-        guard groups.count == 8 else { return true } // be conservative on anything unparseable
+        guard groups.count == 8 else { return true }  // be conservative on anything unparseable
 
         // Unspecified `::` and loopback `::1`.
         if groups[0...6].allSatisfy({ $0 == 0 }) {
@@ -198,7 +199,8 @@ enum IPAddress {
     /// dotted-quad IPv4 tail) into eight 16-bit groups, or nil if not an IPv6 literal.
     static func parseIPv6(_ value: String) -> [UInt16]? {
         // Strip an optional zone id (`fe80::1%en0`) — the address part is all we validate.
-        let addr = value.split(separator: "%", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? value
+        let addr =
+            value.split(separator: "%", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? value
         guard addr.contains(":") else { return nil }
 
         let halves = addr.components(separatedBy: "::")
@@ -217,7 +219,8 @@ enum IPAddress {
                     continue
                 }
                 guard !piece.isEmpty, piece.count <= 4,
-                      let v = UInt16(piece, radix: 16) else { return nil }
+                    let v = UInt16(piece, radix: 16)
+                else { return nil }
                 out.append(v)
             }
             return out
