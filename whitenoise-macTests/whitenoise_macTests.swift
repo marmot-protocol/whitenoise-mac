@@ -876,6 +876,45 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func boundedNestedMediaJSONStillProducesAttachments() async throws {
+        // Base helper shape is object + imeta array + tag array, so 29 wrappers
+        // reaches the current raw nesting limit of 32 without exceeding it.
+        let reference = mediaAttachmentReference(
+            mediaType: "image/png",
+            fileName: "bounded-[literal-{brackets}].png"
+        )
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "bounded-media-objects",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_002,
+                    mediaJson: mediaJson(for: reference, mediaObjectDepth: 29)
+                ),
+                timelineMessage(
+                    id: "bounded-media-arrays",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_003,
+                    mediaJson: mediaJson(for: reference, arrayDepth: 29)
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == 2)
+        #expect(messages.allSatisfy { $0.body.isEmpty })
+        #expect(messages.allSatisfy { $0.mediaAttachments.count == 1 })
+        #expect(messages.allSatisfy { $0.mediaAttachments.first?.reference.fileName == reference.fileName })
+    }
+
+    @MainActor
     @Test func workspaceDownloadsMediaAttachmentAndCachesResult() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
