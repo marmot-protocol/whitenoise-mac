@@ -583,6 +583,43 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func localizedStringUsesSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        #expect(L10n.string("Save") == "Guardar")
+    }
+
+    @MainActor
+    @Test func localizedStringBundleCacheInvalidatesOnLanguageChange() async throws {
+        // Regression for the residual half of #28 (#117): `L10n.string` caches the
+        // resolved `.lproj` bundle to avoid a per-call filesystem stat + `Bundle`
+        // allocation. The cache must be invalidated by `refreshCachedLocale()` when
+        // the language preference changes, otherwise a stale bundle keeps serving
+        // the previous language. Switch between two non-source languages and assert
+        // each read reflects the current preference.
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        // Prime the cache while Spanish is selected.
+        #expect(L10n.string("Save") == "Guardar")
+
+        UserDefaults.standard.set(AppLanguage.german.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        // The cache must have been cleared, so this resolves the German bundle.
+        #expect(L10n.string("Save") == "Speichern")
+
+        // And back again, confirming the cache tracks the preference in both directions.
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        #expect(L10n.string("Save") == "Guardar")
+    }
+
+    @MainActor
     @Test func projectedChatRowTimestampUsesLastMessageTime() async throws {
         let lastMessageAt: UInt64 = 1_700_000_000
         let projectionRefreshedAt: UInt64 = 1_800_000_000
