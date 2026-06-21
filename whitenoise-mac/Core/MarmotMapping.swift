@@ -349,6 +349,8 @@ private enum MarmotTimelineKind {
 }
 
 private nonisolated enum MessageMediaParser {
+    private static let maxMediaJSONTraversalDepth = 32
+
     static func attachments(
         mediaJson: String?,
         tags: [MessageTagFfi],
@@ -370,14 +372,20 @@ private nonisolated enum MessageMediaParser {
 
     private static func references(fromMediaJson mediaJson: String?) -> [MediaAttachmentReferenceFfi] {
         guard let mediaJson,
+              !mediaJSONNestingExceedsLimit(mediaJson, maxDepth: maxMediaJSONTraversalDepth),
               let data = mediaJson.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data)
         else { return [] }
 
-        return references(fromJSONObject: root)
+        return references(fromJSONObject: root, remainingDepth: maxMediaJSONTraversalDepth)
     }
 
-    private static func references(fromJSONObject value: Any) -> [MediaAttachmentReferenceFfi] {
+    private static func references(
+        fromJSONObject value: Any,
+        remainingDepth: Int
+    ) -> [MediaAttachmentReferenceFfi] {
+        guard remainingDepth >= 0 else { return [] }
+
         if let dictionary = value as? [String: Any] {
             var output: [MediaAttachmentReferenceFfi] = []
 
@@ -390,7 +398,7 @@ private nonisolated enum MessageMediaParser {
                 )
             }
             if let media = dictionary["media"] {
-                output.append(contentsOf: references(fromJSONObject: media))
+                output.append(contentsOf: references(fromJSONObject: media, remainingDepth: remainingDepth - 1))
             }
             if let direct = reference(fromJSONObject: dictionary) {
                 output.append(direct)
@@ -403,10 +411,45 @@ private nonisolated enum MessageMediaParser {
             if let tagReferences = references(fromIMetaArray: array, sourceEpoch: nil), !tagReferences.isEmpty {
                 return tagReferences
             }
-            return array.flatMap(references(fromJSONObject:))
+            return array.flatMap { references(fromJSONObject: $0, remainingDepth: remainingDepth - 1) }
         }
 
         return []
+    }
+
+    private static func mediaJSONNestingExceedsLimit(_ json: String, maxDepth: Int) -> Bool {
+        var depth = 0
+        var isInsideString = false
+        var isEscaped = false
+
+        for scalar in json.unicodeScalars {
+            if isInsideString {
+                if isEscaped {
+                    isEscaped = false
+                } else if scalar.value == 0x5C { // \\
+                    isEscaped = true
+                } else if scalar.value == 0x22 { // "
+                    isInsideString = false
+                }
+                continue
+            }
+
+            switch scalar.value {
+            case 0x22: // "
+                isInsideString = true
+            case 0x7B, 0x5B: // { or [
+                depth += 1
+                if depth > maxDepth {
+                    return true
+                }
+            case 0x7D, 0x5D: // } or ]
+                depth = max(0, depth - 1)
+            default:
+                continue
+            }
+        }
+
+        return false
     }
 
     private static func references(fromIMetaValue value: Any, sourceEpoch: UInt64?) -> [MediaAttachmentReferenceFfi] {

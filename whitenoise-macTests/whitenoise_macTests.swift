@@ -840,6 +840,42 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func deeplyNestedMediaJSONDoesNotProduceAttachments() async throws {
+        // Regression for whitenoise-mac#120: mediaJson is decrypted peer content.
+        // Overly deep objects/arrays must be ignored instead of recursively walking
+        // attacker-controlled nesting on the timeline mapping path.
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "nested.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "deep-media-objects",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJson(for: reference, mediaObjectDepth: 40)
+                ),
+                timelineMessage(
+                    id: "deep-media-arrays",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_001,
+                    mediaJson: mediaJson(for: reference, arrayDepth: 40)
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == 2)
+        #expect(messages.allSatisfy { $0.mediaAttachments.isEmpty })
+        #expect(messages.allSatisfy { $0.body == "Unsupported message" })
+    }
+
+    @MainActor
     @Test func workspaceDownloadsMediaAttachmentAndCachesResult() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -7809,7 +7845,27 @@ private func mediaAttachmentReference(
 
 private func mediaJson(for reference: MediaAttachmentReferenceFfi) -> String {
     let tag = mediaIMetaTag(for: reference).values
-    let data = try! JSONSerialization.data(withJSONObject: ["imeta": [tag]], options: [.sortedKeys])
+    return mediaJSONString(fromJSONObject: ["imeta": [tag]])
+}
+
+private func mediaJson(for reference: MediaAttachmentReferenceFfi, mediaObjectDepth depth: Int) -> String {
+    var object: [String: Any] = ["imeta": [mediaIMetaTag(for: reference).values]]
+    for _ in 0..<depth {
+        object = ["media": object]
+    }
+    return mediaJSONString(fromJSONObject: object)
+}
+
+private func mediaJson(for reference: MediaAttachmentReferenceFfi, arrayDepth depth: Int) -> String {
+    var object: Any = ["imeta": [mediaIMetaTag(for: reference).values]]
+    for _ in 0..<depth {
+        object = [object]
+    }
+    return mediaJSONString(fromJSONObject: object)
+}
+
+private func mediaJSONString(fromJSONObject object: Any) -> String {
+    let data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     return String(data: data, encoding: .utf8)!
 }
 
