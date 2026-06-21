@@ -674,6 +674,7 @@ private struct ConversationView: View {
                                             try? await Task.sleep(nanoseconds: 300_000_000)
                                             guard !Task.isCancelled else { return }
                                             await MainActor.run {
+                                                guard pendingAppendAnchorId == nil else { return }
                                                 didRequestNewerForVisibleBottomSentinel = false
                                             }
                                         }
