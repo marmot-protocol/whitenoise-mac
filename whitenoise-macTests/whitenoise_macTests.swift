@@ -4111,6 +4111,109 @@ struct whitenoise_macTests {
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https:///nohost")!))
     }
 
+    @Test func remoteImagePolicyRejectsPrivateAndLoopbackHosts() async throws {
+        // SSRF guard: once a user opts into remote images, an attacker-controlled `picture`
+        // URL must not be able to reach the viewer's internal network. Every URL below is a
+        // valid `https://` URL with a non-empty host, so only the address check rejects them.
+
+        // IPv4 loopback / private / link-local / "this host".
+        let blockedV4 = [
+            "https://127.0.0.1/x.png",
+            "https://127.1.2.3/x.png",
+            "https://10.0.0.5/x.png",
+            "https://10.255.255.255/x.png",
+            "https://172.16.0.1/x.png",
+            "https://172.31.255.255/x.png",
+            "https://192.168.1.1/x.png",
+            "https://169.254.169.254/x.png",  // cloud metadata endpoint
+            "https://0.0.0.0/x.png",
+        ]
+        for s in blockedV4 {
+            #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
+        }
+
+        // Obfuscated IPv4 forms that still resolve to loopback/private must also be rejected.
+        // (Parser-level coverage of every BSD form lives in `ipAddressParserHandlesLiteralForms`;
+        // here we assert the end-to-end URL path for the forms `URL(string:)` parses as a host.)
+        let blockedV4Obfuscated = [
+            "https://2130706433/x.png",  // decimal 127.0.0.1
+            "https://127.1/x.png",  // shorthand 127.0.0.1
+            "https://10.0.0.16/x.png",  // plain private, sanity
+        ]
+        for s in blockedV4Obfuscated {
+            #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
+        }
+
+        // IPv6 loopback / unspecified / ULA / link-local / IPv4-mapped private.
+        let blockedV6 = [
+            "https://[::1]/x.png",
+            "https://[::]/x.png",
+            "https://[fc00::1]/x.png",
+            "https://[fd12:3456::1]/x.png",
+            "https://[fe80::1]/x.png",
+            "https://[::ffff:192.168.0.1]/x.png",
+            "https://[::ffff:127.0.0.1]/x.png",
+        ]
+        for s in blockedV6 {
+            #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
+        }
+
+        // Local hostnames.
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://localhost/x.png")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://LOCALHOST/x.png")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://printer.local/x.png")!))
+
+        // Allowed: genuine public hosts and public IP literals are not affected.
+        let allowed = [
+            "https://example.com/avatar.png",
+            "https://cdn.example.org/p.jpg",
+            "https://8.8.8.8/x.png",
+            "https://1.1.1.1/x.png",
+            "https://172.32.0.1/x.png",  // just outside 172.16/12
+            "https://192.169.0.1/x.png",  // just outside 192.168/16
+            "https://[2606:4700:4700::1111]/x.png",  // public IPv6 (Cloudflare)
+            "https://[::ffff:8.8.8.8]/x.png",  // IPv4-mapped public address
+        ]
+        for s in allowed {
+            #expect(RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected allow for \(s)")
+        }
+    }
+
+    @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
+        // The string entry point used by the UI must also reject internal destinations.
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://127.0.0.1:8080/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[::1]/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost/x.png") == nil)
+        // A public host still round-trips.
+        #expect(
+            RemoteImageURLPolicy.sanitizedURL(from: "https://cdn.example/p.png")?.absoluteString
+                == "https://cdn.example/p.png")
+    }
+
+    @Test func ipAddressParserHandlesLiteralForms() async throws {
+        // IPv4: dotted-quad, decimal, hex, octal, and shorthand all normalize to the same octets.
+        #expect(IPAddress.parseIPv4("127.0.0.1").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
+        #expect(IPAddress.parseIPv4("8.8.8.8").map { [$0.0, $0.1, $0.2, $0.3] } == [8, 8, 8, 8])
+        #expect(IPAddress.parseIPv4("203.0.113.5").map { [$0.0, $0.1, $0.2, $0.3] } == [203, 0, 113, 5])
+        #expect(IPAddress.parseIPv4("2130706433").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
+        #expect(IPAddress.parseIPv4("0x7f000001").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
+        #expect(IPAddress.parseIPv4("0177.0.0.1").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
+        #expect(IPAddress.parseIPv4("127.1").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
+        #expect(IPAddress.parseIPv4("10.0.0.16").map { [$0.0, $0.1, $0.2, $0.3] } == [10, 0, 0, 16])
+        // Not IPv4 literals.
+        #expect(IPAddress.parseIPv4("example.com") == nil)
+        #expect(IPAddress.parseIPv4("256.0.0.1") == nil)  // octet overflow
+        #expect(IPAddress.parseIPv4("1.2.3.4.5") == nil)  // too many parts
+
+        // IPv6: `::` compression, full form, and IPv4-mapped tail.
+        #expect(IPAddress.parseIPv6("::1") == [0, 0, 0, 0, 0, 0, 0, 1])
+        #expect(IPAddress.parseIPv6("fe80::1")?.first == 0xFE80)
+        #expect(IPAddress.parseIPv6("::ffff:192.168.0.1") == [0, 0, 0, 0, 0, 0xFFFF, 0xC0A8, 0x0001])
+        #expect(IPAddress.parseIPv6("fe80:::1") == nil)  // malformed: empty group
+        #expect(IPAddress.parseIPv6("example.com") == nil)
+    }
+
     @Test func remoteImageCollectorReturnsAllBytesUnderCap() async throws {
         // Several chunks spanning typical OS delivery sizes should round-trip byte-for-byte.
         let chunkSize = 64 * 1024
