@@ -2811,6 +2811,16 @@ private struct MessageAttachmentStatusRow: View {
     }
 }
 
+@MainActor
+private final class MessageAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
+    var onDidFinishPlaying: (() -> Void)?
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        player.currentTime = 0
+        onDidFinishPlaying?()
+    }
+}
+
 private struct MessageAudioAttachmentPlayer: View {
     let download: MessageMediaDownload
     let fallbackFileName: String
@@ -2820,13 +2830,14 @@ private struct MessageAudioAttachmentPlayer: View {
     @State private var playbackProgress: CGFloat = 0
     @State private var metadata: MediaWaveformAnalyzer.Metadata?
     @State private var playbackMonitor: Task<Void, Never>?
+    @State private var audioPlayerDelegate = MessageAudioPlayerDelegate()
 
     var body: some View {
         HStack(spacing: 10) {
             Button {
                 togglePlayback()
             } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                     .font(.system(size: 13, weight: .bold))
                     .frame(width: 30, height: 30)
                     .background {
@@ -2835,7 +2846,7 @@ private struct MessageAudioAttachmentPlayer: View {
                     }
             }
             .buttonStyle(.plain)
-            .help(isPlaying ? L10n.string("Pause") : L10n.string("Play"))
+            .help(isPlaying ? L10n.string("Stop") : L10n.string("Play"))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(download.fileName.nilIfBlank ?? fallbackFileName)
@@ -2900,37 +2911,42 @@ private struct MessageAudioAttachmentPlayer: View {
             if player == nil {
                 player = try AVAudioPlayer(data: download.data)
                 player?.prepareToPlay()
+                player?.delegate = audioPlayerDelegate
             }
+            audioPlayerDelegate.onDidFinishPlaying = handlePlaybackFinished
             player?.play()
             isPlaying = true
             updatePlaybackProgress()
-            monitorPlayback()
+            monitorPlaybackProgress()
         } catch {
             isPlaying = false
         }
     }
 
     private func stopPlayback() {
-        playbackMonitor?.cancel()
-        playbackMonitor = nil
+        audioPlayerDelegate.onDidFinishPlaying = nil
         player?.stop()
         player?.currentTime = 0
+        finishPlayback()
+    }
+
+    private func handlePlaybackFinished() {
+        finishPlayback()
+    }
+
+    private func finishPlayback() {
+        playbackMonitor?.cancel()
+        playbackMonitor = nil
         isPlaying = false
         playbackProgress = 0
     }
 
-    private func monitorPlayback() {
+    private func monitorPlaybackProgress() {
         playbackMonitor?.cancel()
         playbackMonitor = Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard player?.isPlaying == true else {
-                    player?.currentTime = 0
-                    isPlaying = false
-                    playbackProgress = 0
-                    break
-                }
+            while !Task.isCancelled, isPlaying {
                 updatePlaybackProgress()
+                try? await Task.sleep(nanoseconds: 200_000_000)
             }
         }
     }
