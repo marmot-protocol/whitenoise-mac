@@ -183,7 +183,7 @@ enum IPAddress {
             addr = (addr << 8) | UInt32(n)
         }
         // Shift the leading octets up to make room for the final (multi-byte) part.
-        addr <<= UInt32((4 - nums.count) * 8)
+        addr <<= UInt32((5 - nums.count) * 8)
         addr |= UInt32(last)
 
         return (

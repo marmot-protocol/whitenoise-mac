@@ -3681,6 +3681,8 @@ struct whitenoise_macTests {
     @Test func ipAddressParserHandlesLiteralForms() async throws {
         // IPv4: dotted-quad, decimal, hex, octal, and shorthand all normalize to the same octets.
         #expect(IPAddress.parseIPv4("127.0.0.1").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
+        #expect(IPAddress.parseIPv4("8.8.8.8").map { [$0.0, $0.1, $0.2, $0.3] } == [8, 8, 8, 8])
+        #expect(IPAddress.parseIPv4("203.0.113.5").map { [$0.0, $0.1, $0.2, $0.3] } == [203, 0, 113, 5])
         #expect(IPAddress.parseIPv4("2130706433").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
         #expect(IPAddress.parseIPv4("0x7f000001").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
         #expect(IPAddress.parseIPv4("127.1").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
