@@ -4198,6 +4198,7 @@ struct whitenoise_macTests {
         #expect(IPAddress.parseIPv4("203.0.113.5").map { [$0.0, $0.1, $0.2, $0.3] } == [203, 0, 113, 5])
         #expect(IPAddress.parseIPv4("2130706433").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
         #expect(IPAddress.parseIPv4("0x7f000001").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
+        #expect(IPAddress.parseIPv4("0177.0.0.1").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
         #expect(IPAddress.parseIPv4("127.1").map { [$0.0, $0.1, $0.2, $0.3] } == [127, 0, 0, 1])
         #expect(IPAddress.parseIPv4("10.0.0.16").map { [$0.0, $0.1, $0.2, $0.3] } == [10, 0, 0, 16])
         // Not IPv4 literals.
