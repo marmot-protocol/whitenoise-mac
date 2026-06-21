@@ -2925,6 +2925,7 @@ private struct MessageAudioAttachmentPlayer: View {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard player?.isPlaying == true else {
+                    player?.currentTime = 0
                     isPlaying = false
                     playbackProgress = 0
                     break
