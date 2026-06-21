@@ -390,6 +390,8 @@ private nonisolated enum MessageMediaParser {
             var output: [MediaAttachmentReferenceFfi] = []
 
             if let imeta = dictionary["imeta"] {
+                // Safe without its own depth counter because the raw JSON pre-scan rejects
+                // any object graph deeper than maxMediaJSONTraversalDepth before parsing.
                 output.append(
                     contentsOf: references(
                         fromIMetaValue: imeta,
