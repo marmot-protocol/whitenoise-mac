@@ -5,13 +5,16 @@
 //  Created by Jeff Gardner on 26/05/2026.
 //
 
+import AppKit
 import Combine
 import Darwin
 import Foundation
+import ImageIO
 import MarmotKit
 import Observation
 import SwiftUI
 import Testing
+import UniformTypeIdentifiers
 import UserNotifications
 
 @testable import whitenoise_mac
@@ -4657,6 +4660,24 @@ struct whitenoise_macTests {
         #expect(!collector.exceededCap)
     }
 
+    @Test func pendingMediaDraftThumbnailDecoderDownsamplesLargeImage() async throws {
+        let data = try Self.jpegData(width: 640, height: 480)
+        let image = try #require(PendingMediaDraftThumbnailDecoder.image(from: data, maxPixelSize: 74))
+        let representation = try #require(image.representations.first)
+
+        #expect(max(representation.pixelsWide, representation.pixelsHigh) <= 74)
+        #expect(PendingMediaDraftThumbnailDecoder.decodedCost(for: image) <= 74 * 74 * 4)
+    }
+
+    @Test func pendingMediaDraftThumbnailDecoderRejectsInvalidImageData() async throws {
+        let image = PendingMediaDraftThumbnailDecoder.image(
+            from: Data([0x00, 0x01, 0x02, 0x03]),
+            maxPixelSize: 74
+        )
+
+        #expect(image == nil)
+    }
+
     @Test func remoteImageSanitizedURLRejectsUntrustedInput() async throws {
         // nil / empty / whitespace-only -> nil (no request issued).
         #expect(RemoteImageURLPolicy.sanitizedURL(from: nil) == nil)
@@ -4711,6 +4732,40 @@ struct whitenoise_macTests {
         0x3D, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
         0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ])
+
+    private static func jpegData(width: Int, height: Int) throws -> Data {
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        let cgImage = pixels.withUnsafeMutableBytes { bytes -> CGImage? in
+            guard
+                let context = CGContext(
+                    data: bytes.baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: colorSpace,
+                    bitmapInfo: bitmapInfo
+                )
+            else {
+                return nil
+            }
+            context.setFillColor(NSColor.systemBlue.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            return context.makeImage()
+        }
+        let image = try #require(cgImage)
+        let data = NSMutableData()
+        let destination = try #require(
+            CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)
+        )
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
 
     @MainActor
     @Test func loadRemoteImagesDefaultsOffAndPersists() async throws {

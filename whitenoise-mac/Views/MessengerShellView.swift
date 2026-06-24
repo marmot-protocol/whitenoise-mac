@@ -941,11 +941,24 @@ private struct PendingMediaDraftTile: View {
     let attachment: PendingMediaAttachment
     let tileSize: CGSize
 
+    @State private var decodedImagePreview: NSImage?
+    @State private var decodedImageCacheKey: String?
+
+    private static let imagePreviewCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        cache.totalCostLimit = 8 * 1024 * 1024
+        return cache
+    }()
+
     var body: some View {
         Group {
             switch attachment.kind {
             case .image:
                 imagePreview
+                    .task(id: imagePreviewTaskID) {
+                        await loadImagePreview()
+                    }
             case .audio:
                 audioPreview
             case .video, .file:
@@ -966,7 +979,7 @@ private struct PendingMediaDraftTile: View {
 
     @ViewBuilder
     private var imagePreview: some View {
-        if let image = NSImage(data: attachment.data) {
+        if let image = decodedImagePreview {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()
@@ -974,6 +987,50 @@ private struct PendingMediaDraftTile: View {
         } else {
             iconPreview(systemName: attachment.kind.systemImageName)
         }
+    }
+
+    private var imagePreviewTaskID: String {
+        Self.cacheKey(for: attachment, maxPixelSize: imagePreviewMaxPixelSize)
+    }
+
+    private var imagePreviewMaxPixelSize: CGFloat {
+        ceil(max(tileSize.width, tileSize.height) * 2)
+    }
+
+    @MainActor
+    private func loadImagePreview() async {
+        let cacheKey = imagePreviewTaskID
+        if decodedImageCacheKey == cacheKey, decodedImagePreview != nil {
+            return
+        }
+        if let cached = Self.imagePreviewCache.object(forKey: cacheKey as NSString) {
+            decodedImageCacheKey = cacheKey
+            decodedImagePreview = cached
+            return
+        }
+
+        decodedImageCacheKey = cacheKey
+        decodedImagePreview = nil
+
+        let data = attachment.data
+        let maxPixelSize = imagePreviewMaxPixelSize
+        let decoded = await Task.detached(priority: .utility) {
+            PendingMediaDraftThumbnailDecoder.image(from: data, maxPixelSize: maxPixelSize)
+        }.value
+
+        guard decodedImageCacheKey == cacheKey else { return }
+        if let decoded {
+            Self.imagePreviewCache.setObject(
+                decoded,
+                forKey: cacheKey as NSString,
+                cost: PendingMediaDraftThumbnailDecoder.decodedCost(for: decoded)
+            )
+        }
+        decodedImagePreview = decoded
+    }
+
+    private static func cacheKey(for attachment: PendingMediaAttachment, maxPixelSize: CGFloat) -> String {
+        "\(attachment.id.uuidString)|\(attachment.data.count)|\(Int(maxPixelSize))"
     }
 
     private var audioPreview: some View {
@@ -1018,6 +1075,36 @@ private struct PendingMediaDraftTile: View {
         Image(systemName: systemName)
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(.secondary)
+    }
+}
+
+enum PendingMediaDraftThumbnailDecoder {
+    static func image(from data: Data, maxPixelSize: CGFloat) -> NSImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+        let options =
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixelSize)),
+            ] as CFDictionary
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    static func decodedCost(for image: NSImage) -> Int {
+        let representation = image.representations.first
+        let width = max(1, representation?.pixelsWide ?? Int(ceil(image.size.width)))
+        let height = max(1, representation?.pixelsHigh ?? Int(ceil(image.size.height)))
+        guard width <= Int.max / max(height, 1) / 4 else {
+            return 8 * 1024 * 1024
+        }
+        return width * height * 4
     }
 }
 
