@@ -727,6 +727,9 @@ final class WorkspaceState {
     func bootstrap() async {
         guard client == nil, case .bootstrapping = phase else { return }
         lastError = nil
+        // Wipe any decrypted attachment plaintext left in the playback scratch directory by
+        // a prior session before the UI can surface new media.
+        try? await runOffMain { MediaPlaybackTempStore.purge() }
         do {
             let runtime = try clientFactory()
             client = runtime
@@ -1010,6 +1013,10 @@ final class WorkspaceState {
             stopChatListListener()
             stopTimelineListener()
 
+            // Marmot only owns its storage root; the decrypted-attachment playback scratch
+            // directory lives outside it, so purge it before the potentially throwing
+            // Marmot deletion call when wiping local data.
+            try? await runOffMain { MediaPlaybackTempStore.purge() }
             try await client.deleteAllLocalData()
             self.client = nil
             observabilityRuntimeConfiguration = nil
