@@ -3795,6 +3795,7 @@ final class WorkspaceState {
                     messageIdHex: messageId
                 )
             })
+            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
             let committedState = ReadMarker.afterSuccessfulCommit(
                 current: lastMarkedReadMarkers[groupIdHex],
                 confirmed: lastConfirmedReadMarkers[groupIdHex],
@@ -3806,6 +3807,7 @@ final class WorkspaceState {
                 await applyChatRow(row, account: account)
             }
         } catch {
+            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
             lastMarkedReadMarkers[groupIdHex] = ReadMarker.afterFailedOptimisticAdvance(
                 current: lastMarkedReadMarkers[groupIdHex],
                 attempted: marker,
@@ -4434,7 +4436,8 @@ struct ReadMarker: Equatable, Comparable {
     /// If a newer optimistic marker is currently in flight, keep it as the read
     /// gate while recording `attempted` as the latest confirmed value. If a
     /// newer failed call already rolled the gate back, restore it to the marker
-    /// that just committed.
+    /// that just committed. The returned `current` value is written back to
+    /// `lastMarkedReadMarkers`; `confirmed` is written to `lastConfirmedReadMarkers`.
     static func afterSuccessfulCommit(
         current: ReadMarker?,
         confirmed: ReadMarker?,
