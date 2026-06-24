@@ -2,6 +2,7 @@ import AVFoundation
 import AVKit
 import AppKit
 import CoreImage
+import CryptoKit
 import MarmotKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -3094,12 +3095,8 @@ private enum MessageMediaPlaybackFileStore {
     }
 
     private static func stableStem(for id: String) -> String {
-        id.unicodeScalars.map { scalar in
-            CharacterSet.alphanumerics.contains(scalar) ? String(scalar) : "-"
-        }
-        .joined()
-        .prefix(48)
-        .description
+        let digest = SHA256.hash(data: Data(id.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private static func sanitizedFileName(_ fileName: String, fallbackExtension: String) -> String {
