@@ -2153,7 +2153,12 @@ final class WorkspaceState {
     }
 
     private func updateSelectedGroupImage(url: String?, dim: String?) async {
-        guard let client, let activeAccount, let selectedChat, !selectedChat.isDirect else { return }
+        guard let client,
+            let activeAccount,
+            let selectedChat,
+            !selectedChat.isDirect,
+            !isSavingGroupImage
+        else { return }
         isSavingGroupImage = true
         defer { isSavingGroupImage = false }
 

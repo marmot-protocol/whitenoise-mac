@@ -3905,6 +3905,67 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupImageUpdateDropsOverlappingDuplicateInvocation() async throws {
+        // Issue #134: set/clear group image both funnel through an async avatar update.
+        // The in-flight flag must guard the entry point itself so a second control action
+        // delivered before SwiftUI disables the UI does not publish a conflicting update.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        let result = GroupImageSearchResult(
+            id: "image-1",
+            title: "Aurora",
+            imageURL: "https://example.com/aurora.jpg",
+            thumbnailURL: "https://example.com/aurora-thumb.jpg",
+            creator: "Open Photographer",
+            license: "by",
+            attribution: nil,
+            sourceURL: "https://example.com/aurora",
+            width: 1024,
+            height: 680
+        )
+
+        state.showGroupImagePicker(for: groupChat)
+        runtime.groupAvatarUpdateGateEnabled = true
+        async let firstUpdate: Void = state.setGroupImage(result)
+
+        while !(state.isSavingGroupImage && runtime.didReachGroupAvatarUpdateGate) {
+            await Task.yield()
+        }
+
+        // Overlapping clear action: it must hit the `!isSavingGroupImage` guard and return.
+        await state.clearGroupImage()
+        #expect(runtime.updateGroupAvatarUrlCallCount == 1)
+
+        runtime.releaseGroupAvatarUpdateGate()
+        await firstUpdate
+
+        #expect(runtime.updateGroupAvatarUrlCallCount == 1)
+        #expect(
+            runtime.updatedGroupAvatar
+                == UpdatedGroupAvatar(
+                    groupIdHex: "group",
+                    url: "https://example.com/aurora.jpg",
+                    dim: "1024x680",
+                    thumbhash: nil
+                ))
+        #expect(!state.isSavingGroupImage)
+    }
+
+    @MainActor
     @Test func groupImagePickerDismissesWhenSelectionClears() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -6748,6 +6809,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var listMediaCallCount = 0
     private(set) var downloadMediaCallCount = 0
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
+    private(set) var updateGroupAvatarUrlCallCount = 0
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
     private(set) var archivedGroup: ArchivedGroup?
     private(set) var leftGroupIdHex: String?
@@ -6804,6 +6866,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var messageActionGateEnabled = false
     private(set) var didReachMessageActionGate = false
     private var messageActionGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #134 reentrancy-test support: when armed, the first group-avatar update FFI call
+    /// suspends until `releaseGroupAvatarUpdateGate()` is invoked, holding the first invocation
+    /// in-flight so a test can issue an overlapping clear/set action and assert the guard dropped it.
+    var groupAvatarUpdateGateEnabled = false
+    private(set) var didReachGroupAvatarUpdateGate = false
+    private var groupAvatarUpdateGateContinuation: CheckedContinuation<Void, Never>?
     /// Issue #135 last-request-wins-test support: when armed, the first `groupDetails` FFI call
     /// suspends until `releaseGroupDetailsGate()` is invoked, holding the older `loadGroupDetails`
     /// in-flight so a test can run a newer overlapping load to completion and then assert the stale
@@ -7406,6 +7474,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?)
         async throws -> SendSummaryFfi
     {
+        updateGroupAvatarUrlCallCount += 1
+        await passGroupAvatarUpdateGateIfArmed()
+
         updatedGroupAvatar = UpdatedGroupAvatar(groupIdHex: groupIdHex, url: url, dim: dim, thumbhash: thumbhash)
 
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
@@ -7422,6 +7493,22 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         }
 
         return SendSummaryFfi(published: 1, messageIds: ["group-avatar"])
+    }
+
+    private func passGroupAvatarUpdateGateIfArmed() async {
+        guard groupAvatarUpdateGateEnabled,
+            groupAvatarUpdateGateContinuation == nil,
+            !didReachGroupAvatarUpdateGate
+        else { return }
+        didReachGroupAvatarUpdateGate = true
+        await withCheckedContinuation { continuation in
+            groupAvatarUpdateGateContinuation = continuation
+        }
+    }
+
+    func releaseGroupAvatarUpdateGate() {
+        groupAvatarUpdateGateContinuation?.resume()
+        groupAvatarUpdateGateContinuation = nil
     }
 
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
