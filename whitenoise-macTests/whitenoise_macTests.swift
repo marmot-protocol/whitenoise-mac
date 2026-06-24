@@ -4041,13 +4041,17 @@ struct whitenoise_macTests {
             return
         }
 
-        // Hold a load in-flight at the gate, then close group details before it completes.
+        await state.showGroupDetails(for: groupChat)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot?.name == "Test Group")
+
+        // Hold a reload in-flight at the gate, then close group details before it completes.
+        // Opening first avoids the chat-list enrichment task racing to consume the test gate.
         runtime.groupDetailsGateEnabled = true
-        async let inflight: Void = state.showGroupDetails(for: groupChat)
+        async let inflight: Void = state.reloadSelectedGroupDetails()
         while !(state.isLoadingGroupDetails && runtime.didReachGroupDetailsGate) {
             await Task.yield()
         }
-        #expect(state.isGroupDetailsPresented)
 
         state.closeGroupDetails()
         #expect(!state.isGroupDetailsPresented)
