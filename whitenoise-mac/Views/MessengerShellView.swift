@@ -1436,20 +1436,15 @@ private struct ProfileImageAvatarView: View {
                         .resizable()
                         .scaledToFill()
                 } placeholder: {
-                    AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected)
+                    AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected, drawsChrome: false)
                 }
             } else {
-                AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected)
+                AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected, drawsChrome: false)
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay {
-            Circle()
-                .strokeBorder(
-                    isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2), lineWidth: isSelected ? 3 : 1)
-        }
-        .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+        .modifier(AvatarChromeModifier(isSelected: isSelected))
     }
 }
 
@@ -4940,6 +4935,9 @@ private struct AvatarView: View {
     let initials: String
     let size: CGFloat
     let isSelected: Bool
+    /// Whether this view draws its own ring + drop shadow. Set to `false` when a wrapper
+    /// (e.g. `ProfileImageAvatarView`) already owns the chrome, to avoid double-drawing it.
+    var drawsChrome = true
 
     var body: some View {
         Text(DisplayText.initials(for: initials, fallback: seed))
@@ -4950,13 +4948,30 @@ private struct AvatarView: View {
                 Circle()
                     .fill(AvatarPalette.gradient(for: seed))
             }
-            .overlay {
-                Circle()
-                    .strokeBorder(
-                        isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2),
-                        lineWidth: isSelected ? 3 : 1)
-            }
-            .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+            .modifier(AvatarChromeModifier(isSelected: isSelected, isEnabled: drawsChrome))
+    }
+}
+
+/// Applies the shared avatar ring + drop shadow. Centralized so `AvatarView` and
+/// `ProfileImageAvatarView` stay visually identical and only one of them draws it.
+private struct AvatarChromeModifier: ViewModifier {
+    let isSelected: Bool
+    var isEnabled = true
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .overlay {
+                    Circle()
+                        .strokeBorder(
+                            isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2),
+                            lineWidth: isSelected ? 3 : 1)
+                }
+                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+        } else {
+            content
+        }
     }
 }
 
