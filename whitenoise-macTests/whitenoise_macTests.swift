@@ -996,7 +996,7 @@ struct whitenoise_macTests {
         #expect(MessageMediaGridPresentation.gridHeight(totalCount: 4, maxWidth: 360, spacing: 3) == 360)
     }
 
-    @Test func pendingMediaAttachmentDurationLabelRollsHoursOver() {
+    @Test func pendingMediaAttachmentDurationLabelFormatsSubhourHourBoundaryAndClampsNegative() {
         let longAttachment = PendingMediaAttachment(
             fileName: "long.m4a",
             mediaType: "audio/mp4",
@@ -1022,6 +1022,8 @@ struct whitenoise_macTests {
         #expect(longAttachment.durationLabel == "1:15:00")
         #expect(shortAttachment.durationLabel == "1:05")
         #expect(negativeAttachment.durationLabel == "0:00")
+        #expect(MediaDurationLabel.string(for: 3_599) == "59:59")
+        #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
     }
 
     @MainActor

@@ -1162,7 +1162,7 @@ private struct VoiceRecordingComposerView: View {
             Text(Self.durationLabel(durationSeconds))
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 44, alignment: .trailing)
+                .frame(minWidth: 44, alignment: .trailing)
 
             Button(action: onStop) {
                 Image(systemName: "stop.fill")
