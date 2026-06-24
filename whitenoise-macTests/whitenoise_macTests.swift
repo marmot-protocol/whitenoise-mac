@@ -945,6 +945,41 @@ struct whitenoise_macTests {
         #expect(!message.canCopyText)
     }
 
+    @MainActor
+    @Test func imetaInsideJSONReadsSourceEpochInBothSpellings() async throws {
+        // Regression for whitenoise-mac#137: the imeta-within-object branch must
+        // accept both snake_case `source_epoch` and camelCase `sourceEpoch` so a
+        // camelCase payload does not silently default the epoch to 0.
+        let reference = mediaAttachmentReference(sourceEpoch: 7, mediaType: "image/png", fileName: "photo.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "snake-epoch",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJson(for: reference, sourceEpochKey: "source_epoch")
+                ),
+                timelineMessage(
+                    id: "camel-epoch",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_001,
+                    mediaJson: mediaJson(for: reference, sourceEpochKey: "sourceEpoch")
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == 2)
+        #expect(messages.allSatisfy { $0.mediaAttachments.first?.reference.sourceEpoch == 7 })
+    }
+
     @Test func mediaGridPresentationUsesSquareFourTileLayout() {
         #expect(MessageMediaGridPresentation.visibleCount(totalCount: 6) == 4)
         #expect(MessageMediaGridPresentation.hiddenCount(totalCount: 6) == 2)
@@ -8620,6 +8655,11 @@ private func mediaAttachmentReference(
 private func mediaJson(for reference: MediaAttachmentReferenceFfi) -> String {
     let tag = mediaIMetaTag(for: reference).values
     return mediaJSONString(fromJSONObject: ["imeta": [tag]])
+}
+
+private func mediaJson(for reference: MediaAttachmentReferenceFfi, sourceEpochKey key: String) -> String {
+    let tag = mediaIMetaTag(for: reference).values
+    return mediaJSONString(fromJSONObject: ["imeta": [tag], key: NSNumber(value: reference.sourceEpoch)])
 }
 
 private func mediaJson(for reference: MediaAttachmentReferenceFfi, mediaObjectDepth depth: Int) -> String {

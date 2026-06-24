@@ -398,7 +398,7 @@ private nonisolated enum MessageMediaParser {
                 output.append(
                     contentsOf: references(
                         fromIMetaValue: imeta,
-                        sourceEpoch: unsignedInteger(dictionary["source_epoch"])
+                        sourceEpoch: unsignedInteger(dictionary["source_epoch"] ?? dictionary["sourceEpoch"])
                     )
                 )
             }
