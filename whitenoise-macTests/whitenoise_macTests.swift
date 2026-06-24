@@ -3760,6 +3760,94 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleGroupDetailsLoadDoesNotClobberNewerSnapshotOrDropSpinner() async throws {
+        // Issue #135: `loadGroupDetails` is reachable concurrently for the same group, and the FFI
+        // pair it awaits is completion-ordered, not request-ordered. An older, slower load must not
+        // overwrite a newer snapshot, must not report a stale error, and an older completion must
+        // not clear `isLoadingGroupDetails` while a newer load is still running.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var olderDetails = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        olderDetails.group.name = "Older Snapshot"
+        runtime.installGroupDetails(olderDetails)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+        await state.showGroupDetails(for: groupChat)
+        #expect(state.groupDetailsSnapshot?.name == "Older Snapshot")
+
+        // Arm the gate so the next `groupDetails` FFI call (the older load) suspends in-flight after
+        // capturing the older details.
+        runtime.groupDetailsGateEnabled = true
+        async let older: Void = state.reloadSelectedGroupDetails()
+        while !(state.isLoadingGroupDetails && runtime.didReachGroupDetailsGate) {
+            await Task.yield()
+        }
+        #expect(state.isLoadingGroupDetails)
+
+        // While the older load is held, install a newer snapshot and run a newer load to completion.
+        // The gate only holds the first call, so this newer load is not gated.
+        var newerDetails = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        newerDetails.group.name = "Newer Snapshot"
+        runtime.installGroupDetails(newerDetails)
+        await state.reloadSelectedGroupDetails()
+
+        // The newer load applied its snapshot and, owning the spinner, cleared it.
+        #expect(state.groupDetailsSnapshot?.name == "Newer Snapshot")
+        #expect(state.isLoadingGroupDetails == false)
+
+        // Release the older load. Its completion is now superseded, so it must neither overwrite the
+        // newer snapshot, report an error, nor resurrect the spinner.
+        runtime.releaseGroupDetailsGate()
+        _ = await older
+
+        #expect(state.groupDetailsSnapshot?.name == "Newer Snapshot")
+        #expect(state.isLoadingGroupDetails == false)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func closingGroupDetailsInvalidatesInFlightLoad() async throws {
+        // Issue #135: closing group details must invalidate any in-flight load so a stale completion
+        // cannot repopulate the closed snapshot or resurrect the shared spinner.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        // Hold a load in-flight at the gate, then close group details before it completes.
+        runtime.groupDetailsGateEnabled = true
+        async let inflight: Void = state.showGroupDetails(for: groupChat)
+        while !(state.isLoadingGroupDetails && runtime.didReachGroupDetailsGate) {
+            await Task.yield()
+        }
+        #expect(state.isGroupDetailsPresented)
+
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented)
+        #expect(state.isLoadingGroupDetails == false)
+        #expect(state.groupDetailsSnapshot == nil)
+
+        // Releasing the now-invalidated load must not repopulate the closed UI or set the spinner.
+        runtime.releaseGroupDetailsGate()
+        _ = await inflight
+
+        #expect(!state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot == nil)
+        #expect(state.isLoadingGroupDetails == false)
+    }
+
+    @MainActor
     @Test func groupDetailsProfileSaveAndInviteUseBindings() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6410,6 +6498,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var messageActionGateEnabled = false
     private(set) var didReachMessageActionGate = false
     private var messageActionGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #135 last-request-wins-test support: when armed, the first `groupDetails` FFI call
+    /// suspends until `releaseGroupDetailsGate()` is invoked, holding the older `loadGroupDetails`
+    /// in-flight so a test can run a newer overlapping load to completion and then assert the stale
+    /// older completion does not clobber the newer snapshot or drop the shared spinner.
+    var groupDetailsGateEnabled = false
+    private(set) var didReachGroupDetailsGate = false
+    private var groupDetailsGateContinuation: CheckedContinuation<Void, Never>?
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
     private var groupDetailsById: [String: GroupDetailsFfi] = [:]
@@ -6865,13 +6960,31 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
         groupDetailsCallCounts[groupIdHex, default: 0] += 1
+        // Snapshot the value *before* the gate so a held older load captures the older details and a
+        // later mutation cannot retroactively change what it returns (issue #135 last-request-wins).
+        let result: GroupDetailsFfi
         if let details = groupDetailsById[groupIdHex] {
-            return details
-        }
-        guard let group = groups.first(where: { $0.groupIdHex == groupIdHex }) else {
+            result = details
+        } else if let group = groups.first(where: { $0.groupIdHex == groupIdHex }) {
+            result = GroupDetailsFfi(group: group, members: [])
+        } else {
             throw FakeMarmotRuntimeError.unused
         }
-        return GroupDetailsFfi(group: group, members: [])
+        await passGroupDetailsGateIfArmed()
+        return result
+    }
+
+    private func passGroupDetailsGateIfArmed() async {
+        guard groupDetailsGateEnabled, groupDetailsGateContinuation == nil, !didReachGroupDetailsGate else { return }
+        didReachGroupDetailsGate = true
+        await withCheckedContinuation { continuation in
+            groupDetailsGateContinuation = continuation
+        }
+    }
+
+    func releaseGroupDetailsGate() {
+        groupDetailsGateContinuation?.resume()
+        groupDetailsGateContinuation = nil
     }
 
     func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi {
