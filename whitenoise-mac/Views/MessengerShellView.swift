@@ -1162,7 +1162,7 @@ private struct VoiceRecordingComposerView: View {
             Text(Self.durationLabel(durationSeconds))
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 44, alignment: .trailing)
+                .frame(minWidth: 44, alignment: .trailing)
 
             Button(action: onStop) {
                 Image(systemName: "stop.fill")
@@ -1184,8 +1184,7 @@ private struct VoiceRecordingComposerView: View {
     }
 
     private static func durationLabel(_ duration: Double) -> String {
-        let total = max(0, Int(duration.rounded(.down)))
-        return "\(total / 60):\(String(format: "%02d", total % 60))"
+        MediaDurationLabel.string(for: duration)
     }
 }
 
@@ -3014,8 +3013,7 @@ private struct MessageAudioAttachmentPlayer: View {
 
     private var durationLabel: String {
         if let durationSeconds = metadata?.durationSeconds {
-            let total = max(0, Int(durationSeconds.rounded(.down)))
-            return "\(total / 60):\(String(format: "%02d", total % 60))"
+            return MediaDurationLabel.string(for: durationSeconds)
         }
         return ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
     }
