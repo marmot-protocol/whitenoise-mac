@@ -89,6 +89,10 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         return .autoupdatingCurrent
     }
 
+    static func currentSystemLocaleIdentifier() -> String {
+        systemLocale().identifier
+    }
+
     static func resolved(rawValue: String?) -> AppLanguage {
         rawValue.flatMap(AppLanguage.init(rawValue:)) ?? .system
     }

@@ -632,15 +632,19 @@ struct whitenoise_macTests {
         UserDefaults.standard.removeObject(forKey: AppLanguage.storageKey)
         AppLanguage.setSystemLocaleOverrideForTesting(Locale(identifier: AppLanguage.spanish.rawValue))
         AppLanguage.refreshCachedLocale()
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
         // Prime the system-preference cache while the effective system language is Spanish.
         #expect(L10n.string("Save") == "Guardar")
 
-        AppLanguage.setSystemLocaleOverrideForTesting(Locale(identifier: AppLanguage.german.rawValue))
-        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        state.refreshSystemLanguageIfNeeded()
+        #expect(state.systemLocaleRefreshRevision == 0)
 
-        state.handleSystemLocaleChange()
+        AppLanguage.setSystemLocaleOverrideForTesting(Locale(identifier: AppLanguage.german.rawValue))
+
+        state.refreshSystemLanguageIfNeeded()
 
         #expect(L10n.string("Save") == "Speichern")
+        #expect(state.systemLocaleRefreshRevision == 1)
     }
 
     @MainActor
@@ -656,7 +660,7 @@ struct whitenoise_macTests {
         AppLanguage.refreshCachedLocale()
         let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
 
-        state.handleSystemLocaleChange()
+        state.refreshSystemLanguageIfNeeded()
 
         #expect(state.languagePreference == .spanish)
         #expect(L10n.string("Save") == "Guardar")

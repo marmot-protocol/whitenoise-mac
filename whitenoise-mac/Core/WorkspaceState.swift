@@ -211,9 +211,14 @@ final class WorkspaceState {
     var languagePreference: AppLanguage {
         didSet {
             UserDefaults.standard.set(languagePreference.rawValue, forKey: AppLanguage.storageKey)
+            if languagePreference == .system {
+                observedSystemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
+            }
             AppLanguage.refreshCachedLocale()
         }
     }
+    private var observedSystemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
+    private(set) var systemLocaleRefreshRevision = 0
     var isLoadingSettings = false
     var isSavingProfile = false
     var isRemovingAccount = false
@@ -676,17 +681,24 @@ final class WorkspaceState {
     }
 
     var preferredLocale: Locale {
-        languagePreference.locale ?? .autoupdatingCurrent
+        if let locale = languagePreference.locale {
+            return locale
+        }
+        _ = systemLocaleRefreshRevision
+        return AppLanguage.currentLocale
     }
 
-    func handleSystemLocaleChange() {
+    func refreshSystemLanguageIfNeeded() {
         guard languagePreference == .system else { return }
-        // Assigning the existing value intentionally re-triggers the observable
-        // mutation and the `didSet` cache invalidation path. The UI reads
-        // `preferredLocale`, which depends on `languagePreference`, so this also
-        // gives SwiftUI a concrete state mutation to render against after macOS
-        // changes its effective language while the app is running.
-        languagePreference = .system
+        let systemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
+        guard systemLocaleIdentifier != observedSystemLocaleIdentifier else { return }
+
+        observedSystemLocaleIdentifier = systemLocaleIdentifier
+        AppLanguage.refreshCachedLocale()
+        // `preferredLocale` reads this revision so SwiftUI has a concrete
+        // observable mutation to re-render against after the system language
+        // changes without rewriting the stored in-app language preference.
+        systemLocaleRefreshRevision += 1
     }
 
     func bootstrap() async {

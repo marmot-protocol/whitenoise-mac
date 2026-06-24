@@ -37,14 +37,14 @@ struct ContentView: View {
                     for: NSLocale.currentLocaleDidChangeNotification
                 )
             ) { _ in
-                workspace.handleSystemLocaleChange()
+                workspace.refreshSystemLanguageIfNeeded()
             }
             .onReceive(
                 NotificationCenter.default.publisher(
                     for: NSApplication.didBecomeActiveNotification
                 )
             ) { _ in
-                workspace.handleSystemLocaleChange()
+                workspace.refreshSystemLanguageIfNeeded()
                 // The app just regained focus. Flush any read-marking that was deferred
                 // while it was in the background so the selected chat clears its unread
                 // state now that the user may be looking at it again.
