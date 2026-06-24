@@ -279,6 +279,20 @@ nonisolated enum MessageMediaGridPresentation {
     }
 }
 
+nonisolated enum MediaDurationLabel {
+    static func string(for durationSeconds: Double) -> String {
+        let total = max(0, Int(durationSeconds.rounded(.down)))
+        let hours = total / 3_600
+        let minutes = (total % 3_600) / 60
+        let seconds = total % 60
+
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
 enum MediaDownloadState: Equatable {
     case idle
     case loading
@@ -336,8 +350,7 @@ nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
 
     var durationLabel: String? {
         guard let durationSeconds else { return nil }
-        let total = max(0, Int(durationSeconds.rounded(.down)))
-        return "\(total / 60):\(String(format: "%02d", total % 60))"
+        return MediaDurationLabel.string(for: durationSeconds)
     }
 }
 
