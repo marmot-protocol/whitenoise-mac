@@ -380,6 +380,18 @@ final class WorkspaceState {
     /// `groupImageResults`. Mirrors the new-chat lookup / settings-load generation guards
     /// (issues #2, #4). See `searchGroupImages` / issue #110.
     private var groupImageSearchGeneration = 0
+    /// Monotonic token identifying the most recently started group-details load. `loadGroupDetails`
+    /// captures the value on entry and only applies the fetched snapshot, clears
+    /// `isLoadingGroupDetails`, or reports errors while it is still current — i.e. no newer load or
+    /// `closeGroupDetails` has bumped the generation. This makes the load last-request-wins (a slow
+    /// earlier load cannot clobber a newer snapshot or prematurely drop the shared spinner) and
+    /// prevents a load resolving after group details are closed from repopulating closed UI state.
+    /// `loadGroupDetails` is reachable concurrently for the same group from `showGroupDetails`,
+    /// `reloadSelectedGroupDetails`, `saveGroupProfile`, member-mutation paths, and
+    /// `acceptGroupInvite`, and `applyGroupDetails` is completion-ordered, not request-ordered.
+    /// Mirrors the settings-load / group-image-search generation guards (issues #2, #4, #110).
+    /// See `loadGroupDetails` / issue #135.
+    private var groupDetailsLoadGeneration = 0
     /// Raw per-sender FFI lookups (userProfile + directory displayName), cached so that
     /// scrolling back through history does not re-resolve the same senders from Rust on
     /// every page. Keyed by sender accountIdHex.
@@ -1814,7 +1826,9 @@ final class WorkspaceState {
         groupProfileDraftName = ""
         groupProfileDraftDescription = ""
         groupInviteMemberQuery = ""
-        isLoadingGroupDetails = false
+        // Invalidate any in-flight load so a stale completion cannot repopulate closed details or
+        // resurrect the spinner; this also clears `isLoadingGroupDetails`. See issue #135.
+        invalidateGroupDetailsLoad()
         isSavingGroupProfile = false
         isInvitingGroupMember = false
         isAcceptingGroupInvite = false
@@ -2166,8 +2180,18 @@ final class WorkspaceState {
         guard let client, let activeAccount else { return }
         guard selectedChat?.id == groupIdHex else { return }
 
+        // Last-request-wins guard (issue #135): this method is reachable concurrently for the same
+        // group, and the FFI pair below is completion-ordered, not request-ordered. Capture the
+        // generation on entry; only the still-current load may apply its snapshot, clear the shared
+        // spinner, or report errors. A superseded load (a newer load started, or `closeGroupDetails`
+        // ran) leaves the spinner to its owner so it cannot drop it early or repopulate closed UI.
+        let generation = beginGroupDetailsLoad()
         isLoadingGroupDetails = true
-        defer { isLoadingGroupDetails = false }
+        defer {
+            if ownsGroupDetailsLoad(generation: generation) {
+                isLoadingGroupDetails = false
+            }
+        }
 
         do {
             let details = try await client.groupDetails(
@@ -2178,9 +2202,11 @@ final class WorkspaceState {
                 accountRef: activeAccount.accountRef,
                 groupIdHex: groupIdHex
             )
+            guard ownsGroupDetailsLoad(generation: generation) else { return }
             guard selectedChat?.id == groupIdHex else { return }
             applyGroupDetails(details, managementState: managementState)
         } catch {
+            guard ownsGroupDetailsLoad(generation: generation) else { return }
             lastError = error.localizedDescription
         }
     }
@@ -2724,7 +2750,9 @@ final class WorkspaceState {
         groupProfileDraftName = ""
         groupProfileDraftDescription = ""
         groupInviteMemberQuery = ""
-        isLoadingGroupDetails = false
+        // Invalidate any in-flight load so a stale completion cannot write into the reset state;
+        // this also clears `isLoadingGroupDetails`. See issue #135.
+        invalidateGroupDetailsLoad()
         isSavingGroupProfile = false
         isInvitingGroupMember = false
         isAcceptingGroupInvite = false
@@ -3882,6 +3910,25 @@ final class WorkspaceState {
     private func isCurrentNewChatLookup(generation: Int, query: String) -> Bool {
         newChatLookupGeneration == generation
             && newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
+    }
+
+    private func beginGroupDetailsLoad() -> Int {
+        groupDetailsLoadGeneration += 1
+        return groupDetailsLoadGeneration
+    }
+
+    /// Invalidate any in-flight group-details load so a stale completion cannot apply its snapshot,
+    /// clear the spinner, or report an error against closed/superseded UI state. Also clears the
+    /// (now-orphaned) spinner: the in-flight load, once superseded, declines to touch it.
+    private func invalidateGroupDetailsLoad() {
+        groupDetailsLoadGeneration += 1
+        isLoadingGroupDetails = false
+    }
+
+    /// True while `generation` still owns the group-details load — i.e. no newer `loadGroupDetails`
+    /// or `invalidateGroupDetailsLoad` (via `closeGroupDetails`) has bumped the generation.
+    private func ownsGroupDetailsLoad(generation: Int) -> Bool {
+        groupDetailsLoadGeneration == generation
     }
 
     private func beginGroupImageSearch() -> Int {
