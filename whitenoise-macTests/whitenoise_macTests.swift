@@ -4750,6 +4750,34 @@ struct whitenoise_macTests {
         #expect(RemoteImageURLProtocolStub.requestCount() == 1)
     }
 
+    @Test func remoteImageLoaderCancelsCoalescedDownloadAfterLastWaiterCancels() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 2)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+
+        let first = Task { await loader.image(for: url, maxPixelSize: 32) }
+        let second = Task { await loader.image(for: url, maxPixelSize: 32) }
+
+        let requestStarted = await waitFor { RemoteImageURLProtocolStub.requestCount() == 1 }
+        #expect(requestStarted)
+
+        first.cancel()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        #expect(RemoteImageURLProtocolStub.stopLoadingCount() == 0)
+
+        second.cancel()
+
+        let requestCancelled = await waitFor { RemoteImageURLProtocolStub.stopLoadingCount() == 1 }
+        #expect(requestCancelled)
+
+        let results = await [first.value, second.value]
+        #expect(results.allSatisfy { $0 == nil })
+        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+    }
+
     @Test func remoteImageLoaderUsesBoundedDecodedCache() async throws {
         let config = URLSessionConfiguration.ephemeral
         let loader = RemoteImageLoader(session: URLSession(configuration: config))
@@ -8479,12 +8507,15 @@ private final class RemoteImageURLProtocolStub: URLProtocol {
     private static var responseData = Data()
     private static var delay: TimeInterval = 0
     private static var requests = 0
+    private static var stops = 0
+    private var stopped = false
 
     static func reset(data: Data, responseDelay: TimeInterval) {
         lock.lock()
         responseData = data
         delay = responseDelay
         requests = 0
+        stops = 0
         lock.unlock()
     }
 
@@ -8492,6 +8523,12 @@ private final class RemoteImageURLProtocolStub: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         return requests
+    }
+
+    static func stopLoadingCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return stops
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -8505,7 +8542,7 @@ private final class RemoteImageURLProtocolStub: URLProtocol {
     override func startLoading() {
         let (data, responseDelay) = Self.recordRequest()
         let complete = { [weak self] in
-            guard let self, let url = self.request.url else { return }
+            guard let self, let url = self.request.url, !self.isStopped else { return }
             let response = HTTPURLResponse(
                 url: url,
                 statusCode: 200,
@@ -8526,13 +8563,30 @@ private final class RemoteImageURLProtocolStub: URLProtocol {
         }
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.recordStop()
+        Self.lock.lock()
+        stopped = true
+        Self.lock.unlock()
+    }
 
     private static func recordRequest() -> (Data, TimeInterval) {
         lock.lock()
         defer { lock.unlock() }
         requests += 1
         return (responseData, delay)
+    }
+
+    private static func recordStop() {
+        lock.lock()
+        stops += 1
+        lock.unlock()
+    }
+
+    private var isStopped: Bool {
+        Self.lock.lock()
+        defer { Self.lock.unlock() }
+        return stopped
     }
 }
 

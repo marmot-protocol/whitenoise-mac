@@ -291,23 +291,71 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
 /// Shared image cache + downsampling pipeline. `NSCache` is thread-safe, so this needs no
 /// actor for decoded-image storage; in-flight work is coordinated by `RemoteImageLoadRegistry`
 /// so concurrent views that need the same URL/size await one download and decode.
-private actor RemoteImageLoadRegistry {
-    private var tasks: [String: Task<LoadedImage?, Never>] = [:]
+private final class RemoteImageLoadRegistry: @unchecked Sendable {
+    private struct Entry {
+        let task: Task<LoadedImage?, Never>
+        var waiters: Int
+    }
+
+    private let lock = NSLock()
+    private var tasks: [String: Entry] = [:]
 
     func task(
         for key: String,
         create: @Sendable () -> Task<LoadedImage?, Never>
-    ) -> (task: Task<LoadedImage?, Never>, owner: Bool) {
-        if let task = tasks[key] {
-            return (task, false)
+    ) -> Task<LoadedImage?, Never> {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if var entry = tasks[key] {
+            entry.waiters += 1
+            tasks[key] = entry
+            return entry.task
         }
+
         let task = create()
-        tasks[key] = task
-        return (task, true)
+        tasks[key] = Entry(task: task, waiters: 1)
+        return task
     }
 
-    func removeTask(for key: String) {
-        tasks[key] = nil
+    func releaseWaiter(for key: String) {
+        var taskToCancel: Task<LoadedImage?, Never>?
+
+        lock.lock()
+        if var entry = tasks[key] {
+            entry.waiters -= 1
+            if entry.waiters <= 0 {
+                tasks[key] = nil
+                taskToCancel = entry.task
+            } else {
+                tasks[key] = entry
+            }
+        }
+        lock.unlock()
+
+        taskToCancel?.cancel()
+    }
+}
+
+private final class RemoteImageLoadWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var released = false
+    private let onRelease: @Sendable () -> Void
+
+    init(onRelease: @escaping @Sendable () -> Void) {
+        self.onRelease = onRelease
+    }
+
+    func release() {
+        lock.lock()
+        guard !released else {
+            lock.unlock()
+            return
+        }
+        released = true
+        lock.unlock()
+
+        onRelease()
     }
 }
 
@@ -364,16 +412,22 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             return LoadedImage(nsImage: cached)
         }
 
-        let (task, owner) = await inFlight.task(for: key) { [self] in
+        let task = inFlight.task(for: key) { [self] in
             Task { [self] in
                 await loadImage(for: url, cacheKey: key, maxPixelSize: maxPixelSize)
             }
         }
-        let loaded = await task.value
-        if owner {
-            await inFlight.removeTask(for: key)
+        let waiter = RemoteImageLoadWaiter { [inFlight] in
+            inFlight.releaseWaiter(for: key)
         }
-        return loaded
+
+        return await withTaskCancellationHandler {
+            let loaded = await task.value
+            waiter.release()
+            return Task.isCancelled ? nil : loaded
+        } onCancel: {
+            waiter.release()
+        }
     }
 
     private static func cacheKey(for url: URL, maxPixelSize: CGFloat) -> String {
