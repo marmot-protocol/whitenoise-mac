@@ -334,13 +334,24 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     }
 
     private static func makeSession() -> URLSession {
-        let config = URLSessionConfiguration.default
+        URLSession(configuration: makeSessionConfiguration())
+    }
+
+    // Internal so @testable configuration assertions can pin the privacy-sensitive defaults.
+    static func makeSessionConfiguration() -> URLSessionConfiguration {
+        // Remote image URLs are attacker-controlled peer metadata. Use an ephemeral session and
+        // an explicit diskCapacity: 0 URLCache as defense-in-depth so fetched avatar URLs/bodies
+        // do not become persistent forensic artifacts in the app Caches directory.
+        // .useProtocolCachePolicy lets servers revalidate when a download occurs; decoded NSCache
+        // entries may still serve same-session avatars until eviction.
+        let config = URLSessionConfiguration.ephemeral
         config.urlCache = URLCache(
             memoryCapacity: 16 * 1024 * 1024,
-            diskCapacity: 256 * 1024 * 1024
+            diskCapacity: 0,
+            diskPath: nil
         )
-        config.requestCachePolicy = .returnCacheDataElseLoad
-        return URLSession(configuration: config)
+        config.requestCachePolicy = .useProtocolCachePolicy
+        return config
     }
 
     func image(for url: URL, maxPixelSize: CGFloat) async -> LoadedImage? {
@@ -402,8 +413,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         // A fresh per-download delegate keeps per-download collector state isolated (multiple
         // avatars can download concurrently). The delegate is attached to the *task*, not a new
         // session (see `CappedImageDownloadDelegate.download`), so every download runs on the
-        // shared `session` and reuses its connection pool + `URLCache` instead of paying a fresh
-        // DNS/TCP/TLS handshake and churning a throwaway `URLSession` per image.
+        // shared `session` and reuses its connection pool + in-memory `URLCache` instead of paying
+        // a fresh DNS/TCP/TLS handshake and churning a throwaway `URLSession` per image.
         let delegate = CappedImageDownloadDelegate(cap: cap)
         return await delegate.download(url, using: session)
     }
