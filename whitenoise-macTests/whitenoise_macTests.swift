@@ -1158,7 +1158,6 @@ struct whitenoise_macTests {
             sizeBytes: 4
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installGroup(messageGroup())
         func mediaRecord(
             messageId: String,
             reference: MediaAttachmentReferenceFfi,
@@ -1261,6 +1260,7 @@ struct whitenoise_macTests {
             return
         }
         #expect(loaded.data == secondDownload.plaintext)
+        await state.deleteAllData()
     }
 
     @MainActor
