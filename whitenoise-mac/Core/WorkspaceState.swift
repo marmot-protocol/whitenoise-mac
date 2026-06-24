@@ -4405,6 +4405,11 @@ struct ReadMarker: Equatable, Comparable {
         return lhs.messageId < rhs.messageId
     }
 
+    /// Returns the read marker to keep after a failed optimistic advance.
+    ///
+    /// `previous` is the caller's snapshot from before it wrote `attempted`; it
+    /// is not proof of the last committed marker if another mark-read call
+    /// advanced this slot while the caller was suspended.
     static func afterFailedOptimisticAdvance(
         current: ReadMarker?,
         attempted: ReadMarker,
