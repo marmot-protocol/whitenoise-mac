@@ -2848,7 +2848,7 @@ private struct MessageDocumentAttachmentRow: View {
             detail: mediaDetail,
             isOutgoing: isOutgoing
         ) {
-            openAttachment()
+            Task { await openAttachment() }
         }
     }
 
@@ -2858,9 +2858,10 @@ private struct MessageDocumentAttachmentRow: View {
         return "\(type) - \(size)"
     }
 
-    private func openAttachment() {
+    @MainActor
+    private func openAttachment() async {
         guard
-            let url = MessageMediaPlaybackFileStore.fileURL(
+            let url = await MessageMediaPlaybackFileStore.fileURL(
                 attachment: attachment,
                 download: download
             )
@@ -3168,6 +3169,7 @@ private struct MessageVideoAttachmentPlayer: View {
         .accessibilityLabel("Video attachment")
     }
 
+    @MainActor
     private func togglePlayback() async {
         if let player {
             if player.timeControlStatus == .playing {
@@ -3182,13 +3184,16 @@ private struct MessageVideoAttachmentPlayer: View {
         didFail = false
         defer { isLoading = false }
 
-        guard
-            let url = playbackURL
-                ?? MessageMediaPlaybackFileStore.fileURL(
-                    attachment: attachment,
-                    download: download
-                )
-        else {
+        let resolvedURL: URL?
+        if let playbackURL {
+            resolvedURL = playbackURL
+        } else {
+            resolvedURL = await MessageMediaPlaybackFileStore.fileURL(
+                attachment: attachment,
+                download: download
+            )
+        }
+        guard let url = resolvedURL else {
             didFail = true
             return
         }
@@ -3214,22 +3219,30 @@ private enum MessageMediaPlaybackFileStore {
     /// Materializes decrypted attachment plaintext into the sandboxed playback scratch
     /// directory. Callers own the returned URL and must delete it via `remove(at:)` once
     /// the consuming action (open/playback) finishes.
-    static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) -> URL? {
-        do {
-            let directory = try MediaPlaybackTempStore.directoryURL()
-            return try MediaPlaybackTempStore.materialize(
-                data: download.data,
-                id: attachment.id,
-                fileName: download.fileName.nilIfBlank ?? attachment.fileName,
-                fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
-                    for: download.mediaType.nilIfBlank ?? attachment.mediaType,
-                    fileName: download.fileName.nilIfBlank ?? attachment.fileName
-                ),
-                directory: directory
-            )
-        } catch {
-            return nil
-        }
+    @MainActor
+    static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) async -> URL? {
+        let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
+        let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
+        let attachmentID = attachment.id
+        let data = download.data
+
+        return await Task.detached(priority: .utility) {
+            do {
+                let directory = try MediaPlaybackTempStore.directoryURL()
+                return try MediaPlaybackTempStore.materialize(
+                    data: data,
+                    id: attachmentID,
+                    fileName: resolvedFileName,
+                    fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
+                        for: resolvedMediaType,
+                        fileName: resolvedFileName
+                    ),
+                    directory: directory
+                )
+            } catch {
+                return nil
+            }
+        }.value
     }
 
     static func remove(at url: URL) {
