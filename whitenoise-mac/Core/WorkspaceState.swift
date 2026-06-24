@@ -211,9 +211,14 @@ final class WorkspaceState {
     var languagePreference: AppLanguage {
         didSet {
             UserDefaults.standard.set(languagePreference.rawValue, forKey: AppLanguage.storageKey)
+            if languagePreference == .system {
+                observedSystemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
+            }
             AppLanguage.refreshCachedLocale()
         }
     }
+    private var observedSystemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
+    private(set) var systemLocaleRefreshRevision = 0
     var isLoadingSettings = false
     var isSavingProfile = false
     var isRemovingAccount = false
@@ -676,7 +681,24 @@ final class WorkspaceState {
     }
 
     var preferredLocale: Locale {
-        languagePreference.locale ?? .autoupdatingCurrent
+        if let locale = languagePreference.locale {
+            return locale
+        }
+        _ = systemLocaleRefreshRevision
+        return AppLanguage.currentLocale
+    }
+
+    func refreshSystemLanguageIfNeeded() {
+        guard languagePreference == .system else { return }
+        let systemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
+        guard systemLocaleIdentifier != observedSystemLocaleIdentifier else { return }
+
+        observedSystemLocaleIdentifier = systemLocaleIdentifier
+        AppLanguage.refreshCachedLocale()
+        // `preferredLocale` reads this revision so SwiftUI has a concrete
+        // observable mutation to re-render against after the system language
+        // changes without rewriting the stored in-app language preference.
+        systemLocaleRefreshRevision += 1
     }
 
     func bootstrap() async {

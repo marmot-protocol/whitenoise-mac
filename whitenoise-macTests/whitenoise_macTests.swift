@@ -622,6 +622,51 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func systemLocaleChangeInvalidatesLocalizedStringCacheWhenPreferenceIsSystem() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer {
+            AppLanguage.setSystemLocaleOverrideForTesting(nil)
+            restoreDefault(previousLanguage, forKey: AppLanguage.storageKey)
+        }
+
+        UserDefaults.standard.removeObject(forKey: AppLanguage.storageKey)
+        AppLanguage.setSystemLocaleOverrideForTesting(Locale(identifier: AppLanguage.spanish.rawValue))
+        AppLanguage.refreshCachedLocale()
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        // Prime the system-preference cache while the effective system language is Spanish.
+        #expect(L10n.string("Save") == "Guardar")
+
+        state.refreshSystemLanguageIfNeeded()
+        #expect(state.systemLocaleRefreshRevision == 0)
+
+        AppLanguage.setSystemLocaleOverrideForTesting(Locale(identifier: AppLanguage.german.rawValue))
+
+        state.refreshSystemLanguageIfNeeded()
+
+        #expect(L10n.string("Save") == "Speichern")
+        #expect(state.systemLocaleRefreshRevision == 1)
+    }
+
+    @MainActor
+    @Test func systemLocaleChangeDoesNotOverrideSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer {
+            AppLanguage.setSystemLocaleOverrideForTesting(nil)
+            restoreDefault(previousLanguage, forKey: AppLanguage.storageKey)
+        }
+
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.setSystemLocaleOverrideForTesting(Locale(identifier: AppLanguage.german.rawValue))
+        AppLanguage.refreshCachedLocale()
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+
+        state.refreshSystemLanguageIfNeeded()
+
+        #expect(state.languagePreference == .spanish)
+        #expect(L10n.string("Save") == "Guardar")
+    }
+
+    @MainActor
     @Test func projectedChatRowTimestampUsesLastMessageTime() async throws {
         let lastMessageAt: UInt64 = 1_700_000_000
         let projectionRefreshedAt: UInt64 = 1_800_000_000
