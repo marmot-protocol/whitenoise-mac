@@ -1524,7 +1524,11 @@ final class WorkspaceState {
             await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
             // Start the listener first (it tears down any prior listener, which would clear
             // these), then record the subscription so scroll-back pagination can reach it.
+            // `startTimelineListener` can bail without starting a task (e.g. selection changed
+            // while we awaited above); only record the subscription when it actually started,
+            // otherwise we leak a live handle with no `next()` loop draining it.
             startTimelineListener(groupIdHex: groupIdHex, account: activeAccount, subscription: subscription)
+            guard timelineTaskGroupId == groupIdHex else { return }
             activeTimelineSubscription = subscription
             activeTimelineGroupId = groupIdHex
         } catch {
