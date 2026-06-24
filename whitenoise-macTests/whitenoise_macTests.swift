@@ -1717,6 +1717,43 @@ struct whitenoise_macTests {
         #expect(state.selectedMessageIDs == ["m2", "stream"])
     }
 
+    @Test func failedReadMarkerRollbackPreservesConcurrentNewerAdvance() {
+        let previous = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            messageId: "m0"
+        )
+        let attempted = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_010),
+            messageId: "m1"
+        )
+        let newer = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_020),
+            messageId: "m2"
+        )
+
+        #expect(
+            ReadMarker.afterFailedOptimisticAdvance(
+                current: newer,
+                attempted: attempted,
+                previous: previous
+            ) == newer
+        )
+        #expect(
+            ReadMarker.afterFailedOptimisticAdvance(
+                current: attempted,
+                attempted: attempted,
+                previous: previous
+            ) == previous
+        )
+        #expect(
+            ReadMarker.afterFailedOptimisticAdvance(
+                current: nil,
+                attempted: attempted,
+                previous: previous
+            ) == nil
+        )
+    }
+
     @MainActor
     @Test func olderTimelineProjectionDeltaDoesNotMoveReadMarkerBackward() async throws {
         let account = AccountSummaryFfi(

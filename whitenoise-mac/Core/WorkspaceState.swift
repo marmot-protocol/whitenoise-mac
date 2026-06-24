@@ -3795,7 +3795,11 @@ final class WorkspaceState {
                 await applyChatRow(row, account: account)
             }
         } catch {
-            lastMarkedReadMarkers[groupIdHex] = previousMarker
+            lastMarkedReadMarkers[groupIdHex] = ReadMarker.afterFailedOptimisticAdvance(
+                current: lastMarkedReadMarkers[groupIdHex],
+                attempted: marker,
+                previous: previousMarker
+            )
             setBackgroundStatus(error.localizedDescription)
         }
     }
@@ -4392,13 +4396,21 @@ private enum GroupMemberMutationAction {
     case remove
 }
 
-private struct ReadMarker: Equatable, Comparable {
+struct ReadMarker: Equatable, Comparable {
     let sentAt: Date
     let messageId: String
 
     static func < (lhs: ReadMarker, rhs: ReadMarker) -> Bool {
         if lhs.sentAt != rhs.sentAt { return lhs.sentAt < rhs.sentAt }
         return lhs.messageId < rhs.messageId
+    }
+
+    static func afterFailedOptimisticAdvance(
+        current: ReadMarker?,
+        attempted: ReadMarker,
+        previous: ReadMarker?
+    ) -> ReadMarker? {
+        current == attempted ? previous : current
     }
 }
 
