@@ -337,10 +337,13 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         URLSession(configuration: makeSessionConfiguration())
     }
 
+    // Internal so @testable configuration assertions can pin the privacy-sensitive defaults.
     static func makeSessionConfiguration() -> URLSessionConfiguration {
-        // Remote image URLs are attacker-controlled peer metadata. Keep URLSession's HTTP cache
-        // memory-only so fetched avatar URLs/bodies do not become persistent forensic artifacts
-        // in the app Caches directory, and let servers revalidate normally when avatars rotate.
+        // Remote image URLs are attacker-controlled peer metadata. Use an ephemeral session and
+        // an explicit diskCapacity: 0 URLCache as defense-in-depth so fetched avatar URLs/bodies
+        // do not become persistent forensic artifacts in the app Caches directory.
+        // .useProtocolCachePolicy lets servers revalidate when a download occurs; decoded NSCache
+        // entries may still serve same-session avatars until eviction.
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = URLCache(
             memoryCapacity: 16 * 1024 * 1024,

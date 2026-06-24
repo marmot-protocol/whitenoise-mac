@@ -4730,10 +4730,12 @@ struct whitenoise_macTests {
         #expect(loader.decodedCacheTotalCostLimit > 0)
     }
 
-    @Test func remoteImageLoaderDefaultSessionUsesMemoryOnlyURLCache() async throws {
+    @Test func remoteImageLoaderDefaultSessionPinsMemoryOnlyURLCacheInvariant() async throws {
         let config = RemoteImageLoader.makeSessionConfiguration()
         let urlCache = try #require(config.urlCache)
 
+        // Foundation does not expose a stable cross-platform seam for asserting URLCache disk
+        // writes directly, so pin the privacy invariant that prevents them for the default loader.
         #expect(urlCache.memoryCapacity > 0)
         #expect(urlCache.diskCapacity == 0)
         #expect(config.requestCachePolicy == .useProtocolCachePolicy)
