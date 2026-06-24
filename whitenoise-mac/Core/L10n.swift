@@ -8,10 +8,11 @@ enum L10n {
     // mapping). Resolving the language-specific `.lproj` bundle must not stat
     // the filesystem (`Bundle.main.path(forResource:ofType:)`) or allocate a
     // fresh `Bundle(path:)` on every call. We cache the resolved bundle in
-    // memory and only recompute it when the stored language preference actually
-    // changes. The cache is cleared from `AppLanguage.refreshCachedLocale()`
-    // (the single invalidation point shared with the cached locale), so it stays
-    // correct while the common-case read is an allocation-free in-memory lookup.
+    // memory and only recompute it when the stored language preference or
+    // effective system locale changes. The cache is cleared from
+    // `AppLanguage.refreshCachedLocale()` (the single invalidation point shared
+    // with the cached locale), so it stays correct while the common-case read is
+    // an allocation-free in-memory lookup.
     //
     // The outer optional distinguishes "not yet resolved" (`nil`) from "resolved,
     // no matching `.lproj` bundle" (`.some(nil)`), so a genuine miss (e.g. the
@@ -33,7 +34,8 @@ enum L10n {
 
     /// Clear the cached localized bundle so the next `string(_:)` call re-resolves
     /// it for the current language preference. Called from
-    /// `AppLanguage.refreshCachedLocale()` whenever the preference changes.
+    /// `AppLanguage.refreshCachedLocale()` whenever the preference or effective
+    /// system locale changes.
     static func refreshCachedLocalizedBundle() {
         cachedLocalizedBundle.withLock { $0 = nil }
     }
