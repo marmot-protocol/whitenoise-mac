@@ -41,7 +41,15 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     // cache the resolved locale in memory and only recompute it when the stored
     // language preference or effective system locale changes. The unfair lock
     // keeps the cache safe if `currentLocale` is ever touched off the main thread.
-    private static let cachedLocale = OSAllocatedUnfairLock<Locale?>(initialState: nil)
+    // The generation token prevents a cache-miss resolver from publishing a stale
+    // `UserDefaults` read if `refreshCachedLocale()` updates the preference while
+    // resolution happens outside the lock.
+    private struct LocaleCache {
+        var locale: Locale?
+        var generation: UInt64 = 0
+    }
+
+    private static let cachedLocale = OSAllocatedUnfairLock<LocaleCache>(initialState: LocaleCache())
 
     #if DEBUG
         private static let systemLocaleOverride = OSAllocatedUnfairLock<Locale?>(initialState: nil)
@@ -52,13 +60,27 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     #endif
 
     static var currentLocale: Locale {
-        cachedLocale.withLock { cache in
-            if let cache {
-                return cache
+        while true {
+            let snapshot = cachedLocale.withLock { cache in
+                (locale: cache.locale, generation: cache.generation)
             }
-            let locale = resolvedLocaleFromDefaults()
-            cache = locale
-            return locale
+            if let locale = snapshot.locale {
+                return locale
+            }
+
+            let resolvedLocale = resolvedLocaleFromDefaults()
+            if let locale = cachedLocale.withLock({ cache -> Locale? in
+                if let locale = cache.locale {
+                    return locale
+                }
+                guard cache.generation == snapshot.generation else {
+                    return nil
+                }
+                cache.locale = resolvedLocale
+                return resolvedLocale
+            }) {
+                return locale
+            }
         }
     }
 
@@ -68,7 +90,10 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     /// `L10n`'s cached `.lproj` bundle, which is keyed on the same preference.
     static func refreshCachedLocale() {
         let locale = resolvedLocaleFromDefaults()
-        cachedLocale.withLock { $0 = locale }
+        cachedLocale.withLock { cache in
+            cache.generation &+= 1
+            cache.locale = locale
+        }
         // The localized `.lproj` bundle is cached against this same preference,
         // so invalidate it here too (the single shared invalidation point).
         L10n.refreshCachedLocalizedBundle()

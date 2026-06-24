@@ -14,12 +14,15 @@ enum L10n {
     // with the cached locale), so it stays correct while the common-case read is
     // an allocation-free in-memory lookup.
     //
-    // The outer optional distinguishes "not yet resolved" (`nil`) from "resolved,
-    // no matching `.lproj` bundle" (`.some(nil)`), so a genuine miss (e.g. the
-    // base/development language, which has no separate `.lproj`) is cached too
-    // and not re-statted on every call. The unfair lock keeps the cache safe if
-    // `string(_:)` is ever touched off the main thread.
-    private static let cachedLocalizedBundle = OSAllocatedUnfairLock<Bundle??>(initialState: nil)
+    // The cache key records the locale used for the lookup so a concurrent
+    // preference refresh that lands while the bundle is being resolved cannot
+    // make a later call reuse a stale `.lproj` bundle.
+    private struct LocalizedBundleCache {
+        let localeIdentifier: String
+        let bundle: Bundle?
+    }
+
+    private static let cachedLocalizedBundle = OSAllocatedUnfairLock<LocalizedBundleCache?>(initialState: nil)
 
     static func string(_ key: String) -> String {
         if let localizedBundle = currentLocalizedBundle() {
@@ -41,12 +44,19 @@ enum L10n {
     }
 
     private static func currentLocalizedBundle() -> Bundle? {
-        cachedLocalizedBundle.withLock { cache in
-            if let cache {
-                return cache
+        let locale = AppLanguage.currentLocale
+        let localeIdentifier = locale.identifier
+
+        if let cache = cachedLocalizedBundle.withLock({ $0 }), cache.localeIdentifier == localeIdentifier {
+            return cache.bundle
+        }
+
+        let bundle = localizedBundle(for: locale)
+        return cachedLocalizedBundle.withLock { cache in
+            if let cache, cache.localeIdentifier == localeIdentifier {
+                return cache.bundle
             }
-            let bundle = localizedBundle(for: AppLanguage.currentLocale)
-            cache = .some(bundle)
+            cache = LocalizedBundleCache(localeIdentifier: localeIdentifier, bundle: bundle)
             return bundle
         }
     }
