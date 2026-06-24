@@ -1,5 +1,6 @@
 import AVFoundation
 import AppKit
+import Combine
 import Foundation
 import MarmotKit
 import Observation
@@ -85,6 +86,16 @@ struct ChatListRowEnrichmentTracker {
 }
 
 @MainActor
+final class MediaDownloadStateStore: ObservableObject {
+    @Published private(set) var state: MediaDownloadState = .idle
+
+    func update(_ newState: MediaDownloadState) {
+        guard state != newState else { return }
+        state = newState
+    }
+}
+
+@MainActor
 @Observable
 final class WorkspaceState {
     enum Phase: Equatable {
@@ -115,7 +126,7 @@ final class WorkspaceState {
     private(set) var accounts: [AccountItem]
     private(set) var chatsByAccount: [String: [ChatItem]]
     private(set) var messagesByChat: [String: [MessageItem]]
-    private(set) var mediaDownloads: [String: MediaDownloadState] = [:]
+    @ObservationIgnored private var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.
@@ -1686,27 +1697,35 @@ final class WorkspaceState {
     }
 
     func mediaDownloadState(for message: MessageItem, attachment: MessageMediaAttachment) -> MediaDownloadState {
-        mediaDownloads[mediaDownloadKey(message: message, attachment: attachment)] ?? .idle
+        mediaDownloadStateStore(for: message, attachment: attachment).state
+    }
+
+    func mediaDownloadStateStore(
+        for message: MessageItem,
+        attachment: MessageMediaAttachment
+    ) -> MediaDownloadStateStore {
+        mediaDownloadStateStore(forKey: mediaDownloadKey(message: message, attachment: attachment))
     }
 
     func loadMediaAttachment(_ attachment: MessageMediaAttachment, for message: MessageItem) async {
         let key = mediaDownloadKey(message: message, attachment: attachment)
-        if case .loaded = mediaDownloads[key] {
+        let stateStore = mediaDownloadStateStore(forKey: key)
+        if case .loaded = stateStore.state {
             return
         }
-        if case .loading = mediaDownloads[key] {
+        if case .loading = stateStore.state {
             return
         }
 
         guard let client, let activeAccount, !message.groupIdHex.isEmpty else {
-            mediaDownloads[key] = .failed(L10n.string("Attachment unavailable"))
+            stateStore.update(.failed(L10n.string("Attachment unavailable")))
             return
         }
 
         let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
         let groupIdHex = message.groupIdHex
-        mediaDownloads[key] = .loading
+        stateStore.update(.loading)
 
         do {
             let reference = try await resolvedMediaReference(
@@ -1721,18 +1740,32 @@ final class WorkspaceState {
                 reference: reference
             )
             guard activeAccountId == accountId else { return }
-            mediaDownloads[key] = .loaded(
-                MessageMediaDownload(
-                    data: download.plaintext,
-                    fileName: download.fileName,
-                    mediaType: download.mediaType,
-                    sizeBytes: download.sizeBytes
+            stateStore.update(
+                .loaded(
+                    MessageMediaDownload(
+                        data: download.plaintext,
+                        fileName: download.fileName,
+                        mediaType: download.mediaType,
+                        sizeBytes: download.sizeBytes
+                    )
                 )
             )
         } catch {
             guard activeAccountId == accountId else { return }
-            mediaDownloads[key] = .failed(error.localizedDescription)
+            stateStore.update(.failed(error.localizedDescription))
         }
+    }
+
+    /// Lazily allocates per-attachment stores from SwiftUI body lookup without observing the
+    /// backing dictionary; `mediaDownloads` is `@ObservationIgnored`, and pruning bounds it to
+    /// the active conversation.
+    private func mediaDownloadStateStore(forKey key: String) -> MediaDownloadStateStore {
+        if let store = mediaDownloads[key] {
+            return store
+        }
+        let store = MediaDownloadStateStore()
+        mediaDownloads[key] = store
+        return store
     }
 
     /// Copies `text` to the system pasteboard.
@@ -2705,7 +2738,7 @@ final class WorkspaceState {
         accounts = []
         chatsByAccount = [:]
         messagesByChat = [:]
-        mediaDownloads = [:]
+        resetMediaDownloadStateStores()
         messageLookupByChat = [:]
         messageIDsByChat = [:]
         peerProfileFFICache.removeAll()
@@ -3510,14 +3543,25 @@ final class WorkspaceState {
 
     private func pruneMediaDownloadCache(keeping groupIdHex: String?) {
         guard let activeAccountId, let groupIdHex else {
-            mediaDownloads = [:]
+            resetMediaDownloadStateStores()
             return
         }
 
         let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
-        mediaDownloads = mediaDownloads.filter { key, _ in
-            key.hasPrefix(prefix)
+        let removedKeys = mediaDownloads.keys.filter { !$0.hasPrefix(prefix) }
+        for key in removedKeys {
+            // Notify any lingering per-attachment observers before dropping the store.
+            mediaDownloads[key]?.update(.idle)
+            mediaDownloads[key] = nil
         }
+    }
+
+    private func resetMediaDownloadStateStores() {
+        for store in mediaDownloads.values {
+            // Notify any lingering per-attachment observers before clearing the cache.
+            store.update(.idle)
+        }
+        mediaDownloads.removeAll()
     }
 
     private func resolvedMediaReference(
