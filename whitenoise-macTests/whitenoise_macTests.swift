@@ -1747,41 +1747,87 @@ struct whitenoise_macTests {
         #expect(state.selectedMessageIDs == ["m2", "stream"])
     }
 
-    @Test func failedReadMarkerRollbackPreservesConcurrentNewerAdvance() {
-        let previous = ReadMarker(
+    @Test func failedReadMarkerRollbackUsesLastConfirmedMarker() {
+        let committed = ReadMarker(
             sentAt: Date(timeIntervalSince1970: 1_700_000_000),
             messageId: "m0"
         )
-        let attempted = ReadMarker(
+        let firstAttempt = ReadMarker(
             sentAt: Date(timeIntervalSince1970: 1_700_000_010),
             messageId: "m1"
         )
-        let newer = ReadMarker(
+        let secondAttempt = ReadMarker(
             sentAt: Date(timeIntervalSince1970: 1_700_000_020),
             messageId: "m2"
         )
 
         #expect(
             ReadMarker.afterFailedOptimisticAdvance(
-                current: newer,
-                attempted: attempted,
-                previous: previous
-            ) == newer
+                current: secondAttempt,
+                attempted: firstAttempt,
+                confirmed: committed
+            ) == secondAttempt
         )
         #expect(
             ReadMarker.afterFailedOptimisticAdvance(
-                current: attempted,
-                attempted: attempted,
-                previous: previous
-            ) == previous
+                current: secondAttempt,
+                attempted: secondAttempt,
+                confirmed: committed
+            ) == committed
         )
         #expect(
             ReadMarker.afterFailedOptimisticAdvance(
                 current: nil,
-                attempted: attempted,
-                previous: previous
+                attempted: firstAttempt,
+                confirmed: committed
             ) == nil
         )
+        #expect(
+            ReadMarker.afterFailedOptimisticAdvance(
+                current: firstAttempt,
+                attempted: firstAttempt,
+                confirmed: nil
+            ) == nil
+        )
+    }
+
+    @Test func successfulReadMarkerCommitAdvancesConfirmedMarkerAndPreservesNewerOptimisticSlot() {
+        let committed = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            messageId: "m0"
+        )
+        let firstAttempt = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_010),
+            messageId: "m1"
+        )
+        let secondAttempt = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_020),
+            messageId: "m2"
+        )
+
+        let restoredAfterNewerFailure = ReadMarker.afterSuccessfulCommit(
+            current: committed,
+            confirmed: committed,
+            attempted: firstAttempt
+        )
+        #expect(restoredAfterNewerFailure.current == firstAttempt)
+        #expect(restoredAfterNewerFailure.confirmed == firstAttempt)
+
+        let newerStillInFlight = ReadMarker.afterSuccessfulCommit(
+            current: secondAttempt,
+            confirmed: committed,
+            attempted: firstAttempt
+        )
+        #expect(newerStillInFlight.current == secondAttempt)
+        #expect(newerStillInFlight.confirmed == firstAttempt)
+
+        let olderSuccessAfterNewerCommit = ReadMarker.afterSuccessfulCommit(
+            current: secondAttempt,
+            confirmed: secondAttempt,
+            attempted: firstAttempt
+        )
+        #expect(olderSuccessAfterNewerCommit.current == secondAttempt)
+        #expect(olderSuccessAfterNewerCommit.confirmed == secondAttempt)
     }
 
     @MainActor
