@@ -379,6 +379,7 @@ final class WorkspaceState {
     /// underlying messages change.
     private var messageIDsByChat: [String: [String]] = [:]
     private var lastMarkedReadMarkers: [String: ReadMarker] = [:]
+    private var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
     private var deliveredNotificationKeys = Set<String>()
     private var deliveredNotificationKeyOrder: [String] = []
     private var newChatLookupGeneration = 0
@@ -2807,6 +2808,7 @@ final class WorkspaceState {
         timelinePagingByChat = [:]
         timelineInitialLoadGroupId = nil
         lastMarkedReadMarkers = [:]
+        lastConfirmedReadMarkers = [:]
         deliveredNotificationKeys = []
         deliveredNotificationKeyOrder = []
         UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
@@ -3430,6 +3432,7 @@ final class WorkspaceState {
             timelineInitialLoadGroupId = nil
         }
         lastMarkedReadMarkers[groupIdHex] = nil
+        lastConfirmedReadMarkers[groupIdHex] = nil
 
         guard case .chat(let selectedGroupId) = selection,
             selectedGroupId == groupIdHex
@@ -3777,28 +3780,36 @@ final class WorkspaceState {
             return
         }
         let marker = ReadMarker(sentAt: latest.sentAt, messageId: latest.id)
-        let previousMarker = lastMarkedReadMarkers[groupIdHex]
-        guard previousMarker != marker else { return }
-        guard previousMarker.map({ $0 < marker }) ?? true else { return }
+        let currentMarker = lastMarkedReadMarkers[groupIdHex]
+        guard currentMarker != marker else { return }
+        guard currentMarker.map({ $0 < marker }) ?? true else { return }
         lastMarkedReadMarkers[groupIdHex] = marker
 
         do {
             let accountRef = account.accountRef
             let messageId = latest.id
-            if let row = try await runOffMain({
+            let row = try await runOffMain({
                 try client.markTimelineMessageRead(
                     accountRef: accountRef,
                     groupIdHex: groupIdHex,
                     messageIdHex: messageId
                 )
-            }) {
+            })
+            let committedState = ReadMarker.afterSuccessfulCommit(
+                current: lastMarkedReadMarkers[groupIdHex],
+                confirmed: lastConfirmedReadMarkers[groupIdHex],
+                attempted: marker
+            )
+            lastMarkedReadMarkers[groupIdHex] = committedState.current
+            lastConfirmedReadMarkers[groupIdHex] = committedState.confirmed
+            if let row {
                 await applyChatRow(row, account: account)
             }
         } catch {
             lastMarkedReadMarkers[groupIdHex] = ReadMarker.afterFailedOptimisticAdvance(
                 current: lastMarkedReadMarkers[groupIdHex],
                 attempted: marker,
-                previous: previousMarker
+                confirmed: lastConfirmedReadMarkers[groupIdHex]
             )
             setBackgroundStatus(error.localizedDescription)
         }
@@ -4407,15 +4418,37 @@ struct ReadMarker: Equatable, Comparable {
 
     /// Returns the read marker to keep after a failed optimistic advance.
     ///
-    /// `previous` is the caller's snapshot from before it wrote `attempted`; it
-    /// is not proof of the last committed marker if another mark-read call
-    /// advanced this slot while the caller was suspended.
+    /// `confirmed` is the last marker known to have committed through FFI. A
+    /// caller's optimistic snapshot is not enough for rollback because another
+    /// overlapping call may have advanced the slot without committing.
     static func afterFailedOptimisticAdvance(
         current: ReadMarker?,
         attempted: ReadMarker,
-        previous: ReadMarker?
+        confirmed: ReadMarker?
     ) -> ReadMarker? {
-        current == attempted ? previous : current
+        current == attempted ? confirmed : current
+    }
+
+    /// Returns the marker slots to keep after FFI confirms `attempted`.
+    ///
+    /// If a newer optimistic marker is currently in flight, keep it as the read
+    /// gate while recording `attempted` as the latest confirmed value. If a
+    /// newer failed call already rolled the gate back, restore it to the marker
+    /// that just committed.
+    static func afterSuccessfulCommit(
+        current: ReadMarker?,
+        confirmed: ReadMarker?,
+        attempted: ReadMarker
+    ) -> (current: ReadMarker, confirmed: ReadMarker) {
+        (
+            current: latest(current, attempted),
+            confirmed: latest(confirmed, attempted)
+        )
+    }
+
+    private static func latest(_ marker: ReadMarker?, _ candidate: ReadMarker) -> ReadMarker {
+        guard let marker, marker > candidate else { return candidate }
+        return marker
     }
 }
 
