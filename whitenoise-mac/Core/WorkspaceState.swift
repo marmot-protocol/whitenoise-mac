@@ -1739,20 +1739,25 @@ final class WorkspaceState {
                 reference: reference
             )
             guard activeAccountId == accountId else { return }
-            stateStore.update(.loaded(
-                MessageMediaDownload(
-                    data: download.plaintext,
-                    fileName: download.fileName,
-                    mediaType: download.mediaType,
-                    sizeBytes: download.sizeBytes
+            stateStore.update(
+                .loaded(
+                    MessageMediaDownload(
+                        data: download.plaintext,
+                        fileName: download.fileName,
+                        mediaType: download.mediaType,
+                        sizeBytes: download.sizeBytes
+                    )
                 )
-            ))
+            )
         } catch {
             guard activeAccountId == accountId else { return }
             stateStore.update(.failed(error.localizedDescription))
         }
     }
 
+    /// Lazily allocates per-attachment stores from SwiftUI body lookup without observing the
+    /// backing dictionary; `mediaDownloads` is `@ObservationIgnored`, and pruning bounds it to
+    /// the active conversation.
     private func mediaDownloadStateStore(forKey key: String) -> MediaDownloadStateStore {
         if let store = mediaDownloads[key] {
             return store
@@ -3544,6 +3549,7 @@ final class WorkspaceState {
         let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
         let removedKeys = mediaDownloads.keys.filter { !$0.hasPrefix(prefix) }
         for key in removedKeys {
+            // Notify any lingering per-attachment observers before dropping the store.
             mediaDownloads[key]?.update(.idle)
             mediaDownloads[key] = nil
         }
@@ -3551,6 +3557,7 @@ final class WorkspaceState {
 
     private func resetMediaDownloadStateStores() {
         for store in mediaDownloads.values {
+            // Notify any lingering per-attachment observers before clearing the cache.
             store.update(.idle)
         }
         mediaDownloads.removeAll()

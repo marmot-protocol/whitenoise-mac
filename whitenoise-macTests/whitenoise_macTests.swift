@@ -5,6 +5,7 @@
 //  Created by Jeff Gardner on 26/05/2026.
 //
 
+import Combine
 import Darwin
 import Foundation
 import MarmotKit
@@ -1112,9 +1113,92 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func mediaDownloadStateStoresDoNotInvalidateWorkspaceObservationForUnrelatedDownloads() async throws {
-        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
-        let firstReference = mediaAttachmentReference(mediaType: "image/png", fileName: "first.png")
-        let secondReference = mediaAttachmentReference(mediaType: "image/png", fileName: "second.png")
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: false
+        )
+        let firstReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "first.png",
+            ciphertextSha256: String(repeating: "1", count: 64),
+            plaintextSha256: String(repeating: "2", count: 64)
+        )
+        let firstDownloadReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "first.png",
+            ciphertextSha256: firstReference.ciphertextSha256,
+            plaintextSha256: firstReference.plaintextSha256
+        )
+        let secondReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "second.png",
+            ciphertextSha256: String(repeating: "3", count: 64),
+            plaintextSha256: String(repeating: "4", count: 64)
+        )
+        let secondDownloadReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "second.png",
+            ciphertextSha256: secondReference.ciphertextSha256,
+            plaintextSha256: secondReference.plaintextSha256
+        )
+        let secondDownload = MediaDownloadResultFfi(
+            plaintext: Data([0x10, 0x20, 0x30, 0x40]),
+            fileName: "second.png",
+            mediaType: "image/png",
+            sizeBytes: 4
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        func mediaRecord(
+            messageId: String,
+            reference: MediaAttachmentReferenceFfi,
+            recordedAt: UInt64
+        ) -> MediaRecordFfi {
+            MediaRecordFfi(
+                messageIdHex: messageId,
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: reference,
+                caption: nil,
+                recordedAt: recordedAt,
+                receivedAt: recordedAt
+            )
+        }
+        runtime.installMediaRecord(
+            mediaRecord(
+                messageId: "first-media-message",
+                reference: firstDownloadReference,
+                recordedAt: 1_700_000_000
+            ),
+            download: MediaDownloadResultFfi(
+                plaintext: Data([0x01, 0x02, 0x03, 0x04]),
+                fileName: "first.png",
+                mediaType: "image/png",
+                sizeBytes: 4
+            )
+        )
+        runtime.installMediaRecord(
+            mediaRecord(
+                messageId: "second-media-message",
+                reference: secondDownloadReference,
+                recordedAt: 1_700_000_001
+            ),
+            download: secondDownload
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
         let firstMessage = MessageItem(
             id: "first-media-message",
             groupIdHex: "group",
@@ -1159,14 +1243,24 @@ struct whitenoise_macTests {
             workspaceInvalidated.markInvalidated()
         }
 
+        let firstStoreInvalidated = ObservationInvalidationFlag()
+        let firstStoreCancellable = firstStore.objectWillChange.sink { _ in
+            firstStoreInvalidated.markInvalidated()
+        }
+
         await state.loadMediaAttachment(secondAttachment, for: secondMessage)
 
+        withExtendedLifetime(firstStoreCancellable) {}
         #expect(!workspaceInvalidated.value)
+        #expect(!firstStoreInvalidated.value)
         #expect(firstStore.state == .idle)
-        guard case .failed = secondStore.state else {
-            Issue.record("Expected the unrelated download store to receive the failed state")
+        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.downloadMediaCallCount == 1)
+        guard case .loaded(let loaded) = secondStore.state else {
+            Issue.record("Expected the unrelated download store to receive the loaded state")
             return
         }
+        #expect(loaded.data == secondDownload.plaintext)
     }
 
     @MainActor
@@ -8447,15 +8541,18 @@ private func encryptedMediaComponent() -> AppGroupEncryptedMediaComponentFfi {
 private func mediaAttachmentReference(
     sourceEpoch: UInt64 = 0,
     mediaType: String,
-    fileName: String
+    fileName: String,
+    ciphertextSha256: String = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    plaintextSha256: String = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    nonceHex: String = "cccccccccccccccccccccccc"
 ) -> MediaAttachmentReferenceFfi {
     MediaAttachmentReferenceFfi(
         locators: [
             MediaLocatorFfi(kind: "blossom", value: "https://blob.example/\(fileName)")
         ],
-        ciphertextSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        plaintextSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        nonceHex: "cccccccccccccccccccccccc",
+        ciphertextSha256: ciphertextSha256,
+        plaintextSha256: plaintextSha256,
+        nonceHex: nonceHex,
         fileName: fileName,
         mediaType: mediaType,
         version: "marmot.encrypted-media.v1",
