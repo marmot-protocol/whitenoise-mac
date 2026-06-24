@@ -288,9 +288,9 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
     }
 }
 
-/// Shared image cache + downsampling pipeline. `NSCache` is thread-safe, so this needs no
-/// actor for decoded-image storage; in-flight work is coordinated by `RemoteImageLoadRegistry`
-/// so concurrent views that need the same URL/size await one download and decode.
+/// Shared decoded-image cache + downsampling pipeline. `NSCache` owns the decoded-image
+/// storage; in-flight work is coordinated by `RemoteImageLoadRegistry` so concurrent views
+/// that need the same URL/size await one download and decode.
 private final class RemoteImageLoadRegistry: @unchecked Sendable {
     private struct Entry {
         let task: Task<LoadedImage?, Never>
@@ -313,6 +313,8 @@ private final class RemoteImageLoadRegistry: @unchecked Sendable {
             return entry.task
         }
 
+        // Keep this under the lock so a missing key creates exactly one shared task. Callers
+        // must keep `create` cheap and non-reentrant; it should only allocate the download task.
         let task = create()
         tasks[key] = Entry(task: task, waiters: 1)
         return task
@@ -335,8 +337,19 @@ private final class RemoteImageLoadRegistry: @unchecked Sendable {
 
         taskToCancel?.cancel()
     }
+
+    #if DEBUG
+        func waiterCount(for key: String) -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return tasks[key]?.waiters ?? 0
+        }
+    #endif
 }
 
+/// One-shot release latch for a coalesced waiter. Both the cancellation handler and the
+/// successful await path may try to release the same waiter; only the first release should
+/// decrement the registry count and potentially cancel the shared download.
 private final class RemoteImageLoadWaiter: @unchecked Sendable {
     private let lock = NSLock()
     private var released = false
@@ -429,6 +442,12 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             waiter.release()
         }
     }
+
+    #if DEBUG
+        func inFlightWaiterCount(for url: URL, maxPixelSize: CGFloat) -> Int {
+            inFlight.waiterCount(for: Self.cacheKey(for: url, maxPixelSize: maxPixelSize))
+        }
+    #endif
 
     private static func cacheKey(for url: URL, maxPixelSize: CGFloat) -> String {
         "\(url.absoluteString)|\(Int(maxPixelSize))"

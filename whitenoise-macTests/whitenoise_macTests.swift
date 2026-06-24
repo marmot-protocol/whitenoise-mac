@@ -4759,18 +4759,31 @@ struct whitenoise_macTests {
         let url = try #require(URL(string: "https://example.com/avatar.png"))
 
         let first = Task { await loader.image(for: url, maxPixelSize: 32) }
-        let second = Task { await loader.image(for: url, maxPixelSize: 32) }
 
         let requestStarted = await waitFor { RemoteImageURLProtocolStub.requestCount() == 1 }
         #expect(requestStarted)
 
+        let second = Task { await loader.image(for: url, maxPixelSize: 32) }
+
+        let secondJoined = await waitFor {
+            loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 2
+                && RemoteImageURLProtocolStub.requestCount() == 1
+        }
+        #expect(secondJoined)
+
         first.cancel()
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        let firstReleased = await waitFor {
+            loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 1
+        }
+        #expect(firstReleased)
         #expect(RemoteImageURLProtocolStub.stopLoadingCount() == 0)
 
         second.cancel()
 
-        let requestCancelled = await waitFor { RemoteImageURLProtocolStub.stopLoadingCount() == 1 }
+        let requestCancelled = await waitFor {
+            RemoteImageURLProtocolStub.stopLoadingCount() == 1
+                && loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 0
+        }
         #expect(requestCancelled)
 
         let results = await [first.value, second.value]
@@ -8564,8 +8577,8 @@ private final class RemoteImageURLProtocolStub: URLProtocol {
     }
 
     override func stopLoading() {
-        Self.recordStop()
         Self.lock.lock()
+        Self.stops += 1
         stopped = true
         Self.lock.unlock()
     }
@@ -8575,12 +8588,6 @@ private final class RemoteImageURLProtocolStub: URLProtocol {
         defer { lock.unlock() }
         requests += 1
         return (responseData, delay)
-    }
-
-    private static func recordStop() {
-        lock.lock()
-        stops += 1
-        lock.unlock()
     }
 
     private var isStopped: Bool {
