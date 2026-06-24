@@ -3337,6 +3337,57 @@ struct whitenoise_macTests {
         #expect((json["events"] as? [[String: Any]])?.count == 2)
     }
 
+    @Test func conversationTranscriptExportFailsWhenEmptyPageReportsMoreHistory() throws {
+        // Regression for #139: an empty page returned with `hasMoreBefore == true` cannot
+        // advance the `before` cursor, so the export must fail loudly rather than silently
+        // truncating older history. The first page returns one message with more before it,
+        // then the second page comes back empty while still claiming more history exists.
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let firstId = String(repeating: "1", count: 64)
+        runtime.timelineMessagesHandler = { query in
+            if query.before == nil {
+                return TimelinePageFfi(
+                    messages: [
+                        timelineMessage(
+                            id: firstId,
+                            groupIdHex: "group",
+                            sender: String(repeating: "a", count: 64),
+                            plaintext: "newest",
+                            recordedAt: 10
+                        )
+                    ],
+                    hasMoreBefore: true,
+                    hasMoreAfter: false
+                )
+            }
+            return TimelinePageFfi(messages: [], hasMoreBefore: true, hasMoreAfter: false)
+        }
+
+        #expect(throws: ConversationTranscriptExport.ExportError.self) {
+            try ConversationTranscriptExport.fetchAllMessages(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group"
+            )
+        }
+    }
+
+    @Test func conversationTranscriptExportStopsCleanlyWhenEmptyPageHasNoMoreHistory() throws {
+        // The companion to the regression above: an empty page with `hasMoreBefore == false`
+        // is genuinely done and must terminate the loop without throwing.
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        let messages = try ConversationTranscriptExport.fetchAllMessages(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group"
+        )
+        #expect(messages.isEmpty)
+    }
+
     @MainActor
     @Test func directChatUsesOtherMemberProfileForTitleAndAvatar() async throws {
         let account = AccountSummaryFfi(
