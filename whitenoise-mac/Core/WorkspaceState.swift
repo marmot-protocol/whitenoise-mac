@@ -679,6 +679,16 @@ final class WorkspaceState {
         languagePreference.locale ?? .autoupdatingCurrent
     }
 
+    func handleSystemLocaleChange() {
+        guard languagePreference == .system else { return }
+        // Assigning the existing value intentionally re-triggers the observable
+        // mutation and the `didSet` cache invalidation path. The UI reads
+        // `preferredLocale`, which depends on `languagePreference`, so this also
+        // gives SwiftUI a concrete state mutation to render against after macOS
+        // changes its effective language while the app is running.
+        languagePreference = .system
+    }
+
     func bootstrap() async {
         guard client == nil, case .bootstrapping = phase else { return }
         lastError = nil
