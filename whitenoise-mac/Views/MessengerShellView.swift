@@ -3,6 +3,7 @@ import AVKit
 import AppKit
 import CoreImage
 import CryptoKit
+import ImageIO
 import MarmotKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -944,10 +945,23 @@ private struct PendingMediaDraftTile: View {
     @State private var decodedImagePreview: NSImage?
     @State private var decodedImageCacheKey: String?
 
+    // The composer only shows a handful of draft tiles. Keep thumbnails bounded while allowing
+    // enough headroom for several ~148px previews and matching failed-decode entries.
+    private static let imagePreviewCacheCountLimit = 64
+    private static let failedImagePreviewCacheCountLimit = imagePreviewCacheCountLimit
+    private static let imagePreviewCacheTotalCostLimit =
+        PendingMediaDraftThumbnailDecoder.defaultDecodedCacheTotalCostLimit
+
     private static let imagePreviewCache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 64
-        cache.totalCostLimit = 8 * 1024 * 1024
+        cache.countLimit = imagePreviewCacheCountLimit
+        cache.totalCostLimit = imagePreviewCacheTotalCostLimit
+        return cache
+    }()
+
+    private static let failedImagePreviewCache: NSCache<NSString, NSNumber> = {
+        let cache = NSCache<NSString, NSNumber>()
+        cache.countLimit = failedImagePreviewCacheCountLimit
         return cache
     }()
 
@@ -1000,12 +1014,18 @@ private struct PendingMediaDraftTile: View {
     @MainActor
     private func loadImagePreview() async {
         let cacheKey = imagePreviewTaskID
-        if decodedImageCacheKey == cacheKey, decodedImagePreview != nil {
+        let nsCacheKey = cacheKey as NSString
+        if decodedImageCacheKey == cacheKey {
             return
         }
-        if let cached = Self.imagePreviewCache.object(forKey: cacheKey as NSString) {
+        if let cached = Self.imagePreviewCache.object(forKey: nsCacheKey) {
             decodedImageCacheKey = cacheKey
             decodedImagePreview = cached
+            return
+        }
+        if Self.failedImagePreviewCache.object(forKey: nsCacheKey) != nil {
+            decodedImageCacheKey = cacheKey
+            decodedImagePreview = nil
             return
         }
 
@@ -1020,11 +1040,14 @@ private struct PendingMediaDraftTile: View {
 
         guard decodedImageCacheKey == cacheKey else { return }
         if let decoded {
+            Self.failedImagePreviewCache.removeObject(forKey: nsCacheKey)
             Self.imagePreviewCache.setObject(
                 decoded,
-                forKey: cacheKey as NSString,
+                forKey: nsCacheKey,
                 cost: PendingMediaDraftThumbnailDecoder.decodedCost(for: decoded)
             )
+        } else {
+            Self.failedImagePreviewCache.setObject(NSNumber(value: true), forKey: nsCacheKey)
         }
         decodedImagePreview = decoded
     }
@@ -1079,6 +1102,8 @@ private struct PendingMediaDraftTile: View {
 }
 
 enum PendingMediaDraftThumbnailDecoder {
+    static let defaultDecodedCacheTotalCostLimit = 8 * 1024 * 1024
+
     static func image(from data: Data, maxPixelSize: CGFloat) -> NSImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
@@ -1102,7 +1127,7 @@ enum PendingMediaDraftThumbnailDecoder {
         let width = max(1, representation?.pixelsWide ?? Int(ceil(image.size.width)))
         let height = max(1, representation?.pixelsHigh ?? Int(ceil(image.size.height)))
         guard width <= Int.max / max(height, 1) / 4 else {
-            return 8 * 1024 * 1024
+            return defaultDecodedCacheTotalCostLimit
         }
         return width * height * 4
     }

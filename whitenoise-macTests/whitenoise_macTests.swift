@@ -4662,11 +4662,20 @@ struct whitenoise_macTests {
 
     @Test func pendingMediaDraftThumbnailDecoderDownsamplesLargeImage() async throws {
         let data = try Self.jpegData(width: 640, height: 480)
-        let image = try #require(PendingMediaDraftThumbnailDecoder.image(from: data, maxPixelSize: 74))
+        let productionTileMaxPixelSize = 148
+        let image = try #require(
+            PendingMediaDraftThumbnailDecoder.image(
+                from: data,
+                maxPixelSize: CGFloat(productionTileMaxPixelSize)
+            )
+        )
         let representation = try #require(image.representations.first)
 
-        #expect(max(representation.pixelsWide, representation.pixelsHigh) <= 74)
-        #expect(PendingMediaDraftThumbnailDecoder.decodedCost(for: image) <= 74 * 74 * 4)
+        #expect(max(representation.pixelsWide, representation.pixelsHigh) <= productionTileMaxPixelSize)
+        #expect(
+            PendingMediaDraftThumbnailDecoder.decodedCost(for: image)
+                <= productionTileMaxPixelSize * productionTileMaxPixelSize * 4
+        )
     }
 
     @Test func pendingMediaDraftThumbnailDecoderRejectsInvalidImageData() async throws {
