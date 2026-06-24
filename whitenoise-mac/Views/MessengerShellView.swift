@@ -3125,6 +3125,7 @@ private struct MessageVideoAttachmentPlayer: View {
     @State private var isLoading = false
     @State private var didFail = false
     @State private var playbackPreparationID: UUID?
+    @State private var playbackTask: Task<Void, Never>?
 
     private var isPreparingPlayback: Bool {
         playbackPreparationID != nil
@@ -3166,9 +3167,18 @@ private struct MessageVideoAttachmentPlayer: View {
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
         .onTapGesture {
-            Task { await togglePlayback() }
+            if isPreparingPlayback {
+                playbackTask?.cancel()
+                playbackTask = nil
+                stopPlayback()
+            } else {
+                playbackTask?.cancel()
+                playbackTask = Task { await togglePlayback() }
+            }
         }
         .onDisappear {
+            playbackTask?.cancel()
+            playbackTask = nil
             stopPlayback()
         }
         .accessibilityLabel("Video attachment")
@@ -3176,6 +3186,8 @@ private struct MessageVideoAttachmentPlayer: View {
 
     @MainActor
     private func togglePlayback() async {
+        guard !Task.isCancelled else { return }
+
         if let player {
             if player.timeControlStatus == .playing {
                 player.pause()
@@ -3195,6 +3207,8 @@ private struct MessageVideoAttachmentPlayer: View {
 
     @MainActor
     private func startPlayback() async {
+        guard !Task.isCancelled else { return }
+
         let nextPreparationID = UUID()
         playbackPreparationID = nextPreparationID
         isLoading = true
@@ -3215,7 +3229,7 @@ private struct MessageVideoAttachmentPlayer: View {
                 download: download
             )
         }
-        guard playbackPreparationID == nextPreparationID else { return }
+        guard playbackPreparationID == nextPreparationID, !Task.isCancelled else { return }
         guard let url = resolvedURL else {
             didFail = true
             return
