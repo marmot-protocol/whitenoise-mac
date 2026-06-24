@@ -3,6 +3,7 @@ import AVKit
 import AppKit
 import CoreImage
 import CryptoKit
+import ImageIO
 import MarmotKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -941,11 +942,37 @@ private struct PendingMediaDraftTile: View {
     let attachment: PendingMediaAttachment
     let tileSize: CGSize
 
+    @State private var decodedImagePreview: NSImage?
+    @State private var decodedImageCacheKey: String?
+
+    // The composer only shows a handful of draft tiles. Keep thumbnails bounded while allowing
+    // enough headroom for several ~148px previews and matching failed-decode entries.
+    private static let imagePreviewCacheCountLimit = 64
+    private static let failedImagePreviewCacheCountLimit = imagePreviewCacheCountLimit
+    private static let imagePreviewCacheTotalCostLimit =
+        PendingMediaDraftThumbnailDecoder.defaultDecodedCacheTotalCostLimit
+
+    private static let imagePreviewCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = imagePreviewCacheCountLimit
+        cache.totalCostLimit = imagePreviewCacheTotalCostLimit
+        return cache
+    }()
+
+    private static let failedImagePreviewCache: NSCache<NSString, NSNumber> = {
+        let cache = NSCache<NSString, NSNumber>()
+        cache.countLimit = failedImagePreviewCacheCountLimit
+        return cache
+    }()
+
     var body: some View {
         Group {
             switch attachment.kind {
             case .image:
                 imagePreview
+                    .task(id: imagePreviewTaskID) {
+                        await loadImagePreview()
+                    }
             case .audio:
                 audioPreview
             case .video, .file:
@@ -966,7 +993,7 @@ private struct PendingMediaDraftTile: View {
 
     @ViewBuilder
     private var imagePreview: some View {
-        if let image = NSImage(data: attachment.data) {
+        if let image = decodedImagePreview {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()
@@ -974,6 +1001,59 @@ private struct PendingMediaDraftTile: View {
         } else {
             iconPreview(systemName: attachment.kind.systemImageName)
         }
+    }
+
+    private var imagePreviewTaskID: String {
+        Self.cacheKey(for: attachment, maxPixelSize: imagePreviewMaxPixelSize)
+    }
+
+    private var imagePreviewMaxPixelSize: CGFloat {
+        ceil(max(tileSize.width, tileSize.height) * 2)
+    }
+
+    @MainActor
+    private func loadImagePreview() async {
+        let cacheKey = imagePreviewTaskID
+        let nsCacheKey = cacheKey as NSString
+        if decodedImageCacheKey == cacheKey {
+            return
+        }
+        if let cached = Self.imagePreviewCache.object(forKey: nsCacheKey) {
+            decodedImageCacheKey = cacheKey
+            decodedImagePreview = cached
+            return
+        }
+        if Self.failedImagePreviewCache.object(forKey: nsCacheKey) != nil {
+            decodedImageCacheKey = cacheKey
+            decodedImagePreview = nil
+            return
+        }
+
+        decodedImageCacheKey = cacheKey
+        decodedImagePreview = nil
+
+        let data = attachment.data
+        let maxPixelSize = imagePreviewMaxPixelSize
+        let decoded = await Task.detached(priority: .utility) {
+            PendingMediaDraftThumbnailDecoder.image(from: data, maxPixelSize: maxPixelSize)
+        }.value
+
+        guard decodedImageCacheKey == cacheKey else { return }
+        if let decoded {
+            Self.failedImagePreviewCache.removeObject(forKey: nsCacheKey)
+            Self.imagePreviewCache.setObject(
+                decoded,
+                forKey: nsCacheKey,
+                cost: PendingMediaDraftThumbnailDecoder.decodedCost(for: decoded)
+            )
+        } else {
+            Self.failedImagePreviewCache.setObject(NSNumber(value: true), forKey: nsCacheKey)
+        }
+        decodedImagePreview = decoded
+    }
+
+    private static func cacheKey(for attachment: PendingMediaAttachment, maxPixelSize: CGFloat) -> String {
+        "\(attachment.id.uuidString)|\(attachment.data.count)|\(Int(maxPixelSize))"
     }
 
     private var audioPreview: some View {
@@ -1018,6 +1098,38 @@ private struct PendingMediaDraftTile: View {
         Image(systemName: systemName)
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(.secondary)
+    }
+}
+
+enum PendingMediaDraftThumbnailDecoder {
+    static let defaultDecodedCacheTotalCostLimit = 8 * 1024 * 1024
+
+    static func image(from data: Data, maxPixelSize: CGFloat) -> NSImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+        let options =
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixelSize)),
+            ] as CFDictionary
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    static func decodedCost(for image: NSImage) -> Int {
+        let representation = image.representations.first
+        let width = max(1, representation?.pixelsWide ?? Int(ceil(image.size.width)))
+        let height = max(1, representation?.pixelsHigh ?? Int(ceil(image.size.height)))
+        guard width <= Int.max / max(height, 1) / 4 else {
+            return defaultDecodedCacheTotalCostLimit
+        }
+        return width * height * 4
     }
 }
 
