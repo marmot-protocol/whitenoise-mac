@@ -4730,6 +4730,15 @@ struct whitenoise_macTests {
         #expect(loader.decodedCacheTotalCostLimit > 0)
     }
 
+    @Test func remoteImageLoaderDefaultSessionUsesMemoryOnlyURLCache() async throws {
+        let config = RemoteImageLoader.makeSessionConfiguration()
+        let urlCache = try #require(config.urlCache)
+
+        #expect(urlCache.memoryCapacity > 0)
+        #expect(urlCache.diskCapacity == 0)
+        #expect(config.requestCachePolicy == .useProtocolCachePolicy)
+    }
+
     private static let singlePixelPNG = Data([
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
