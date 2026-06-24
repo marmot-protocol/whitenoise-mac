@@ -8,11 +8,29 @@
 import Darwin
 import Foundation
 import MarmotKit
+import Observation
 import SwiftUI
 import Testing
 import UserNotifications
 
 @testable import whitenoise_mac
+
+private final class ObservationInvalidationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var invalidated = false
+
+    func markInvalidated() {
+        lock.lock()
+        invalidated = true
+        lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return invalidated
+    }
+}
 
 @Suite(.serialized)
 struct whitenoise_macTests {
@@ -1090,6 +1108,65 @@ struct whitenoise_macTests {
 
         #expect(runtime.listMediaCallCount == 1)
         #expect(runtime.downloadMediaCallCount == 1)
+    }
+
+    @MainActor
+    @Test func mediaDownloadStateStoresDoNotInvalidateWorkspaceObservationForUnrelatedDownloads() async throws {
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        let firstReference = mediaAttachmentReference(mediaType: "image/png", fileName: "first.png")
+        let secondReference = mediaAttachmentReference(mediaType: "image/png", fileName: "second.png")
+        let firstMessage = MessageItem(
+            id: "first-media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "first-media-message#0#\(firstReference.plaintextSha256)",
+                    reference: firstReference
+                )
+            ]
+        )
+        let secondMessage = MessageItem(
+            id: "second-media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "second-media-message#0#\(secondReference.plaintextSha256)",
+                    reference: secondReference
+                )
+            ]
+        )
+        let firstAttachment = try #require(firstMessage.mediaAttachments.first)
+        let secondAttachment = try #require(secondMessage.mediaAttachments.first)
+        let firstStore = state.mediaDownloadStateStore(for: firstMessage, attachment: firstAttachment)
+        let sameFirstStore = state.mediaDownloadStateStore(for: firstMessage, attachment: firstAttachment)
+        let secondStore = state.mediaDownloadStateStore(for: secondMessage, attachment: secondAttachment)
+
+        #expect(firstStore === sameFirstStore)
+        #expect(firstStore !== secondStore)
+
+        let workspaceInvalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.mediaDownloadStateStore(for: firstMessage, attachment: firstAttachment)
+        } onChange: {
+            workspaceInvalidated.markInvalidated()
+        }
+
+        await state.loadMediaAttachment(secondAttachment, for: secondMessage)
+
+        #expect(!workspaceInvalidated.value)
+        #expect(firstStore.state == .idle)
+        guard case .failed = secondStore.state else {
+            Issue.record("Expected the unrelated download store to receive the failed state")
+            return
+        }
     }
 
     @MainActor

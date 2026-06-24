@@ -2303,6 +2303,7 @@ private struct MessageBubble: View {
 
                 ForEach(nonvisualMediaAttachments) { attachment in
                     MessageMediaAttachmentView(
+                        downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
                         message: message,
                         attachment: attachment,
                         isOutgoing: message.isOutgoing
@@ -2469,6 +2470,7 @@ private struct MessageImageGalleryPresentation: Identifiable, Equatable {
 }
 
 private struct MessageVisualMediaGrid: View {
+    @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     let attachments: [MessageMediaAttachment]
     let isOutgoing: Bool
@@ -2528,6 +2530,7 @@ private struct MessageVisualMediaGrid: View {
     private func tile(at index: Int) -> some View {
         if index < visibleAttachments.count {
             MessageVisualMediaTile(
+                downloadState: workspace.mediaDownloadStateStore(for: message, attachment: visibleAttachments[index]),
                 message: message,
                 attachment: visibleAttachments[index],
                 isOutgoing: isOutgoing,
@@ -2544,6 +2547,7 @@ private struct MessageVisualMediaGrid: View {
 
 private struct MessageVisualMediaTile: View {
     @Environment(WorkspaceState.self) private var workspace
+    @ObservedObject var downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
     let isOutgoing: Bool
@@ -2579,7 +2583,7 @@ private struct MessageVisualMediaTile: View {
 
     @ViewBuilder
     private var content: some View {
-        switch workspace.mediaDownloadState(for: message, attachment: attachment) {
+        switch downloadState.state {
         case .idle, .loading:
             placeholder(systemImage: attachment.kind == .video ? "play.rectangle" : "photo", isLoading: true)
         case .failed:
@@ -2627,13 +2631,14 @@ private struct MessageVisualMediaTile: View {
 
 private struct MessageMediaAttachmentView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @ObservedObject var downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
     let isOutgoing: Bool
 
     var body: some View {
         Group {
-            switch workspace.mediaDownloadState(for: message, attachment: attachment) {
+            switch downloadState.state {
             case .idle, .loading:
                 MessageAttachmentStatusRow(
                     systemImage: "arrow.down.circle",
@@ -3196,36 +3201,11 @@ private struct MessageImageGalleryOverlay: View {
 
     @ViewBuilder
     private var imageContent: some View {
-        switch workspace.mediaDownloadState(for: presentation.message, attachment: selectedAttachment) {
-        case .idle, .loading:
-            ProgressView()
-                .controlSize(.regular)
-                .tint(.white)
-        case .failed:
-            VStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.title2)
-                Text("Image unavailable")
-                    .font(.callout.weight(.semibold))
-                Button {
-                    Task { await workspace.loadMediaAttachment(selectedAttachment, for: presentation.message) }
-                } label: {
-                    Label("Retry", systemImage: "arrow.clockwise")
-                }
-            }
-            .foregroundStyle(.white)
-        case .loaded(let download):
-            if let image = NSImage(data: download.data) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .accessibilityLabel(selectedAttachment.fileName)
-            } else {
-                Text("Image unavailable")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-        }
+        MessageImageGalleryContent(
+            downloadState: workspace.mediaDownloadStateStore(for: presentation.message, attachment: selectedAttachment),
+            message: presentation.message,
+            attachment: selectedAttachment
+        )
     }
 
     private func navigationButton(
@@ -3243,6 +3223,46 @@ private struct MessageImageGalleryOverlay: View {
         .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.28))
         .disabled(!isEnabled)
         .help(systemName == "chevron.left" ? "Previous image" : "Next image")
+    }
+}
+
+private struct MessageImageGalleryContent: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @ObservedObject var downloadState: MediaDownloadStateStore
+    let message: MessageItem
+    let attachment: MessageMediaAttachment
+
+    var body: some View {
+        switch downloadState.state {
+        case .idle, .loading:
+            ProgressView()
+                .controlSize(.regular)
+                .tint(.white)
+        case .failed:
+            VStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.title2)
+                Text("Image unavailable")
+                    .font(.callout.weight(.semibold))
+                Button {
+                    Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+            }
+            .foregroundStyle(.white)
+        case .loaded(let download):
+            if let image = NSImage(data: download.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .accessibilityLabel(attachment.fileName)
+            } else {
+                Text("Image unavailable")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+        }
     }
 }
 
