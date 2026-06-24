@@ -3124,6 +3124,11 @@ private struct MessageVideoAttachmentPlayer: View {
     @State private var playbackURL: URL?
     @State private var isLoading = false
     @State private var didFail = false
+    @State private var playbackPreparationID: UUID?
+
+    private var isPreparingPlayback: Bool {
+        playbackPreparationID != nil
+    }
 
     var body: some View {
         ZStack {
@@ -3164,7 +3169,7 @@ private struct MessageVideoAttachmentPlayer: View {
             Task { await togglePlayback() }
         }
         .onDisappear {
-            teardown()
+            stopPlayback()
         }
         .accessibilityLabel("Video attachment")
     }
@@ -3180,9 +3185,26 @@ private struct MessageVideoAttachmentPlayer: View {
             return
         }
 
+        if isPreparingPlayback {
+            stopPlayback()
+            return
+        }
+
+        await startPlayback()
+    }
+
+    @MainActor
+    private func startPlayback() async {
+        let nextPreparationID = UUID()
+        playbackPreparationID = nextPreparationID
         isLoading = true
         didFail = false
-        defer { isLoading = false }
+        defer {
+            if playbackPreparationID == nextPreparationID {
+                playbackPreparationID = nil
+                isLoading = false
+            }
+        }
 
         let resolvedURL: URL?
         if let playbackURL {
@@ -3193,6 +3215,7 @@ private struct MessageVideoAttachmentPlayer: View {
                 download: download
             )
         }
+        guard playbackPreparationID == nextPreparationID else { return }
         guard let url = resolvedURL else {
             didFail = true
             return
@@ -3203,9 +3226,11 @@ private struct MessageVideoAttachmentPlayer: View {
         next.play()
     }
 
-    /// Releases the player and deletes the decrypted scratch file. Ordered so `AVPlayer`
-    /// no longer references the file before it is removed.
-    private func teardown() {
+    /// Cancels in-flight preparation, releases the player, and deletes the decrypted scratch
+    /// file. Ordered so `AVPlayer` no longer references the file before it is removed.
+    private func stopPlayback() {
+        playbackPreparationID = nil
+        isLoading = false
         player?.pause()
         player = nil
         if let url = playbackURL {
