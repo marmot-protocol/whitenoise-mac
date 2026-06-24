@@ -1504,7 +1504,10 @@ final class WorkspaceState {
             if let row = try await runOffMain({
                 try client.initializeChatReadState(accountRef: accountRef, groupIdHex: groupIdHex)
             }) {
-                await applyChatRow(row, account: activeAccount)
+                // `initializeChatReadState` may race a live chat-list delta. Do not let an
+                // older read-state row roll back a newer preview/timestamp already applied
+                // by the subscription listener while the FFI call was in flight.
+                await applyChatRow(row, account: activeAccount, skippingStaleRow: true)
             }
 
             let subscription = try await client.subscribeTimelineMessages(
@@ -3292,7 +3295,11 @@ final class WorkspaceState {
         }
     }
 
-    private func applyChatRow(_ row: ChatListRowFfi, account: AccountItem) async {
+    private func applyChatRow(
+        _ row: ChatListRowFfi,
+        account: AccountItem,
+        skippingStaleRow: Bool = false
+    ) async {
         guard activeAccountId == account.id else { return }
 
         var chats = chatsByAccount[account.id] ?? []
@@ -3302,6 +3309,12 @@ final class WorkspaceState {
         }
 
         let chat = baseChatItem(from: row, account: account)
+        if skippingStaleRow,
+            let current = chats.first(where: { $0.id == chat.id }),
+            isOlderChatRow(chat, than: current)
+        {
+            return
+        }
         if let index = chats.firstIndex(where: { $0.id == chat.id }) {
             chats[index] = chat
         } else {
@@ -3309,6 +3322,12 @@ final class WorkspaceState {
         }
         chatsByAccount[account.id] = sortedChatItems(chats)
         startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
+    }
+
+    private func isOlderChatRow(_ candidate: ChatItem, than current: ChatItem) -> Bool {
+        guard let currentUpdatedAt = current.updatedAt else { return false }
+        guard let candidateUpdatedAt = candidate.updatedAt else { return true }
+        return candidateUpdatedAt < currentUpdatedAt
     }
 
     private func removeChat(groupIdHex: String, account: AccountItem) {
