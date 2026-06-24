@@ -996,6 +996,36 @@ struct whitenoise_macTests {
         #expect(MessageMediaGridPresentation.gridHeight(totalCount: 4, maxWidth: 360, spacing: 3) == 360)
     }
 
+    @Test func pendingMediaAttachmentDurationLabelFormatsSubhourHourBoundaryAndClampsNegative() {
+        let longAttachment = PendingMediaAttachment(
+            fileName: "long.m4a",
+            mediaType: "audio/mp4",
+            data: Data(),
+            dim: nil,
+            durationSeconds: 4_500.9
+        )
+        let shortAttachment = PendingMediaAttachment(
+            fileName: "short.m4a",
+            mediaType: "audio/mp4",
+            data: Data(),
+            dim: nil,
+            durationSeconds: 65.9
+        )
+        let negativeAttachment = PendingMediaAttachment(
+            fileName: "negative.m4a",
+            mediaType: "audio/mp4",
+            data: Data(),
+            dim: nil,
+            durationSeconds: -2
+        )
+
+        #expect(longAttachment.durationLabel == "1:15:00")
+        #expect(shortAttachment.durationLabel == "1:05")
+        #expect(negativeAttachment.durationLabel == "0:00")
+        #expect(MediaDurationLabel.string(for: 3_599) == "59:59")
+        #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
+    }
+
     @MainActor
     @Test func deeplyNestedMediaJSONDoesNotProduceAttachments() async throws {
         // Regression for whitenoise-mac#120: mediaJson is decrypted peer content.
