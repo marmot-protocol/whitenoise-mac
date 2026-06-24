@@ -2811,6 +2811,10 @@ private struct MessageAttachmentStatusRow: View {
     }
 }
 
+private struct PreparedMessageAudioPlayer: @unchecked Sendable {
+    let player: AVAudioPlayer
+}
+
 @MainActor
 private final class MessageAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
     var onDidFinishPlaying: (() -> Void)?
@@ -2827,17 +2831,22 @@ private struct MessageAudioAttachmentPlayer: View {
     let isOutgoing: Bool
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
+    @State private var playbackPreparationID: UUID?
     @State private var playbackProgress: CGFloat = 0
     @State private var metadata: MediaWaveformAnalyzer.Metadata?
     @State private var playbackMonitor: Task<Void, Never>?
     @State private var audioPlayerDelegate = MessageAudioPlayerDelegate()
 
+    private var isPreparingPlayback: Bool {
+        playbackPreparationID != nil
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             Button {
-                togglePlayback()
+                Task { await togglePlayback() }
             } label: {
-                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
                     .font(.system(size: 13, weight: .bold))
                     .frame(width: 30, height: 30)
                     .background {
@@ -2846,7 +2855,7 @@ private struct MessageAudioAttachmentPlayer: View {
                     }
             }
             .buttonStyle(.plain)
-            .help(isPlaying ? L10n.string("Stop") : L10n.string("Play"))
+            .help(isPlaying || isPreparingPlayback ? L10n.string("Stop") : L10n.string("Play"))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(download.fileName.nilIfBlank ?? fallbackFileName)
@@ -2898,20 +2907,31 @@ private struct MessageAudioAttachmentPlayer: View {
         return ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
     }
 
-    private func togglePlayback() {
-        if isPlaying {
+    private func togglePlayback() async {
+        if isPlaying || isPreparingPlayback {
             stopPlayback()
         } else {
-            startPlayback()
+            await startPlayback()
         }
     }
 
-    private func startPlayback() {
+    private func startPlayback() async {
+        var preparationID: UUID?
         do {
             if player == nil {
-                player = try AVAudioPlayer(data: download.data)
-                player?.prepareToPlay()
-                player?.delegate = audioPlayerDelegate
+                let data = download.data
+                let nextPreparationID = UUID()
+                preparationID = nextPreparationID
+                playbackPreparationID = nextPreparationID
+                let preparedPlayer = try await Task.detached(priority: .userInitiated) {
+                    let audioPlayer = try AVAudioPlayer(data: data)
+                    audioPlayer.prepareToPlay()
+                    return PreparedMessageAudioPlayer(player: audioPlayer)
+                }.value.player
+                guard playbackPreparationID == nextPreparationID else { return }
+                playbackPreparationID = nil
+                player = preparedPlayer
+                preparedPlayer.delegate = audioPlayerDelegate
             }
             audioPlayerDelegate.onDidFinishPlaying = handlePlaybackFinished
             player?.play()
@@ -2919,11 +2939,15 @@ private struct MessageAudioAttachmentPlayer: View {
             updatePlaybackProgress()
             monitorPlaybackProgress()
         } catch {
-            isPlaying = false
+            if preparationID == nil || playbackPreparationID == preparationID {
+                playbackPreparationID = nil
+                isPlaying = false
+            }
         }
     }
 
     private func stopPlayback() {
+        playbackPreparationID = nil
         audioPlayerDelegate.onDidFinishPlaying = nil
         player?.stop()
         player?.currentTime = 0
