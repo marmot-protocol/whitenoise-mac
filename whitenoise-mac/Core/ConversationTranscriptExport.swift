@@ -7,6 +7,22 @@ import MarmotKit
 nonisolated enum ConversationTranscriptExport {
     static let pageLimit: UInt32 = 200
 
+    enum ExportError: LocalizedError {
+        /// The FFI reported more history exists (`hasMoreBefore == true`) but returned an
+        /// empty page, so the `before` cursor cannot advance. Surfacing this prevents
+        /// silently truncating the transcript (issue #139).
+        case emptyPageWithMoreHistory
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyPageWithMoreHistory:
+                return
+                    "Transcript export stopped early: the timeline reported more history but returned an empty page, "
+                    + "so older messages could not be loaded."
+            }
+        }
+    }
+
     struct Document: Encodable {
         var v: Int = 1
         var exportedAt: String
@@ -89,8 +105,13 @@ nonisolated enum ConversationTranscriptExport {
                 collectedById[message.messageIdHex] = message
             }
 
+            guard page.hasMoreBefore else { break }
             let orderedPage = sortChronologically(page.messages)
-            guard page.hasMoreBefore, let oldest = orderedPage.first else { break }
+            guard let oldest = orderedPage.first else {
+                // `hasMoreBefore` is true but the page is empty, so the `before` cursor
+                // cannot advance. Fail loudly instead of silently truncating history (#139).
+                throw ExportError.emptyPageWithMoreHistory
+            }
             let nextBefore = oldest.timelineAt
             let nextBeforeMessageId = oldest.messageIdHex
             guard nextBefore != before || nextBeforeMessageId != beforeMessageId else { break }
