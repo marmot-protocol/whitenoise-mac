@@ -2099,7 +2099,6 @@ final class WorkspaceState {
         isGroupImagePickerPresented = false
         invalidateGroupImageSearch()
         groupImageResults = []
-        isSavingGroupImage = false
     }
 
     private func dismissGroupImagePickerIfSelectedChatUnavailable() {

@@ -3946,7 +3946,12 @@ struct whitenoise_macTests {
             await Task.yield()
         }
 
-        // Overlapping clear action: it must hit the `!isSavingGroupImage` guard and return.
+        // Closing/reopening the picker while the first update is suspended must not clear the
+        // in-flight guard; an overlapping clear action still has to be dropped.
+        state.closeGroupImagePicker()
+        #expect(!state.isGroupImagePickerPresented)
+        #expect(state.isSavingGroupImage)
+        state.showGroupImagePicker(for: groupChat)
         await state.clearGroupImage()
         #expect(runtime.updateGroupAvatarUrlCallCount == 1)
 
