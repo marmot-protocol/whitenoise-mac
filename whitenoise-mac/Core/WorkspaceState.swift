@@ -917,6 +917,7 @@ final class WorkspaceState {
                 messagesByChat.removeAll()
                 messageLookupByChat.removeAll()
                 messageIDsByChat.removeAll()
+                mediaDownloads.removeAll()
                 peerProfileFFICache.removeAll()
                 clearGroupMemberCache()
                 timelinePagingByChat.removeAll()
