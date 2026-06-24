@@ -1581,9 +1581,9 @@ enum ChatFilter {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return chats }
         return chats.filter { chat in
-            [chat.title, chat.subtitle, chat.preview]
-                .joined(separator: " ")
-                .localizedCaseInsensitiveContains(needle)
+            chat.title.localizedCaseInsensitiveContains(needle)
+                || chat.subtitle.localizedCaseInsensitiveContains(needle)
+                || chat.preview.localizedCaseInsensitiveContains(needle)
         }
     }
 }
