@@ -3884,6 +3884,107 @@ struct whitenoise_macTests {
         #expect((runtime.groupDetailsCallCounts["group"] ?? 0) == groupDetailsCallsAfterBootstrap)
     }
 
+    @MainActor
+    @Test func timelineSenderProfilesSkipMemberFetchWhenSendersResolve() async throws {
+        // Regression for #171: when every non-local sender already resolves from its cached
+        // profile display/name, `messageSenderProfiles` must not fetch the group member list or
+        // build the member-name fallback map. The fallback is only ever consulted for senders
+        // with a blank resolved name, so in the all-resolved steady state the member fetch and
+        // dictionary allocation are wasted work on the timeline hot path.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        // Alice has a real profile, so the timeline resolves her name from the profile lookup and
+        // never needs the group-member-name fallback.
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            (0..<150).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: 1_700_000_000 + UInt64(index)
+                )
+            },
+            groupIdHex: "group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        // Bootstrap auto-selects the only chat and applies its initial timeline window; the
+        // explicit pagination call below applies a second window. Both run through
+        // `messageSenderProfiles`, exercising the steady-state hot path.
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "group")
+        await state.loadOlderMessages(groupIdHex: "group")
+
+        let messages = state.messagesByChat["group"] ?? []
+        #expect(messages.first?.senderName == "Alice Cooper")
+        // The optimization: no member fetch for the sender-name fallback across any window,
+        // because every sender resolved from its profile. Before the #171 fix this would be >= 1.
+        #expect(state.timelineSenderMemberFallbackFetchCount == 0)
+    }
+
+    @MainActor
+    @Test func timelineSenderProfilesFallBackToMemberNameWhenProfileBlank() async throws {
+        // Companion to #171: behavior for blank profile names is preserved. When a non-local
+        // sender's resolved profile display/name is blank but the group exposes a member display
+        // name, the timeline must still fall back to the member name (ahead of the directory
+        // display name), which requires fetching the member list.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // `groupDetailsFixture` exposes Alice with member display name "Alice".
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        // No profile/directory name for Alice, so the only usable name is the group member name.
+        runtime.accountIdsMissingProfiles.insert(aliceId)
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "alice-message",
+                    groupIdHex: "group",
+                    sender: aliceId,
+                    plaintext: "Member-name fallback still applies.",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        // Bootstrap auto-selects the only chat and applies its initial timeline window.
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "group")
+
+        let messages = state.messagesByChat["group"] ?? []
+        #expect(messages.first?.senderName == "Alice")
+        // The blank-profile sender needs the fallback, so the member list is fetched at least once.
+        #expect(state.timelineSenderMemberFallbackFetchCount >= 1)
+    }
+
     // MARK: - ChatListRowEnrichmentTracker (issue #40 ownership invariants)
 
     @Test func enrichmentTrackerStaleTaskAfterReloadDoesNotDropNewerTask() {
