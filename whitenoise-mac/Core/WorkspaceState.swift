@@ -503,6 +503,7 @@ final class WorkspaceState {
     /// that membership slice and invalidate it on membership-changing subscription events.
     private var groupMemberDetailsCache: [String: [GroupMemberDetailsFfi]] = [:]
     private var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
+    private var readStateMetadataEnrichmentAttempts = Set<String>()
     private var nextGroupMemberDetailsLookupToken: UInt64 = 0
 
     /// How long a *complete* peer-profile lookup is trusted before it is re-resolved
@@ -3473,7 +3474,7 @@ final class WorkspaceState {
     ) async {
         guard activeAccountId == account.id else { return }
 
-        var chats = chatsByAccount[account.id] ?? []
+        let chats = chatsByAccount[account.id] ?? []
         if row.archived {
             removeChat(groupIdHex: row.groupIdHex, account: account)
             return
@@ -3494,7 +3495,7 @@ final class WorkspaceState {
             // direct chats to flicker back to their raw group-id fallback.
             chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: current)
         }
-        let needsInitialMetadata = readStateRowNeedsMetadataEnrichment(row, current: current)
+        let needsInitialMetadata = !shouldEnrich && readStateRowNeedsMetadataEnrichment(row, current: current)
 
         chatsByAccount[account.id] = ChatListOrdering.upserting(chat, into: chats)
         if shouldEnrich {
@@ -3502,9 +3503,9 @@ final class WorkspaceState {
         } else if needsInitialMetadata {
             // A read-state row normally does not need enrichment, but the first selected-chat
             // read-state row can arrive after reload wiring cancels the snapshot enrichment.
-            // Resolve that one missing membership cache synchronously so direct-chat metadata
-            // and timeline sender-name fallbacks are populated without leaving background work
-            // that can race later group-details tests or UI actions.
+            // Resolve at most one missing membership cache per invalidation; repeated failures
+            // must not put groupDetails/userProfile work back on every read-marker advance.
+            readStateMetadataEnrichmentAttempts.insert(row.groupIdHex)
             await enrichChatRows([row], account: account)
         }
     }
@@ -3514,11 +3515,15 @@ final class WorkspaceState {
     }
 
     private func readStateRowNeedsMetadataEnrichment(_ row: ChatListRowFfi, current: ChatItem?) -> Bool {
+        if readStateMetadataEnrichmentAttempts.contains(row.groupIdHex) { return false }
         if groupMemberDetailsCache[row.groupIdHex] == nil { return true }
         guard let current else { return true }
         guard !current.isDirect else { return false }
         let rawTitle = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let groupNameIsBlank = row.groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Blank-name group rows use the raw row title until one enrichment pass can confirm
+        // whether this is a direct chat. Retry once after invalidation, then leave later
+        // read-state-only rows on the hot path without another synchronous metadata lookup.
         return groupNameIsBlank && current.title == rawTitle
     }
 
@@ -4148,24 +4153,21 @@ final class WorkspaceState {
 
     private func insertCreatedChatIfNeeded(groupIdHex: String, title: String, avatarSeed: String, pictureURL: String?) {
         guard let activeAccountId else { return }
-        var chats = chatsByAccount[activeAccountId] ?? []
+        let chats = chatsByAccount[activeAccountId] ?? []
         guard !chats.contains(where: { $0.id == groupIdHex }) else { return }
 
-        chats.insert(
-            ChatItem(
-                id: groupIdHex,
-                title: title,
-                subtitle: L10n.string("Direct message"),
-                preview: L10n.string("No messages yet"),
-                updatedAt: nil,
-                avatarSeed: avatarSeed,
-                pictureURL: pictureURL,
-                unreadCount: 0,
-                isDirect: true
-            ),
-            at: 0
+        let chat = ChatItem(
+            id: groupIdHex,
+            title: title,
+            subtitle: L10n.string("Direct message"),
+            preview: L10n.string("No messages yet"),
+            updatedAt: nil,
+            avatarSeed: avatarSeed,
+            pictureURL: pictureURL,
+            unreadCount: 0,
+            isDirect: true
         )
-        chatsByAccount[activeAccountId] = chats
+        chatsByAccount[activeAccountId] = ChatListOrdering.upserting(chat, into: chats)
     }
 
     private func storeGroupMembers(_ members: [GroupMemberDetailsFfi], for groupIdHex: String) {
@@ -4178,6 +4180,7 @@ final class WorkspaceState {
         groupMemberDetailsCache[groupIdHex] = nil
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
+        readStateMetadataEnrichmentAttempts.remove(groupIdHex)
     }
 
     private func clearGroupMemberCache() {
@@ -4186,6 +4189,7 @@ final class WorkspaceState {
             lookup.task.cancel()
         }
         groupMemberDetailsLookups.removeAll()
+        readStateMetadataEnrichmentAttempts.removeAll()
     }
 
     private func cachedGroupMembers(
