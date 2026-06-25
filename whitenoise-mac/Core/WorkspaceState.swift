@@ -426,6 +426,14 @@ final class WorkspaceState {
     private var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
     private var nextGroupMemberDetailsLookupToken: UInt64 = 0
 
+    #if DEBUG
+        /// Test-only instrumentation: the number of times `messageSenderProfiles` had to fetch the
+        /// group member list to build the sender-name fallback map. In the all-resolved steady
+        /// state this must stay flat across timeline windows (whitenoise-mac#171). Not read by
+        /// production code.
+        private(set) var timelineSenderMemberFallbackFetchCount = 0
+    #endif
+
     /// How long a *complete* peer-profile lookup is trusted before it is re-resolved
     /// from the Rust store. Incomplete lookups ignore the TTL and re-resolve every pass.
     private static let peerProfileCacheTTL: TimeInterval = 300
@@ -4200,24 +4208,6 @@ final class WorkspaceState {
         )
         guard !senderIds.isEmpty else { return [:] }
 
-        let nonLocalSenderIds = senderIds.filter { $0 != activeAccount.accountIdHex }
-        let groupMemberNames: [String: String]
-        if nonLocalSenderIds.isEmpty {
-            groupMemberNames = [:]
-        } else {
-            let members =
-                await cachedGroupMembers(
-                    groupIdHex: groupIdHex,
-                    account: activeAccount,
-                    client: client
-                ) ?? []
-            groupMemberNames = members.reduce(into: [String: String]()) { result, member in
-                if let displayName = firstNonBlank([member.displayName]) {
-                    result[member.memberIdHex] = displayName
-                }
-            }
-        }
-
         // Resolve any senders whose cached lookup is missing, incomplete, or stale in a
         // single off-main FFI batch, then cache the raw lookups (timestamped) so repeated
         // scroll-up pages skip Rust entirely. Incomplete lookups (relay not yet
@@ -4259,6 +4249,37 @@ final class WorkspaceState {
             if activeAccountId == activeAccount.id {
                 for (senderId, value) in resolved {
                     peerProfileFFICache[senderId] = CachedPeerProfile(resolved: value, resolvedAt: now)
+                }
+            }
+        }
+
+        // `groupMemberNames` is only ever read as a fallback for non-local senders whose
+        // resolved profile name is blank. In the common live-update steady state every sender
+        // already resolves from its cached profile display/name, so fetching the full member
+        // list and reducing it into a name map is wasted work on the timeline hot path. Only
+        // pay for the member fetch + dictionary when at least one sender actually needs the
+        // fallback after profile resolution (before the lower-priority directory name).
+        let sendersNeedingMemberFallback = senderIds.filter { senderId in
+            guard senderId != activeAccount.accountIdHex else { return false }
+            let resolved = peerProfileFFICache[senderId]?.resolved
+            return firstNonBlank([resolved?.profileDisplayName, resolved?.profileName]) == nil
+        }
+        let groupMemberNames: [String: String]
+        if sendersNeedingMemberFallback.isEmpty {
+            groupMemberNames = [:]
+        } else {
+            #if DEBUG
+                timelineSenderMemberFallbackFetchCount += 1
+            #endif
+            let members =
+                await cachedGroupMembers(
+                    groupIdHex: groupIdHex,
+                    account: activeAccount,
+                    client: client
+                ) ?? []
+            groupMemberNames = members.reduce(into: [String: String]()) { result, member in
+                if let displayName = firstNonBlank([member.displayName]) {
+                    result[member.memberIdHex] = displayName
                 }
             }
         }
