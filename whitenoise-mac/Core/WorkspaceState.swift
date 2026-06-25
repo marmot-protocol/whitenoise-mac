@@ -85,6 +85,85 @@ struct ChatListRowEnrichmentTracker {
     }
 }
 
+struct ChatListOrdering {
+    static func sorted(_ chatItems: [ChatItem]) -> [ChatItem] {
+        chatItems.sorted(by: areInDisplayOrder)
+    }
+
+    static func upserting(_ chat: ChatItem, into chats: [ChatItem]) -> [ChatItem] {
+        var result = chats
+        if let index = result.firstIndex(where: { $0.id == chat.id }) {
+            if canReplaceInPlace(chat, at: index, in: result) {
+                result[index] = chat
+                return result
+            }
+            result.remove(at: index)
+        }
+
+        result.insert(chat, at: insertionIndex(for: chat, in: result))
+        return result
+    }
+
+    static func preservingResolvedMetadata(in chat: ChatItem, from current: ChatItem) -> ChatItem {
+        ChatItem(
+            id: chat.id,
+            title: current.title,
+            subtitle: current.subtitle,
+            preview: chat.preview,
+            updatedAt: chat.updatedAt,
+            avatarSeed: current.avatarSeed,
+            pictureURL: current.pictureURL,
+            unreadCount: chat.unreadCount,
+            isDirect: current.isDirect,
+            pendingConfirmation: chat.pendingConfirmation
+        )
+    }
+
+    static func isOlder(_ candidate: ChatItem, than current: ChatItem) -> Bool {
+        guard let currentUpdatedAt = current.updatedAt else { return false }
+        guard let candidateUpdatedAt = candidate.updatedAt else { return true }
+        return candidateUpdatedAt < currentUpdatedAt
+    }
+
+    private static func canReplaceInPlace(_ chat: ChatItem, at index: Int, in chats: [ChatItem]) -> Bool {
+        let previousStillBefore = index == chats.startIndex || !areInDisplayOrder(chat, chats[index - 1])
+        let nextStillAfter: Bool
+        if index == chats.index(before: chats.endIndex) {
+            nextStillAfter = true
+        } else {
+            nextStillAfter = !areInDisplayOrder(chats[index + 1], chat)
+        }
+        return previousStillBefore && nextStillAfter
+    }
+
+    private static func insertionIndex(for chat: ChatItem, in chats: [ChatItem]) -> Int {
+        var lowerBound = chats.startIndex
+        var upperBound = chats.endIndex
+        while lowerBound < upperBound {
+            let middle = lowerBound + (upperBound - lowerBound) / 2
+            if areInDisplayOrder(chats[middle], chat) {
+                lowerBound = middle + 1
+            } else {
+                upperBound = middle
+            }
+        }
+        return lowerBound
+    }
+
+    private static func areInDisplayOrder(_ lhs: ChatItem, _ rhs: ChatItem) -> Bool {
+        switch (lhs.updatedAt, rhs.updatedAt) {
+        case (let left?, let right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+    }
+}
+
 @MainActor
 final class MediaDownloadStateStore: ObservableObject {
     @Published private(set) var state: MediaDownloadState = .idle
@@ -1554,7 +1633,12 @@ final class WorkspaceState {
                 // `initializeChatReadState` may race a live chat-list delta. Do not let an
                 // older read-state row roll back a newer preview/timestamp already applied
                 // by the subscription listener while the FFI call was in flight.
-                await applyChatRow(row, account: activeAccount, skippingStaleRow: true)
+                await applyChatRow(
+                    row,
+                    account: activeAccount,
+                    skippingStaleRow: true,
+                    shouldEnrich: false
+                )
             }
 
             let subscription = try await client.subscribeTimelineMessages(
@@ -3384,7 +3468,8 @@ final class WorkspaceState {
     private func applyChatRow(
         _ row: ChatListRowFfi,
         account: AccountItem,
-        skippingStaleRow: Bool = false
+        skippingStaleRow: Bool = false,
+        shouldEnrich: Bool = true
     ) async {
         guard activeAccountId == account.id else { return }
 
@@ -3394,26 +3479,47 @@ final class WorkspaceState {
             return
         }
 
-        let chat = baseChatItem(from: row, account: account)
+        var chat = baseChatItem(from: row, account: account)
+        let current = chats.first(where: { $0.id == chat.id })
         if skippingStaleRow,
-            let current = chats.first(where: { $0.id == chat.id }),
+            let current,
             isOlderChatRow(chat, than: current)
         {
             return
         }
-        if let index = chats.firstIndex(where: { $0.id == chat.id }) {
-            chats[index] = chat
-        } else {
-            chats.append(chat)
+        if !shouldEnrich, let current {
+            // Read-state-only rows do not change the metadata resolved by enrichment
+            // (direct-chat title/avatar/isDirect). Preserve it while applying the row's
+            // unread/preview/timestamp fields, otherwise skipping enrichment would cause
+            // direct chats to flicker back to their raw group-id fallback.
+            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: current)
         }
-        chatsByAccount[account.id] = sortedChatItems(chats)
-        startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
+        let needsInitialMetadata = readStateRowNeedsMetadataEnrichment(row, current: current)
+
+        chatsByAccount[account.id] = ChatListOrdering.upserting(chat, into: chats)
+        if shouldEnrich {
+            startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
+        } else if needsInitialMetadata {
+            // A read-state row normally does not need enrichment, but the first selected-chat
+            // read-state row can arrive after reload wiring cancels the snapshot enrichment.
+            // Resolve that one missing membership cache synchronously so direct-chat metadata
+            // and timeline sender-name fallbacks are populated without leaving background work
+            // that can race later group-details tests or UI actions.
+            await enrichChatRows([row], account: account)
+        }
     }
 
     private func isOlderChatRow(_ candidate: ChatItem, than current: ChatItem) -> Bool {
-        guard let currentUpdatedAt = current.updatedAt else { return false }
-        guard let candidateUpdatedAt = candidate.updatedAt else { return true }
-        return candidateUpdatedAt < currentUpdatedAt
+        ChatListOrdering.isOlder(candidate, than: current)
+    }
+
+    private func readStateRowNeedsMetadataEnrichment(_ row: ChatListRowFfi, current: ChatItem?) -> Bool {
+        if groupMemberDetailsCache[row.groupIdHex] == nil { return true }
+        guard let current else { return true }
+        guard !current.isDirect else { return false }
+        let rawTitle = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let groupNameIsBlank = row.groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return groupNameIsBlank && current.title == rawTitle
     }
 
     private func removeChat(groupIdHex: String, account: AccountItem) {
@@ -3667,6 +3773,7 @@ final class WorkspaceState {
         guard activeAccountId == account.id, !enrichedItems.isEmpty else { return }
 
         var chats = chatsByAccount[account.id] ?? []
+        let incremental = enrichedItems.count == 1
         var didUpdate = false
         for enrichedItem in enrichedItems {
             guard let index = chats.firstIndex(where: { $0.id == enrichedItem.id }) else { continue }
@@ -3684,12 +3791,16 @@ final class WorkspaceState {
                 pendingConfirmation: current.pendingConfirmation
             )
             guard next != current else { continue }
-            chats[index] = next
+            if incremental {
+                chats = ChatListOrdering.upserting(next, into: chats)
+            } else {
+                chats[index] = next
+            }
             didUpdate = true
         }
 
         if didUpdate {
-            chatsByAccount[account.id] = sortedChatItems(chats)
+            chatsByAccount[account.id] = incremental ? chats : sortedChatItems(chats)
         }
     }
 
@@ -3744,18 +3855,7 @@ final class WorkspaceState {
     }
 
     private func sortedChatItems(_ chatItems: [ChatItem]) -> [ChatItem] {
-        chatItems.sorted { lhs, rhs in
-            switch (lhs.updatedAt, rhs.updatedAt) {
-            case (let left?, let right?) where left != right:
-                return left > right
-            case (_?, nil):
-                return true
-            case (nil, _?):
-                return false
-            default:
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-            }
-        }
+        ChatListOrdering.sorted(chatItems)
     }
 
     private func markLatestVisibleMessageRead(
@@ -3804,7 +3904,7 @@ final class WorkspaceState {
             lastMarkedReadMarkers[groupIdHex] = committedState.current
             lastConfirmedReadMarkers[groupIdHex] = committedState.confirmed
             if let row {
-                await applyChatRow(row, account: account)
+                await applyChatRow(row, account: account, shouldEnrich: false)
             }
         } catch {
             guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
