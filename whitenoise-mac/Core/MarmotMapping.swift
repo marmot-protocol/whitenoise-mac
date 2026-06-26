@@ -588,7 +588,15 @@ private nonisolated enum MessageMediaParser {
 
     private static func unsignedInteger(_ value: Any?) -> UInt64? {
         if let number = value as? NSNumber {
-            return number.uint64Value
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return nil
+            }
+            // `uint64Value` silently wraps negatives (`-1` -> `UInt64.max`) and truncates
+            // fractions (`3.9` -> `3`). A peer-controlled `source_epoch` feeds MLS epoch
+            // selection, so reject anything that is not an exact, in-range unsigned integer
+            // rather than letting garbage flow into the crypto layer. Round-tripping through
+            // the string value keeps this path semantically aligned with the `String` branch.
+            return UInt64(number.stringValue)
         }
         if let string = value as? String {
             return UInt64(string.trimmingCharacters(in: .whitespacesAndNewlines))

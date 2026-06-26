@@ -1211,6 +1211,46 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func invalidNumericSourceEpochFallsBackToZeroInsteadOfWrapping() async throws {
+        // Regression for whitenoise-mac#179: a peer-controlled `source_epoch` is the MLS
+        // decryption epoch, so a negative (`-1` would wrap to `UInt64.max`), fractional
+        // (`3.9` would truncate to `3`), out-of-range (`1e30` would saturate), or boolean
+        // (`true` would parse as `1`) JSON value must be rejected by `unsignedInteger(_:)`
+        // instead of flowing through as a garbage epoch. Rejected values default the parsed
+        // attachment epoch to 0, matching `nil` from `unsignedInteger`.
+        let reference = mediaAttachmentReference(sourceEpoch: 0, mediaType: "image/png", fileName: "photo.png")
+        let invalidEpochs: [NSNumber] = [
+            NSNumber(value: -1),
+            NSNumber(value: 3.9),
+            NSNumber(value: 1e30),
+            NSNumber(value: true),
+            NSNumber(value: false),
+        ]
+        let page = TimelinePageFfi(
+            messages: invalidEpochs.enumerated().flatMap { index, rawEpoch in
+                ["source_epoch", "sourceEpoch"].enumerated().map { keyIndex, key in
+                    timelineMessage(
+                        id: "invalid-epoch-\(index)-\(keyIndex)",
+                        groupIdHex: "group",
+                        sender: "alice",
+                        plaintext: "",
+                        recordedAt: 1_700_000_000 + UInt64(index * 2 + keyIndex),
+                        mediaJson: mediaJson(for: reference, sourceEpochKey: key, rawSourceEpoch: rawEpoch)
+                    )
+                }
+            },
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == invalidEpochs.count * 2)
+        #expect(messages.allSatisfy { $0.mediaAttachments.count == 1 })
+        #expect(messages.allSatisfy { $0.mediaAttachments.first?.reference.sourceEpoch == 0 })
+    }
+
+    @MainActor
     @Test func mediaJSONObjectWithIMetaAndFlatKeysMapsSingleAttachment() async throws {
         // Regression for whitenoise-mac#185: a single peer-controlled object carrying
         // both an `imeta` array and the flat direct-reference keys must not emit both the
@@ -9954,6 +9994,15 @@ private func mediaJson(for reference: MediaAttachmentReferenceFfi) -> String {
 private func mediaJson(for reference: MediaAttachmentReferenceFfi, sourceEpochKey key: String) -> String {
     let tag = mediaIMetaTag(for: reference).values
     return mediaJSONString(fromJSONObject: ["imeta": [tag], key: NSNumber(value: reference.sourceEpoch)])
+}
+
+private func mediaJson(
+    for reference: MediaAttachmentReferenceFfi,
+    sourceEpochKey key: String,
+    rawSourceEpoch: NSNumber
+) -> String {
+    let tag = mediaIMetaTag(for: reference).values
+    return mediaJSONString(fromJSONObject: ["imeta": [tag], key: rawSourceEpoch])
 }
 
 private func mediaJson(for reference: MediaAttachmentReferenceFfi, mediaObjectDepth depth: Int) -> String {
