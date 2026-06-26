@@ -999,19 +999,18 @@ nonisolated private enum MediaVideoMetadata {
 
 nonisolated private enum TemporaryOutgoingMediaFile {
     static func withURL<T>(data: Data, fileExtension: String, _ work: (URL) -> T) -> T {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("WhiteNoiseMediaWork", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url =
-            directory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension(fileExtension)
-        try? data.write(to: url, options: [.atomic])
+        let url = makeTempURL(data: data, fileExtension: fileExtension)
         defer { try? FileManager.default.removeItem(at: url) }
         return work(url)
     }
 
     static func withURL<T>(data: Data, fileExtension: String, _ work: (URL) async -> T) async -> T {
+        let url = makeTempURL(data: data, fileExtension: fileExtension)
+        defer { try? FileManager.default.removeItem(at: url) }
+        return await work(url)
+    }
+
+    private static func makeTempURL(data: Data, fileExtension: String) -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WhiteNoiseMediaWork", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1020,8 +1019,7 @@ nonisolated private enum TemporaryOutgoingMediaFile {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension(fileExtension)
         try? data.write(to: url, options: [.atomic])
-        defer { try? FileManager.default.removeItem(at: url) }
-        return await work(url)
+        return url
     }
 }
 
