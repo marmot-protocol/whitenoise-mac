@@ -734,6 +734,11 @@ struct whitenoise_macTests {
         #expect(ChatFilter.filtered(chats, query: "relay").map(\.id) == ["chat-relays"])
         #expect(ChatFilter.filtered(chats, query: "desktop").map(\.id) == ["chat-design"])
         #expect(ChatFilter.filtered(chats, query: "direct").map(\.id) == ["chat-nvk"])
+
+        // A query is matched against each field independently and never across
+        // field boundaries, so "NVK Direct" does not match the chat whose title
+        // is "NVK" and subtitle is "Direct message".
+        #expect(ChatFilter.filtered(chats, query: "NVK Direct").isEmpty)
     }
 
     @MainActor
