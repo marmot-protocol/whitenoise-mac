@@ -39,7 +39,7 @@ struct AccountItem: Identifiable, Hashable {
     }
 }
 
-struct ChatItem: Identifiable, Hashable {
+nonisolated struct ChatItem: Identifiable, Hashable {
     let id: String
     let title: String
     let subtitle: String

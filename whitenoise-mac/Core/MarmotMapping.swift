@@ -635,7 +635,7 @@ private struct TimelinePayload: Decodable {
 }
 
 private extension String {
-    func dropPrefix(_ prefix: String) -> String? {
+    nonisolated func dropPrefix(_ prefix: String) -> String? {
         hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
     }
 }

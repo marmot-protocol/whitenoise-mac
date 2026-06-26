@@ -210,7 +210,7 @@ struct PendingMediaDraftTile: View {
     }
 }
 
-enum PendingMediaDraftThumbnailDecoder {
+nonisolated enum PendingMediaDraftThumbnailDecoder {
     static let defaultDecodedCacheTotalCostLimit = 8 * 1024 * 1024
 
     static func image(from data: Data, maxPixelSize: CGFloat) -> NSImage? {

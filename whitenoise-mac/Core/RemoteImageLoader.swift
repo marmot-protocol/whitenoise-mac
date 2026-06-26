@@ -3,7 +3,7 @@ import ImageIO
 import SwiftUI
 
 /// An NSImage wrapper that is safe to hand back from the background loader.
-struct LoadedImage: @unchecked Sendable {
+nonisolated struct LoadedImage: @unchecked Sendable {
     let nsImage: NSImage
 }
 
@@ -26,7 +26,7 @@ struct LoadedImage: @unchecked Sendable {
 /// internal host and port discovery. The same check is applied to every redirect target
 /// (`CappedImageDownloadDelegate.willPerformHTTPRedirection`) so a public `https://` avatar
 /// cannot 3xx-redirect to an internal host either.
-enum RemoteImageURLPolicy {
+nonisolated enum RemoteImageURLPolicy {
     /// Maximum bytes we are willing to download for a single remote image. A malicious URL can
     /// otherwise serve an arbitrarily large response. 8 MiB is generous for an avatar/preview.
     static let maxResponseBytes: Int64 = 8 * 1024 * 1024
@@ -152,7 +152,7 @@ enum RemoteImageURLPolicy {
 /// octal (`0177.0.0.1`), and shorthand (`127.1`, `10.0x10`). Anything we cannot interpret as a
 /// literal is treated as a hostname by the caller (and allowed, subject to the documented
 /// DNS-rebinding limitation), so the parser only needs to recognise literals, not reject names.
-enum IPAddress {
+nonisolated enum IPAddress {
     /// Parses an IPv4 literal in any of the BSD `inet_aton` forms into its four octets, or nil
     /// if `value` is not an IPv4 literal at all. Each dotted part may be decimal, hex (`0x..`),
     /// or octal (leading `0`); 1–4 parts are accepted, with the final part filling the remaining
@@ -253,7 +253,7 @@ enum IPAddress {
 }
 
 /// Pixel sizing helpers shared by downsampled image views and tests.
-enum DownsampledImageSizing {
+nonisolated enum DownsampledImageSizing {
     static func requestedPixelSize(_ maxPixelSize: CGFloat) -> CGFloat {
         max(1, ceil(maxPixelSize))
     }
@@ -403,7 +403,7 @@ struct DownsampledDataImage<Content: View, Placeholder: View>: View {
 /// Shared decoded-image cache + downsampling pipeline. `NSCache` owns the decoded-image
 /// storage; in-flight work is coordinated by `RemoteImageLoadRegistry` so concurrent views
 /// that need the same URL/size await one download and decode.
-private final class RemoteImageLoadRegistry: @unchecked Sendable {
+private nonisolated final class RemoteImageLoadRegistry: @unchecked Sendable {
     private struct Entry {
         let task: Task<LoadedImage?, Never>
         var waiters: Int
@@ -473,7 +473,7 @@ private final class RemoteImageLoadRegistry: @unchecked Sendable {
 /// One-shot release latch for a coalesced waiter. Both the cancellation handler and the
 /// successful await path may try to release the same waiter; only the first release should
 /// decrement the registry count and potentially cancel the shared download.
-private final class RemoteImageLoadWaiter: @unchecked Sendable {
+private nonisolated final class RemoteImageLoadWaiter: @unchecked Sendable {
     private let lock = NSLock()
     private var released = false
     private let onRelease: @Sendable () -> Void
@@ -765,7 +765,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 ///
 /// This is the chunk-granular replacement for the old per-byte loop: appends operate on
 /// whole `Data` chunks (one per `URLSession` delivery) rather than individual `UInt8`s.
-struct CappedDataCollector {
+nonisolated struct CappedDataCollector {
     let cap: Int64
     private(set) var data = Data()
     private(set) var total: Int64 = 0

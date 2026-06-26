@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-enum L10n {
+nonisolated enum L10n {
     // `string(_:)` is invoked from the same render hot paths as
     // `AppLanguage.currentLocale` (SwiftUI view bodies that re-evaluate
     // frequently, enum `label`/`title` computed properties, per-message
