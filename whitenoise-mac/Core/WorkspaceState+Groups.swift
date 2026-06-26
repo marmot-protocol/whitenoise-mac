@@ -494,8 +494,8 @@ extension WorkspaceState {
         }
     }
 
-    func beginGroupDetailsLoad() -> Int {
-        groupDetailsLoadGeneration += 1
+    func beginGroupDetailsLoad() -> UInt64 {
+        groupDetailsLoadGeneration &+= 1
         return groupDetailsLoadGeneration
     }
 
@@ -503,23 +503,23 @@ extension WorkspaceState {
     /// clear the spinner, or report an error against closed/superseded UI state. Also clears the
     /// (now-orphaned) spinner: the in-flight load, once superseded, declines to touch it.
     func invalidateGroupDetailsLoad() {
-        groupDetailsLoadGeneration += 1
+        groupDetailsLoadGeneration &+= 1
         isLoadingGroupDetails = false
     }
 
     /// True while `generation` still owns the group-details load — i.e. no newer `loadGroupDetails`
     /// or `invalidateGroupDetailsLoad` (via `closeGroupDetails`) has bumped the generation.
-    func ownsGroupDetailsLoad(generation: Int) -> Bool {
+    func ownsGroupDetailsLoad(generation: UInt64) -> Bool {
         groupDetailsLoadGeneration == generation
     }
 
-    func beginGroupImageSearch() -> Int {
-        groupImageSearchGeneration += 1
+    func beginGroupImageSearch() -> UInt64 {
+        groupImageSearchGeneration &+= 1
         return groupImageSearchGeneration
     }
 
     func invalidateGroupImageSearch() {
-        groupImageSearchGeneration += 1
+        groupImageSearchGeneration &+= 1
         isSearchingGroupImages = false
     }
 
@@ -529,7 +529,7 @@ extension WorkspaceState {
     /// presented or the live query to match, because spinner ownership must transfer cleanly even
     /// when the user edits the query mid-flight without resubmitting (otherwise the spinner would
     /// stay stuck `true` and disable the Search button — issue #110 review).
-    func ownsGroupImageSearch(generation: Int) -> Bool {
+    func ownsGroupImageSearch(generation: UInt64) -> Bool {
         groupImageSearchGeneration == generation
     }
 
@@ -537,7 +537,7 @@ extension WorkspaceState {
     /// presented, and the live (trimmed) query still equals the one this search was issued for.
     /// Any of: a newer search, a dismissed/reopened picker, or an edited query invalidates the
     /// in-flight result so it cannot overwrite current UI state.
-    func isCurrentGroupImageSearch(generation: Int, query: String) -> Bool {
+    func isCurrentGroupImageSearch(generation: UInt64, query: String) -> Bool {
         ownsGroupImageSearch(generation: generation)
             && isGroupImagePickerPresented
             && groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query

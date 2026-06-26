@@ -411,7 +411,9 @@ final class WorkspaceState {
     /// still the current generation — i.e. no newer load has superseded it. This distinguishes
     /// "superseded by a newer load" (must NOT dismiss the spinner the newer load owns) from
     /// "cancelled with no replacement" (the active account was cleared, so the spinner MUST be
-    /// dismissed instead of left stuck). See `loadSettingsData` / issue #4.
+    /// dismissed instead of left stuck). The token wraps with `&+=`: equality ownership tolerates
+    /// wraparound, and wrapping avoids overflow traps (issue #182). See `loadSettingsData` /
+    /// issue #4.
     var settingsLoadGeneration: UInt64 = 0
     var timelineTask: Task<Void, Never>?
     var timelineTaskGroupId: String?
@@ -434,7 +436,9 @@ final class WorkspaceState {
     var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
     var deliveredNotificationKeys = Set<String>()
     var deliveredNotificationKeyOrder: [String] = []
-    var newChatLookupGeneration = 0
+    /// Wrapping owner token for new-chat lookup. Stale-result guards only compare equality, so
+    /// wraparound preserves ownership semantics while avoiding overflow traps (issues #2, #182).
+    var newChatLookupGeneration: UInt64 = 0
     /// Monotonic token identifying the most recently started group-image (Openverse) search.
     /// `searchGroupImages` captures the value before its `await` and only commits results /
     /// clears `isSearchingGroupImages` while it is still current — i.e. no newer search has
@@ -442,8 +446,9 @@ final class WorkspaceState {
     /// search last-request-wins (a slow earlier search cannot overwrite a newer one) and
     /// prevents a search resolving after the picker is dismissed/reopened from repopulating
     /// `groupImageResults`. Mirrors the new-chat lookup / settings-load generation guards
-    /// (issues #2, #4). See `searchGroupImages` / issue #110.
-    var groupImageSearchGeneration = 0
+    /// (issues #2, #4) and uses the same wrapping-token overflow hardening (issue #182).
+    /// See `searchGroupImages` / issue #110.
+    var groupImageSearchGeneration: UInt64 = 0
     /// Monotonic token identifying the most recently started group-details load. `loadGroupDetails`
     /// captures the value on entry and only applies the fetched snapshot, clears
     /// `isLoadingGroupDetails`, or reports errors while it is still current — i.e. no newer load or
@@ -453,9 +458,10 @@ final class WorkspaceState {
     /// `loadGroupDetails` is reachable concurrently for the same group from `showGroupDetails`,
     /// `reloadSelectedGroupDetails`, `saveGroupProfile`, member-mutation paths, and
     /// `acceptGroupInvite`, and `applyGroupDetails` is completion-ordered, not request-ordered.
-    /// Mirrors the settings-load / group-image-search generation guards (issues #2, #4, #110).
+    /// Mirrors the settings-load / group-image-search generation guards (issues #2, #4, #110)
+    /// and uses the same wrapping-token overflow hardening (issue #182).
     /// See `loadGroupDetails` / issue #135.
-    var groupDetailsLoadGeneration = 0
+    var groupDetailsLoadGeneration: UInt64 = 0
     /// Raw per-sender FFI lookups (userProfile + directory displayName), cached so that
     /// scrolling back through history does not re-resolve the same senders from Rust on
     /// every page. Keyed by sender accountIdHex.
@@ -485,6 +491,43 @@ final class WorkspaceState {
         /// state this must stay flat across timeline windows (whitenoise-mac#171). Not read by
         /// production code.
         var timelineSenderMemberFallbackFetchCount = 0
+
+        /// Test hook for stale-result generation counter overflow hardening (issue #182).
+        /// Production code only compares owner tokens for equality, so wraparound is valid.
+        func seedStaleResultGenerationsForTesting(_ generation: UInt64) {
+            newChatLookupGeneration = generation
+            groupImageSearchGeneration = generation
+            groupDetailsLoadGeneration = generation
+        }
+
+        /// Bumps the same counters through their production `begin*` paths so tests exercise `&+=`.
+        func bumpStaleResultGenerationsForTesting() -> (
+            newChatLookup: UInt64,
+            groupImageSearch: UInt64,
+            groupDetailsLoad: UInt64
+        ) {
+            return (
+                beginNewChatLookup(),
+                beginGroupImageSearch(),
+                beginGroupDetailsLoad()
+            )
+        }
+
+        /// Evaluates the production equality guards for a captured generation token.
+        func ownsStaleResultGenerationsForTesting(
+            generation: UInt64,
+            newChatQuery query: String
+        ) -> (
+            newChatLookup: Bool,
+            groupImageSearch: Bool,
+            groupDetailsLoad: Bool
+        ) {
+            return (
+                isCurrentNewChatLookup(generation: generation, query: query),
+                ownsGroupImageSearch(generation: generation),
+                ownsGroupDetailsLoad(generation: generation)
+            )
+        }
     #endif
 
     /// How long a *complete* peer-profile lookup is trusted before it is re-resolved

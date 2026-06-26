@@ -144,17 +144,17 @@ extension WorkspaceState {
         newChatRecipient = nil
     }
 
-    func beginNewChatLookup() -> Int {
-        newChatLookupGeneration += 1
+    func beginNewChatLookup() -> UInt64 {
+        newChatLookupGeneration &+= 1
         return newChatLookupGeneration
     }
 
     func invalidateNewChatLookup() {
-        newChatLookupGeneration += 1
+        newChatLookupGeneration &+= 1
         isResolvingNewChat = false
     }
 
-    func isCurrentNewChatLookup(generation: Int, query: String) -> Bool {
+    func isCurrentNewChatLookup(generation: UInt64, query: String) -> Bool {
         newChatLookupGeneration == generation
             && newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
