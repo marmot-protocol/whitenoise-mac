@@ -29,7 +29,9 @@ extension WorkspaceState {
             )
             guard activeAccountId == activeAccount.id else { return }
 
-            await applyChatRows(subscription.snapshot(), account: activeAccount)
+            let rows = try await runOffMain { subscription.snapshot() }
+            guard activeAccountId == activeAccount.id, !Task.isCancelled else { return }
+            await applyChatRows(rows, account: activeAccount)
             startChatListListener(account: activeAccount, subscription: subscription)
 
             await selectMostRecentChatIfNeeded()
@@ -83,7 +85,9 @@ extension WorkspaceState {
                         includeArchived: false
                     )
                     guard activeAccountId == account.id, !Task.isCancelled else { break }
-                    await applyChatRows(subscription.snapshot(), account: account)
+                    let rows = try await runOffMain { subscription.snapshot() }
+                    guard activeAccountId == account.id, !Task.isCancelled else { break }
+                    await applyChatRows(rows, account: account)
                 }
 
                 while !Task.isCancelled, activeAccountId == account.id {

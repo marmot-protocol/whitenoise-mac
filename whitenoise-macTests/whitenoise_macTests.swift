@@ -2393,6 +2393,65 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func subscriptionSnapshotsRunOffMainThread() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didHydrateChats = await waitFor {
+            state.activeChats.count == 2
+        }
+        #expect(didHydrateChats)
+        runtime.clearSyncCallThreadRecords()
+
+        runtime.chatListStreamEndsAfterUpdates = true
+        let chatListSubscriptionBaseline = runtime.chatListSubscriptionCount
+        await state.reloadChats()
+        let didReconnectChatList = await waitFor {
+            runtime.chatListSubscriptionCount >= chatListSubscriptionBaseline + 2
+        }
+        #expect(didReconnectChatList)
+        let didRecordChatListSnapshots = await waitFor {
+            runtime.syncCallThreadRecord("chatListSubscription.snapshot").count >= 2
+        }
+        #expect(didRecordChatListSnapshots)
+
+        let targetChat = try #require(
+            state.activeChats.first { chat in
+                state.messagesByChat[chat.id] == nil
+            }
+        )
+        state.selection = .chat(targetChat.id)
+        runtime.timelineStreamEndsAfterUpdates = true
+        let timelineSubscriptionBaseline = runtime.timelineSubscriptionCount
+        await state.loadMessages(groupIdHex: targetChat.id)
+        let didReconnectTimeline = await waitFor {
+            runtime.timelineSubscriptionCount >= timelineSubscriptionBaseline + 2
+        }
+        #expect(didReconnectTimeline)
+        let didRecordTimelineSnapshots = await waitFor {
+            runtime.syncCallThreadRecord("timelineMessagesSubscription.snapshot").count >= 2
+        }
+        #expect(didRecordTimelineSnapshots)
+        runtime.chatListStreamEndsAfterUpdates = false
+        runtime.timelineStreamEndsAfterUpdates = false
+
+        let chatListSnapshotThreads = runtime.syncCallThreadRecord("chatListSubscription.snapshot")
+        let timelineSnapshotThreads = runtime.syncCallThreadRecord("timelineMessagesSubscription.snapshot")
+        #expect(chatListSnapshotThreads.count >= 2)
+        #expect(chatListSnapshotThreads.allSatisfy { !$0 })
+        #expect(timelineSnapshotThreads.count >= 2)
+        #expect(timelineSnapshotThreads.allSatisfy { !$0 })
+    }
+
+    @MainActor
     @Test func bootstrapSelectsMostRecentChatAndLoadsTimeline() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -8332,7 +8391,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return FakeChatListSubscription(
             rows: chatListRows(includeArchived: includeArchived),
             updates: chatListUpdates,
-            endsWhenExhausted: chatListStreamEndsAfterUpdates
+            endsWhenExhausted: chatListStreamEndsAfterUpdates,
+            recordSnapshot: { [weak self] in
+                self?.recordSyncCall("chatListSubscription.snapshot")
+            }
         )
     }
 
@@ -8442,7 +8504,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             windowCap: 200,
             updates: groupIdHex.flatMap { timelineUpdatesByGroupId[$0] } ?? [],
             updateDelayNanoseconds: timelineUpdateDelayNanoseconds,
-            endsWhenExhausted: timelineStreamEndsAfterUpdates
+            endsWhenExhausted: timelineStreamEndsAfterUpdates,
+            recordSnapshot: { [weak self] in
+                self?.recordSyncCall("timelineMessagesSubscription.snapshot")
+            }
         )
         lastTimelineSubscription = subscription
         return subscription
@@ -8650,27 +8715,32 @@ private final class FakeChatListSubscription: ChatListSubscription {
     private let rows: [ChatListRowFfi]
     private var updates: [ChatListSubscriptionUpdateFfi]
     private let endsWhenExhausted: Bool
+    private let recordSnapshot: () -> Void
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.rows = []
         self.updates = []
         self.endsWhenExhausted = true
+        self.recordSnapshot = {}
         super.init(unsafeFromRawPointer: pointer)
     }
 
     init(
         rows: [ChatListRowFfi],
         updates: [ChatListSubscriptionUpdateFfi] = [],
-        endsWhenExhausted: Bool = false
+        endsWhenExhausted: Bool = false,
+        recordSnapshot: @escaping () -> Void = {}
     ) {
         self.rows = rows
         self.updates = updates
         self.endsWhenExhausted = endsWhenExhausted
+        self.recordSnapshot = recordSnapshot
         super.init(noPointer: NoPointer())
     }
 
     override func snapshot() -> [ChatListRowFfi] {
-        rows
+        recordSnapshot()
+        return rows
     }
 
     override func next() async -> ChatListRowFfi? {
@@ -8701,6 +8771,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     private var updates: [TimelineSubscriptionUpdateFfi]
     private let updateDelayNanoseconds: UInt64
     private let endsWhenExhausted: Bool
+    private let recordSnapshot: () -> Void
     private(set) var paginateBackwardsCount = 0
     private(set) var paginateForwardsCount = 0
 
@@ -8713,6 +8784,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         self.updates = []
         self.updateDelayNanoseconds = 0
         self.endsWhenExhausted = true
+        self.recordSnapshot = {}
         super.init(unsafeFromRawPointer: pointer)
     }
 
@@ -8722,7 +8794,8 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         windowCap: Int,
         updates: [TimelineSubscriptionUpdateFfi] = [],
         updateDelayNanoseconds: UInt64 = 0,
-        endsWhenExhausted: Bool = false
+        endsWhenExhausted: Bool = false,
+        recordSnapshot: @escaping () -> Void = {}
     ) {
         var page = TimelinePageFfi(messages: messages, hasMoreBefore: false, hasMoreAfter: false)
         page.sortCanonical()
@@ -8734,6 +8807,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         self.updates = updates
         self.updateDelayNanoseconds = updateDelayNanoseconds
         self.endsWhenExhausted = endsWhenExhausted
+        self.recordSnapshot = recordSnapshot
         super.init(noPointer: NoPointer())
     }
 
@@ -8749,7 +8823,8 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     }
 
     override func snapshot() -> TimelinePageFfi? {
-        windowPage()
+        recordSnapshot()
+        return windowPage()
     }
 
     override func paginateBackwards(count: UInt32) async throws -> TimelinePageFfi {

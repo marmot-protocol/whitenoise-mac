@@ -55,8 +55,13 @@ extension WorkspaceState {
             )
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
 
+            let snapshot = try await runOffMain { subscription.snapshot() }
+            guard activeAccountId == activeAccount.id,
+                selectedChat?.id == groupIdHex,
+                !Task.isCancelled
+            else { return }
             let page =
-                subscription.snapshot()
+                snapshot
                 ?? TimelinePageFfi(
                     messages: [],
                     hasMoreBefore: false,
@@ -369,9 +374,16 @@ extension WorkspaceState {
                         selectedChat?.id == groupIdHex,
                         !Task.isCancelled
                     else { break }
+                    let page = try await runOffMain { subscription.snapshot() }
+                    guard activeAccountId == account.id,
+                        selectedChat?.id == groupIdHex,
+                        !Task.isCancelled
+                    else { break }
+                    // Pagination should only see this subscription after the initial
+                    // snapshot has been materialized off-main and is ready to apply.
                     activeTimelineSubscription = subscription
                     activeTimelineGroupId = groupIdHex
-                    if let page = subscription.snapshot() {
+                    if let page {
                         await applyTimelineWindow(
                             page,
                             groupIdHex: groupIdHex,
