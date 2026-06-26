@@ -2848,7 +2848,7 @@ private struct MessageDocumentAttachmentRow: View {
             detail: mediaDetail,
             isOutgoing: isOutgoing
         ) {
-            openAttachment()
+            Task { await openAttachment() }
         }
     }
 
@@ -2858,9 +2858,10 @@ private struct MessageDocumentAttachmentRow: View {
         return "\(type) - \(size)"
     }
 
-    private func openAttachment() {
+    @MainActor
+    private func openAttachment() async {
         guard
-            let url = MessageMediaPlaybackFileStore.fileURL(
+            let url = await MessageMediaPlaybackFileStore.fileURL(
                 attachment: attachment,
                 download: download
             )
@@ -3123,6 +3124,12 @@ private struct MessageVideoAttachmentPlayer: View {
     @State private var playbackURL: URL?
     @State private var isLoading = false
     @State private var didFail = false
+    @State private var playbackPreparationID: UUID?
+    @State private var playbackTask: Task<Void, Never>?
+
+    private var isPreparingPlayback: Bool {
+        playbackPreparationID != nil
+    }
 
     var body: some View {
         ZStack {
@@ -3160,15 +3167,27 @@ private struct MessageVideoAttachmentPlayer: View {
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
         .onTapGesture {
-            Task { await togglePlayback() }
+            if isPreparingPlayback {
+                playbackTask?.cancel()
+                playbackTask = nil
+                stopPlayback()
+            } else {
+                playbackTask?.cancel()
+                playbackTask = Task { await togglePlayback() }
+            }
         }
         .onDisappear {
-            teardown()
+            playbackTask?.cancel()
+            playbackTask = nil
+            stopPlayback()
         }
         .accessibilityLabel("Video attachment")
     }
 
+    @MainActor
     private func togglePlayback() async {
+        guard !Task.isCancelled else { return }
+
         if let player {
             if player.timeControlStatus == .playing {
                 player.pause()
@@ -3178,17 +3197,40 @@ private struct MessageVideoAttachmentPlayer: View {
             return
         }
 
+        if isPreparingPlayback {
+            stopPlayback()
+            return
+        }
+
+        await startPlayback()
+    }
+
+    @MainActor
+    private func startPlayback() async {
+        guard !Task.isCancelled else { return }
+
+        let nextPreparationID = UUID()
+        playbackPreparationID = nextPreparationID
         isLoading = true
         didFail = false
-        defer { isLoading = false }
+        defer {
+            if playbackPreparationID == nextPreparationID {
+                playbackPreparationID = nil
+                isLoading = false
+            }
+        }
 
-        guard
-            let url = playbackURL
-                ?? MessageMediaPlaybackFileStore.fileURL(
-                    attachment: attachment,
-                    download: download
-                )
-        else {
+        let resolvedURL: URL?
+        if let playbackURL {
+            resolvedURL = playbackURL
+        } else {
+            resolvedURL = await MessageMediaPlaybackFileStore.fileURL(
+                attachment: attachment,
+                download: download
+            )
+        }
+        guard playbackPreparationID == nextPreparationID, !Task.isCancelled else { return }
+        guard let url = resolvedURL else {
             didFail = true
             return
         }
@@ -3198,9 +3240,11 @@ private struct MessageVideoAttachmentPlayer: View {
         next.play()
     }
 
-    /// Releases the player and deletes the decrypted scratch file. Ordered so `AVPlayer`
-    /// no longer references the file before it is removed.
-    private func teardown() {
+    /// Cancels in-flight preparation, releases the player, and deletes the decrypted scratch
+    /// file. Ordered so `AVPlayer` no longer references the file before it is removed.
+    private func stopPlayback() {
+        playbackPreparationID = nil
+        isLoading = false
         player?.pause()
         player = nil
         if let url = playbackURL {
@@ -3214,22 +3258,30 @@ private enum MessageMediaPlaybackFileStore {
     /// Materializes decrypted attachment plaintext into the sandboxed playback scratch
     /// directory. Callers own the returned URL and must delete it via `remove(at:)` once
     /// the consuming action (open/playback) finishes.
-    static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) -> URL? {
-        do {
-            let directory = try MediaPlaybackTempStore.directoryURL()
-            return try MediaPlaybackTempStore.materialize(
-                data: download.data,
-                id: attachment.id,
-                fileName: download.fileName.nilIfBlank ?? attachment.fileName,
-                fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
-                    for: download.mediaType.nilIfBlank ?? attachment.mediaType,
-                    fileName: download.fileName.nilIfBlank ?? attachment.fileName
-                ),
-                directory: directory
-            )
-        } catch {
-            return nil
-        }
+    @MainActor
+    static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) async -> URL? {
+        let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
+        let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
+        let attachmentID = attachment.id
+        let data = download.data
+
+        return await Task.detached(priority: .utility) {
+            do {
+                let directory = try MediaPlaybackTempStore.directoryURL()
+                return try MediaPlaybackTempStore.materialize(
+                    data: data,
+                    id: attachmentID,
+                    fileName: resolvedFileName,
+                    fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
+                        for: resolvedMediaType,
+                        fileName: resolvedFileName
+                    ),
+                    directory: directory
+                )
+            } catch {
+                return nil
+            }
+        }.value
     }
 
     static func remove(at url: URL) {
