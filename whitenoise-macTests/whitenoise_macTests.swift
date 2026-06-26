@@ -6362,9 +6362,10 @@ struct whitenoise_macTests {
         #expect(telemetryResource?.tenant == "whitenoise-mac")
         #expect(telemetryResource?.osType == "darwin")
         #expect(telemetryResource?.osVersion == ProcessInfo.processInfo.operatingSystemVersionString)
-        #expect(telemetryResource?.deviceModelIdentifier == expectedDeviceModelIdentifier())
+        #expect(telemetryResource?.deviceModelIdentifier == nil)
         #expect(runtime.auditLogTrackerConfig?.authorizationBearerToken == "audit-token")
         #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Desktop Account")
+        #expect(runtime.auditLogTrackerConfig?.source.deviceLabel == expectedDeviceModelIdentifier())
 
         await state.setRelayTelemetryEnabled(false)
         await state.setAuditLoggingEnabled(true)

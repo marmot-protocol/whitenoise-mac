@@ -98,7 +98,7 @@ struct TelemetryBuildConfig: Equatable {
                 osVersion: osVersion,
                 // The audit-log source may still use the local model label, but the
                 // relay telemetry resource is exported to OTLP with a stable install
-                // id. Do not add hw.model to that correlation surface.
+                // id. Do not include hw.model in the OTLP-exported resource.
                 deviceModelIdentifier: nil
             )
         )
