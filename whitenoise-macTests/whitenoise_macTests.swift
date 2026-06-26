@@ -1151,6 +1151,37 @@ struct whitenoise_macTests {
         #expect(messages.allSatisfy { $0.mediaAttachments.first?.reference.sourceEpoch == 7 })
     }
 
+    @MainActor
+    @Test func mediaJSONObjectWithIMetaAndFlatKeysMapsSingleAttachment() async throws {
+        // Regression for whitenoise-mac#185: a single peer-controlled object carrying
+        // both an `imeta` array and the flat direct-reference keys must not emit both the
+        // imeta-derived reference and a separate direct reference for the same logical
+        // attachment. Object branches are mutually exclusive (`imeta`, else `media`, else
+        // flat), so the object maps to exactly one attachment instead of rendering twice.
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "imeta-and-flat",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJsonWithIMetaAndFlatKeys(for: reference)
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(message.mediaAttachments.first?.reference.plaintextSha256 == reference.plaintextSha256)
+        #expect(message.mediaAttachments.first?.reference.fileName == reference.fileName)
+    }
+
     @Test func mediaGridPresentationUsesSquareFourTileLayout() {
         #expect(MessageMediaGridPresentation.visibleCount(totalCount: 6) == 4)
         #expect(MessageMediaGridPresentation.hiddenCount(totalCount: 6) == 2)
@@ -9754,6 +9785,19 @@ private func mediaJson(for reference: MediaAttachmentReferenceFfi, arrayDepth de
     for _ in 0..<depth {
         object = [object]
     }
+    return mediaJSONString(fromJSONObject: object)
+}
+
+private func mediaJsonWithIMetaAndFlatKeys(for reference: MediaAttachmentReferenceFfi) -> String {
+    let object: [String: Any] = [
+        "imeta": [mediaIMetaTag(for: reference).values],
+        "ciphertext_sha256": reference.ciphertextSha256,
+        "plaintext_sha256": reference.plaintextSha256,
+        "nonce": reference.nonceHex,
+        "file_name": reference.fileName,
+        "media_type": reference.mediaType,
+        "version": reference.version,
+    ]
     return mediaJSONString(fromJSONObject: object)
 }
 
