@@ -445,15 +445,28 @@ struct PublicIdentityQRCodeSheet: View {
 struct QRCodeImageView: View {
     let payload: String
 
+    @State private var renderedPayload: String?
+    @State private var renderedImage: NSImage?
+
     var body: some View {
-        if let image = Self.image(for: payload) {
-            Image(nsImage: image)
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-        } else {
-            ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
-                .foregroundStyle(.black)
+        Group {
+            if renderedPayload == payload, let renderedImage {
+                Image(nsImage: renderedImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+            } else if renderedPayload == payload {
+                ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
+                    .foregroundStyle(.black)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .foregroundStyle(.black)
+            }
+        }
+        .task(id: payload) {
+            renderedImage = Self.image(for: payload)
+            renderedPayload = payload
         }
     }
 
