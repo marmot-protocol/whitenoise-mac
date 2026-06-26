@@ -1221,6 +1221,87 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func mediaOnlyChatPreviewShowsAttachmentLabelInsteadOfUnsupported() async throws {
+        // Regression for whitenoise-mac#175: `ChatListMessagePreviewFfi` carries no media
+        // payload, so a media-only chat message arrives with empty plaintext. The chat-list
+        // preview must fall back to "Attachment" rather than "Unsupported message".
+        let directRow = ChatListRowFfi(
+            groupIdHex: "direct-group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Alice",
+            groupName: "",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "media-preview",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                senderDisplayName: "Alice",
+                plaintext: "",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                timelineAt: 1_700_000_000,
+                deleted: false
+            ),
+            unreadCount: 0,
+            hasUnread: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 1_700_000_000
+        )
+
+        let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
+        #expect(directChat.preview == "Attachment")
+
+        let groupRow = ChatListRowFfi(
+            groupIdHex: "group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Planning",
+            groupName: "Planning",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "media-preview",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                senderDisplayName: "Alice",
+                plaintext: "",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                timelineAt: 1_700_000_000,
+                deleted: false
+            ),
+            unreadCount: 0,
+            hasUnread: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 1_700_000_000
+        )
+
+        let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
+        #expect(groupChat.preview == "Attachment")
+    }
+
+    @MainActor
+    @Test func literalUnsupportedChatPreviewPreservesMessageText() async throws {
+        // A valid chat body can equal the localized unsupported-message label. That
+        // literal text must not be mistaken for the empty media-only preview sentinel.
+        let literalText = L10n.string("Unsupported message")
+        let row = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: literalText,
+            sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            timelineAt: 1_700_000_001
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+        #expect(chat.preview == literalText)
+    }
+
+    @MainActor
     @Test func imetaInsideJSONReadsSourceEpochInBothSpellings() async throws {
         // Regression for whitenoise-mac#137: the imeta-within-object branch must
         // accept both snake_case `source_epoch` and camelCase `sourceEpoch` so a
