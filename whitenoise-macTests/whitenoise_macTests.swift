@@ -6274,7 +6274,7 @@ struct whitenoise_macTests {
         #expect(runtimeConfig.resource?.tenant == "whitenoise-mac")
         #expect(runtimeConfig.resource?.osType == "darwin")
         #expect(runtimeConfig.resource?.osVersion == "Version 26.0")
-        #expect(runtimeConfig.resource?.deviceModelIdentifier == "Mac15,3")
+        #expect(runtimeConfig.resource?.deviceModelIdentifier == nil)
 
         let auditConfig = config.auditTrackerConfig(accountLabel: "Desktop Account")
         #expect(auditConfig.authorizationBearerToken == "audit-token")
