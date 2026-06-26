@@ -15,6 +15,7 @@ struct GroupDetailsSheet: View {
     @State private var showArchiveConfirmation = false
     @State private var showLeaveConfirmation = false
     @State private var showSelfDemoteConfirmation = false
+    @State private var showRemoveLocallyConfirmation = false
     let chat: ChatItem
 
     private var hasProfileChanges: Bool {
@@ -150,6 +151,39 @@ struct GroupDetailsSheet: View {
                         }
                     }
 
+                    Section("Disappearing Messages") {
+                        Picker(
+                            selection: Binding(
+                                get: { DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs) },
+                                set: { option in
+                                    Task {
+                                        await workspace.setDisappearingMessages(
+                                            groupIdHex: snapshot.groupIdHex,
+                                            seconds: option.seconds
+                                        )
+                                    }
+                                }
+                            )
+                        ) {
+                            ForEach(DisappearingMessageOption.options(for: snapshot.disappearingMessageSecs)) {
+                                option in
+                                Text(option.label).tag(option)
+                            }
+                        } label: {
+                            Label("Auto-delete after", systemImage: "timer")
+                        }
+                        .disabled(workspace.isUpdatingDisappearingMessages)
+
+                        if snapshot.disappearingMessagesEnabled {
+                            Button {
+                                Task { await workspace.secureDeleteExpiredMessages(groupIdHex: snapshot.groupIdHex) }
+                            } label: {
+                                Label("Delete expired now", systemImage: "trash")
+                            }
+                            .help(L10n.string("Securely prune already-expired messages on this device"))
+                        }
+                    }
+
                     if snapshot.canInvite {
                         Section("Invite") {
                             HStack(spacing: 10) {
@@ -207,6 +241,17 @@ struct GroupDetailsSheet: View {
                             .disabled(
                                 workspace.isLeavingGroup || !snapshot.canLeave || snapshot.requiresSelfDemoteBeforeLeave
                             )
+
+                            Button(role: .destructive) {
+                                showRemoveLocallyConfirmation = true
+                            } label: {
+                                Label(
+                                    workspace.isDeletingGroupLocally
+                                        ? L10n.string("Removing...") : L10n.string("Remove From This Device"),
+                                    systemImage: "trash.slash")
+                            }
+                            .disabled(workspace.isDeletingGroupLocally)
+                            .help(L10n.string("Delete this conversation locally without notifying the group"))
 
                             Spacer()
                         }
@@ -329,6 +374,18 @@ struct GroupDetailsSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You will no longer receive messages from this group on this account.")
+        }
+        .confirmationDialog(
+            "Remove this conversation from this device?",
+            isPresented: $showRemoveLocallyConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove From This Device", role: .destructive) {
+                Task { await workspace.deleteGroupLocally(groupIdHex: chat.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This deletes the local copy only. Other members are not notified, and you can be re-added later.")
         }
     }
 
@@ -663,5 +720,55 @@ private extension GroupImageSearchResult {
             return url
         }
         return URL(string: imageURL)
+    }
+}
+
+/// Selectable disappearing-message timer presets for a group. `custom` carries a
+/// non-preset value returned by the core so the picker can still display it.
+enum DisappearingMessageOption: Hashable, Identifiable {
+    case off
+    case oneHour
+    case oneDay
+    case oneWeek
+    case oneMonth
+    case custom(UInt64)
+
+    static let presets: [DisappearingMessageOption] = [.off, .oneHour, .oneDay, .oneWeek, .oneMonth]
+    static var allCases: [DisappearingMessageOption] { presets }
+
+    var id: UInt64 { seconds }
+
+    var seconds: UInt64 {
+        switch self {
+        case .off: return 0
+        case .oneHour: return 3600
+        case .oneDay: return 86_400
+        case .oneWeek: return 604_800
+        case .oneMonth: return 2_592_000
+        case .custom(let value): return value
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .off: return L10n.string("Off")
+        case .oneHour: return L10n.string("1 hour")
+        case .oneDay: return L10n.string("1 day")
+        case .oneWeek: return L10n.string("1 week")
+        case .oneMonth: return L10n.string("1 month")
+        case .custom(let value): return String(format: L10n.string("%d seconds"), Int(value))
+        }
+    }
+
+    /// The matching preset for `seconds`, or a `.custom` wrapper when none match.
+    static func option(for seconds: UInt64) -> DisappearingMessageOption {
+        presets.first { $0.seconds == seconds } ?? .custom(seconds)
+    }
+
+    /// The presets plus the current value when it isn't already a preset, so the
+    /// picker always has a tag matching the active selection.
+    static func options(for seconds: UInt64) -> [DisappearingMessageOption] {
+        let current = option(for: seconds)
+        return presets.contains(current) ? presets : presets + [current]
     }
 }

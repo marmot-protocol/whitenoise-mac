@@ -53,7 +53,6 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 │   ├── Localizable.xcstrings     String catalog (localization)
 │   └── whitenoise-mac.entitlements  App sandbox + network client entitlements
 ├── whitenoise-macTests/       Unit tests
-├── whitenoise-macUITests/     UI tests
 └── whitenoise-mac.xcodeproj/  Xcode project
 ```
 
@@ -129,11 +128,7 @@ xcodebuild test \
   -destination 'platform=macOS'
 ```
 
-- `whitenoise-macTests/` — unit tests (run by the shared scheme above)
-- `whitenoise-macUITests/` — UI tests (the `whitenoise-macUITests` target is
-  marked skipped in the shared scheme, so the command above runs the unit
-  target only; enable it in the scheme's Test action, or pass
-  `-only-testing:whitenoise-macUITests`, to run the UI suite)
+- `whitenoise-macTests/` — the unit-test target run by the shared scheme above.
 
 When validating the running app, keep exactly one `White Noise` instance alive
 (see `AGENTS.md`): do not use `open -n`; quit/terminate the existing process

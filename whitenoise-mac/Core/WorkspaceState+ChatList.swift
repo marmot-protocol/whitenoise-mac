@@ -35,6 +35,7 @@ extension WorkspaceState {
             startChatListListener(account: activeAccount, subscription: subscription)
 
             await selectMostRecentChatIfNeeded()
+            await refreshAccountUnreadSummary()
         } catch {
             lastError = error.localizedDescription
         }
@@ -331,6 +332,7 @@ extension WorkspaceState {
                 avatarSeed: enrichedItem.avatarSeed,
                 pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
                 unreadCount: current.unreadCount,
+                unreadMentionCount: current.unreadMentionCount,
                 isDirect: enrichedItem.isDirect,
                 pendingConfirmation: current.pendingConfirmation
             )
