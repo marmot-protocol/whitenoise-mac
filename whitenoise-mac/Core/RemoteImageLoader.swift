@@ -252,6 +252,21 @@ enum IPAddress {
     }
 }
 
+/// Pixel sizing helpers shared by downsampled image views and tests.
+enum DownsampledImageSizing {
+    static func requestedPixelSize(_ maxPixelSize: CGFloat) -> CGFloat {
+        max(1, ceil(maxPixelSize))
+    }
+
+    /// Buckets continuously-changing gallery sizes so drag-resizing a window does not create a
+    /// fresh decoded cache entry for every pixel delta. Rounds up to avoid under-resolving.
+    static func galleryPixelSize(for pointSize: CGSize, displayScale: CGFloat) -> CGFloat {
+        let rawPixels = max(pointSize.width, pointSize.height) * max(1, displayScale)
+        let bucketSize: CGFloat = 128
+        return max(bucketSize, ceil(rawPixels / bucketSize) * bucketSize)
+    }
+}
+
 /// Drop-in replacement for `AsyncImage` that loads a remote image once, downsamples it
 /// to the size it is actually displayed at (off the main thread), and caches the decoded
 /// result. Bare `AsyncImage` re-fetches and decodes the full-resolution image on the main
@@ -264,6 +279,7 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: Image?
+    @State private var displayedURL: URL?
 
     var body: some View {
         ZStack {
@@ -273,17 +289,96 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
                 placeholder()
             }
         }
-        .task(id: TaskKey(url: url, size: maxPixelSize)) {
+        .task(id: taskKey) {
+            await loadImage(for: taskKey)
+        }
+    }
+
+    private var taskKey: TaskKey {
+        TaskKey(url: url, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
+    }
+
+    @MainActor
+    private func loadImage(for taskKey: TaskKey) async {
+        guard let url = taskKey.url else {
+            displayedURL = nil
             image = nil
-            guard let url else { return }
-            if let loaded = await RemoteImageLoader.shared.image(for: url, maxPixelSize: maxPixelSize) {
-                image = Image(nsImage: loaded.nsImage)
-            }
+            return
+        }
+
+        if displayedURL != url {
+            image = nil
+        }
+
+        if let loaded = await RemoteImageLoader.shared.image(for: url, maxPixelSize: taskKey.size) {
+            guard !Task.isCancelled else { return }
+            displayedURL = url
+            image = Image(nsImage: loaded.nsImage)
+        } else if displayedURL != url {
+            guard !Task.isCancelled else { return }
+            image = nil
         }
     }
 
     private struct TaskKey: Equatable {
         let url: URL?
+        let size: CGFloat
+    }
+}
+
+/// Downsamples already-local image bytes off the main actor and reuses the shared decoded-image
+/// cache. This is for decrypted/local attachments where the bytes are already available; decoding
+/// with `NSImage(data:)` in a SwiftUI `body` would synchronously inflate the full-resolution bitmap
+/// every time Observation re-evaluates the view.
+struct DownsampledDataImage<Content: View, Placeholder: View>: View {
+    let data: Data
+    let cacheKey: String
+    let maxPixelSize: CGFloat
+    @ViewBuilder var content: (Image) -> Content
+    @ViewBuilder var placeholder: () -> Placeholder
+
+    @State private var image: Image?
+    @State private var displayedCacheKey: String?
+
+    var body: some View {
+        ZStack {
+            if let image {
+                content(image)
+            } else {
+                placeholder()
+            }
+        }
+        .task(id: taskKey) {
+            await loadImage(for: taskKey)
+        }
+    }
+
+    private var taskKey: TaskKey {
+        TaskKey(cacheKey: cacheKey, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
+    }
+
+    @MainActor
+    private func loadImage(for taskKey: TaskKey) async {
+        if displayedCacheKey != taskKey.cacheKey {
+            image = nil
+        }
+
+        if let loaded = await RemoteImageLoader.shared.image(
+            for: data,
+            cacheKey: taskKey.cacheKey,
+            maxPixelSize: taskKey.size
+        ) {
+            guard !Task.isCancelled else { return }
+            displayedCacheKey = taskKey.cacheKey
+            image = Image(nsImage: loaded.nsImage)
+        } else if displayedCacheKey != taskKey.cacheKey {
+            guard !Task.isCancelled else { return }
+            image = nil
+        }
+    }
+
+    private struct TaskKey: Equatable {
+        let cacheKey: String
         let size: CGFloat
     }
 }
@@ -427,7 +522,36 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
         let task = inFlight.task(for: key) { [self] in
             Task { [self] in
-                await loadImage(for: url, cacheKey: key, maxPixelSize: maxPixelSize)
+                await loadRemoteImage(for: url, cacheKey: key, maxPixelSize: maxPixelSize)
+            }
+        }
+        let waiter = RemoteImageLoadWaiter { [inFlight] in
+            inFlight.releaseWaiter(for: key)
+        }
+
+        return await withTaskCancellationHandler {
+            let loaded = await task.value
+            waiter.release()
+            return Task.isCancelled ? nil : loaded
+        } onCancel: {
+            waiter.release()
+        }
+    }
+
+    /// Downsamples and caches local/decrypted image bytes.
+    ///
+    /// The cache key is part of the decoded-image identity and is checked before looking at
+    /// `data`, so callers must provide a stable key that uniquely identifies the bytes (for
+    /// example an immutable attachment id, or a content fingerprint when ids can be reused).
+    func image(for data: Data, cacheKey rawCacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
+        let key = Self.cacheKey(forLocalImageID: rawCacheKey, maxPixelSize: maxPixelSize)
+        if let cached = cache.object(forKey: key as NSString) {
+            return LoadedImage(nsImage: cached)
+        }
+
+        let task = inFlight.task(for: key) { [self] in
+            Task { [self] in
+                await loadLocalImage(data: data, cacheKey: key, maxPixelSize: maxPixelSize)
             }
         }
         let waiter = RemoteImageLoadWaiter { [inFlight] in
@@ -450,16 +574,20 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     #endif
 
     private static func cacheKey(for url: URL, maxPixelSize: CGFloat) -> String {
-        "\(url.absoluteString)|\(Int(maxPixelSize))"
+        "remote|\(url.absoluteString)|\(Int(maxPixelSize))"
     }
 
-    private func loadImage(for url: URL, cacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
-        let key = cacheKey as NSString
-        if let cached = cache.object(forKey: key) {
-            return LoadedImage(nsImage: cached)
-        }
+    private static func cacheKey(forLocalImageID cacheID: String, maxPixelSize: CGFloat) -> String {
+        "local|\(cacheID)|\(Int(maxPixelSize))"
+    }
 
+    private func loadRemoteImage(for url: URL, cacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
         guard let data = await Self.download(url, using: session) else { return nil }
+        return await loadLocalImage(data: data, cacheKey: cacheKey, maxPixelSize: maxPixelSize)
+    }
+
+    private func loadLocalImage(data: Data, cacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
+        let key = cacheKey as NSString
         let pixelSize = maxPixelSize
         let loaded = await Task.detached(priority: .utility) {
             Self.downsample(data: data, maxPixelSize: pixelSize).map(LoadedImage.init)

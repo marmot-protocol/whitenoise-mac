@@ -5482,6 +5482,69 @@ struct whitenoise_macTests {
         #expect(config.requestCachePolicy == .useProtocolCachePolicy)
     }
 
+    @Test func remoteImageLoaderDownsamplesAndCachesLocalAttachmentBytes() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let imageData = try Self.testPNGData(width: 400, height: 300)
+
+        let small = try #require(
+            await loader.image(for: imageData, cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        let smallSize = try #require(Self.pixelSize(of: small.nsImage))
+        #expect(max(smallSize.width, smallSize.height) <= 64)
+
+        let cached = try #require(
+            await loader.image(for: Data([0x00]), cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        #expect(cached.nsImage === small.nsImage)
+
+        let large = try #require(
+            await loader.image(for: imageData, cacheKey: "attachment-1", maxPixelSize: 128)
+        )
+        let largeSize = try #require(Self.pixelSize(of: large.nsImage))
+        #expect(max(largeSize.width, largeSize.height) <= 128)
+        #expect(max(largeSize.width, largeSize.height) > max(smallSize.width, smallSize.height))
+    }
+
+    @Test func downsampledImageSizingCeilsAndBucketsRequestedPixels() async throws {
+        #expect(DownsampledImageSizing.requestedPixelSize(0) == 1)
+        #expect(DownsampledImageSizing.requestedPixelSize(63.1) == 64)
+        #expect(
+            DownsampledImageSizing.galleryPixelSize(
+                for: CGSize(width: 100, height: 100),
+                displayScale: 2
+            ) == 256
+        )
+        #expect(
+            DownsampledImageSizing.galleryPixelSize(
+                for: CGSize(width: 321, height: 200),
+                displayScale: 2
+            ) == 768
+        )
+    }
+
+    @Test func remoteImageLoaderSeparatesRemoteAndLocalCacheNamespaces() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+        let localData = try Self.testPNGData(width: 64, height: 64)
+
+        let remote = try #require(await loader.image(for: url, maxPixelSize: 32))
+        let local = try #require(
+            await loader.image(for: localData, cacheKey: url.absoluteString, maxPixelSize: 32)
+        )
+        let localCached = try #require(
+            await loader.image(for: Data([0x00]), cacheKey: url.absoluteString, maxPixelSize: 32)
+        )
+
+        #expect(remote.nsImage !== local.nsImage)
+        #expect(localCached.nsImage === local.nsImage)
+        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+    }
+
     private static let singlePixelPNG = Data([
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
@@ -5493,6 +5556,13 @@ struct whitenoise_macTests {
         0x3D, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
         0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ])
+
+    private enum ImageFixtureError: Error {
+        case failedToCreateContext
+        case failedToCreateImage
+        case failedToCreateDestination
+        case failedToFinalize
+    }
 
     private static func jpegData(width: Int, height: Int) throws -> Data {
         let bytesPerPixel = 4
@@ -5526,6 +5596,53 @@ struct whitenoise_macTests {
         CGImageDestinationAddImage(destination, image, nil)
         #expect(CGImageDestinationFinalize(destination))
         return data as Data
+    }
+
+    private static func testPNGData(width: Int, height: Int) throws -> Data {
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0xFF, count: height * bytesPerRow)
+
+        return try pixels.withUnsafeMutableBytes { buffer in
+            guard
+                let context = CGContext(
+                    data: buffer.baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                )
+            else {
+                throw ImageFixtureError.failedToCreateContext
+            }
+            guard let image = context.makeImage() else {
+                throw ImageFixtureError.failedToCreateImage
+            }
+
+            let data = NSMutableData()
+            guard
+                let destination = CGImageDestinationCreateWithData(
+                    data,
+                    UTType.png.identifier as CFString,
+                    1,
+                    nil
+                )
+            else {
+                throw ImageFixtureError.failedToCreateDestination
+            }
+            CGImageDestinationAddImage(destination, image, nil)
+            guard CGImageDestinationFinalize(destination) else {
+                throw ImageFixtureError.failedToFinalize
+            }
+            return data as Data
+        }
+    }
+
+    private static func pixelSize(of image: NSImage) -> (width: Int, height: Int)? {
+        guard let representation = image.representations.first else { return nil }
+        return (representation.pixelsWide, representation.pixelsHigh)
     }
 
     @MainActor

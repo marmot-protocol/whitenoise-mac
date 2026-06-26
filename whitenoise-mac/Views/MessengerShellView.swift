@@ -2658,6 +2658,7 @@ private struct MessageVisualMediaGrid: View {
 
 private struct MessageVisualMediaTile: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.displayScale) private var displayScale
     @ObservedObject var downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
@@ -2702,14 +2703,18 @@ private struct MessageVisualMediaTile: View {
         case .loaded(let download):
             switch attachment.kind {
             case .image:
-                if let image = NSImage(data: download.data) {
-                    Image(nsImage: image)
+                DownsampledDataImage(
+                    data: download.data,
+                    cacheKey: attachment.id,
+                    maxPixelSize: sideLength * max(1, displayScale) * 2
+                ) { image in
+                    image
                         .resizable()
                         .scaledToFill()
                         .frame(width: sideLength, height: sideLength)
                         .clipped()
                         .accessibilityLabel(attachment.fileName)
-                } else {
+                } placeholder: {
                     placeholder(systemImage: "photo", isLoading: false)
                 }
             case .video:
@@ -2742,6 +2747,7 @@ private struct MessageVisualMediaTile: View {
 
 private struct MessageMediaAttachmentView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.displayScale) private var displayScale
     @ObservedObject var downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
@@ -2781,15 +2787,19 @@ private struct MessageMediaAttachmentView: View {
     private func loadedContent(_ download: MessageMediaDownload) -> some View {
         switch attachment.kind {
         case .image:
-            if let image = NSImage(data: download.data) {
-                Image(nsImage: image)
+            DownsampledDataImage(
+                data: download.data,
+                cacheKey: attachment.id,
+                maxPixelSize: 260 * max(1, displayScale) * 2
+            ) { image in
+                image
                     .resizable()
                     .scaledToFill()
                     .frame(width: 260, height: 260)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .accessibilityLabel(attachment.fileName)
-            } else {
+            } placeholder: {
                 MessageAttachmentStatusRow(
                     systemImage: "photo",
                     title: download.fileName.nilIfBlank ?? attachment.fileName,
@@ -3366,16 +3376,38 @@ private struct MessageImageGalleryContent: View {
             }
             .foregroundStyle(.white)
         case .loaded(let download):
-            if let image = NSImage(data: download.data) {
-                Image(nsImage: image)
+            DownsampledMessageGalleryImage(download: download, attachment: attachment)
+        }
+    }
+}
+
+private struct DownsampledMessageGalleryImage: View {
+    @Environment(\.displayScale) private var displayScale
+    let download: MessageMediaDownload
+    let attachment: MessageMediaAttachment
+
+    var body: some View {
+        GeometryReader { proxy in
+            DownsampledDataImage(
+                data: download.data,
+                cacheKey: attachment.id,
+                maxPixelSize: DownsampledImageSizing.galleryPixelSize(
+                    for: proxy.size,
+                    displayScale: displayScale
+                )
+            ) { image in
+                image
                     .resizable()
                     .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(attachment.fileName)
-            } else {
+            } placeholder: {
                 Text("Image unavailable")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 }
