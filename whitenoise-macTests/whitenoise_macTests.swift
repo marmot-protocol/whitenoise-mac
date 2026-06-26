@@ -360,6 +360,27 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
+
+        RemoteImageLoader.shared.clearCache()
+        defer { RemoteImageLoader.shared.clearCache() }
+        let cacheKey = "removed-background-account-avatar"
+        let imageData = try Self.testPNGData(width: 64, height: 64)
+        let decoded = try #require(
+            await RemoteImageLoader.shared.image(
+                for: imageData,
+                cacheKey: cacheKey,
+                maxPixelSize: 32
+            )
+        )
+        let cachedBeforeRemoval = try #require(
+            await RemoteImageLoader.shared.image(
+                for: Data([0x00]),
+                cacheKey: cacheKey,
+                maxPixelSize: 32
+            )
+        )
+        #expect(cachedBeforeRemoval.nsImage === decoded.nsImage)
+
         let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
         await state.removeAccount(backupAccount)
 
@@ -368,6 +389,13 @@ struct whitenoise_macTests {
         // Removing a background identity must not switch the active account.
         #expect(state.activeAccountId == "Desktop Account")
         #expect(state.chatsByAccount["Backup Account"] == nil)
+        #expect(
+            await RemoteImageLoader.shared.image(
+                for: Data([0x00]),
+                cacheKey: cacheKey,
+                maxPixelSize: 32
+            ) == nil
+        )
     }
 
     @MainActor
@@ -5866,6 +5894,62 @@ struct whitenoise_macTests {
         let largeSize = try #require(Self.pixelSize(of: large.nsImage))
         #expect(max(largeSize.width, largeSize.height) <= 128)
         #expect(max(largeSize.width, largeSize.height) > max(smallSize.width, smallSize.height))
+    }
+
+    @Test func remoteImageLoaderClearCacheEvictsDecodedImages() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let imageData = try Self.testPNGData(width: 400, height: 300)
+
+        let decoded = try #require(
+            await loader.image(for: imageData, cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        let cached = try #require(
+            await loader.image(for: Data([0x00]), cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        #expect(cached.nsImage === decoded.nsImage)
+
+        loader.clearCache()
+
+        // After a wipe the previously decoded bytes must be gone, so a cache-key-only lookup with
+        // bogus bytes can no longer be served and a real re-decode produces a fresh instance.
+        #expect(await loader.image(for: Data([0x00]), cacheKey: "attachment-1", maxPixelSize: 64) == nil)
+        let reDecoded = try #require(
+            await loader.image(for: imageData, cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        #expect(reDecoded.nsImage !== decoded.nsImage)
+    }
+
+    @Test func remoteImageLoaderClearCacheInvalidatesInFlightLoads() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0.2)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+
+        let pending = Task { await loader.image(for: url, maxPixelSize: 32) }
+        let requestStarted = await waitFor {
+            RemoteImageURLProtocolStub.requestCount() == 1
+                && loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 1
+        }
+        #expect(requestStarted)
+
+        loader.clearCache()
+
+        let inFlightCleared = await waitFor {
+            loader.inFlightWaiterCount(for: url, maxPixelSize: 32) == 0
+        }
+        #expect(inFlightCleared)
+        let requestCancelled = await waitFor {
+            RemoteImageURLProtocolStub.stopLoadingCount() >= 1
+        }
+        #expect(requestCancelled)
+        #expect(await pending.value == nil)
+
+        let reloaded = try #require(await loader.image(for: url, maxPixelSize: 32))
+        #expect(reloaded.nsImage.size.width > 0)
+        #expect(RemoteImageURLProtocolStub.requestCount() == 2)
     }
 
     @Test func remoteImageLoaderSeparatesRemoteAndLocalCacheNamespaces() async throws {
