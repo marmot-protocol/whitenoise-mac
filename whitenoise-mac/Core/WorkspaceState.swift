@@ -114,6 +114,7 @@ nonisolated struct ChatListOrdering {
             avatarSeed: current.avatarSeed,
             pictureURL: current.pictureURL,
             unreadCount: chat.unreadCount,
+            unreadMentionCount: chat.unreadMentionCount,
             isDirect: current.isDirect,
             pendingConfirmation: chat.pendingConfirmation
         )
@@ -349,6 +350,9 @@ final class WorkspaceState {
     var isLoadingSettings = false
     var isSavingProfile = false
     var isRemovingAccount = false
+    var isSigningOutAccount = false
+    /// Per-account unread totals keyed by `accountIdHex`, for switcher avatar badges.
+    var accountUnreadByIdHex: [String: Int] = [:]
     var isSavingRelays = false
     var isPublishingKeyPackage = false
     var isRepublishingKeyPackage = false
@@ -393,6 +397,8 @@ final class WorkspaceState {
     var isDecliningGroupInvite = false
     var isArchivingGroup = false
     var isLeavingGroup = false
+    var isUpdatingDisappearingMessages = false
+    var isDeletingGroupLocally = false
     var isExportingGroupTranscript = false
     var groupTranscriptExportStatus: String?
     var mutatingGroupMemberId: String?
@@ -935,7 +941,8 @@ final class WorkspaceState {
             isLastAdmin: managementState.isLastAdmin,
             canInvite: managementState.canInvite,
             canLeave: managementState.canLeave,
-            requiresSelfDemoteBeforeLeave: managementState.requiresSelfDemoteBeforeLeave
+            requiresSelfDemoteBeforeLeave: managementState.requiresSelfDemoteBeforeLeave,
+            disappearingMessageSecs: details.group.disappearingMessageSecs
         )
     }
 
@@ -1031,7 +1038,7 @@ final class WorkspaceState {
             }
             relayRuntimeConfig = config.runtimeConfig(installId: installId)
         }
-        let auditTrackerConfig = config.auditTrackerConfig(accountLabel: accountLabel)
+        let auditTrackerConfig = config.auditTrackerConfig()
 
         if observabilityRuntimeConfiguration?.relayTelemetryRuntimeConfig != relayRuntimeConfig {
             try await client.setRelayTelemetryRuntimeConfig(config: relayRuntimeConfig)
@@ -1425,9 +1432,20 @@ extension RelaySettingsSnapshot {
             bootstrapRelays: lists.bootstrapRelays,
             publishedNip65: lists.nip65.relays,
             publishedInbox: lists.inbox.relays,
-            missing: lists.missing,
+            missing: lists.missing.map(\.displayLabel),
             isComplete: lists.complete
         )
+    }
+}
+
+extension MissingRelayListKindFfi {
+    /// User-facing name for a relay list the account hasn't published yet.
+    var displayLabel: String {
+        switch self {
+        case .nip65: return "NIP-65"
+        case .inbox: return "Inbox"
+        @unknown default: return "Unknown"
+        }
     }
 }
 

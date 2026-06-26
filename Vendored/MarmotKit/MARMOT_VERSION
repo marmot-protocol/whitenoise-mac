@@ -1,6 +1,6 @@
-darkmatter-sha: ece2685
+darkmatter-sha: 745959e
 darkmatter-branch: master
-built-at: 2026-06-20T17:11:12Z
+built-at: 2026-06-26T18:09:36Z
 uniffi-version: 0.28.3
 macos-targets: aarch64-apple-darwin
 macos-deployment-target: 15.6

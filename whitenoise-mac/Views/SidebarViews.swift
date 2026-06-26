@@ -36,21 +36,7 @@ struct AccountRailView: View {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 10) {
                     ForEach(workspace.accounts) { account in
-                        Button {
-                            workspace.selectAccount(account)
-                        } label: {
-                            ProfileImageAvatarView(
-                                seed: account.accountIdHex,
-                                initials: account.initials,
-                                pictureURL: account.pictureURL,
-                                size: 42,
-                                isSelected: account.id == workspace.activeAccountId
-                            )
-                            .frame(width: 54, height: 54)
-                            .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(account.displayName)
+                        AccountRailAvatar(account: account)
                     }
                 }
                 .padding(.vertical, 4)
@@ -76,6 +62,78 @@ struct AccountRailView: View {
         .frame(width: 62)
         .background {
             MessagesSidebarBackground(level: .rail)
+        }
+    }
+}
+
+/// A single account avatar in the rail: selects on tap (or signs back in when the
+/// account is signed out), dims signed-out accounts, overlays an unread badge, and
+/// offers Sign In / Sign Out via context menu.
+private struct AccountRailAvatar: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let account: AccountItem
+
+    private var unread: Int { workspace.unreadCount(forAccountIdHex: account.accountIdHex) }
+    private var isActive: Bool { account.id == workspace.activeAccountId }
+
+    var body: some View {
+        Button {
+            if account.signedOut {
+                Task { await workspace.signInAccount(account) }
+            } else {
+                workspace.selectAccount(account)
+            }
+        } label: {
+            ProfileImageAvatarView(
+                seed: account.accountIdHex,
+                initials: account.initials,
+                pictureURL: account.pictureURL,
+                size: 42,
+                isSelected: isActive
+            )
+            .frame(width: 54, height: 54)
+            .contentShape(Circle())
+            .opacity(account.signedOut ? 0.4 : 1)
+            .overlay(alignment: .topTrailing) {
+                badge
+            }
+        }
+        .buttonStyle(.plain)
+        .help(account.signedOut ? "\(account.displayName) — \(L10n.string("Signed out"))" : account.displayName)
+        .contextMenu {
+            if account.signedOut {
+                Button {
+                    Task { await workspace.signInAccount(account) }
+                } label: {
+                    Label("Sign In", systemImage: "person.crop.circle.badge.checkmark")
+                }
+                .disabled(workspace.isSigningOutAccount)
+            } else {
+                Button {
+                    Task { await workspace.signOutAccount(account) }
+                } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                .disabled(workspace.isSigningOutAccount)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var badge: some View {
+        if account.signedOut {
+            Image(systemName: "pause.circle.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
+        } else if unread > 0 {
+            Text(unread > 99 ? "99+" : "\(unread)")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 5)
+                .frame(minWidth: 18, minHeight: 18)
+                .background(Capsule().fill(MessagesPalette.sentBubble))
+                .overlay(Capsule().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
         }
     }
 }
@@ -303,11 +361,21 @@ struct ChatRowContent: View {
             }
 
             if chat.unreadCount > 0 {
-                Text("\(chat.unreadCount)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(Circle().fill(MessagesPalette.sentBubble))
+                HStack(spacing: 4) {
+                    if chat.hasMention {
+                        Image(systemName: "at")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 18, height: 18)
+                            .background(Circle().fill(Color.accentColor))
+                            .help(L10n.string("You were mentioned"))
+                    }
+                    Text("\(chat.unreadCount)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .background(Circle().fill(MessagesPalette.sentBubble))
+                }
             }
         }
         .padding(.horizontal, 10)

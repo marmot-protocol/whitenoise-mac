@@ -10,7 +10,8 @@ extension AccountItem {
             displayName: title,
             accountIdHex: summary.accountIdHex,
             localSigning: summary.localSigning,
-            isRunning: summary.running
+            isRunning: summary.running,
+            signedOut: summary.signedOut
         )
     }
 }
@@ -58,6 +59,7 @@ extension ChatItem {
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
             pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
             unreadCount: Int(row.unreadCount),
+            unreadMentionCount: Int(row.unreadMentionCount),
             isDirect: directPeer != nil,
             pendingConfirmation: row.pendingConfirmation
         )
@@ -116,6 +118,7 @@ extension MessageItem {
         let senderProfile = senderProfiles[record.sender]
         let presentation = MessageItem.presentation(for: record.kind)
         let mediaAttachments = MessageMediaParser.attachments(
+            resolvedMedia: record.media,
             mediaJson: record.mediaJson,
             tags: record.tags,
             messageIdHex: record.messageIdHex
@@ -130,13 +133,19 @@ extension MessageItem {
                 presentation: presentation
             ),
             senderPictureURL: senderProfile?.pictureURL,
-            body: MessageItem.displayText(
-                kind: record.kind,
-                plaintext: record.plaintext,
-                tags: record.tags,
+            body: MessageItem.systemText(record.groupSystem)
+                ?? MessageItem.displayText(
+                    kind: record.kind,
+                    plaintext: record.plaintext,
+                    tags: record.tags,
+                    deleted: record.deleted,
+                    invalidationStatus: record.invalidationStatus,
+                    hasMediaAttachments: !mediaAttachments.isEmpty
+                ),
+            contentMarkdown: MessageItem.renderableMarkdown(
+                document: record.contentTokens,
                 deleted: record.deleted,
-                invalidationStatus: record.invalidationStatus,
-                hasMediaAttachments: !mediaAttachments.isEmpty
+                presentation: presentation
             ),
             sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
             timelineAt: record.timelineAt,
@@ -189,6 +198,27 @@ extension MessageItem {
         default:
             return .unsupported
         }
+    }
+
+    /// The core's structured rendering for a group-system row (member changes,
+    /// disappearing-timer changes, etc.), or `nil` when the record isn't a system
+    /// event — in which case the caller falls back to the kind-based decode.
+    fileprivate static func systemText(_ event: GroupSystemEventFfi?) -> String? {
+        guard let event else { return nil }
+        let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// The Markdown document to render in a chat bubble, or `nil` when the bubble
+    /// should fall back to plain text — system rows, deleted messages, or content
+    /// the core parsed into no blocks (e.g. media-only / empty plaintext).
+    fileprivate static func renderableMarkdown(
+        document: MarkdownDocumentFfi,
+        deleted: Bool,
+        presentation: MessagePresentation
+    ) -> MarkdownDocumentFfi? {
+        guard presentation.isChatBubble, !deleted, !document.blocks.isEmpty else { return nil }
+        return document
     }
 
     fileprivate static func displayText(
@@ -273,6 +303,7 @@ extension MessageItem {
     ) -> MessageReplyContext? {
         guard let preview else { return nil }
         let mediaAttachments = MessageMediaParser.attachments(
+            resolvedMedia: preview.media,
             mediaJson: preview.mediaJson,
             tags: [],
             messageIdHex: preview.messageIdHex
@@ -354,18 +385,29 @@ private nonisolated enum MessageMediaParser {
     private static let maxMediaJSONTraversalDepth = 32
 
     static func attachments(
+        resolvedMedia: [MediaAttachmentReferenceFfi],
         mediaJson: String?,
         tags: [MessageTagFfi],
         messageIdHex: String
     ) -> [MessageMediaAttachment] {
-        let tagReferences =
-            tags
-            .filter { $0.values.first == "imeta" }
-            .compactMap { reference(fromIMetaTag: $0.values, sourceEpoch: 0) }
-        let jsonReferences = references(fromMediaJson: mediaJson)
-        let references = jsonReferences.isEmpty ? tagReferences : jsonReferences
+        // Prefer the core's already-resolved and validated media references
+        // (`TimelineMessageRecordFfi.media`): they use the same resolution as
+        // `list_media`, with malformed `imeta` attachments already dropped. Fall
+        // back to local parsing only for records that predate FFI media resolution
+        // (e.g. an empty `media` list paired with a populated `mediaJson`).
+        let resolvedReferences: [MediaAttachmentReferenceFfi]
+        if !resolvedMedia.isEmpty {
+            resolvedReferences = resolvedMedia
+        } else {
+            let tagReferences =
+                tags
+                .filter { $0.values.first == "imeta" }
+                .compactMap { reference(fromIMetaTag: $0.values, sourceEpoch: 0) }
+            let jsonReferences = references(fromMediaJson: mediaJson)
+            resolvedReferences = jsonReferences.isEmpty ? tagReferences : jsonReferences
+        }
 
-        return references.enumerated().map { index, reference in
+        return resolvedReferences.enumerated().map { index, reference in
             MessageMediaAttachment(
                 id: mediaAttachmentId(messageIdHex: messageIdHex, reference: reference, index: index),
                 reference: reference
