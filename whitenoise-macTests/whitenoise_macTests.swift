@@ -19,6 +19,23 @@ import UserNotifications
 
 @testable import whitenoise_mac
 
+/// Reference-typed boolean so a `@Sendable`/`@MainActor` provider closure can capture an
+/// immutable reference whose value the test flips later, without tripping the "mutated after
+/// capture by sendable closure" diagnostic that a captured `var` would.
+private final class MutableFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: Bool
+
+    init(_ value: Bool) {
+        storedValue = value
+    }
+
+    var value: Bool {
+        get { lock.withLock { storedValue } }
+        set { lock.withLock { storedValue = newValue } }
+    }
+}
+
 private final class ObservationInvalidationFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var invalidated = false
@@ -2268,9 +2285,9 @@ struct whitenoise_macTests {
             ], groupIdHex: "direct-group")
         // Start inactive so the initial open defers marking, then flip to active and
         // simulate the app regaining focus.
-        var isActive = false
+        let isActive = MutableFlag(false)
         let state = WorkspaceState(
-            appActivityProvider: { isActive },
+            appActivityProvider: { isActive.value },
             conversationWindowVisibilityProvider: { true },
             clientFactory: { runtime }
         )
@@ -2279,7 +2296,7 @@ struct whitenoise_macTests {
         await state.loadMessages(groupIdHex: "direct-group")
         #expect(runtime.markedReadMessageIds.isEmpty)
 
-        isActive = true
+        isActive.value = true
         await state.handleConversationVisibilityChange()
 
         #expect(runtime.markedReadMessageIds == ["latest"])
@@ -2320,10 +2337,10 @@ struct whitenoise_macTests {
                     recordedAt: 1_700_000_010
                 )
             ], groupIdHex: "direct-group")
-        var isWindowVisible = false
+        let isWindowVisible = MutableFlag(false)
         let state = WorkspaceState(
             appActivityProvider: { true },
-            conversationWindowVisibilityProvider: { isWindowVisible },
+            conversationWindowVisibilityProvider: { isWindowVisible.value },
             clientFactory: { runtime }
         )
 
@@ -2331,7 +2348,7 @@ struct whitenoise_macTests {
         await state.loadMessages(groupIdHex: "direct-group")
         #expect(runtime.markedReadMessageIds.isEmpty)
 
-        isWindowVisible = true
+        isWindowVisible.value = true
         await state.handleConversationVisibilityChange()
 
         #expect(runtime.markedReadMessageIds == ["latest"])
@@ -4183,9 +4200,9 @@ struct whitenoise_macTests {
                     recordedAt: 1_700_000_010
                 )
             ], groupIdHex: "direct-group")
-        var isActive = false
+        let isActive = MutableFlag(false)
         let state = WorkspaceState(
-            appActivityProvider: { isActive },
+            appActivityProvider: { isActive.value },
             conversationWindowVisibilityProvider: { true },
             clientFactory: { runtime }
         )
@@ -4199,7 +4216,7 @@ struct whitenoise_macTests {
         #expect(didResolveDirectMetadata)
         #expect(runtime.markedReadMessageIds.isEmpty)
 
-        isActive = true
+        isActive.value = true
         await state.handleConversationVisibilityChange()
 
         #expect(runtime.markedReadMessageIds == ["latest"])

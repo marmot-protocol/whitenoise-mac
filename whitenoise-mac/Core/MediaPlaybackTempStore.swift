@@ -23,7 +23,7 @@ import Foundation
 ///
 /// All file-system inputs are injectable to keep the logic unit-testable without a real
 /// `AVPlayer`/`NSWorkspace`.
-enum MediaPlaybackTempStore {
+nonisolated enum MediaPlaybackTempStore {
     private static let directoryName = "WhiteNoiseMediaPlayback"
 
     /// Resolves the playback scratch directory inside the app container.

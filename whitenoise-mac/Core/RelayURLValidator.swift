@@ -13,8 +13,8 @@ import Foundation
 ///   loopback host (`localhost`, `127.0.0.0/8`, `::1`), to keep local/dev
 ///   relays usable. They are still flagged as insecure for the UI.
 /// - Any other `ws://` relay, or any other scheme, is rejected.
-enum RelayURLValidator {
-    enum Classification: Equatable {
+nonisolated enum RelayURLValidator {
+    nonisolated enum Classification: Equatable {
         /// `wss://` relay — encrypted transport.
         case secure
         /// `ws://` relay on a loopback host — accepted for local/dev, but cleartext.

@@ -471,7 +471,7 @@ enum MarmotStorageRootError: LocalizedError {
     }
 }
 
-enum MarmotStorageRoot {
+nonisolated enum MarmotStorageRoot {
     private static let appSupportDirectoryName = "White Noise"
     private static let marmotDirectoryName = "Marmot"
 
