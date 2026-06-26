@@ -189,32 +189,32 @@ final class WorkspaceState {
         case login
     }
 
-    private struct ComposerDraftKey: Hashable {
+    struct ComposerDraftKey: Hashable {
         let accountId: String
         let chatId: String
     }
 
-    private struct ObservabilityRuntimeConfiguration: Equatable {
+    struct ObservabilityRuntimeConfiguration: Equatable {
         let buildConfig: TelemetryBuildConfig
         let accountLabel: String?
         let relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi
         let auditLogTrackerConfig: AuditLogTrackerConfigFfi
     }
 
-    private(set) var phase: Phase = .bootstrapping
-    private(set) var accounts: [AccountItem]
-    private(set) var chatsByAccount: [String: [ChatItem]]
-    private(set) var messagesByChat: [String: [MessageItem]]
-    @ObservationIgnored private var mediaDownloads: [String: MediaDownloadStateStore] = [:]
+    var phase: Phase = .bootstrapping
+    var accounts: [AccountItem]
+    var chatsByAccount: [String: [ChatItem]]
+    var messagesByChat: [String: [MessageItem]]
+    @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.
-    private(set) var lastError: String?
+    var lastError: String?
     /// Status for failures originating in background tasks (subscription listeners,
     /// observability refresh, read-marking). These are not tied to anything the user
     /// just did, so they are surfaced on a non-modal global banner instead of the
     /// per-screen error view, preventing misattribution and clobbering of `lastError`.
-    private(set) var backgroundStatus: String?
+    var backgroundStatus: String?
 
     var activeAccountId: String?
     var selection: WorkspaceSelection? {
@@ -242,15 +242,15 @@ final class WorkspaceState {
     }
     var isRefreshing = false
     var isSending = false
-    private(set) var isRecordingVoiceMessage = false
-    private(set) var voiceRecordingSamples: [CGFloat] = []
-    private(set) var voiceRecordingDurationSeconds: Double = 0
+    var isRecordingVoiceMessage = false
+    var voiceRecordingSamples: [CGFloat] = []
+    var voiceRecordingDurationSeconds: Double = 0
     /// Per-target reentrancy guards for message actions. `react`/`deleteMessage`
     /// operate on arbitrary messages, so a single in-flight bool (like `isSending`)
     /// would wrongly block acting on a *different* message. We key on the action's
     /// target instead so only a duplicate of the *same* in-flight action is dropped.
-    private var inFlightReactionKeys = Set<String>()
-    private var inFlightDeleteMessageIds = Set<String>()
+    var inFlightReactionKeys = Set<String>()
+    var inFlightDeleteMessageIds = Set<String>()
     var authenticationMode: AuthenticationMode = .landing
     var loginIdentity = ""
     var isAuthenticating = false
@@ -307,8 +307,8 @@ final class WorkspaceState {
             AppLanguage.refreshCachedLocale()
         }
     }
-    private var observedSystemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
-    private(set) var systemLocaleRefreshRevision = 0
+    var observedSystemLocaleIdentifier = AppLanguage.currentSystemLocaleIdentifier()
+    var systemLocaleRefreshRevision = 0
     var isLoadingSettings = false
     var isSavingProfile = false
     var isRemovingAccount = false
@@ -359,28 +359,28 @@ final class WorkspaceState {
     var isExportingGroupTranscript = false
     var groupTranscriptExportStatus: String?
     var mutatingGroupMemberId: String?
-    private(set) var storageRootPath = MarmotClient.defaultStorageRootPath()
-    private(set) var timelinePagingByChat: [String: TimelinePagingState] = [:]
-    private(set) var timelineInitialLoadGroupId: String?
-    private var draftTextByConversation: [ComposerDraftKey: String] = [:]
-    private var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
-    private var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
-    private var voiceRecorder: AVAudioRecorder?
-    private var voiceRecordingURL: URL?
-    private var voiceRecordingMeterTask: Task<Void, Never>?
+    var storageRootPath = MarmotClient.defaultStorageRootPath()
+    var timelinePagingByChat: [String: TimelinePagingState] = [:]
+    var timelineInitialLoadGroupId: String?
+    var draftTextByConversation: [ComposerDraftKey: String] = [:]
+    var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
+    var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
+    var voiceRecorder: AVAudioRecorder?
+    var voiceRecordingURL: URL?
+    var voiceRecordingMeterTask: Task<Void, Never>?
 
-    private var selectedComposerDraftKey: ComposerDraftKey? {
+    var selectedComposerDraftKey: ComposerDraftKey? {
         guard let activeAccountId, case .chat(let chatId) = selection else { return nil }
         return ComposerDraftKey(accountId: activeAccountId, chatId: chatId)
     }
 
-    private func clearAllComposerDrafts() {
+    func clearAllComposerDrafts() {
         draftTextByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
         pendingMediaAttachmentsByConversation.removeAll()
     }
 
-    private func clearComposerDrafts(for chatIds: [String], accountId: String) {
+    func clearComposerDrafts(for chatIds: [String], accountId: String) {
         for chatId in chatIds {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             draftTextByConversation[key] = nil
@@ -389,7 +389,7 @@ final class WorkspaceState {
         }
     }
 
-    private func clearComposerDrafts(forAccountId accountId: String) {
+    func clearComposerDrafts(forAccountId accountId: String) {
         for key in draftTextByConversation.keys.filter({ $0.accountId == accountId }) {
             draftTextByConversation[key] = nil
         }
@@ -401,29 +401,29 @@ final class WorkspaceState {
         }
     }
 
-    private let clientFactory: @MainActor () throws -> any MarmotRuntime
-    private let localNotificationCenter: any LocalNotificationCenter
-    private let appActivityProvider: @MainActor () -> Bool
-    private let conversationWindowVisibilityProvider: @MainActor () -> Bool
-    private let copyTextHandler: @MainActor (String, Bool) -> Void
-    private let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
-    private let groupImageSearchClient: any GroupImageSearchClient
+    let clientFactory: @MainActor () throws -> any MarmotRuntime
+    let localNotificationCenter: any LocalNotificationCenter
+    let appActivityProvider: @MainActor () -> Bool
+    let conversationWindowVisibilityProvider: @MainActor () -> Bool
+    let copyTextHandler: @MainActor (String, Bool) -> Void
+    let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
+    let groupImageSearchClient: any GroupImageSearchClient
     /// Injectable clock for peer-profile cache TTL decisions, so tests can drive cache
     /// expiry deterministically (whitenoise-mac#8). Defaults to the system clock.
-    private let nowProvider: @MainActor () -> Date
-    private var client: (any MarmotRuntime)?
-    private var observabilityRuntimeConfiguration: ObservabilityRuntimeConfiguration?
-    private var notificationTask: Task<Void, Never>?
-    private var chatListTask: Task<Void, Never>?
-    private var chatListTaskAccountId: String?
-    private var chatListEnrichmentTask: Task<Void, Never>?
+    let nowProvider: @MainActor () -> Date
+    var client: (any MarmotRuntime)?
+    var observabilityRuntimeConfiguration: ObservabilityRuntimeConfiguration?
+    var notificationTask: Task<Void, Never>?
+    var chatListTask: Task<Void, Never>?
+    var chatListTaskAccountId: String?
+    var chatListEnrichmentTask: Task<Void, Never>?
     /// Incremental, per-row chat-list enrichment task ownership (issue #40). Single-row updates
     /// (the chat-list subscription delta path) spawn one enrichment task per group; this tracker
     /// lets `stopChatListListener` cancel them on listener teardown / account switch and lets a
     /// newer update for the same group supersede (coalesce) an in-flight one. Ownership tokens
     /// are process-monotonic and never reused, so a stale canceled task can never match a future
     /// task's token and drop its tracking slot. See `ChatListRowEnrichmentTracker`.
-    private var chatListRowEnrichment = ChatListRowEnrichmentTracker()
+    var chatListRowEnrichment = ChatListRowEnrichmentTracker()
     /// Single-owner coalescing for the aggregate settings load (issue #4). `loadSettingsData()`
     /// is invoked from more than one entry point — the settings view's `.task(id: activeAccountId)`
     /// and explicit reloads (e.g. after removing the active account) — which can otherwise issue
@@ -431,37 +431,37 @@ final class WorkspaceState {
     /// in-flight task is tracked here keyed by `settingsLoadAccountId`: a concurrent request for the
     /// same account awaits the existing task (coalesces) instead of starting a duplicate, and a
     /// request for a different account cancels the now-stale load so it cannot clobber fresher state.
-    private var settingsLoadTask: Task<Void, Never>?
-    private var settingsLoadAccountId: String?
+    var settingsLoadTask: Task<Void, Never>?
+    var settingsLoadAccountId: String?
     /// Monotonic token identifying the most recently started settings load. `performSettingsLoad`
     /// captures the value at launch and only clears `isLoadingSettings` in its `defer` if it is
     /// still the current generation — i.e. no newer load has superseded it. This distinguishes
     /// "superseded by a newer load" (must NOT dismiss the spinner the newer load owns) from
     /// "cancelled with no replacement" (the active account was cleared, so the spinner MUST be
     /// dismissed instead of left stuck). See `loadSettingsData` / issue #4.
-    private var settingsLoadGeneration: UInt64 = 0
-    private var timelineTask: Task<Void, Never>?
-    private var timelineTaskGroupId: String?
+    var settingsLoadGeneration: UInt64 = 0
+    var timelineTask: Task<Void, Never>?
+    var timelineTaskGroupId: String?
     /// The live timeline subscription for the open conversation. It owns the
     /// authoritative, bounded, materialized window; scroll-back/forward pagination and
     /// live updates all flow through it (`paginateBackwards` / `paginateForwards` / `next`).
     /// Kept alive for pagination independent of the listener task. The listener replaces
     /// it after a recoverable stream end/reconnect, and it is cleared only when the
     /// conversation is torn down.
-    private var activeTimelineSubscription: TimelineMessagesSubscription?
-    private var activeTimelineGroupId: String?
-    private var messageLookupByChat: [String: [String: MessageItem]] = [:]
+    var activeTimelineSubscription: TimelineMessagesSubscription?
+    var activeTimelineGroupId: String?
+    var messageLookupByChat: [String: [String: MessageItem]] = [:]
     /// Cached per-chat message id arrays, materialized once per `messagesByChat`
     /// mutation and maintained in lockstep with it (alongside `messageLookupByChat`).
     /// SwiftUI re-evaluates `body` frequently; reading this cache avoids rebuilding a
     /// fresh `[String]` on every access. Invalidated/recomputed only when the
     /// underlying messages change.
-    private var messageIDsByChat: [String: [String]] = [:]
-    private var lastMarkedReadMarkers: [String: ReadMarker] = [:]
-    private var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
-    private var deliveredNotificationKeys = Set<String>()
-    private var deliveredNotificationKeyOrder: [String] = []
-    private var newChatLookupGeneration = 0
+    var messageIDsByChat: [String: [String]] = [:]
+    var lastMarkedReadMarkers: [String: ReadMarker] = [:]
+    var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
+    var deliveredNotificationKeys = Set<String>()
+    var deliveredNotificationKeyOrder: [String] = []
+    var newChatLookupGeneration = 0
     /// Monotonic token identifying the most recently started group-image (Openverse) search.
     /// `searchGroupImages` captures the value before its `await` and only commits results /
     /// clears `isSearchingGroupImages` while it is still current — i.e. no newer search has
@@ -470,7 +470,7 @@ final class WorkspaceState {
     /// prevents a search resolving after the picker is dismissed/reopened from repopulating
     /// `groupImageResults`. Mirrors the new-chat lookup / settings-load generation guards
     /// (issues #2, #4). See `searchGroupImages` / issue #110.
-    private var groupImageSearchGeneration = 0
+    var groupImageSearchGeneration = 0
     /// Monotonic token identifying the most recently started group-details load. `loadGroupDetails`
     /// captures the value on entry and only applies the fetched snapshot, clears
     /// `isLoadingGroupDetails`, or reports errors while it is still current — i.e. no newer load or
@@ -482,7 +482,7 @@ final class WorkspaceState {
     /// `acceptGroupInvite`, and `applyGroupDetails` is completion-ordered, not request-ordered.
     /// Mirrors the settings-load / group-image-search generation guards (issues #2, #4, #110).
     /// See `loadGroupDetails` / issue #135.
-    private var groupDetailsLoadGeneration = 0
+    var groupDetailsLoadGeneration = 0
     /// Raw per-sender FFI lookups (userProfile + directory displayName), cached so that
     /// scrolling back through history does not re-resolve the same senders from Rust on
     /// every page. Keyed by sender accountIdHex.
@@ -495,16 +495,16 @@ final class WorkspaceState {
     /// a failed/empty lookup) are always re-resolved so a contact is never pinned to a
     /// fallback name/avatar for the life of the process. The cache is also account-scoped
     /// and cleared on account switch.
-    private var peerProfileFFICache: [String: CachedPeerProfile] = [:]
+    var peerProfileFFICache: [String: CachedPeerProfile] = [:]
 
     /// Per-group membership cache used by chat-list enrichment and timeline sender-name
     /// projection. Group rows already carry the latest group metadata; these call sites only
     /// need members to identify direct chats and provide member-name fallbacks, so cache just
     /// that membership slice and invalidate it on membership-changing subscription events.
-    private var groupMemberDetailsCache: [String: [GroupMemberDetailsFfi]] = [:]
-    private var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
-    private var readStateMetadataEnrichmentAttempts = Set<String>()
-    private var nextGroupMemberDetailsLookupToken: UInt64 = 0
+    var groupMemberDetailsCache: [String: [GroupMemberDetailsFfi]] = [:]
+    var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
+    var readStateMetadataEnrichmentAttempts = Set<String>()
+    var nextGroupMemberDetailsLookupToken: UInt64 = 0
 
     #if DEBUG
         /// Test-only instrumentation: the number of times `messageSenderProfiles` had to fetch the
@@ -516,20 +516,20 @@ final class WorkspaceState {
 
     /// How long a *complete* peer-profile lookup is trusted before it is re-resolved
     /// from the Rust store. Incomplete lookups ignore the TTL and re-resolve every pass.
-    private static let peerProfileCacheTTL: TimeInterval = 300
+    static let peerProfileCacheTTL: TimeInterval = 300
 
-    private static let activeAccountKey = "whitenoise.mac.activeAccountId"
-    private static let developerModeKey = "whitenoise.mac.developerMode"
-    private static let streamingDebugModeKey = "whitenoise.mac.streamingDebugMode"
-    private static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
-    private static let notificationPreviewModeKey = "whitenoise.mac.notificationPreviewMode"
-    private static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
-    private static let deliveredNotificationKeyLimit = 256
-    private static let timelinePageLimit: UInt32 = 100
+    static let activeAccountKey = "whitenoise.mac.activeAccountId"
+    static let developerModeKey = "whitenoise.mac.developerMode"
+    static let streamingDebugModeKey = "whitenoise.mac.streamingDebugMode"
+    static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
+    static let notificationPreviewModeKey = "whitenoise.mac.notificationPreviewMode"
+    static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
+    static let deliveredNotificationKeyLimit = 256
+    static let timelinePageLimit: UInt32 = 100
     /// Reconnect immediately once when a subscription stream ends, then use a capped
     /// backoff if a broken stream keeps ending during startup. This avoids silent
     /// listener death without tight-looping on an already-closed runtime channel.
-    private static let listenerReconnectDelaysNanoseconds: [UInt64] = [
+    static let listenerReconnectDelaysNanoseconds: [UInt64] = [
         0,
         1_000_000_000,
         2_000_000_000,
@@ -537,7 +537,7 @@ final class WorkspaceState {
         10_000_000_000,
     ]
 
-    private static func listenerReconnectDelayNanoseconds(forAttempt attempt: Int) -> UInt64 {
+    static func listenerReconnectDelayNanoseconds(forAttempt attempt: Int) -> UInt64 {
         let index = min(max(attempt, 0), listenerReconnectDelaysNanoseconds.count - 1)
         return listenerReconnectDelaysNanoseconds[index]
     }
@@ -546,7 +546,7 @@ final class WorkspaceState {
     /// synchronously (DB reads, MLS decryption); WorkspaceState is `@MainActor`, so
     /// calling these directly freezes the UI. We hop them onto this queue and await the
     /// result on the main actor. UniFFI objects are internally thread-safe.
-    nonisolated private static let ffiQueue = DispatchQueue(
+    nonisolated static let ffiQueue = DispatchQueue(
         label: "chat.whitenoise.marmot-ffi",
         qos: .userInitiated,
         attributes: .concurrent
@@ -597,7 +597,7 @@ final class WorkspaceState {
     }
 
     /// Runs a blocking FFI closure off the main thread and resumes on the caller's actor.
-    nonisolated private func runOffMain<T>(
+    nonisolated func runOffMain<T>(
         _ work: @escaping @Sendable () throws -> T
     ) async throws -> T {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
@@ -606,7 +606,7 @@ final class WorkspaceState {
             }
         }
     }
-    private static var notificationPermissionGuidance: String {
+    static var notificationPermissionGuidance: String {
         L10n.string("Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
     init(
@@ -666,12 +666,12 @@ final class WorkspaceState {
         }
     }
 
-    private static func defaultConversationWindowVisibilityProvider() -> Bool {
+    static func defaultConversationWindowVisibilityProvider() -> Bool {
         guard let keyWindow = NSApplication.shared.keyWindow else { return false }
         return keyWindow.isVisible && !keyWindow.isMiniaturized
     }
 
-    private func selectedConversationIsVisible() -> Bool {
+    func selectedConversationIsVisible() -> Bool {
         appActivityProvider() && conversationWindowVisibilityProvider()
     }
 
@@ -855,7 +855,7 @@ final class WorkspaceState {
         switchActiveAccount(account, finalSelection: .settings(.accounts))
     }
 
-    private func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
+    func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
         prepareForActiveAccountSwitch(to: account, preservingMessageCacheFor: nil)
         selection = finalSelection
         if case .chat(let chatId)? = finalSelection {
@@ -872,7 +872,7 @@ final class WorkspaceState {
     /// Performs all account-scoped teardown before any chat or message reloads run.
     /// Keeping listener stops, cache pruning, peer-profile invalidation, and
     /// observability refresh together prevents reloads from seeing stale account state.
-    private func prepareForActiveAccountSwitch(
+    func prepareForActiveAccountSwitch(
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
@@ -893,7 +893,7 @@ final class WorkspaceState {
         refreshObservabilityRuntime()
     }
 
-    private func activateReadyState() async throws {
+    func activateReadyState() async throws {
         phase = .ready
         try await configureObservabilityRuntime()
         await refreshNotificationAuthorizationStatus()
@@ -1200,7 +1200,7 @@ final class WorkspaceState {
     /// no-active-account branch in `loadSettingsData()` has already cleared the spinner. Keying on
     /// the generation rather than `activeAccountId` also handles a rapid A→B→A switch, where the
     /// account id alone would spuriously match.
-    private func performSettingsLoad(accountId: String, generation: UInt64) async {
+    func performSettingsLoad(accountId: String, generation: UInt64) async {
         guard let client, let activeAccount, activeAccount.id == accountId else { return }
 
         isLoadingSettings = true
@@ -1746,7 +1746,7 @@ final class WorkspaceState {
     /// Render an authoritative timeline window from the subscription (initial snapshot,
     /// pagination result, or live update). The window is already ordered/deduped/capped by
     /// the runtime, so we map + resolve senders and replace the transcript wholesale.
-    private func applyTimelineWindow(
+    func applyTimelineWindow(
         _ page: TimelinePageFfi,
         groupIdHex: String,
         account: AccountItem,
@@ -1860,7 +1860,7 @@ final class WorkspaceState {
     /// Lazily allocates per-attachment stores from SwiftUI body lookup without observing the
     /// backing dictionary; `mediaDownloads` is `@ObservationIgnored`, and pruning bounds it to
     /// the active conversation.
-    private func mediaDownloadStateStore(forKey key: String) -> MediaDownloadStateStore {
+    func mediaDownloadStateStore(forKey key: String) -> MediaDownloadStateStore {
         if let store = mediaDownloads[key] {
             return store
         }
@@ -2202,7 +2202,7 @@ final class WorkspaceState {
         groupImageResults = []
     }
 
-    private func dismissGroupImagePickerIfSelectedChatUnavailable() {
+    func dismissGroupImagePickerIfSelectedChatUnavailable() {
         guard isGroupImagePickerPresented, selectedChat == nil else { return }
         closeGroupImagePicker()
     }
@@ -2252,7 +2252,7 @@ final class WorkspaceState {
         await updateSelectedGroupImage(url: nil, dim: nil)
     }
 
-    private func updateSelectedGroupImage(url: String?, dim: String?) async {
+    func updateSelectedGroupImage(url: String?, dim: String?) async {
         guard let client,
             let activeAccount,
             let selectedChat,
@@ -2277,7 +2277,7 @@ final class WorkspaceState {
         }
     }
 
-    private func acceptGroupInvite(groupIdHex: String) async {
+    func acceptGroupInvite(groupIdHex: String) async {
         guard let client, let activeAccount, !isAcceptingGroupInvite, !isDecliningGroupInvite else { return }
         lastError = nil
         isAcceptingGroupInvite = true
@@ -2297,7 +2297,7 @@ final class WorkspaceState {
         }
     }
 
-    private func declineGroupInvite(groupIdHex: String) async {
+    func declineGroupInvite(groupIdHex: String) async {
         guard let client, let activeAccount, !isDecliningGroupInvite, !isAcceptingGroupInvite else { return }
         lastError = nil
         isDecliningGroupInvite = true
@@ -2322,7 +2322,7 @@ final class WorkspaceState {
         }
     }
 
-    private func loadGroupDetails(groupIdHex: String) async {
+    func loadGroupDetails(groupIdHex: String) async {
         guard let client, let activeAccount else { return }
         guard selectedChat?.id == groupIdHex else { return }
 
@@ -2357,7 +2357,7 @@ final class WorkspaceState {
         }
     }
 
-    private func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
+    func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
         guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
         lastError = nil
         mutatingGroupMemberId = member.id
@@ -2399,11 +2399,11 @@ final class WorkspaceState {
         }
     }
 
-    private func applyGroupMutationResult(_ result: GroupMutationResultFfi) {
+    func applyGroupMutationResult(_ result: GroupMutationResultFfi) {
         applyGroupDetails(result.details, managementState: result.managementState)
     }
 
-    private func applyGroupDetails(
+    func applyGroupDetails(
         _ details: GroupDetailsFfi,
         managementState: GroupManagementStateFfi
     ) {
@@ -2414,7 +2414,7 @@ final class WorkspaceState {
         groupProfileDraftDescription = snapshot.description
     }
 
-    private func groupDetailsSnapshot(
+    func groupDetailsSnapshot(
         from details: GroupDetailsFfi,
         managementState: GroupManagementStateFfi
     ) -> GroupDetailsSnapshot {
@@ -2587,11 +2587,11 @@ final class WorkspaceState {
         resetVoiceRecording(deleteFile: true)
     }
 
-    private var remainingMediaAttachmentSlots: Int {
+    var remainingMediaAttachmentSlots: Int {
         max(0, OutgoingMediaDraftProcessor.maxAttachmentCount - pendingMediaAttachments.count)
     }
 
-    private func canBeginMediaAttachmentSelection() -> Bool {
+    func canBeginMediaAttachmentSelection() -> Bool {
         guard client != nil, selectedChat != nil else { return false }
         guard remainingMediaAttachmentSlots > 0 else {
             presentMaxMediaAttachmentWarning()
@@ -2600,7 +2600,7 @@ final class WorkspaceState {
         return true
     }
 
-    private func appendPendingMediaAttachment(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
+    func appendPendingMediaAttachment(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
         var attachments = pendingMediaAttachmentsByConversation[draftKey] ?? []
         if attachment.kind == .audio {
             attachments.removeAll { $0.kind == .audio }
@@ -2616,18 +2616,18 @@ final class WorkspaceState {
         }
     }
 
-    private func presentMaxMediaAttachmentWarning() {
+    func presentMaxMediaAttachmentWarning() {
         lastError = String(
             format: L10n.string("You can send up to %lld attachments at once"),
             Int64(OutgoingMediaDraftProcessor.maxAttachmentCount)
         )
     }
 
-    private enum VoiceRecordingFailure: Error {
+    enum VoiceRecordingFailure: Error {
         case startFailed
     }
 
-    private func requestMicrophoneAccess() async -> Bool {
+    func requestMicrophoneAccess() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             return true
@@ -2644,7 +2644,7 @@ final class WorkspaceState {
         }
     }
 
-    private func startVoiceRecordingMetering() {
+    func startVoiceRecordingMetering() {
         voiceRecordingMeterTask?.cancel()
         voiceRecordingMeterTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -2667,7 +2667,7 @@ final class WorkspaceState {
         }
     }
 
-    private func resetVoiceRecording(deleteFile: Bool) {
+    func resetVoiceRecording(deleteFile: Bool) {
         voiceRecordingMeterTask?.cancel()
         voiceRecordingMeterTask = nil
         voiceRecorder?.stop()
@@ -2798,7 +2798,7 @@ final class WorkspaceState {
         }
     }
 
-    private func restoreOrSelectFirstAccount() {
+    func restoreOrSelectFirstAccount() {
         if let activeAccountId, accounts.contains(where: { $0.id == activeAccountId }) {
             return
         }
@@ -2808,7 +2808,7 @@ final class WorkspaceState {
         }
     }
 
-    private func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
+    func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
         guard let client else { return }
         let preferredItems = try await accountItems(from: [summary], client: client)
         let preferredAccount = preferredItems.first ?? Self.accountItem(from: summary, resolved: nil)
@@ -2835,11 +2835,11 @@ final class WorkspaceState {
     /// already running, and that account stays offline (no live relay sync /
     /// notifications) until relaunch unless the runtime is brought online
     /// again. See issues #31 and #74.
-    private func bringRuntimeOnline(_ runtime: any MarmotRuntime) async throws {
+    func bringRuntimeOnline(_ runtime: any MarmotRuntime) async throws {
         try await runtime.start()
     }
 
-    private func resetToNewInstallState(storageRootPath: String) {
+    func resetToNewInstallState(storageRootPath: String) {
         accounts = []
         chatsByAccount = [:]
         messagesByChat = [:]
@@ -2925,7 +2925,7 @@ final class WorkspaceState {
     /// the item to the user's other Apple devices.
     static let concealedPasteboardType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
 
-    private static func copyToGeneralPasteboard(_ text: String, concealed: Bool) {
+    static func copyToGeneralPasteboard(_ text: String, concealed: Bool) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -2935,11 +2935,11 @@ final class WorkspaceState {
         }
     }
 
-    private var telemetryBuildConfig: TelemetryBuildConfig {
+    var telemetryBuildConfig: TelemetryBuildConfig {
         telemetryBuildConfigProvider()
     }
 
-    private func refreshObservabilityRuntime() {
+    func refreshObservabilityRuntime() {
         Task { [weak self] in
             do {
                 try await self?.configureObservabilityRuntime()
@@ -2952,7 +2952,7 @@ final class WorkspaceState {
     /// Record a background-task failure on the non-modal global status surface.
     /// Background failures must never write `lastError`, which is reserved for the
     /// user-initiated action on the current screen.
-    private func setBackgroundStatus(_ message: String?) {
+    func setBackgroundStatus(_ message: String?) {
         backgroundStatus = message
     }
 
@@ -2966,7 +2966,7 @@ final class WorkspaceState {
         lastError = message
     }
 
-    private func waitBeforeListenerReconnect(attempt: Int) async throws {
+    func waitBeforeListenerReconnect(attempt: Int) async throws {
         let delay = Self.listenerReconnectDelayNanoseconds(forAttempt: attempt)
         guard delay > 0 else {
             await Task.yield()
@@ -2975,7 +2975,7 @@ final class WorkspaceState {
         try await Task.sleep(nanoseconds: delay)
     }
 
-    private func configureObservabilityRuntime() async throws {
+    func configureObservabilityRuntime() async throws {
         guard let client else {
             observabilityRuntimeConfiguration = nil
             return
@@ -3024,7 +3024,7 @@ final class WorkspaceState {
         privacySecuritySettings.auditLogCredentialsAvailable = config.auditLogCredentialsAvailable
     }
 
-    private func loadNotificationSettings() async {
+    func loadNotificationSettings() async {
         guard let client, let activeAccount else {
             notificationSettings = .defaults
             return
@@ -3042,7 +3042,7 @@ final class WorkspaceState {
         }
     }
 
-    private func loadPrivacySecuritySettings() async {
+    func loadPrivacySecuritySettings() async {
         guard let client else {
             privacySecuritySettings = .defaults
             return
@@ -3185,7 +3185,7 @@ final class WorkspaceState {
         }
     }
 
-    private static func auditLogUploadStatusMessage(_ result: AuditLogTrackerUpdateResultFfi) -> String {
+    static func auditLogUploadStatusMessage(_ result: AuditLogTrackerUpdateResultFfi) -> String {
         if let skippedReason = result.skippedReason, !skippedReason.isEmpty {
             return String(format: L10n.string("Audit upload skipped: %@"), skippedReason)
         }
@@ -3200,19 +3200,19 @@ final class WorkspaceState {
         )
     }
 
-    private func startNotificationListener() {
+    func startNotificationListener() {
         guard notificationTask == nil, client != nil else { return }
         notificationTask = Task { [weak self] in
             await self?.runNotificationListener()
         }
     }
 
-    private func stopNotificationListener() {
+    func stopNotificationListener() {
         notificationTask?.cancel()
         notificationTask = nil
     }
 
-    private func runNotificationListener() async {
+    func runNotificationListener() async {
         guard let client else { return }
         var reconnectAttempt = 0
 
@@ -3243,7 +3243,7 @@ final class WorkspaceState {
 
     }
 
-    private func startChatListListener(
+    func startChatListListener(
         account: AccountItem,
         subscription: ChatListSubscription? = nil
     ) {
@@ -3259,7 +3259,7 @@ final class WorkspaceState {
         }
     }
 
-    private func stopChatListListener() {
+    func stopChatListListener() {
         chatListTask?.cancel()
         chatListTask = nil
         chatListTaskAccountId = nil
@@ -3268,7 +3268,7 @@ final class WorkspaceState {
         chatListRowEnrichment.cancelAll()
     }
 
-    private func runChatListListener(
+    func runChatListListener(
         account: AccountItem,
         existingSubscription: ChatListSubscription? = nil
     ) async {
@@ -3324,7 +3324,7 @@ final class WorkspaceState {
         }
     }
 
-    private func startTimelineListener(
+    func startTimelineListener(
         groupIdHex: String,
         account: AccountItem,
         subscription: TimelineMessagesSubscription? = nil
@@ -3342,7 +3342,7 @@ final class WorkspaceState {
         }
     }
 
-    private func stopTimelineListener() {
+    func stopTimelineListener() {
         timelineTask?.cancel()
         timelineTask = nil
         timelineTaskGroupId = nil
@@ -3350,7 +3350,7 @@ final class WorkspaceState {
         activeTimelineGroupId = nil
     }
 
-    private func runTimelineListener(
+    func runTimelineListener(
         groupIdHex: String,
         account: AccountItem,
         existingSubscription: TimelineMessagesSubscription? = nil
@@ -3439,7 +3439,7 @@ final class WorkspaceState {
         }
     }
 
-    private func applyChatRows(_ rows: [ChatListRowFfi], account: AccountItem) async {
+    func applyChatRows(_ rows: [ChatListRowFfi], account: AccountItem) async {
         guard activeAccountId == account.id else { return }
 
         let chatItems = rows.map { baseChatItem(from: $0, account: account) }
@@ -3455,7 +3455,7 @@ final class WorkspaceState {
         startChatListEnrichment(rows: rows, account: account)
     }
 
-    private func invalidateGroupMemberDetailsCacheIfNeeded(
+    func invalidateGroupMemberDetailsCacheIfNeeded(
         trigger: ChatListUpdateTriggerFfi,
         groupIdHex: String
     ) {
@@ -3471,7 +3471,7 @@ final class WorkspaceState {
         }
     }
 
-    private func applyChatListSubscriptionUpdate(
+    func applyChatListSubscriptionUpdate(
         _ update: ChatListSubscriptionUpdateFfi,
         account: AccountItem
     ) async {
@@ -3485,7 +3485,7 @@ final class WorkspaceState {
         }
     }
 
-    private func applyChatRow(
+    func applyChatRow(
         _ row: ChatListRowFfi,
         account: AccountItem,
         skippingStaleRow: Bool = false,
@@ -3529,11 +3529,11 @@ final class WorkspaceState {
         }
     }
 
-    private func isOlderChatRow(_ candidate: ChatItem, than current: ChatItem) -> Bool {
+    func isOlderChatRow(_ candidate: ChatItem, than current: ChatItem) -> Bool {
         ChatListOrdering.isOlder(candidate, than: current)
     }
 
-    private func readStateRowNeedsMetadataEnrichment(_ row: ChatListRowFfi, current: ChatItem?) -> Bool {
+    func readStateRowNeedsMetadataEnrichment(_ row: ChatListRowFfi, current: ChatItem?) -> Bool {
         if readStateMetadataEnrichmentAttempts.contains(row.groupIdHex) { return false }
         if groupMemberDetailsCache[row.groupIdHex] == nil { return true }
         guard let current else { return true }
@@ -3546,7 +3546,7 @@ final class WorkspaceState {
         return groupNameIsBlank && current.title == rawTitle
     }
 
-    private func removeChat(groupIdHex: String, account: AccountItem) {
+    func removeChat(groupIdHex: String, account: AccountItem) {
         guard activeAccountId == account.id else { return }
 
         var chats = chatsByAccount[account.id] ?? []
@@ -3578,7 +3578,7 @@ final class WorkspaceState {
         }
     }
 
-    private func replaceMessages(
+    func replaceMessages(
         _ messages: [MessageItem],
         groupIdHex: String,
         paging: TimelinePagingState? = nil
@@ -3606,7 +3606,7 @@ final class WorkspaceState {
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
     }
 
-    private func refreshSelectedTimelineAfterSend(
+    func refreshSelectedTimelineAfterSend(
         groupIdHex: String,
         account: AccountItem,
         client: any MarmotRuntime
@@ -3635,7 +3635,7 @@ final class WorkspaceState {
         }
     }
 
-    private func pruneMessageCache(keeping groupIdHex: String?) {
+    func pruneMessageCache(keeping groupIdHex: String?) {
         defer {
             pruneMediaDownloadCache(keeping: groupIdHex)
         }
@@ -3670,11 +3670,11 @@ final class WorkspaceState {
         }
     }
 
-    private func mediaDownloadKey(message: MessageItem, attachment: MessageMediaAttachment) -> String {
+    func mediaDownloadKey(message: MessageItem, attachment: MessageMediaAttachment) -> String {
         [activeAccountId ?? "", message.groupIdHex, attachment.id].joined(separator: "\u{1F}")
     }
 
-    private func pruneMediaDownloadCache(keeping groupIdHex: String?) {
+    func pruneMediaDownloadCache(keeping groupIdHex: String?) {
         guard let activeAccountId, let groupIdHex else {
             resetMediaDownloadStateStores()
             return
@@ -3689,7 +3689,7 @@ final class WorkspaceState {
         }
     }
 
-    private func resetMediaDownloadStateStores() {
+    func resetMediaDownloadStateStores() {
         for store in mediaDownloads.values {
             // Notify any lingering per-attachment observers before clearing the cache.
             store.update(.idle)
@@ -3697,7 +3697,7 @@ final class WorkspaceState {
         mediaDownloads.removeAll()
     }
 
-    private func resolvedMediaReference(
+    func resolvedMediaReference(
         _ reference: MediaAttachmentReferenceFfi,
         accountRef: String,
         groupIdHex: String,
@@ -3716,7 +3716,7 @@ final class WorkspaceState {
         }?.reference ?? reference
     }
 
-    private func beginTimelineInitialLoadIfNeeded(groupIdHex: String) {
+    func beginTimelineInitialLoadIfNeeded(groupIdHex: String) {
         if messagesByChat[groupIdHex] == nil {
             timelineInitialLoadGroupId = groupIdHex
         } else if timelineInitialLoadGroupId == groupIdHex {
@@ -3724,13 +3724,13 @@ final class WorkspaceState {
         }
     }
 
-    private func finishTimelineInitialLoad(groupIdHex: String) {
+    func finishTimelineInitialLoad(groupIdHex: String) {
         if timelineInitialLoadGroupId == groupIdHex {
             timelineInitialLoadGroupId = nil
         }
     }
 
-    private func baseChatItem(from row: ChatListRowFfi, account: AccountItem) -> ChatItem {
+    func baseChatItem(from row: ChatListRowFfi, account: AccountItem) -> ChatItem {
         ChatItem(
             row: row,
             activeAccountIdHex: account.accountIdHex,
@@ -3738,7 +3738,7 @@ final class WorkspaceState {
         )
     }
 
-    private func startChatListEnrichment(
+    func startChatListEnrichment(
         rows: [ChatListRowFfi],
         account: AccountItem,
         replacingCurrent: Bool = true
@@ -3780,7 +3780,7 @@ final class WorkspaceState {
         }
     }
 
-    private func enrichChatRows(_ rows: [ChatListRowFfi], account: AccountItem) async {
+    func enrichChatRows(_ rows: [ChatListRowFfi], account: AccountItem) async {
         guard let client else { return }
 
         var enrichedItems: [ChatItem] = []
@@ -3793,7 +3793,7 @@ final class WorkspaceState {
         applyChatMetadataEnrichment(enrichedItems, account: account)
     }
 
-    private func applyChatMetadataEnrichment(_ enrichedItems: [ChatItem], account: AccountItem) {
+    func applyChatMetadataEnrichment(_ enrichedItems: [ChatItem], account: AccountItem) {
         guard activeAccountId == account.id, !enrichedItems.isEmpty else { return }
 
         var chats = chatsByAccount[account.id] ?? []
@@ -3828,7 +3828,7 @@ final class WorkspaceState {
         }
     }
 
-    private func enrichedChatItem(
+    func enrichedChatItem(
         from row: ChatListRowFfi,
         account: AccountItem,
         client: any MarmotRuntime
@@ -3861,7 +3861,7 @@ final class WorkspaceState {
         )
     }
 
-    private func selectMostRecentChatIfNeeded() async {
+    func selectMostRecentChatIfNeeded() async {
         guard selectedChat == nil,
             !isShowingSettings,
             let chat = mostRecentChat(in: activeChats)
@@ -3874,15 +3874,15 @@ final class WorkspaceState {
         await loadMessages(groupIdHex: chat.id)
     }
 
-    private func mostRecentChat(in chatItems: [ChatItem]) -> ChatItem? {
+    func mostRecentChat(in chatItems: [ChatItem]) -> ChatItem? {
         sortedChatItems(chatItems).first
     }
 
-    private func sortedChatItems(_ chatItems: [ChatItem]) -> [ChatItem] {
+    func sortedChatItems(_ chatItems: [ChatItem]) -> [ChatItem] {
         ChatListOrdering.sorted(chatItems)
     }
 
-    private func markLatestVisibleMessageRead(
+    func markLatestVisibleMessageRead(
         groupIdHex: String,
         account: AccountItem,
         client: any MarmotRuntime
@@ -3958,7 +3958,7 @@ final class WorkspaceState {
         )
     }
 
-    private func rememberDeliveredNotificationKey(_ key: String) {
+    func rememberDeliveredNotificationKey(_ key: String) {
         guard deliveredNotificationKeys.insert(key).inserted else { return }
         deliveredNotificationKeyOrder.append(key)
 
@@ -3976,7 +3976,7 @@ final class WorkspaceState {
     /// `notificationSettings` snapshot for the active account is the caller's
     /// responsibility (see `handleNotificationUpdate(_:)`), which lets a single
     /// fetch serve both the active-account sync and the delivery gate.
-    private func fetchNotificationSettings(for update: NotificationUpdateFfi) async -> NotificationSettingsFfi? {
+    func fetchNotificationSettings(for update: NotificationUpdateFfi) async -> NotificationSettingsFfi? {
         guard let client else { return nil }
         let accountRef = update.accountRef
         return try? await runOffMain({
@@ -3984,7 +3984,7 @@ final class WorkspaceState {
         })
     }
 
-    private func handleNotificationPermissionError(_ error: Error) async {
+    func handleNotificationPermissionError(_ error: Error) async {
         if isNotificationsNotAllowedError(error) {
             await refreshNotificationAuthorizationStatus()
             if !notificationAuthorizationStatus.canPostNotifications {
@@ -3998,7 +3998,7 @@ final class WorkspaceState {
         await refreshNotificationAuthorizationStatus()
     }
 
-    private func isNotificationsNotAllowedError(_ error: Error) -> Bool {
+    func isNotificationsNotAllowedError(_ error: Error) -> Bool {
         let nsError = error as NSError
         if nsError.domain == UNErrorDomain,
             nsError.code == UNError.Code.notificationsNotAllowed.rawValue
@@ -4011,7 +4011,7 @@ final class WorkspaceState {
             && message.contains("not allowed")
     }
 
-    private func localNotificationRequest(for update: NotificationUpdateFfi) -> LocalNotificationRequest {
+    func localNotificationRequest(for update: NotificationUpdateFfi) -> LocalNotificationRequest {
         let senderName =
             firstNonBlank([
                 update.sender.displayName,
@@ -4071,7 +4071,7 @@ final class WorkspaceState {
         )
     }
 
-    private func localNotificationUserInfo(for update: NotificationUpdateFfi) -> [String: String] {
+    func localNotificationUserInfo(for update: NotificationUpdateFfi) -> [String: String] {
         var userInfo = [
             "accountRef": update.accountRef,
             "accountIdHex": update.accountIdHex,
@@ -4085,7 +4085,7 @@ final class WorkspaceState {
         return userInfo
     }
 
-    private func notificationAccount(from userInfo: [String: String]) -> AccountItem? {
+    func notificationAccount(from userInfo: [String: String]) -> AccountItem? {
         if let accountIdHex = userInfo["accountIdHex"],
             let account = accounts.first(where: { $0.accountIdHex == accountIdHex })
         {
@@ -4098,7 +4098,7 @@ final class WorkspaceState {
         }
     }
 
-    private func resetNewChatComposer() {
+    func resetNewChatComposer() {
         invalidateNewChatLookup()
         newChatQuery = ""
         newChatName = ""
@@ -4106,22 +4106,22 @@ final class WorkspaceState {
         newChatRecipient = nil
     }
 
-    private func beginNewChatLookup() -> Int {
+    func beginNewChatLookup() -> Int {
         newChatLookupGeneration += 1
         return newChatLookupGeneration
     }
 
-    private func invalidateNewChatLookup() {
+    func invalidateNewChatLookup() {
         newChatLookupGeneration += 1
         isResolvingNewChat = false
     }
 
-    private func isCurrentNewChatLookup(generation: Int, query: String) -> Bool {
+    func isCurrentNewChatLookup(generation: Int, query: String) -> Bool {
         newChatLookupGeneration == generation
             && newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
 
-    private func beginGroupDetailsLoad() -> Int {
+    func beginGroupDetailsLoad() -> Int {
         groupDetailsLoadGeneration += 1
         return groupDetailsLoadGeneration
     }
@@ -4129,23 +4129,23 @@ final class WorkspaceState {
     /// Invalidate any in-flight group-details load so a stale completion cannot apply its snapshot,
     /// clear the spinner, or report an error against closed/superseded UI state. Also clears the
     /// (now-orphaned) spinner: the in-flight load, once superseded, declines to touch it.
-    private func invalidateGroupDetailsLoad() {
+    func invalidateGroupDetailsLoad() {
         groupDetailsLoadGeneration += 1
         isLoadingGroupDetails = false
     }
 
     /// True while `generation` still owns the group-details load — i.e. no newer `loadGroupDetails`
     /// or `invalidateGroupDetailsLoad` (via `closeGroupDetails`) has bumped the generation.
-    private func ownsGroupDetailsLoad(generation: Int) -> Bool {
+    func ownsGroupDetailsLoad(generation: Int) -> Bool {
         groupDetailsLoadGeneration == generation
     }
 
-    private func beginGroupImageSearch() -> Int {
+    func beginGroupImageSearch() -> Int {
         groupImageSearchGeneration += 1
         return groupImageSearchGeneration
     }
 
-    private func invalidateGroupImageSearch() {
+    func invalidateGroupImageSearch() {
         groupImageSearchGeneration += 1
         isSearchingGroupImages = false
     }
@@ -4156,7 +4156,7 @@ final class WorkspaceState {
     /// presented or the live query to match, because spinner ownership must transfer cleanly even
     /// when the user edits the query mid-flight without resubmitting (otherwise the spinner would
     /// stay stuck `true` and disable the Search button — issue #110 review).
-    private func ownsGroupImageSearch(generation: Int) -> Bool {
+    func ownsGroupImageSearch(generation: Int) -> Bool {
         groupImageSearchGeneration == generation
     }
 
@@ -4164,13 +4164,13 @@ final class WorkspaceState {
     /// presented, and the live (trimmed) query still equals the one this search was issued for.
     /// Any of: a newer search, a dismissed/reopened picker, or an edited query invalidates the
     /// in-flight result so it cannot overwrite current UI state.
-    private func isCurrentGroupImageSearch(generation: Int, query: String) -> Bool {
+    func isCurrentGroupImageSearch(generation: Int, query: String) -> Bool {
         ownsGroupImageSearch(generation: generation)
             && isGroupImagePickerPresented
             && groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
 
-    private func insertCreatedChatIfNeeded(groupIdHex: String, title: String, avatarSeed: String, pictureURL: String?) {
+    func insertCreatedChatIfNeeded(groupIdHex: String, title: String, avatarSeed: String, pictureURL: String?) {
         guard let activeAccountId else { return }
         let chats = chatsByAccount[activeAccountId] ?? []
         guard !chats.contains(where: { $0.id == groupIdHex }) else { return }
@@ -4189,20 +4189,20 @@ final class WorkspaceState {
         chatsByAccount[activeAccountId] = ChatListOrdering.upserting(chat, into: chats)
     }
 
-    private func storeGroupMembers(_ members: [GroupMemberDetailsFfi], for groupIdHex: String) {
+    func storeGroupMembers(_ members: [GroupMemberDetailsFfi], for groupIdHex: String) {
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
         groupMemberDetailsCache[groupIdHex] = members
     }
 
-    private func invalidateGroupMembers(for groupIdHex: String) {
+    func invalidateGroupMembers(for groupIdHex: String) {
         groupMemberDetailsCache[groupIdHex] = nil
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
         readStateMetadataEnrichmentAttempts.remove(groupIdHex)
     }
 
-    private func clearGroupMemberCache() {
+    func clearGroupMemberCache() {
         groupMemberDetailsCache.removeAll()
         for lookup in groupMemberDetailsLookups.values {
             lookup.task.cancel()
@@ -4211,7 +4211,7 @@ final class WorkspaceState {
         readStateMetadataEnrichmentAttempts.removeAll()
     }
 
-    private func cachedGroupMembers(
+    func cachedGroupMembers(
         groupIdHex: String,
         account: AccountItem,
         client: any MarmotRuntime
@@ -4249,7 +4249,7 @@ final class WorkspaceState {
         return members
     }
 
-    private func directPeerProfile(
+    func directPeerProfile(
         from members: [GroupMemberDetailsFfi],
         activeAccount: AccountItem,
         client: any MarmotRuntime
@@ -4281,7 +4281,7 @@ final class WorkspaceState {
         )
     }
 
-    private func resolvedPeerFFI(
+    func resolvedPeerFFI(
         accountIdHex: String,
         activeAccount: AccountItem,
         client: any MarmotRuntime
@@ -4308,7 +4308,7 @@ final class WorkspaceState {
         return resolved
     }
 
-    private func messageSenderProfiles(
+    func messageSenderProfiles(
         from records: [TimelineMessageRecordFfi],
         groupIdHex: String,
         activeAccount: AccountItem,
@@ -4426,14 +4426,14 @@ final class WorkspaceState {
         return profiles
     }
 
-    private func accountItemsFromRuntime(client: any MarmotRuntime) async throws -> [AccountItem] {
+    func accountItemsFromRuntime(client: any MarmotRuntime) async throws -> [AccountItem] {
         let summaries = try await runOffMain {
             try client.listAccounts()
         }
         return try await accountItems(from: summaries, client: client)
     }
 
-    private func accountItems(
+    func accountItems(
         from summaries: [AccountSummaryFfi],
         client: any MarmotRuntime
     ) async throws -> [AccountItem] {
@@ -4445,7 +4445,7 @@ final class WorkspaceState {
         }
     }
 
-    nonisolated private static func resolvedAccountFFI(
+    nonisolated static func resolvedAccountFFI(
         from summary: AccountSummaryFfi,
         client: any MarmotRuntime
     ) -> ResolvedAccountFFI {
@@ -4459,7 +4459,7 @@ final class WorkspaceState {
         )
     }
 
-    nonisolated private static func accountItem(
+    nonisolated static func accountItem(
         from summary: AccountSummaryFfi,
         resolved: ResolvedAccountFFI?
     ) -> AccountItem {
@@ -4483,7 +4483,7 @@ final class WorkspaceState {
         )
     }
 
-    private func updateActiveAccountProfile(displayName: String, pictureURL: String?) {
+    func updateActiveAccountProfile(displayName: String, pictureURL: String?) {
         guard let activeAccountId,
             let index = accounts.firstIndex(where: { $0.id == activeAccountId })
         else { return }
@@ -4501,7 +4501,7 @@ final class WorkspaceState {
         )
     }
 
-    private func normalizedRelays(_ relays: [String]) -> [String] {
+    func normalizedRelays(_ relays: [String]) -> [String] {
         var seen = Set<String>()
         return
             relays
@@ -4510,7 +4510,7 @@ final class WorkspaceState {
             .filter { seen.insert($0).inserted }
     }
 
-    private func isRelayURL(_ value: String) -> Bool {
+    func isRelayURL(_ value: String) -> Bool {
         RelayURLValidator.isAcceptable(value)
     }
 
@@ -4521,7 +4521,7 @@ final class WorkspaceState {
         RelayURLValidator.isCleartext(value)
     }
 
-    private func looksLikeMemberRef(_ value: String) -> Bool {
+    func looksLikeMemberRef(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercased = trimmed.lowercased()
         if lowercased.hasPrefix("npub") || lowercased.hasPrefix("nostr:npub") {
@@ -4533,13 +4533,13 @@ final class WorkspaceState {
         return trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit)
     }
 
-    private var isShowingSettings: Bool {
+    var isShowingSettings: Bool {
         if case .settings = selection { return true }
         return false
     }
 }
 
-private enum GroupMemberMutationAction {
+enum GroupMemberMutationAction {
     case promote
     case demote
     case remove
@@ -4794,11 +4794,11 @@ struct OpenverseGroupImageSearchClient: GroupImageSearchClient, Sendable {
     }
 }
 
-private struct OpenverseImageSearchResponse: Decodable {
+struct OpenverseImageSearchResponse: Decodable {
     let results: [OpenverseImageRecord]
 }
 
-private struct OpenverseImageRecord: Decodable {
+struct OpenverseImageRecord: Decodable {
     let id: String
     let title: String?
     let url: String?
@@ -4846,7 +4846,7 @@ private struct OpenverseImageRecord: Decodable {
     }
 }
 
-private enum GroupImageSearchError: LocalizedError {
+enum GroupImageSearchError: LocalizedError {
     case invalidURL
     case invalidResponse
     case requestFailed(statusCode: Int)
@@ -4863,7 +4863,7 @@ private enum GroupImageSearchError: LocalizedError {
     }
 }
 
-private struct PreviewRuntimeError: Error {}
+struct PreviewRuntimeError: Error {}
 
 private extension ProfileDraft {
     init(fallbackName: String) {
