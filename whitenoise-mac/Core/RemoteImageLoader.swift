@@ -498,6 +498,7 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
     private var task: URLSessionDataTask?
     private var cancelled = false
     private var finished = false
+    private var redirectHopCount = 0
 
     init(cap: Int64) {
         self.cap = cap
@@ -570,6 +571,13 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
+        redirectHopCount += 1
+        if redirectHopCount > 5 {
+            completionHandler(nil)
+            task.cancel()
+            finish(with: nil)
+            return
+        }
         guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else {
             completionHandler(nil)
             task.cancel()
