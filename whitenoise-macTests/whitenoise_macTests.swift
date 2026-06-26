@@ -3334,12 +3334,14 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         // Bootstrap enriches the direct-chat row through `resolvedPeerFFI`; clear that cache
-        // entry so this regression exercises `messageSenderProfiles` itself.
+        // entry so this regression exercises `messageSenderProfiles` itself. Page an older
+        // timeline window after clearing the cache: reloading the already-open conversation
+        // can reuse the current window and avoid the sender-profile path entirely.
         state.peerProfileFFICache.removeAll()
         runtime.onUserProfileLookup = { [clock] _ in
             clock.advance(by: slowBatchSeconds)
         }
-        await state.loadMessages(groupIdHex: "direct-group")
+        await state.loadOlderMessages(groupIdHex: "direct-group")
         #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Alice")
 
         // The entry must be stamped at (or after) the moment resolution finished, i.e. after
