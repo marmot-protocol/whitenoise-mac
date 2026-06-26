@@ -217,6 +217,12 @@ extension WorkspaceState {
                 || !accounts.contains(where: { $0.id == activeAccountId })
             let needsActiveReset = wasActive || activeAccountInvalid
 
+            // Decoded peer/group avatars derive from account contacts' attacker-controlled
+            // `picture` URLs. The decoded-image cache is process-lifetime and global rather than
+            // account-partitioned, so evict it after every successful account removal, including
+            // removing a non-active identity from Settings. See #177.
+            RemoteImageLoader.shared.clearCache()
+
             if needsActiveReset {
                 stopTimelineListener()
                 stopChatListListener()
@@ -356,6 +362,10 @@ extension WorkspaceState {
         messageIDsByChat = [:]
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
+        // "Delete All Local Data" must also evict decoded peer/group avatars held in the
+        // process-lifetime decoded-image cache; those images derive from attacker-controlled
+        // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
+        RemoteImageLoader.shared.clearCache()
         observabilityRuntimeConfiguration = nil
         activeAccountId = nil
         selection = nil
