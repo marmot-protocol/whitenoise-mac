@@ -77,7 +77,16 @@ extension ChatItem {
             invalidationStatus: nil,
             hasMediaAttachments: false
         )
-        guard !text.isEmpty else {
+        // `ChatListMessagePreviewFfi` carries no media payload, so a media-only chat
+        // message arrives with empty `plaintext` and `displayText` reports it as
+        // "Unsupported message". Only treat that sentinel as media-only when the
+        // source preview text is empty; a user can send that literal text.
+        let sourceTextIsEmpty = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isMediaOnlyChat =
+            presentation.isChatBubble
+            && sourceTextIsEmpty
+            && text == L10n.string("Unsupported message")
+        guard !text.isEmpty, !isMediaOnlyChat else {
             return presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
         }
         guard presentation.isChatBubble,
