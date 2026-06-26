@@ -265,6 +265,23 @@ enum DownsampledImageSizing {
         let bucketSize: CGFloat = 128
         return max(bucketSize, ceil(rawPixels / bucketSize) * bucketSize)
     }
+
+    /// Wraps a downsampled `CGImage` in an `NSImage` that reports the CGImage's *true* pixel
+    /// dimensions.
+    ///
+    /// `NSImage(cgImage:size:)` would instead attach an `NSCGImageSnapshotRep` whose
+    /// `pixelsWide`/`pixelsHigh` are derived from the point size times the main display's
+    /// backing scale — 2× on Retina. That makes a 148px thumbnail report 296px, which both
+    /// inflates decoded-cost accounting (over-counting decoded bytes 4×, so the bounded cache
+    /// evicts far too aggressively) and silently overshoots the documented max-pixel budget.
+    /// Building from an `NSBitmapImageRep` preserves the real pixel count regardless of which
+    /// display the decode happens to run on.
+    static func image(fromDownsampled cgImage: CGImage) -> NSImage {
+        let representation = NSBitmapImageRep(cgImage: cgImage)
+        let image = NSImage(size: NSSize(width: cgImage.width, height: cgImage.height))
+        image.addRepresentation(representation)
+        return image
+    }
 }
 
 /// Drop-in replacement for `AsyncImage` that loads a remote image once, downsamples it
@@ -631,7 +648,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
                 kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixelSize)),
             ] as CFDictionary
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        return DownsampledImageSizing.image(fromDownsampled: cgImage)
     }
 
     private static func decodedCost(for image: NSImage) -> Int {

@@ -228,7 +228,7 @@ enum PendingMediaDraftThumbnailDecoder {
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
             return nil
         }
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        return DownsampledImageSizing.image(fromDownsampled: cgImage)
     }
 
     static func decodedCost(for image: NSImage) -> Int {
