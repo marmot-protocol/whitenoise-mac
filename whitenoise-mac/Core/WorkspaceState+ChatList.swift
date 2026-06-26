@@ -448,7 +448,10 @@ extension WorkspaceState {
             )
         }
         if activeAccountId == activeAccount.id, let resolved {
-            peerProfileFFICache[accountIdHex] = CachedPeerProfile(resolved: resolved, resolvedAt: now)
+            // Stamp with a timestamp sampled *after* the off-main lookup returns, not the
+            // pre-lookup `now`, so a slow batch doesn't shorten the entry's effective TTL
+            // (whitenoise-mac#181).
+            peerProfileFFICache[accountIdHex] = CachedPeerProfile(resolved: resolved, resolvedAt: nowProvider())
         }
         return resolved
     }
@@ -507,8 +510,13 @@ extension WorkspaceState {
             // drop them — the caller re-checks `activeAccountId` after this await and
             // discards the stale window anyway (whitenoise-mac#8).
             if activeAccountId == activeAccount.id {
+                // Stamp entries with a timestamp sampled *after* the off-main batch
+                // returns. Reusing the pre-batch `now` would shorten each entry's
+                // effective TTL by the batch's wall-clock duration, expiring freshly
+                // resolved profiles early (whitenoise-mac#181).
+                let resolvedAt = nowProvider()
                 for (senderId, value) in resolved {
-                    peerProfileFFICache[senderId] = CachedPeerProfile(resolved: value, resolvedAt: now)
+                    peerProfileFFICache[senderId] = CachedPeerProfile(resolved: value, resolvedAt: resolvedAt)
                 }
             }
         }

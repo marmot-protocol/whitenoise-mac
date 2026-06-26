@@ -3268,6 +3268,95 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func freshlyResolvedPeerProfileIsStampedAfterTheFfiBatch() async throws {
+        // Regression for #181: `messageSenderProfiles` must stamp newly-resolved cache
+        // entries with a timestamp sampled *after* the off-main resolution batch, not
+        // before it. Sampling before means a slow batch (cold cache, relay-backed
+        // directory lookups) is charged against the entry's TTL the instant it is written.
+        // In the pathological case where one batch exceeds the 300 s TTL, a pre-batch stamp
+        // makes the entry stale on arrival, forcing an immediate re-resolution and defeating
+        // the cache. The fix keeps a freshly-resolved entry fresh.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<350).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+
+        // Drive the cache clock from the test via a thread-safe clock so the off-main batch
+        // hook can advance it. Model a pathologically slow batch: the single timeline-sender
+        // resolution burns more wall-clock time than the whole 300 s TTL. A pre-batch stamp
+        // would be born already-expired; a post-batch stamp survives.
+        let clock = ConcurrentClock(now: Date(timeIntervalSince1970: 2_000_000_000))
+        let slowBatchSeconds = WorkspaceState.peerProfileCacheTTL + 100
+        let state = WorkspaceState(nowProvider: { clock.now }, clientFactory: { runtime })
+
+        await state.bootstrap()
+        // Bootstrap enriches the direct-chat row through `resolvedPeerFFI`; clear that cache
+        // entry so this regression exercises `messageSenderProfiles` itself.
+        state.peerProfileFFICache.removeAll()
+        runtime.onUserProfileLookup = { [clock] _ in
+            clock.advance(by: slowBatchSeconds)
+        }
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Alice")
+
+        // The entry must be stamped at (or after) the moment resolution finished, i.e. after
+        // the clock was advanced by the slow batch — never with the pre-batch timestamp.
+        let resolvedAt = try #require(state.peerProfileFFICache[aliceId]?.resolvedAt)
+        #expect(resolvedAt.timeIntervalSince1970 >= 2_000_000_000 + slowBatchSeconds)
+
+        // The cache is no longer warming, so further passes don't advance the clock. With a
+        // correct post-batch stamp the entry is still fresh, so no re-resolution occurs.
+        runtime.onUserProfileLookup = nil
+        let userProfileCallsAfterFirstResolve = runtime.userProfileCallCount
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Alice")
+        #expect(runtime.userProfileCallCount == userProfileCallsAfterFirstResolve)
+    }
+
+    @MainActor
     @Test func messageActionsDoNotRestartLiveSubscriptions() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -7684,6 +7773,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// account is actually dropped, used to simulate a racing UI action (e.g. the user
     /// selecting the account currently being removed) mid-await.
     var onRemoveAccountMidFlight: (@Sendable (String) async -> Void)?
+    /// Optional hook fired inside `userProfile`, on the off-main FFI batch thread. A test can
+    /// use it to advance an injected clock and model a slow batch (whitenoise-mac#181).
+    var onUserProfileLookup: (@Sendable (String) -> Void)?
 
     init(accounts: [AccountSummaryFfi], createdAccount: AccountSummaryFfi? = nil) {
         self.storedAccounts = accounts
@@ -7738,6 +7830,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func userProfile(accountIdHex: String) throws -> UserProfileMetadataFfi? {
         userProfileCallCount += 1
         recordSyncCall("userProfile")
+        // Test-only hook fired inside the off-main profile-resolution batch, used to
+        // simulate a slow batch advancing the wall clock so the post-FFI cache stamp can
+        // be distinguished from a pre-FFI one (whitenoise-mac#181).
+        onUserProfileLookup?(accountIdHex)
         guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
         return profilesByAccountId[accountIdHex] ?? profile
     }
@@ -9492,6 +9588,25 @@ private func groupDetailsFixture(
 private final class MutableClock {
     var now: Date
     init(now: Date) { self.now = now }
+}
+
+/// A thread-safe mutable clock for tests that need to advance the wall clock from an
+/// off-main FFI batch (e.g. modelling a slow profile-resolution batch) while reading it
+/// from the main-actor `nowProvider` (whitenoise-mac#181).
+private final class ConcurrentClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: Date
+    init(now: Date) { self.current = now }
+    var now: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        current = current.addingTimeInterval(interval)
+        lock.unlock()
+    }
 }
 
 private func directGroup() -> AppGroupRecordFfi {
