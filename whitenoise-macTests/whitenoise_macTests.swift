@@ -564,6 +564,169 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func mediaPlaybackTempStoreLivesInsideAppContainerNotSharedTemp() {
+        let base = URL(fileURLWithPath: "/Container", isDirectory: true)
+        let directory = MediaPlaybackTempStore.directoryURL(baseURL: base)
+
+        #expect(
+            directory.path == "/Container/White Noise/WhiteNoiseMediaPlayback"
+        )
+        #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
+    }
+
+    @Test func mediaPlaybackTempStoreMaterializesIndependentConsumerFiles() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let firstConsumer = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let secondConsumer = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let url = try MediaPlaybackTempStore.materialize(
+            data: Data("secret".utf8),
+            id: "attachment-id/with:illegal",
+            fileName: "report.pdf",
+            fallbackExtension: "bin",
+            directory: directory,
+            uniqueID: firstConsumer
+        )
+
+        #expect(fileManager.fileExists(atPath: url.path))
+        #expect(url.lastPathComponent.hasSuffix("-report.pdf"))
+        #expect(url.lastPathComponent.contains(firstConsumer.uuidString))
+        #expect(url.deletingLastPathComponent().path == directory.path)
+
+        // Re-materializing the same attachment for a later consumer must not reuse the
+        // previous URL; an older cleanup timer could otherwise delete the later handoff.
+        let again = try MediaPlaybackTempStore.materialize(
+            data: Data("different".utf8),
+            id: "attachment-id/with:illegal",
+            fileName: "report.pdf",
+            fallbackExtension: "bin",
+            directory: directory,
+            uniqueID: secondConsumer
+        )
+        #expect(again != url)
+        #expect(again.lastPathComponent.contains(secondConsumer.uuidString))
+        #expect(try Data(contentsOf: url) == Data("secret".utf8))
+        #expect(try Data(contentsOf: again) == Data("different".utf8))
+    }
+
+    @Test func mediaPlaybackTempStoreUsesFullIdHashInStem() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let sharedPrefix = String(repeating: "a", count: 64)
+        let firstID = "\(sharedPrefix)-one"
+        let secondID = "\(sharedPrefix)-two"
+        let firstStem = MediaPlaybackTempStore.stableStem(for: firstID)
+        let secondStem = MediaPlaybackTempStore.stableStem(for: secondID)
+        let first = try MediaPlaybackTempStore.materialize(
+            data: Data("first".utf8),
+            id: firstID,
+            fileName: "report.pdf",
+            fallbackExtension: "bin",
+            directory: directory,
+            uniqueID: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+        )
+        let second = try MediaPlaybackTempStore.materialize(
+            data: Data("second".utf8),
+            id: secondID,
+            fileName: "report.pdf",
+            fallbackExtension: "bin",
+            directory: directory,
+            uniqueID: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
+        )
+
+        #expect(firstStem.prefix(32) == secondStem.prefix(32))
+        #expect(firstStem != secondStem)
+        #expect(first.lastPathComponent.hasPrefix("\(firstStem)-"))
+        #expect(second.lastPathComponent.hasPrefix("\(secondStem)-"))
+        #expect(try Data(contentsOf: first) == Data("first".utf8))
+        #expect(try Data(contentsOf: second) == Data("second".utf8))
+    }
+
+    @Test func mediaPlaybackTempStoreExcludesScratchDirectoryFromBackups() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        _ = try MediaPlaybackTempStore.materialize(
+            data: Data("secret".utf8),
+            id: "attachment",
+            fileName: "report.pdf",
+            fallbackExtension: "bin",
+            directory: directory
+        )
+
+        let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(values.isExcludedFromBackup == true)
+    }
+
+    @Test func mediaPlaybackTempStoreRemovesSingleFile() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let url = try MediaPlaybackTempStore.materialize(
+            data: Data("bytes".utf8),
+            id: "video",
+            fileName: "clip.mp4",
+            fallbackExtension: "mp4",
+            directory: directory
+        )
+        #expect(fileManager.fileExists(atPath: url.path))
+
+        MediaPlaybackTempStore.remove(at: url)
+        #expect(!fileManager.fileExists(atPath: url.path))
+
+        // Removing a missing file is a no-op.
+        MediaPlaybackTempStore.remove(at: url)
+        #expect(!fileManager.fileExists(atPath: url.path))
+    }
+
+    @Test func mediaPlaybackTempStorePurgesDirectory() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        _ = try MediaPlaybackTempStore.materialize(
+            data: Data("a".utf8),
+            id: "one",
+            fileName: "a.txt",
+            fallbackExtension: "txt",
+            directory: directory
+        )
+        _ = try MediaPlaybackTempStore.materialize(
+            data: Data("b".utf8),
+            id: "two",
+            fileName: "b.txt",
+            fallbackExtension: "txt",
+            directory: directory
+        )
+        #expect(fileManager.fileExists(atPath: directory.path))
+
+        let legacyDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-legacy-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        try Data("legacy".utf8).write(to: legacyDirectory.appendingPathComponent("old-video.mp4"))
+        defer { try? fileManager.removeItem(at: legacyDirectory) }
+
+        MediaPlaybackTempStore.purge(directory: directory, legacyDirectory: legacyDirectory)
+        #expect(!fileManager.fileExists(atPath: directory.path))
+        #expect(!fileManager.fileExists(atPath: legacyDirectory.path))
+
+        // Purging a missing directory is a no-op.
+        MediaPlaybackTempStore.purge(directory: directory, legacyDirectory: legacyDirectory)
+        #expect(!fileManager.fileExists(atPath: directory.path))
+        #expect(!fileManager.fileExists(atPath: legacyDirectory.path))
+    }
+
     @MainActor
     @Test func chatSearchMatchesTitleSubtitleAndPreview() async throws {
         let chats = ChatItem.samples

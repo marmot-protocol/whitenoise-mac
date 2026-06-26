@@ -2,7 +2,6 @@ import AVFoundation
 import AVKit
 import AppKit
 import CoreImage
-import CryptoKit
 import ImageIO
 import MarmotKit
 import SwiftUI
@@ -2856,8 +2855,17 @@ private struct MessageDocumentAttachmentRow: View {
                 download: download
             )
         else { return }
-        NSWorkspace.shared.open(url)
+        // `open` returns once LaunchServices accepts the handoff; the receiving app may
+        // still be reading the file. Delete shortly after so we don't leave decrypted
+        // plaintext on disk, while giving the app a brief window to read the bytes.
+        let didOpen = NSWorkspace.shared.open(url)
+        let cleanupDelay: TimeInterval = didOpen ? cleanupDelaySeconds : 0
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + cleanupDelay) {
+            MediaPlaybackTempStore.remove(at: url)
+        }
     }
+
+    private var cleanupDelaySeconds: TimeInterval { 30 }
 }
 
 private struct MessageAttachmentStatusRow: View {
@@ -3145,7 +3153,7 @@ private struct MessageVideoAttachmentPlayer: View {
             Task { await togglePlayback() }
         }
         .onDisappear {
-            player?.pause()
+            teardown()
         }
         .accessibilityLabel("Video attachment")
     }
@@ -3179,44 +3187,43 @@ private struct MessageVideoAttachmentPlayer: View {
         player = next
         next.play()
     }
+
+    /// Releases the player and deletes the decrypted scratch file. Ordered so `AVPlayer`
+    /// no longer references the file before it is removed.
+    private func teardown() {
+        player?.pause()
+        player = nil
+        if let url = playbackURL {
+            MessageMediaPlaybackFileStore.remove(at: url)
+            playbackURL = nil
+        }
+    }
 }
 
 private enum MessageMediaPlaybackFileStore {
+    /// Materializes decrypted attachment plaintext into the sandboxed playback scratch
+    /// directory. Callers own the returned URL and must delete it via `remove(at:)` once
+    /// the consuming action (open/playback) finishes.
     static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) -> URL? {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("WhiteNoiseMediaPlayback", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let fileName = sanitizedFileName(
-                download.fileName.nilIfBlank ?? attachment.fileName,
+            let directory = try MediaPlaybackTempStore.directoryURL()
+            return try MediaPlaybackTempStore.materialize(
+                data: download.data,
+                id: attachment.id,
+                fileName: download.fileName.nilIfBlank ?? attachment.fileName,
                 fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
                     for: download.mediaType.nilIfBlank ?? attachment.mediaType,
                     fileName: download.fileName.nilIfBlank ?? attachment.fileName
-                )
+                ),
+                directory: directory
             )
-            let url = directory.appendingPathComponent("\(stableStem(for: attachment.id))-\(fileName)")
-            if !FileManager.default.fileExists(atPath: url.path) {
-                try download.data.write(to: url, options: [.atomic])
-            }
-            return url
         } catch {
             return nil
         }
     }
 
-    private static func stableStem(for id: String) -> String {
-        let digest = SHA256.hash(data: Data(id.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static func sanitizedFileName(_ fileName: String, fallbackExtension: String) -> String {
-        let trimmed = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = "attachment.\(fallbackExtension)"
-        let rawName = trimmed.isEmpty ? fallback : trimmed
-        let illegal = CharacterSet(charactersIn: "/:\\")
-        let components = rawName.components(separatedBy: illegal).filter { !$0.isEmpty }
-        let sanitized = components.joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines)
-        return sanitized.isEmpty ? fallback : sanitized
+    static func remove(at url: URL) {
+        MediaPlaybackTempStore.remove(at: url)
     }
 }
 
