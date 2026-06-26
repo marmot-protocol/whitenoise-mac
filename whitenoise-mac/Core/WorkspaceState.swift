@@ -85,7 +85,7 @@ struct ChatListRowEnrichmentTracker {
     }
 }
 
-struct ChatListOrdering {
+nonisolated struct ChatListOrdering {
     static func sorted(_ chatItems: [ChatItem]) -> [ChatItem] {
         chatItems.sorted(by: areInDisplayOrder)
     }
@@ -1064,7 +1064,7 @@ enum GroupMemberMutationAction {
     case remove
 }
 
-struct ReadMarker: Equatable, Comparable {
+nonisolated struct ReadMarker: Equatable, Comparable {
     let sentAt: Date
     let messageId: String
 

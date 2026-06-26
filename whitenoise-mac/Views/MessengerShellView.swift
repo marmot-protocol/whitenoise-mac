@@ -207,7 +207,7 @@ private struct DetailPaneView: View {
     }
 }
 
-enum TimelineNewestMessageScrollAction: Equatable {
+nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case none
     case clearPendingAppendAnchor
     case restorePendingAppendAnchor(String)

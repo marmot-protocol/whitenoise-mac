@@ -18,19 +18,11 @@
 			remoteGlobalIDString = 1F5D021F2FC5862E0016665B;
 			remoteInfo = "whitenoise-mac";
 		};
-		1F5D023A2FC5862F0016665B /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 1F5D02182FC5862E0016665B /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 1F5D021F2FC5862E0016665B;
-			remoteInfo = "whitenoise-mac";
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		1F5D02202FC5862E0016665B /* White Noise.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "White Noise.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5D022F2FC5862F0016665B /* whitenoise-macTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		1F5D02392FC5862F0016665B /* whitenoise-macUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/AppBuild.xcconfig; sourceTree = "<group>"; };
 		2B616D052FCF100000010001 /* PR.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PR.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -44,11 +36,6 @@
 		1F5D02322FC5862F0016665B /* whitenoise-macTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "whitenoise-macTests";
-			sourceTree = "<group>";
-		};
-		1F5D023C2FC5862F0016665B /* whitenoise-macUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "whitenoise-macUITests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -69,13 +56,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		1F5D02362FC5862F0016665B /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -86,7 +66,6 @@
 				2B616D072FCF100000010001 /* TestPlans */,
 				1F5D02222FC5862E0016665B /* whitenoise-mac */,
 				1F5D02322FC5862F0016665B /* whitenoise-macTests */,
-				1F5D023C2FC5862F0016665B /* whitenoise-macUITests */,
 				1F5D02212FC5862E0016665B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,7 +75,6 @@
 			children = (
 				1F5D02202FC5862E0016665B /* White Noise.app */,
 				1F5D022F2FC5862F0016665B /* whitenoise-macTests.xctest */,
-				1F5D02392FC5862F0016665B /* whitenoise-macUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -158,29 +136,6 @@
 			productReference = 1F5D022F2FC5862F0016665B /* whitenoise-macTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		1F5D02382FC5862F0016665B /* whitenoise-macUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 1F5D02492FC5862F0016665B /* Build configuration list for PBXNativeTarget "whitenoise-macUITests" */;
-			buildPhases = (
-				1F5D02352FC5862F0016665B /* Sources */,
-				1F5D02362FC5862F0016665B /* Frameworks */,
-				1F5D02372FC5862F0016665B /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				1F5D023B2FC5862F0016665B /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				1F5D023C2FC5862F0016665B /* whitenoise-macUITests */,
-			);
-			name = "whitenoise-macUITests";
-			packageProductDependencies = (
-			);
-			productName = "whitenoise-macUITests";
-			productReference = 1F5D02392FC5862F0016665B /* whitenoise-macUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -195,10 +150,6 @@
 						CreatedOnToolsVersion = 26.5;
 					};
 					1F5D022E2FC5862F0016665B = {
-						CreatedOnToolsVersion = 26.5;
-						TestTargetID = 1F5D021F2FC5862E0016665B;
-					};
-					1F5D02382FC5862F0016665B = {
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = 1F5D021F2FC5862E0016665B;
 					};
@@ -232,7 +183,6 @@
 			targets = (
 				1F5D021F2FC5862E0016665B /* whitenoise-mac */,
 				1F5D022E2FC5862F0016665B /* whitenoise-macTests */,
-				1F5D02382FC5862F0016665B /* whitenoise-macUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -246,13 +196,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		1F5D022D2FC5862F0016665B /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		1F5D02372FC5862F0016665B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -276,13 +219,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		1F5D02352FC5862F0016665B /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -290,11 +226,6 @@
 			isa = PBXTargetDependency;
 			target = 1F5D021F2FC5862E0016665B /* whitenoise-mac */;
 			targetProxy = 1F5D02302FC5862F0016665B /* PBXContainerItemProxy */;
-		};
-		1F5D023B2FC5862F0016665B /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 1F5D021F2FC5862E0016665B /* whitenoise-mac */;
-			targetProxy = 1F5D023A2FC5862F0016665B /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -577,60 +508,6 @@
 			};
 			name = Release;
 		};
-		1F5D024A2FC5862F0016665B /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V8U75D7Q49;
-				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
-				EXTRACT_APP_INTENTS_METADATA = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-framework",
-					AppIntents,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.ipf.whitenoise-macUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_CONST_VALUE_PROTOCOLS = "AppIntents.AppIntent AppIntents.AppEntity AppIntents.AppEnum AppIntents.AppShortcutsProvider";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "whitenoise-mac";
-			};
-			name = Debug;
-		};
-		1F5D024B2FC5862F0016665B /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = V8U75D7Q49;
-				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
-				EXTRACT_APP_INTENTS_METADATA = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = (
-					"$(inherited)",
-					"-framework",
-					AppIntents,
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.ipf.whitenoise-macUITests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_CONST_VALUE_PROTOCOLS = "AppIntents.AppIntent AppIntents.AppEntity AppIntents.AppEnum AppIntents.AppShortcutsProvider";
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "whitenoise-mac";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -657,15 +534,6 @@
 			buildConfigurations = (
 				1F5D02472FC5862F0016665B /* Debug */,
 				1F5D02482FC5862F0016665B /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		1F5D02492FC5862F0016665B /* Build configuration list for PBXNativeTarget "whitenoise-macUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				1F5D024A2FC5862F0016665B /* Debug */,
-				1F5D024B2FC5862F0016665B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
