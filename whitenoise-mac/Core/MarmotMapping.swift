@@ -79,9 +79,13 @@ extension ChatItem {
         )
         // `ChatListMessagePreviewFfi` carries no media payload, so a media-only chat
         // message arrives with empty `plaintext` and `displayText` reports it as
-        // "Unsupported message". Treat that as the media-only sentinel for chat bubbles
-        // so the preview shows the "Attachment" fallback instead.
-        let isMediaOnlyChat = presentation.isChatBubble && text == L10n.string("Unsupported message")
+        // "Unsupported message". Only treat that sentinel as media-only when the
+        // source preview text is empty; a user can send that literal text.
+        let sourceTextIsEmpty = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isMediaOnlyChat =
+            presentation.isChatBubble
+            && sourceTextIsEmpty
+            && text == L10n.string("Unsupported message")
         guard !text.isEmpty, !isMediaOnlyChat else {
             return presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
         }

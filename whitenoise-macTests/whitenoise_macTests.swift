@@ -1268,6 +1268,23 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func literalUnsupportedChatPreviewPreservesMessageText() async throws {
+        // A valid chat body can equal the localized unsupported-message label. That
+        // literal text must not be mistaken for the empty media-only preview sentinel.
+        let literalText = L10n.string("Unsupported message")
+        let row = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: literalText,
+            sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            timelineAt: 1_700_000_001
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+        #expect(chat.preview == literalText)
+    }
+
+    @MainActor
     @Test func imetaInsideJSONReadsSourceEpochInBothSpellings() async throws {
         // Regression for whitenoise-mac#137: the imeta-within-object branch must
         // accept both snake_case `source_epoch` and camelCase `sourceEpoch` so a
