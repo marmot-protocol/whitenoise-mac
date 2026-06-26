@@ -43,10 +43,10 @@ private struct MarkdownBlockView: View {
 
     var body: some View {
         switch block {
-        case let .paragraph(inlines):
+        case .paragraph(let inlines):
             MarkdownInlineText(inlines: inlines)
 
-        case let .heading(level, inlines):
+        case .heading(let level, let inlines):
             MarkdownInlineText(inlines: inlines)
                 .font(Self.headingFont(for: level))
                 .fontWeight(.semibold)
@@ -54,10 +54,10 @@ private struct MarkdownBlockView: View {
         case .thematicBreak:
             Divider().padding(.vertical, 2)
 
-        case let .codeBlock(_, _, content):
+        case .codeBlock(_, _, let content):
             MarkdownCodeBlock(content: content)
 
-        case let .blockQuote(blocks):
+        case .blockQuote(let blocks):
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(Color.secondary.opacity(0.5))
@@ -70,13 +70,13 @@ private struct MarkdownBlockView: View {
                 .foregroundStyle(.secondary)
             }
 
-        case let .list(kind, _, items):
+        case .list(let kind, _, let items):
             MarkdownListView(kind: kind, items: items)
 
-        case let .table(alignments, header, rows):
+        case .table(let alignments, let header, let rows):
             MarkdownTableView(alignments: alignments, header: header, rows: rows)
 
-        case let .mathBlock(content):
+        case .mathBlock(let content):
             MarkdownCodeBlock(content: content)
 
         @unknown default:
@@ -146,7 +146,7 @@ private struct MarkdownListView: View {
                 .font(.callout)
         } else {
             switch kind {
-            case let .ordered(start, _):
+            case .ordered(let start, _):
                 Text("\(Int(start) + index).")
                     .foregroundStyle(.secondary)
             case .bullet:
@@ -202,7 +202,7 @@ private enum MarkdownInlineBuilder {
         link: URL?
     ) -> AttributedString {
         switch inline {
-        case let .text(content):
+        case .text(let content):
             return styled(content, intent: intent, link: link)
 
         case .softBreak:
@@ -211,35 +211,35 @@ private enum MarkdownInlineBuilder {
         case .hardBreak:
             return styled("\n", intent: intent, link: link)
 
-        case let .code(content):
+        case .code(let content):
             return styled(content, intent: intent.union(.code), link: link)
 
-        case let .emph(children):
+        case .emph(let children):
             return concat(children, intent: intent.union(.emphasized), link: link)
 
-        case let .strong(children):
+        case .strong(let children):
             return concat(children, intent: intent.union(.stronglyEmphasized), link: link)
 
-        case let .strikethrough(children):
+        case .strikethrough(let children):
             return concat(children, intent: intent.union(.strikethrough), link: link)
 
-        case let .link(dest, _, children):
+        case .link(let dest, _, let children):
             return concat(children, intent: intent, link: URL(string: dest) ?? link)
 
-        case let .image(_, title, alt):
+        case .image(_, let title, let alt):
             // Inline images are uncommon in chat; show the alt text (or title).
             if !alt.isEmpty {
                 return concat(alt, intent: intent, link: link)
             }
             return styled(title ?? "", intent: intent, link: link)
 
-        case let .autolink(url, _):
+        case .autolink(let url, _):
             return styled(url, intent: intent, link: URL(string: url) ?? link)
 
-        case let .math(content):
+        case .math(let content):
             return styled(content, intent: intent.union(.code), link: link)
 
-        case let .nostrMention(entity), let .nostrUri(entity):
+        case .nostrMention(let entity), .nostrUri(let entity):
             return nostrEntity(entity, intent: intent)
 
         @unknown default:

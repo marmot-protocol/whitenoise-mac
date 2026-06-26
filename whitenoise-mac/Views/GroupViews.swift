@@ -165,7 +165,8 @@ struct GroupDetailsSheet: View {
                                 }
                             )
                         ) {
-                            ForEach(DisappearingMessageOption.options(for: snapshot.disappearingMessageSecs)) { option in
+                            ForEach(DisappearingMessageOption.options(for: snapshot.disappearingMessageSecs)) {
+                                option in
                                 Text(option.label).tag(option)
                             }
                         } label: {
