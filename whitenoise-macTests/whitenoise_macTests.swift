@@ -1164,6 +1164,59 @@ struct whitenoise_macTests {
         #expect(MessageMediaGridPresentation.gridHeight(totalCount: 4, maxWidth: 360, spacing: 3) == 360)
     }
 
+    @MainActor
+    @Test func messageItemPrecomputesBubbleRenderContent() async throws {
+        let image = MessageMediaAttachment(
+            id: "image",
+            reference: mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        )
+        let audio = MessageMediaAttachment(
+            id: "audio",
+            reference: mediaAttachmentReference(mediaType: "audio/mp4", fileName: "clip.m4a")
+        )
+        let video = MessageMediaAttachment(
+            id: "video",
+            reference: mediaAttachmentReference(mediaType: "video/mp4", fileName: "clip.mp4")
+        )
+        let file = MessageMediaAttachment(
+            id: "file",
+            reference: mediaAttachmentReference(mediaType: "application/pdf", fileName: "notes.pdf")
+        )
+        let replyContext = MessageReplyContext(
+            targetMessageId: "parent",
+            senderName: "Alice",
+            body: "Earlier note"
+        )
+
+        let message = MessageItem(
+            id: "mixed-media",
+            senderName: "Bob",
+            body: "  Render once  ",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+            isOutgoing: false,
+            replyContext: replyContext,
+            mediaAttachments: [image, audio, video, file]
+        )
+
+        #expect(message.trimmedBody == "Render once")
+        #expect(message.hasBubbleContent)
+        #expect(message.visualMediaAttachments.map(\.id) == ["image", "video"])
+        #expect(message.nonvisualMediaAttachments.map(\.id) == ["audio", "file"])
+
+        let attachmentOnly = MessageItem(
+            id: "attachment-only",
+            senderName: "Bob",
+            body: "  \n  ",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_001),
+            isOutgoing: false,
+            mediaAttachments: [image]
+        )
+        #expect(attachmentOnly.trimmedBody.isEmpty)
+        #expect(!attachmentOnly.hasBubbleContent)
+        #expect(attachmentOnly.replyPreviewText == "Photo")
+        #expect(!attachmentOnly.canCopyText)
+    }
+
     @Test func pendingMediaAttachmentDurationLabelFormatsSubhourHourBoundaryAndClampsNegative() {
         let longAttachment = PendingMediaAttachment(
             fileName: "long.m4a",
