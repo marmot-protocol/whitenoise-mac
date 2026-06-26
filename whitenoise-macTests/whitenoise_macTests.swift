@@ -3995,6 +3995,263 @@ struct whitenoise_macTests {
         #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) == 1)
     }
 
+    @Test func chatListOrderingUpdatesSingleRowWithoutResortingWholeList() {
+        let newest = chatListOrderingTestItem(id: "newest", title: "Newest", updatedAt: 300)
+        let middle = chatListOrderingTestItem(id: "middle", title: "Middle", preview: "old", updatedAt: 200)
+        let oldest = chatListOrderingTestItem(id: "oldest", title: "Oldest", updatedAt: 100)
+
+        let updatedMiddle = chatListOrderingTestItem(
+            id: "middle",
+            title: "Middle",
+            preview: "new read-state preview",
+            updatedAt: 200,
+            unreadCount: 0
+        )
+        let updated = ChatListOrdering.upserting(updatedMiddle, into: [newest, middle, oldest])
+
+        #expect(updated.map(\.id) == ["newest", "middle", "oldest"])
+        #expect(updated[1].preview == "new read-state preview")
+        #expect(updated[1].unreadCount == 0)
+    }
+
+    @Test func chatListOrderingMovesSingleRowWithBinaryInsertionWhenSortKeyChanges() {
+        let newest = chatListOrderingTestItem(id: "newest", title: "Newest", updatedAt: 300)
+        let middle = chatListOrderingTestItem(id: "middle", title: "Middle", updatedAt: 200)
+        let oldest = chatListOrderingTestItem(id: "oldest", title: "Oldest", updatedAt: 100)
+
+        let promotedOldest = chatListOrderingTestItem(id: "oldest", title: "Oldest", updatedAt: 400)
+        let promoted = ChatListOrdering.upserting(promotedOldest, into: [newest, middle, oldest])
+        #expect(promoted.map(\.id) == ["oldest", "newest", "middle"])
+
+        let inserted = chatListOrderingTestItem(id: "inserted", title: "Inserted", updatedAt: 250)
+        let withInserted = ChatListOrdering.upserting(inserted, into: [newest, middle, oldest])
+        #expect(withInserted.map(\.id) == ["newest", "inserted", "middle", "oldest"])
+    }
+
+    @Test func chatListOrderingInsertsNilUpdatedAtRowsAfterDatedChats() {
+        let newest = chatListOrderingTestItem(id: "newest", title: "Newest", updatedAt: 300)
+        let oldest = chatListOrderingTestItem(id: "oldest", title: "Oldest", updatedAt: 100)
+        let optimistic = chatListOrderingTestItem(id: "optimistic", title: "Alice", date: nil)
+
+        let withOptimistic = ChatListOrdering.upserting(optimistic, into: [newest, oldest])
+
+        #expect(withOptimistic.map(\.id) == ["newest", "oldest", "optimistic"])
+    }
+
+    @Test func chatListOrderingMovesSingleRowWhenTitleTieBreakerChanges() {
+        let timestamp = Date(timeIntervalSince1970: 100)
+        let alpha = chatListOrderingTestItem(id: "alpha", title: "Alpha", date: timestamp)
+        let bravo = chatListOrderingTestItem(id: "bravo", title: "Bravo", date: timestamp)
+        let zulu = chatListOrderingTestItem(id: "zulu", title: "Zulu", date: timestamp)
+
+        let renamedZulu = chatListOrderingTestItem(id: "zulu", title: "Beta", date: timestamp)
+        let renamed = ChatListOrdering.upserting(renamedZulu, into: [alpha, bravo, zulu])
+
+        #expect(renamed.map(\.id) == ["alpha", "zulu", "bravo"])
+        #expect(renamed.map(\.title) == ["Alpha", "Beta", "Bravo"])
+    }
+
+    @Test func readStateChatRowsPreserveResolvedMetadataWhenSkippingEnrichment() {
+        let current = ChatItem(
+            id: "direct-group",
+            title: "Alice Actual",
+            subtitle: "Direct message",
+            preview: "old preview",
+            updatedAt: Date(timeIntervalSince1970: 100),
+            avatarSeed: "alice-id",
+            pictureURL: "https://example.com/alice.png",
+            unreadCount: 4,
+            isDirect: true,
+            pendingConfirmation: false
+        )
+        let readState = ChatItem(
+            id: "direct-group",
+            title: "direct-group",
+            subtitle: "Group message",
+            preview: "new read marker preview",
+            updatedAt: Date(timeIntervalSince1970: 200),
+            avatarSeed: "direct-group",
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: false,
+            pendingConfirmation: true
+        )
+
+        let merged = ChatListOrdering.preservingResolvedMetadata(in: readState, from: current)
+
+        #expect(merged.title == "Alice Actual")
+        #expect(merged.subtitle == "Direct message")
+        #expect(merged.avatarSeed == "alice-id")
+        #expect(merged.pictureURL == "https://example.com/alice.png")
+        #expect(merged.isDirect)
+        #expect(merged.preview == "new read marker preview")
+        #expect(merged.updatedAt == Date(timeIntervalSince1970: 200))
+        #expect(merged.unreadCount == 0)
+        #expect(merged.pendingConfirmation)
+    }
+
+    @MainActor
+    @Test func readMarkerChatRowPreservesResolvedDirectMetadataWhenSkippingEnrichment() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Latest message",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
+        var isActive = false
+        let state = WorkspaceState(
+            appActivityProvider: { isActive },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let didResolveDirectMetadata = await waitFor(attempts: 300) {
+            state.activeChats.first?.title == "Alice Actual"
+                && state.activeChats.first?.pictureURL == "https://example.com/alice.png"
+                && state.activeChats.first?.isDirect == true
+        }
+        #expect(didResolveDirectMetadata)
+        #expect(runtime.markedReadMessageIds.isEmpty)
+
+        isActive = true
+        await state.handleConversationVisibilityChange()
+
+        #expect(runtime.markedReadMessageIds == ["latest"])
+        #expect(state.activeChats.first?.title == "Alice Actual")
+        #expect(state.activeChats.first?.subtitle == "Direct message")
+        #expect(state.activeChats.first?.avatarSeed == aliceId)
+        #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
+        #expect(state.activeChats.first?.isDirect == true)
+        #expect(state.activeChats.first?.preview == "Alice Actual: Latest message")
+    }
+
+    @MainActor
+    @Test func repeatedReadMarkerRowsWithMissingMetadataDoNotRepeatGroupDetailsLookups() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.groupDetailsFailureGroupIds.insert("direct-group")
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "m1",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "first",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ], groupIdHex: "direct-group")
+        runtime.installTimelineUpdates(
+            [
+                .projection(
+                    update: RuntimeProjectionUpdateFfi(
+                        accountIdHex: account.accountIdHex,
+                        accountLabel: account.label,
+                        update: TimelineProjectionUpdateFfi(
+                            groupIdHex: "direct-group",
+                            messages: [],
+                            changes: [
+                                .upsert(
+                                    trigger: .newMessage,
+                                    message: timelineMessage(
+                                        id: "m2",
+                                        groupIdHex: "direct-group",
+                                        sender: account.accountIdHex,
+                                        plaintext: "second",
+                                        recordedAt: 1_700_000_020
+                                    ))
+                            ],
+                            chatListRow: nil,
+                            chatListTrigger: .newLastMessage
+                        )
+                    )),
+                .projection(
+                    update: RuntimeProjectionUpdateFfi(
+                        accountIdHex: account.accountIdHex,
+                        accountLabel: account.label,
+                        update: TimelineProjectionUpdateFfi(
+                            groupIdHex: "direct-group",
+                            messages: [],
+                            changes: [
+                                .upsert(
+                                    trigger: .newMessage,
+                                    message: timelineMessage(
+                                        id: "m3",
+                                        groupIdHex: "direct-group",
+                                        sender: account.accountIdHex,
+                                        plaintext: "third",
+                                        recordedAt: 1_700_000_030
+                                    ))
+                            ],
+                            chatListRow: nil,
+                            chatListTrigger: .newLastMessage
+                        )
+                    )),
+            ], groupIdHex: "direct-group")
+        runtime.timelineStreamEndsAfterUpdates = true
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let didMarkAllVisibleMessages = await waitFor(attempts: 300) {
+            runtime.markedReadMessageIds == ["m1", "m2", "m3"]
+        }
+
+        #expect(didMarkAllVisibleMessages)
+        #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) <= 2)
+    }
+
     @MainActor
     @Test func timelineSenderProfilesReusePrimedGroupMemberDetails() async throws {
         // Regression for #9: loading/reprojecting a timeline should not hit `groupDetails`
@@ -7297,6 +7554,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
     /// through the incremental per-row path (issue #40 regression).
     private(set) var groupDetailsCallCounts: [String: Int] = [:]
+    var groupDetailsFailureGroupIds = Set<String>()
     private(set) var chatListSubscriptionCount = 0
     private(set) var notificationSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
@@ -7791,6 +8049,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
         groupDetailsCallCounts[groupIdHex, default: 0] += 1
+        if groupDetailsFailureGroupIds.contains(groupIdHex) {
+            throw FakeMarmotRuntimeError.unused
+        }
         // Snapshot the value *before* the gate so a held older load captures the older details and a
         // later mutation cannot retroactively change what it returns (issue #135 last-request-wins).
         let result: GroupDetailsFfi
@@ -8860,6 +9121,43 @@ private func chatListRow(
         lastReadMessageIdHex: nil,
         lastReadTimelineAt: nil,
         updatedAt: timelineAt
+    )
+}
+
+private func chatListOrderingTestItem(
+    id: String,
+    title: String,
+    preview: String = "preview",
+    updatedAt: UInt64,
+    unreadCount: Int = 1
+) -> ChatItem {
+    chatListOrderingTestItem(
+        id: id,
+        title: title,
+        preview: preview,
+        date: Date(timeIntervalSince1970: TimeInterval(updatedAt)),
+        unreadCount: unreadCount
+    )
+}
+
+private func chatListOrderingTestItem(
+    id: String,
+    title: String,
+    preview: String = "preview",
+    date: Date?,
+    unreadCount: Int = 1
+) -> ChatItem {
+    ChatItem(
+        id: id,
+        title: title,
+        subtitle: "Group message",
+        preview: preview,
+        updatedAt: date,
+        avatarSeed: id,
+        pictureURL: nil,
+        unreadCount: unreadCount,
+        isDirect: false,
+        pendingConfirmation: false
     )
 }
 
