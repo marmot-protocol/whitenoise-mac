@@ -1899,6 +1899,91 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selectedMessagesObservationIgnoresUnselectedChatMutations() async throws {
+        // Regression for #176: observing the visible transcript must not subscribe the
+        // conversation view to the whole messagesByChat dictionary. A background-chat
+        // timeline delta should leave the selected transcript's observation token alone,
+        // while a selected-chat replacement must still invalidate it.
+        let account = AccountItem.samples[0]
+        let selectedChat = ChatItem.samples[0]
+        let backgroundChat = ChatItem.samples[1]
+        let selectedMessage = MessageItem(
+            id: "selected-1",
+            groupIdHex: selectedChat.id,
+            senderName: "Alice",
+            body: "Visible",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        let backgroundMessage = MessageItem(
+            id: "background-1",
+            groupIdHex: backgroundChat.id,
+            senderName: "Bob",
+            body: "Background",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isOutgoing: false
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [selectedChat, backgroundChat]],
+            messagesByChat: [
+                selectedChat.id: [selectedMessage],
+                backgroundChat.id: [backgroundMessage],
+            ],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(selectedChat.id)
+
+        #expect(state.selectedMessages.map(\.id) == ["selected-1"])
+
+        let backgroundInvalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.selectedMessages.map(\.id)
+        } onChange: {
+            backgroundInvalidated.markInvalidated()
+        }
+
+        state.messagesByChat[backgroundChat.id] = [
+            MessageItem(
+                id: "background-2",
+                groupIdHex: backgroundChat.id,
+                senderName: "Bob",
+                body: "Background update",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_002),
+                isOutgoing: false
+            )
+        ]
+
+        #expect(!backgroundInvalidated.value)
+        #expect(state.selectedMessages.map(\.id) == ["selected-1"])
+
+        let selectedInvalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.selectedMessages.map(\.id)
+        } onChange: {
+            selectedInvalidated.markInvalidated()
+        }
+
+        state.replaceMessages(
+            [
+                MessageItem(
+                    id: "selected-2",
+                    groupIdHex: selectedChat.id,
+                    senderName: "Alice",
+                    body: "Visible update",
+                    sentAt: Date(timeIntervalSince1970: 1_700_000_003),
+                    isOutgoing: false
+                )
+            ],
+            groupIdHex: selectedChat.id
+        )
+
+        #expect(selectedInvalidated.value)
+        #expect(state.selectedMessages.map(\.id) == ["selected-2"])
+    }
+
+    @MainActor
     @Test func selectedMessageIDsCacheStaysInSyncAcrossTimelineMutations() async throws {
         // Regression for #44: selectedMessageIDs is served from a cache maintained in
         // lockstep with messagesByChat. Verify the cached ids always equal the live

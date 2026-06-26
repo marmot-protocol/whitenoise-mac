@@ -217,6 +217,8 @@ extension WorkspaceState {
         chats.removeAll { $0.id == groupIdHex }
         chatsByAccount[account.id] = chats
         messagesByChat[groupIdHex] = nil
+        messageTimelineStores[groupIdHex]?.clear()
+        messageTimelineStores[groupIdHex] = nil
         messageLookupByChat[groupIdHex] = nil
         messageIDsByChat[groupIdHex] = nil
         invalidateGroupMembers(for: groupIdHex)

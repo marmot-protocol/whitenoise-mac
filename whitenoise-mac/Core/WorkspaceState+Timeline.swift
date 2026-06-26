@@ -21,7 +21,7 @@ extension WorkspaceState {
             finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return
         }
-        if timelineTaskGroupId == groupIdHex, messagesByChat[groupIdHex] != nil {
+        if timelineTaskGroupId == groupIdHex, messageTimelineStore(for: groupIdHex).isLoaded {
             finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return
         }
@@ -440,16 +440,22 @@ extension WorkspaceState {
         let nextPaging = paging ?? timelinePagingByChat[groupIdHex] ?? .empty
         let messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         let messageIDs = messages.map(\.id)
+        let timelineStore = messageTimelineStore(for: groupIdHex)
 
         if messagesByChat.count == 1, messagesByChat[groupIdHex] != nil {
             messagesByChat[groupIdHex] = messages
             messageLookupByChat[groupIdHex] = messageLookup
             messageIDsByChat[groupIdHex] = messageIDs
         } else {
+            for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
+                store.clear()
+            }
             messagesByChat = [groupIdHex: messages]
             messageLookupByChat = [groupIdHex: messageLookup]
             messageIDsByChat = [groupIdHex: messageIDs]
+            messageTimelineStores = [groupIdHex: timelineStore]
         }
+        timelineStore.replace(with: messages)
         if timelinePagingByChat.count == 1, timelinePagingByChat[groupIdHex] != nil {
             timelinePagingByChat[groupIdHex] = nextPaging
         } else {
@@ -493,22 +499,36 @@ extension WorkspaceState {
         }
 
         guard let groupIdHex else {
+            for store in messageTimelineStores.values {
+                store.clear()
+            }
             messagesByChat = [:]
             messageLookupByChat = [:]
             messageIDsByChat = [:]
+            messageTimelineStores = [:]
             timelinePagingByChat = [:]
             timelineInitialLoadGroupId = nil
             return
         }
 
         if let messages = messagesByChat[groupIdHex] {
+            let timelineStore = messageTimelineStore(for: groupIdHex)
+            for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
+                store.clear()
+            }
             messagesByChat = [groupIdHex: messages]
             messageLookupByChat = [groupIdHex: Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })]
             messageIDsByChat = [groupIdHex: messages.map(\.id)]
+            messageTimelineStores = [groupIdHex: timelineStore]
+            timelineStore.replace(with: messages)
         } else {
+            for store in messageTimelineStores.values {
+                store.clear()
+            }
             messagesByChat = [:]
             messageLookupByChat = [:]
             messageIDsByChat = [:]
+            messageTimelineStores = [:]
         }
         if let paging = timelinePagingByChat[groupIdHex] {
             timelinePagingByChat = [groupIdHex: paging]
@@ -517,13 +537,13 @@ extension WorkspaceState {
         }
         if timelineInitialLoadGroupId != groupIdHex {
             timelineInitialLoadGroupId = nil
-        } else if messagesByChat[groupIdHex] != nil {
+        } else if messageTimelineStore(for: groupIdHex).isLoaded {
             timelineInitialLoadGroupId = nil
         }
     }
 
     func beginTimelineInitialLoadIfNeeded(groupIdHex: String) {
-        if messagesByChat[groupIdHex] == nil {
+        if !messageTimelineStore(for: groupIdHex).isLoaded {
             timelineInitialLoadGroupId = groupIdHex
         } else if timelineInitialLoadGroupId == groupIdHex {
             timelineInitialLoadGroupId = nil
@@ -551,7 +571,7 @@ extension WorkspaceState {
         // visible again (see handleConversationVisibilityChange()).
         guard selectedConversationIsVisible() else { return }
         guard
-            let latest = (messagesByChat[groupIdHex] ?? []).last(where: { message in
+            let latest = messageTimelineStore(for: groupIdHex).messages.last(where: { message in
                 message.timelineKind == 9 && !message.isDeleted
             })
         else {
