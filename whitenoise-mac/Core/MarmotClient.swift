@@ -212,13 +212,27 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
     }
 
     func deleteAllLocalData() async throws {
-        let accounts = try marmot.listAccounts()
-        for account in accounts {
-            try await marmot.removeAccount(accountRef: account.label)
-        }
-        await marmot.shutdown()
+        try await Self.deleteAllLocalData(
+            listAccountRefs: { try marmot.listAccounts().map(\.label) },
+            removeAccount: { try await marmot.removeAccount(accountRef: $0) },
+            shutdown: { await marmot.shutdown() },
+            rootPath: rootPath
+        )
+    }
 
-        let fileManager = FileManager.default
+    static func deleteAllLocalData(
+        listAccountRefs: () throws -> [String],
+        removeAccount: (String) async throws -> Void,
+        shutdown: () async -> Void,
+        rootPath: String,
+        fileManager: FileManager = .default
+    ) async throws {
+        let accountRefs = (try? listAccountRefs()) ?? []
+        for accountRef in accountRefs {
+            try? await removeAccount(accountRef)
+        }
+        await shutdown()
+
         if fileManager.fileExists(atPath: rootPath) {
             try fileManager.removeItem(atPath: rootPath)
         }

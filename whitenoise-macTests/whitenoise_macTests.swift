@@ -455,6 +455,65 @@ struct whitenoise_macTests {
         #expect(UserDefaults.standard.string(forKey: "whitenoise.mac.activeAccountId") == nil)
     }
 
+    @Test func deleteAllLocalDataWipesStorageWhenAccountCleanupFails() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
+        let secretFile = root.appendingPathComponent("private-identity.sqlite")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("private key material".utf8).write(to: secretFile)
+        defer { try? fileManager.removeItem(at: root) }
+
+        var removedRefs: [String] = []
+        var didShutdown = false
+
+        try await MarmotClient.deleteAllLocalData(
+            listAccountRefs: { ["Desktop Account", "Relay-Failing Account", "Backup Account"] },
+            removeAccount: { accountRef in
+                removedRefs.append(accountRef)
+                if accountRef == "Relay-Failing Account" {
+                    throw FakeMarmotRuntimeError.unused
+                }
+            },
+            shutdown: { didShutdown = true },
+            rootPath: root.path,
+            fileManager: fileManager
+        )
+
+        #expect(removedRefs == ["Desktop Account", "Relay-Failing Account", "Backup Account"])
+        #expect(didShutdown)
+        #expect(fileManager.fileExists(atPath: root.path))
+        #expect(!fileManager.fileExists(atPath: secretFile.path))
+        #expect(try fileManager.contentsOfDirectory(atPath: root.path).isEmpty)
+    }
+
+    @Test func deleteAllLocalDataWipesStorageWhenAccountListingFails() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
+        let secretFile = root.appendingPathComponent("mls-state.sqlite")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("mls group state".utf8).write(to: secretFile)
+        defer { try? fileManager.removeItem(at: root) }
+
+        var didAttemptRemove = false
+        var didShutdown = false
+
+        try await MarmotClient.deleteAllLocalData(
+            listAccountRefs: { throw FakeMarmotRuntimeError.unused },
+            removeAccount: { _ in didAttemptRemove = true },
+            shutdown: { didShutdown = true },
+            rootPath: root.path,
+            fileManager: fileManager
+        )
+
+        #expect(!didAttemptRemove)
+        #expect(didShutdown)
+        #expect(fileManager.fileExists(atPath: root.path))
+        #expect(!fileManager.fileExists(atPath: secretFile.path))
+        #expect(try fileManager.contentsOfDirectory(atPath: root.path).isEmpty)
+    }
+
     @MainActor
     @Test func bootstrappingStateDoesNotShowMessengerChrome() async throws {
         let state = WorkspaceState(clientFactory: {
