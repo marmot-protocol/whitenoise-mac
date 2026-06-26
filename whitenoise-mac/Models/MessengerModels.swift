@@ -15,6 +15,9 @@ struct AccountItem: Identifiable, Hashable {
     let pictureURL: String?
     let localSigning: Bool
     let isRunning: Bool
+    /// True when the account has been signed out (non-destructive): local data is
+    /// retained but it is not active until signed back in.
+    let signedOut: Bool
 
     nonisolated init(
         id: String,
@@ -25,7 +28,8 @@ struct AccountItem: Identifiable, Hashable {
         initials: String? = nil,
         pictureURL: String? = nil,
         localSigning: Bool = true,
-        isRunning: Bool = true
+        isRunning: Bool = true,
+        signedOut: Bool = false
     ) {
         self.id = id
         self.accountRef = accountRef
@@ -36,6 +40,7 @@ struct AccountItem: Identifiable, Hashable {
         self.pictureURL = pictureURL
         self.localSigning = localSigning
         self.isRunning = isRunning
+        self.signedOut = signedOut
     }
 }
 
@@ -48,8 +53,13 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let avatarSeed: String
     let pictureURL: String?
     let unreadCount: Int
+    /// Unread messages in this chat that @-mention the active account.
+    let unreadMentionCount: Int
     let isDirect: Bool
     let pendingConfirmation: Bool
+
+    /// Whether this chat has at least one unread @-mention of the active account.
+    var hasMention: Bool { unreadMentionCount > 0 }
 
     init(
         id: String,
@@ -60,6 +70,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         avatarSeed: String,
         pictureURL: String?,
         unreadCount: Int,
+        unreadMentionCount: Int = 0,
         isDirect: Bool = false,
         pendingConfirmation: Bool = false
     ) {
@@ -71,6 +82,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.avatarSeed = avatarSeed
         self.pictureURL = pictureURL
         self.unreadCount = unreadCount
+        self.unreadMentionCount = unreadMentionCount
         self.isDirect = isDirect
         self.pendingConfirmation = pendingConfirmation
     }
@@ -132,10 +144,14 @@ struct GroupDetailsSnapshot: Hashable {
     let canInvite: Bool
     let canLeave: Bool
     let requiresSelfDemoteBeforeLeave: Bool
+    /// Per-group disappearing-message timer in seconds; `0` means messages never expire.
+    let disappearingMessageSecs: UInt64
 
     var memberCountLabel: String {
         String(format: L10n.string("%d members"), members.count)
     }
+
+    var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
 }
 
 struct MessageReaction: Identifiable, Hashable {
@@ -1077,6 +1093,10 @@ struct MessageItem: Identifiable, Hashable {
     let senderName: String
     let senderPictureURL: String?
     let body: String
+    /// Parsed Markdown AST for the message body, supplied by the Marmot core
+    /// (`TimelineMessageRecordFfi.contentTokens`). Non-nil only for rendered chat
+    /// bubbles with text; `nil` for system rows, deleted, or media-only messages.
+    let contentMarkdown: MarkdownDocumentFfi?
     let trimmedBody: String
     let sentAt: Date
     let timelineAt: UInt64
@@ -1095,6 +1115,9 @@ struct MessageItem: Identifiable, Hashable {
     let statusLabel: String?
     let metadataLabel: String
 
+    /// Whether the bubble should render the parsed Markdown AST instead of plain text.
+    var rendersMarkdown: Bool { contentMarkdown != nil }
+
     init(
         id: String,
         groupIdHex: String = "",
@@ -1102,6 +1125,7 @@ struct MessageItem: Identifiable, Hashable {
         senderName: String,
         senderPictureURL: String? = nil,
         body: String,
+        contentMarkdown: MarkdownDocumentFfi? = nil,
         sentAt: Date,
         timelineAt: UInt64? = nil,
         timelineKind: UInt64 = 9,
@@ -1122,6 +1146,7 @@ struct MessageItem: Identifiable, Hashable {
         self.senderName = senderName
         self.senderPictureURL = senderPictureURL
         self.body = body
+        self.contentMarkdown = contentMarkdown
         self.trimmedBody = trimmedBody
         self.sentAt = sentAt
         self.timelineAt = timelineAt ?? UInt64(sentAt.timeIntervalSince1970)
@@ -1425,6 +1450,9 @@ struct PrivacySecuritySettingsSnapshot: Equatable {
     var relayTelemetryEnabled: Bool
     var relayTelemetryIntervalSeconds: UInt64
     var auditLoggingEnabled: Bool
+    /// When true the audit log records decrypted content and full identifiers
+    /// (`AuditDataModeFfi.fullData`); otherwise identifiers are obfuscated/hashed.
+    var auditFullDataLogging: Bool
     var telemetryCredentialsAvailable: Bool
     var auditLogCredentialsAvailable: Bool
 
@@ -1432,6 +1460,7 @@ struct PrivacySecuritySettingsSnapshot: Equatable {
         relayTelemetryEnabled: false,
         relayTelemetryIntervalSeconds: 60,
         auditLoggingEnabled: false,
+        auditFullDataLogging: false,
         telemetryCredentialsAvailable: false,
         auditLogCredentialsAvailable: false
     )

@@ -283,6 +283,7 @@ struct VoiceRecordingComposerView: View {
             .buttonStyle(.plain)
             .help("Finish recording")
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -698,37 +699,37 @@ struct ConversationHeader: View {
             HStack {
                 Spacer()
 
-                if !chat.isDirect {
-                    if chat.pendingConfirmation {
-                        Button {
-                            Task { await workspace.acceptGroupInvite(for: chat) }
-                        } label: {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 34, height: 34)
-                                .background {
-                                    MessagesCircleControlBackground()
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                        .help("Accept invite")
-
-                        Button(role: .destructive) {
-                            Task { await workspace.declineGroupInvite(for: chat) }
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 34, height: 34)
-                                .background {
-                                    MessagesCircleControlBackground()
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                        .help("Decline invite")
+                if chat.pendingConfirmation {
+                    Button {
+                        Task { await workspace.acceptGroupInvite(for: chat) }
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
                     }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                    .help("Accept invite")
 
+                    Button(role: .destructive) {
+                        Task { await workspace.declineGroupInvite(for: chat) }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                    .help("Decline invite")
+                }
+
+                if !chat.isDirect {
                     Button {
                         Task { await workspace.showGroupDetails(for: chat) }
                     } label: {

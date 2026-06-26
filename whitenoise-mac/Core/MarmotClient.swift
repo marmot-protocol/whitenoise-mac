@@ -81,6 +81,16 @@ nonisolated protocol MarmotRuntime: Sendable {
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
         -> SendSummaryFfi
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi
+    func parseMarkdown(text: String) -> MarkdownDocumentFfi
+    func accountUnreadSummary() throws -> [AccountUnreadFfi]
+    func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi
+    func signInAccount(accountRef: String) async throws -> AccountSummaryFfi
+    func revealNsec(accountRef: String) throws -> String
+    func exportEncryptedSecretKey(accountRef: String, passphrase: String) throws -> String
+    func deleteGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool
+    func updateMessageRetention(accountRef: String, groupIdHex: String, disappearingMessageSecs: UInt64) async throws
+        -> SendSummaryFfi
+    func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi
 }
 
 // `marmot` is a UniFFI handle whose Rust object is internally Send + Sync, and all
@@ -464,6 +474,48 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             targetMessageId: targetMessageId
         )
+    }
+
+    func parseMarkdown(text: String) -> MarkdownDocumentFfi {
+        marmot.parseMarkdown(text: text)
+    }
+
+    func accountUnreadSummary() throws -> [AccountUnreadFfi] {
+        try marmot.accountUnreadSummary()
+    }
+
+    func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {
+        try await marmot.signOut(accountRef: accountRef, deleteKeyPackages: deleteKeyPackages)
+    }
+
+    func signInAccount(accountRef: String) async throws -> AccountSummaryFfi {
+        try await marmot.signInAccount(accountRef: accountRef)
+    }
+
+    func revealNsec(accountRef: String) throws -> String {
+        try marmot.revealNsec(accountRef: accountRef)
+    }
+
+    func exportEncryptedSecretKey(accountRef: String, passphrase: String) throws -> String {
+        try marmot.exportEncryptedSecretKey(accountRef: accountRef, passphrase: passphrase)
+    }
+
+    func deleteGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
+        try await marmot.deleteGroupLocal(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func updateMessageRetention(accountRef: String, groupIdHex: String, disappearingMessageSecs: UInt64) async throws
+        -> SendSummaryFfi
+    {
+        try await marmot.updateMessageRetention(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            disappearingMessageSecs: disappearingMessageSecs
+        )
+    }
+
+    func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
+        try await marmot.secureDeleteExpired(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 }
 

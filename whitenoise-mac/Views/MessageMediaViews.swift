@@ -187,10 +187,9 @@ struct MessageBubble: View {
             }
 
             if !message.trimmedBody.isEmpty {
-                Text(message.body)
+                MarkdownMessageView(message: message)
                     .font(.system(size: 15.5))
                     .foregroundStyle(message.isOutgoing ? .white : .primary)
-                    .lineSpacing(2)
             }
         }
         .padding(.horizontal, 13)

@@ -410,6 +410,7 @@ extension WorkspaceState {
                 relayTelemetryEnabled: telemetry.exportEnabled,
                 relayTelemetryIntervalSeconds: telemetry.exportIntervalSeconds,
                 auditLoggingEnabled: auditLog.enabled,
+                auditFullDataLogging: auditLog.dataMode == .fullData,
                 telemetryCredentialsAvailable: config.telemetryCredentialsAvailable,
                 auditLogCredentialsAvailable: config.auditLogCredentialsAvailable
             )
@@ -465,10 +466,38 @@ extension WorkspaceState {
 
         do {
             try await configureObservabilityRuntime()
-            let stored = try await client.setAuditLogSettings(settings: AuditLogSettingsFfi(enabled: enabled))
+            // Preserve the current data-mode posture when flipping the enabled flag.
+            let dataMode: AuditDataModeFfi =
+                privacySecuritySettings.auditFullDataLogging ? .fullData : .obfuscatedSensitiveData
+            let stored = try await client.setAuditLogSettings(
+                settings: AuditLogSettingsFfi(enabled: enabled, dataMode: dataMode)
+            )
             privacySecuritySettings.auditLoggingEnabled = stored.enabled
+            privacySecuritySettings.auditFullDataLogging = stored.dataMode == .fullData
             privacySecuritySettings.auditLogCredentialsAvailable = telemetryBuildConfig.auditLogCredentialsAvailable
             await loadAuditLogFiles()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setAuditFullDataLogging(_ enabled: Bool) async {
+        guard let client, !isSavingPrivacySecurity else { return }
+
+        lastError = nil
+        isSavingPrivacySecurity = true
+        defer { isSavingPrivacySecurity = false }
+
+        do {
+            try await configureObservabilityRuntime()
+            let stored = try await client.setAuditLogSettings(
+                settings: AuditLogSettingsFfi(
+                    enabled: privacySecuritySettings.auditLoggingEnabled,
+                    dataMode: enabled ? .fullData : .obfuscatedSensitiveData
+                )
+            )
+            privacySecuritySettings.auditLoggingEnabled = stored.enabled
+            privacySecuritySettings.auditFullDataLogging = stored.dataMode == .fullData
         } catch {
             lastError = error.localizedDescription
         }

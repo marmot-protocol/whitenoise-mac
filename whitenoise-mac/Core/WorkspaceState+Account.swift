@@ -182,6 +182,37 @@ extension WorkspaceState {
         await removeAccount(activeAccount)
     }
 
+    /// Reveal the active account's raw private key as an `nsec1…` bech32 string for
+    /// in-app backup. SENSITIVE: the core logs this and downgrades the audit data
+    /// mode. Returns `nil` (and sets `lastError`) on failure.
+    func revealActiveAccountNsec() async -> String? {
+        guard let client, let activeAccount else { return nil }
+        let accountRef = activeAccount.accountRef
+        lastError = nil
+        do {
+            return try await runOffMain { try client.revealNsec(accountRef: accountRef) }
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Export the active account's private key as a passphrase-encrypted NIP-49
+    /// `ncryptsec1…` string. Returns `nil` (and sets `lastError`) on failure.
+    func exportActiveAccountEncryptedKey(passphrase: String) async -> String? {
+        guard let client, let activeAccount else { return nil }
+        let accountRef = activeAccount.accountRef
+        lastError = nil
+        do {
+            return try await runOffMain {
+                try client.exportEncryptedSecretKey(accountRef: accountRef, passphrase: passphrase)
+            }
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     /// Removes a single identity (any account, not just the active one) from this Mac.
     /// Deletes the account's private key and local Marmot/MLS state via the runtime, then
     /// updates `accounts`/`chatsByAccount`. When the removed account is the active one, the
@@ -224,23 +255,7 @@ extension WorkspaceState {
             RemoteImageLoader.shared.clearCache()
 
             if needsActiveReset {
-                stopTimelineListener()
-                stopChatListListener()
-                messagesByChat.removeAll()
-                for store in messageTimelineStores.values {
-                    store.clear()
-                }
-                messageTimelineStores.removeAll()
-                messageLookupByChat.removeAll()
-                messageIDsByChat.removeAll()
-                mediaDownloads.removeAll()
-                peerProfileFFICache.removeAll()
-                clearGroupMemberCache()
-                timelinePagingByChat.removeAll()
-                profileDraft = ProfileDraft()
-                keyPackages = []
-                auditLogFiles = []
-                auditLogUploadStatus = nil
+                resetActiveAccountUIState()
             }
 
             if accounts.isEmpty {
@@ -267,6 +282,109 @@ extension WorkspaceState {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Clears all active-account-scoped in-memory UI state (timelines, caches,
+    /// drafts, settings snapshots). Shared by account removal and sign-out.
+    func resetActiveAccountUIState() {
+        stopTimelineListener()
+        stopChatListListener()
+        messagesByChat.removeAll()
+        for store in messageTimelineStores.values {
+            store.clear()
+        }
+        messageTimelineStores.removeAll()
+        messageLookupByChat.removeAll()
+        messageIDsByChat.removeAll()
+        mediaDownloads.removeAll()
+        peerProfileFFICache.removeAll()
+        clearGroupMemberCache()
+        timelinePagingByChat.removeAll()
+        profileDraft = ProfileDraft()
+        keyPackages = []
+        auditLogFiles = []
+        auditLogUploadStatus = nil
+    }
+
+    /// Non-destructive sign-out: retains the account's local data but deactivates
+    /// it (and cleans up its relay key packages). If it was the active account, the
+    /// UI switches to another signed-in account, or onboarding when none remain.
+    func signOutAccount(_ account: AccountItem) async {
+        guard let client, !isSigningOutAccount else { return }
+        lastError = nil
+        isSigningOutAccount = true
+        defer { isSigningOutAccount = false }
+
+        let wasActive = activeAccountId == account.id
+        do {
+            if wasActive {
+                stopTimelineListener()
+                stopChatListListener()
+            }
+            _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
+            clearComposerDrafts(forAccountId: account.id)
+            accounts = try await accountItemsFromRuntime(client: client)
+            chatsByAccount[account.id] = nil
+            await refreshAccountUnreadSummary()
+
+            guard wasActive else { return }
+
+            resetActiveAccountUIState()
+            if let nextActive = accounts.first(where: { !$0.signedOut }) {
+                switchActiveAccount(nextActive, finalSelection: .settings(.accounts))
+                try await configureObservabilityRuntime()
+                await loadSettingsData()
+            } else {
+                activeAccountId = nil
+                UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
+                selection = nil
+                phase = .onboarding
+                notificationSettings = .defaults
+                privacySecuritySettings = .defaults
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Re-activate a previously signed-out account and make it the active one.
+    func signInAccount(_ account: AccountItem) async {
+        guard let client, !isSigningOutAccount else { return }
+        lastError = nil
+        isSigningOutAccount = true
+        defer { isSigningOutAccount = false }
+
+        do {
+            _ = try await client.signInAccount(accountRef: account.accountRef)
+            accounts = try await accountItemsFromRuntime(client: client)
+            if let refreshed = accounts.first(where: { $0.id == account.id }) {
+                switchActiveAccount(refreshed, finalSelection: .settings(.accounts))
+                try await configureObservabilityRuntime()
+                await loadSettingsData()
+            }
+            await refreshAccountUnreadSummary()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Refresh per-account unread totals without loading each account's full session.
+    func refreshAccountUnreadSummary() async {
+        guard let client else { return }
+        do {
+            let rows = try await runOffMain { try client.accountUnreadSummary() }
+            accountUnreadByIdHex = Dictionary(
+                rows.map { ($0.accountIdHex, Int($0.unreadCount)) },
+                uniquingKeysWith: { lhs, _ in lhs }
+            )
+        } catch {
+            // Unread badges are best-effort; leave the prior values on failure.
+        }
+    }
+
+    /// Aggregate unread count for an account's avatar badge in the switcher.
+    func unreadCount(forAccountIdHex accountIdHex: String) -> Int {
+        accountUnreadByIdHex[accountIdHex] ?? 0
     }
 
     func deleteAllData() async {
@@ -490,7 +608,8 @@ extension WorkspaceState {
             npub: resolved?.npub,
             pictureURL: resolved?.profilePicture,
             localSigning: base.localSigning,
-            isRunning: base.isRunning
+            isRunning: base.isRunning,
+            signedOut: base.signedOut
         )
     }
 
@@ -508,7 +627,8 @@ extension WorkspaceState {
             npub: account.npub,
             pictureURL: pictureURL,
             localSigning: account.localSigning,
-            isRunning: account.isRunning
+            isRunning: account.isRunning,
+            signedOut: account.signedOut
         )
     }
 }

@@ -464,61 +464,60 @@ private struct ConversationView: View {
                             Task { await workspace.finishVoiceRecording() }
                         }
                     )
-                }
-
-                HStack(alignment: .bottom, spacing: 8) {
-                    Button {
-                        isFileImporterPresented = true
-                    } label: {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 18, weight: .medium))
-                            .frame(width: 30, height: 30)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isSending || workspace.isRecordingVoiceMessage)
-                    .help("Attach files")
-
-                    TextField("Message", text: $workspace.draftText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .lineLimit(1...5)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background {
-                            MessagesComposerFieldBackground()
+                } else {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        Button {
+                            isFileImporterPresented = true
+                        } label: {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 18, weight: .medium))
+                                .frame(width: 30, height: 30)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
                         }
-                        .disabled(workspace.isRecordingVoiceMessage)
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isSending)
+                        .help("Attach files")
 
-                    Button {
-                        Task { await workspace.toggleVoiceRecording() }
-                    } label: {
-                        Image(systemName: workspace.isRecordingVoiceMessage ? "stop.fill" : "mic.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 32, height: 32)
+                        TextField("Message", text: $workspace.draftText, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .lineLimit(1...5)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
                             .background {
-                                MessagesCircleControlBackground(isActive: workspace.isRecordingVoiceMessage)
+                                MessagesComposerFieldBackground()
                             }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isSending)
-                    .help(workspace.isRecordingVoiceMessage ? "Finish recording" : "Voice message")
 
-                    Button {
-                        Task { await workspace.sendDraft() }
-                    } label: {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 32, height: 32)
-                            .background {
-                                MessagesSendButtonBackground(isEnabled: workspace.canSend)
-                            }
+                        Button {
+                            Task { await workspace.toggleVoiceRecording() }
+                        } label: {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 32, height: 32)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isSending)
+                        .help("Voice message")
+
+                        Button {
+                            Task { await workspace.sendDraft() }
+                        } label: {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 32, height: 32)
+                                .background {
+                                    MessagesSendButtonBackground(isEnabled: workspace.canSend)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(!workspace.canSend)
+                        .help("Send")
                     }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!workspace.canSend)
-                    .help("Send")
                 }
             }
             .padding(.horizontal, 16)

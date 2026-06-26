@@ -75,6 +75,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
@@ -99,6 +100,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: loggedIn)
@@ -127,6 +129,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -166,6 +169,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -199,6 +203,7 @@ struct whitenoise_macTests {
             label: "Primary Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
@@ -215,6 +220,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         runtime.createdAccount = secondary
@@ -241,6 +247,7 @@ struct whitenoise_macTests {
             label: "Primary Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
@@ -253,6 +260,7 @@ struct whitenoise_macTests {
             label: "Second Identity",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         runtime.createdAccount = secondary
@@ -290,6 +298,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: summary)
@@ -311,6 +320,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [summary])
@@ -337,12 +347,14 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
@@ -364,12 +376,14 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
@@ -427,12 +441,14 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let secondary = AccountSummaryFfi(
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
@@ -466,6 +482,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
@@ -984,6 +1001,8 @@ struct whitenoise_macTests {
             ),
             unreadCount: 0,
             hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
@@ -1017,6 +1036,8 @@ struct whitenoise_macTests {
             ),
             unreadCount: 0,
             hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
@@ -1245,6 +1266,8 @@ struct whitenoise_macTests {
             ),
             unreadCount: 0,
             hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
@@ -1274,6 +1297,8 @@ struct whitenoise_macTests {
             ),
             unreadCount: 0,
             hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
@@ -1584,6 +1609,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         let timelineReference = mediaAttachmentReference(sourceEpoch: 0, mediaType: "audio/mp4", fileName: "voice.m4a")
@@ -1666,6 +1692,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: false
         )
         let firstReference = mediaAttachmentReference(
@@ -1877,6 +1904,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -1921,6 +1949,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -1983,6 +2012,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2045,6 +2075,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2221,6 +2252,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2402,6 +2434,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2486,6 +2519,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2532,6 +2566,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2582,6 +2617,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2636,6 +2672,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -2688,6 +2725,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2712,6 +2750,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2771,6 +2810,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2815,6 +2855,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2872,6 +2913,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -2962,6 +3004,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3019,6 +3062,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3074,6 +3118,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3261,6 +3306,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3336,6 +3382,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3437,6 +3484,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3492,6 +3540,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3567,6 +3616,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3653,6 +3703,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3737,6 +3788,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3781,6 +3833,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3829,6 +3882,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3880,6 +3934,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3932,6 +3987,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -3999,6 +4055,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4052,6 +4109,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4108,6 +4166,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4158,6 +4217,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4196,6 +4256,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4432,6 +4493,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4447,6 +4509,7 @@ struct whitenoise_macTests {
             avatarDim: nil,
             avatarThumbhash: nil,
             encryptedMedia: encryptedMediaComponent(),
+            disappearingMessageSecs: 0,
             archived: false,
             pendingConfirmation: false,
             welcomerAccountIdHex: nil,
@@ -4492,6 +4555,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -4649,6 +4713,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -4712,6 +4777,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -4814,6 +4880,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -4868,6 +4935,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -4925,6 +4993,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -5074,6 +5143,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5140,6 +5210,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5203,6 +5274,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5228,6 +5300,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5259,6 +5332,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -5291,6 +5365,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6403,6 +6478,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6456,6 +6532,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6482,6 +6559,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6502,6 +6580,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let slowId = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -6559,6 +6638,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6578,6 +6658,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6643,6 +6724,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let bootstrapRelays = ["wss://bootstrap.example"]
@@ -6668,6 +6750,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6690,6 +6773,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6719,6 +6803,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6744,6 +6829,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6787,6 +6873,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6838,9 +6925,8 @@ struct whitenoise_macTests {
         #expect(runtimeConfig.resource?.osVersion == "Version 26.0")
         #expect(runtimeConfig.resource?.deviceModelIdentifier == nil)
 
-        let auditConfig = config.auditTrackerConfig(accountLabel: "Desktop Account")
+        let auditConfig = config.auditTrackerConfig()
         #expect(auditConfig.authorizationBearerToken == "audit-token")
-        #expect(auditConfig.source.accountLabel == "Desktop Account")
         #expect(auditConfig.source.deviceLabel == "Mac15,3")
         #expect(auditConfig.source.platform == "macOS")
         #expect(auditConfig.source.appVersion == "2026.6+12")
@@ -6880,6 +6966,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -6887,7 +6974,7 @@ struct whitenoise_macTests {
             exportEnabled: true,
             exportIntervalSeconds: 120
         )
-        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .obfuscatedSensitiveData)
         runtime.storedAuditLogFiles = [
             AuditLogFileFfi(
                 accountRef: account.label,
@@ -6926,7 +7013,6 @@ struct whitenoise_macTests {
         #expect(telemetryResource?.osVersion == ProcessInfo.processInfo.operatingSystemVersionString)
         #expect(telemetryResource?.deviceModelIdentifier == nil)
         #expect(runtime.auditLogTrackerConfig?.authorizationBearerToken == "audit-token")
-        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Desktop Account")
         #expect(runtime.auditLogTrackerConfig?.source.deviceLabel == expectedDeviceModelIdentifier())
 
         await state.setRelayTelemetryEnabled(false)
@@ -6949,12 +7035,14 @@ struct whitenoise_macTests {
             label: "primary-account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let secondary = AccountSummaryFfi(
             label: "secondary-account",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
@@ -6996,90 +7084,21 @@ struct whitenoise_macTests {
         #expect(runtime.telemetryInstallIdCallCount == 1)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
         #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
-        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Primary Account")
 
+        // Account identity now lives in the core's JSONL source_context (Goggles
+        // contract), so the host-supplied audit tracker config is account-
+        // independent. Switching accounts therefore produces an unchanged request
+        // that is skipped — the set-call count stays at 1.
         let secondaryItem = try #require(state.accounts.first { $0.accountRef == secondary.label })
         state.selectAccount(secondaryItem)
-        let didRefreshAccountLabel = await waitFor {
-            runtime.auditLogTrackerConfig?.source.accountLabel == "Secondary Account"
+        let didSwitch = await waitFor {
+            state.activeAccountId == secondaryItem.id
         }
 
-        #expect(didRefreshAccountLabel)
+        #expect(didSwitch)
         #expect(runtime.telemetryInstallIdCallCount == 1)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
-        #expect(runtime.auditLogTrackerConfigSetCallCount == 2)
-    }
-
-    @MainActor
-    @Test func notificationResponseAccountSwitchRefreshesObservabilityAccountLabel() async throws {
-        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
-        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
-        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
-
-        let primary = AccountSummaryFfi(
-            label: "primary-account",
-            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
-            localSigning: true,
-            running: true
-        )
-        let secondary = AccountSummaryFfi(
-            label: "secondary-account",
-            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
-            localSigning: true,
-            running: true
-        )
-        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
-        runtime.installProfile(
-            accountIdHex: primary.accountIdHex,
-            profile: UserProfileMetadataFfi(
-                name: "primary",
-                displayName: "Primary Account",
-                about: nil,
-                picture: nil,
-                nip05: nil,
-                lud16: nil
-            )
-        )
-        runtime.installProfile(
-            accountIdHex: secondary.accountIdHex,
-            profile: UserProfileMetadataFfi(
-                name: "secondary",
-                displayName: "Secondary Account",
-                about: nil,
-                picture: nil,
-                nip05: nil,
-                lud16: nil
-            )
-        )
-        let state = WorkspaceState(
-            telemetryBuildConfigProvider: {
-                telemetryBuildConfig(
-                    telemetryToken: "otlp-token",
-                    auditToken: "audit-token",
-                    environment: "production"
-                )
-            },
-            clientFactory: { runtime }
-        )
-
-        await state.bootstrap()
-        #expect(runtime.auditLogTrackerConfig?.source.accountLabel == "Primary Account")
-
-        // accountIdHex is the canonical account identifier; accountRef/label can be stale if
-        // the account was renamed after the notification was delivered.
-        state.handleNotificationResponse([
-            "groupIdHex": "direct-group",
-            "accountIdHex": secondary.accountIdHex,
-            "accountRef": primary.label,
-        ])
-        let didRefreshAccountLabel = await waitFor {
-            runtime.auditLogTrackerConfig?.source.accountLabel == "Secondary Account"
-        }
-
-        #expect(didRefreshAccountLabel)
-        #expect(runtime.telemetryInstallIdCallCount == 1)
-        #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
-        #expect(runtime.auditLogTrackerConfigSetCallCount == 2)
+        #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
     }
 
     @MainActor
@@ -7092,12 +7111,14 @@ struct whitenoise_macTests {
             label: "primary-account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let secondary = AccountSummaryFfi(
             label: "secondary-account",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let senderId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -7186,6 +7207,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7214,6 +7236,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7247,6 +7270,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7268,6 +7292,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7303,6 +7328,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -7350,6 +7376,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7393,10 +7420,11 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true)
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true, dataMode: .obfuscatedSensitiveData)
         runtime.storedAuditLogFiles = [
             AuditLogFileFfi(
                 accountRef: account.label,
@@ -7446,6 +7474,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7474,6 +7503,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7508,6 +7538,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7548,6 +7579,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7727,6 +7759,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7773,6 +7806,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7819,6 +7853,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7857,6 +7892,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7898,6 +7934,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -7916,6 +7953,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let bootstrapRelays = ["wss://bootstrap.example"]
@@ -7948,6 +7986,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let publishRelays = ["wss://published.example"]
@@ -7977,6 +8016,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            signedOut: false,
             running: true
         )
         let bootstrapRelays = ["wss://bootstrap.example"]
@@ -8216,7 +8256,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         localNotificationsEnabled: false,
         nativePushEnabled: false
     )
-    var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
+    var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .obfuscatedSensitiveData)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
     var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(
         enabled: true,
@@ -8420,7 +8460,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         nip65: [String],
         inbox: [String],
         complete: Bool = true,
-        missing: [String] = []
+        missing: [MissingRelayListKindFfi] = []
     ) {
         relayLists = AccountRelayListsFfi(
             complete: complete,
@@ -8623,6 +8663,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                 avatarDim: nil,
                 avatarThumbhash: nil,
                 encryptedMedia: encryptedMediaComponent(),
+                disappearingMessageSecs: 0,
                 archived: false,
                 pendingConfirmation: false,
                 welcomerAccountIdHex: nil,
@@ -9123,6 +9164,80 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         messageActionGateContinuation = nil
     }
 
+    // MARK: - darkmatter 745959e FFI additions
+
+    var parseMarkdownCallCount = 0
+    var signOutCallCount = 0
+    var signedOutAccountRefs: [String] = []
+    var signInAccountCallCount = 0
+    var revealNsecCallCount = 0
+    var exportEncryptedSecretKeyCallCount = 0
+    var deleteGroupLocalCallCount = 0
+    var locallyDeletedGroupIds: [String] = []
+    var updateMessageRetentionCallCount = 0
+    var lastRetentionSecs: UInt64?
+    var secureDeleteExpiredCallCount = 0
+    var accountUnreadSummaryRows: [AccountUnreadFfi] = []
+
+    func parseMarkdown(text: String) -> MarkdownDocumentFfi {
+        parseMarkdownCallCount += 1
+        return MarkdownDocumentFfi(blocks: [], truncated: false)
+    }
+
+    func accountUnreadSummary() throws -> [AccountUnreadFfi] {
+        accountUnreadSummaryRows
+    }
+
+    func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {
+        signOutCallCount += 1
+        signedOutAccountRefs.append(accountRef)
+        return SignOutOutcomeFfi(
+            keyPackagesDeleted: 0,
+            keyPackageFailures: [],
+            localCleanup: LocalCleanupReportFfi(completed: true, reason: nil)
+        )
+    }
+
+    func signInAccount(accountRef: String) async throws -> AccountSummaryFfi {
+        signInAccountCallCount += 1
+        return AccountSummaryFfi(
+            label: accountRef,
+            accountIdHex: accountRef,
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+    }
+
+    func revealNsec(accountRef: String) throws -> String {
+        revealNsecCallCount += 1
+        return "nsec1fake"
+    }
+
+    func exportEncryptedSecretKey(accountRef: String, passphrase: String) throws -> String {
+        exportEncryptedSecretKeyCallCount += 1
+        return "ncryptsec1fake"
+    }
+
+    func deleteGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
+        deleteGroupLocalCallCount += 1
+        locallyDeletedGroupIds.append(groupIdHex)
+        return true
+    }
+
+    func updateMessageRetention(accountRef: String, groupIdHex: String, disappearingMessageSecs: UInt64) async throws
+        -> SendSummaryFfi
+    {
+        updateMessageRetentionCallCount += 1
+        lastRetentionSecs = disappearingMessageSecs
+        return SendSummaryFfi(published: 1, messageIds: ["retention"])
+    }
+
+    func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
+        secureDeleteExpiredCallCount += 1
+        return SecureDeleteExpiredResultFfi(prunedMessages: 0, mediaCiphertextSha256: [])
+    }
+
     private func chatListRow(for group: AppGroupRecordFfi) -> ChatListRowFfi {
         let latest = timelinePagesByGroupId[group.groupIdHex]?.messages.last(where: { $0.kind == 9 })
         return ChatListRowFfi(
@@ -9147,6 +9262,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             },
             unreadCount: 0,
             hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: latest?.timelineAt,
@@ -9623,13 +9740,16 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
                         contentTokens: reply.contentTokens,
                         kind: reply.kind,
                         mediaJson: nil,
+                        media: [],
                         agentTextStreamJson: nil,
                         deleted: false
                     )
                 }
             },
             mediaJson: nil,
+            media: [],
             agentTextStreamJson: nil,
+            groupSystem: nil,
             reactions: projectedReactionSummary(reactionsByTarget[message.messageIdHex] ?? []),
             deleted: false,
             deletedByMessageIdHex: nil,
@@ -9716,7 +9836,9 @@ private func timelineMessage(
         replyToMessageIdHex: nil,
         replyPreview: nil,
         mediaJson: mediaJson,
+        media: [],
         agentTextStreamJson: agentTextStreamJson,
+        groupSystem: nil,
         reactions: reactions,
         deleted: false,
         deletedByMessageIdHex: nil,
@@ -9752,6 +9874,8 @@ private func chatListRow(
         ),
         unreadCount: 0,
         hasUnread: false,
+        unreadMentionCount: 0,
+        unreadMention: false,
         firstUnreadMessageIdHex: nil,
         lastReadMessageIdHex: nil,
         lastReadTimelineAt: nil,
@@ -9799,7 +9923,7 @@ private func chatListOrderingTestItem(
 private func projectedReactionSummary(_ reactions: [TimelineUserReactionFfi]) -> TimelineReactionSummaryFfi {
     let byEmoji = Dictionary(grouping: reactions, by: \.emoji)
         .map { emoji, reactions in
-            TimelineReactionEmojiFfi(emoji: emoji, senders: reactions.map(\.sender))
+            TimelineReactionEmojiFfi(emoji: emoji, count: UInt32(reactions.count), senders: reactions.map(\.sender))
         }
         .sorted { lhs, rhs in
             if lhs.senders.count != rhs.senders.count {
@@ -9990,6 +10114,7 @@ private func notificationUpdate(
         groupIdHex: groupIdHex,
         groupName: groupName,
         isDm: isDm,
+        isMention: false,
         messageIdHex: "\(notificationKey)-message",
         sender: NotificationUserFfi(
             accountIdHex: isFromSelf
@@ -10015,6 +10140,7 @@ private func desktopAccount() -> AccountSummaryFfi {
         label: "Desktop Account",
         accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         localSigning: true,
+        signedOut: false,
         running: true
     )
 }
@@ -10106,6 +10232,7 @@ private func directGroup() -> AppGroupRecordFfi {
         avatarDim: nil,
         avatarThumbhash: nil,
         encryptedMedia: encryptedMediaComponent(),
+        disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
         welcomerAccountIdHex: nil,
@@ -10126,6 +10253,7 @@ private func messageGroup() -> AppGroupRecordFfi {
         avatarDim: nil,
         avatarThumbhash: nil,
         encryptedMedia: encryptedMediaComponent(),
+        disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
         welcomerAccountIdHex: nil,
@@ -10240,7 +10368,7 @@ private func mediaIMetaTag(for reference: MediaAttachmentReferenceFfi) -> Messag
 }
 
 private func emptyMarkdownDocument() -> MarkdownDocumentFfi {
-    MarkdownDocumentFfi(blocks: [])
+    MarkdownDocumentFfi(blocks: [], truncated: false)
 }
 
 private func restoreDefault(_ value: Any?, forKey key: String) {

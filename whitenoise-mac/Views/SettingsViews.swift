@@ -177,11 +177,18 @@ struct AccountsSettingsView: View {
                         account: account,
                         isActive: account.id == workspace.activeAccountId,
                         isRemoving: workspace.isRemovingAccount,
+                        isSigningOut: workspace.isSigningOutAccount,
                         onSelect: {
                             workspace.selectAccountFromSettings(account)
                         },
                         onRemove: {
                             accountPendingRemoval = account
+                        },
+                        onSignOut: {
+                            Task { await workspace.signOutAccount(account) }
+                        },
+                        onSignIn: {
+                            Task { await workspace.signInAccount(account) }
                         }
                     )
                 }
@@ -277,12 +284,15 @@ struct AccountSettingsRow: View {
     let account: AccountItem
     let isActive: Bool
     let isRemoving: Bool
+    let isSigningOut: Bool
     let onSelect: () -> Void
     let onRemove: () -> Void
+    let onSignOut: () -> Void
+    let onSignIn: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Button(action: onSelect) {
+            Button(action: account.signedOut ? onSignIn : onSelect) {
                 HStack(spacing: 12) {
                     ProfileImageAvatarView(
                         seed: account.accountIdHex,
@@ -291,6 +301,7 @@ struct AccountSettingsRow: View {
                         size: 44,
                         isSelected: false
                     )
+                    .opacity(account.signedOut ? 0.4 : 1)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(account.displayName)
@@ -300,9 +311,9 @@ struct AccountSettingsRow: View {
                         HStack(spacing: 8) {
                             CopyableKeyLabel(accountIdHex: account.accountIdHex, showsCopyButton: false)
 
-                            Text(account.localSigning ? L10n.string("Local signing") : L10n.string("Watch-only"))
+                            Text(statusText)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(account.signedOut ? Color.orange : .secondary)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -325,6 +336,22 @@ struct AccountSettingsRow: View {
             )
             .disabled(isRemoving)
 
+            if account.signedOut {
+                Button(action: onSignIn) {
+                    Image(systemName: "person.crop.circle.badge.checkmark")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isSigningOut)
+                .help(L10n.string("Sign in to this account"))
+            } else {
+                Button(action: onSignOut) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isSigningOut)
+                .help(L10n.string("Sign out of this account on this Mac"))
+            }
+
             Button(role: .destructive, action: onRemove) {
                 Image(systemName: "person.crop.circle.badge.minus")
             }
@@ -334,6 +361,13 @@ struct AccountSettingsRow: View {
             .help(L10n.string("Remove this account from this Mac"))
             .accessibilityLabel(Text(String(format: L10n.string("Remove %@"), account.displayName)))
         }
+    }
+
+    private var statusText: String {
+        if account.signedOut {
+            return L10n.string("Signed out")
+        }
+        return account.localSigning ? L10n.string("Local signing") : L10n.string("Watch-only")
     }
 }
 
@@ -584,6 +618,7 @@ struct ProfileSettingsView: View {
 struct IdentityKeysSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showRemoveAccountConfirmation = false
+    @State private var showKeyBackup = false
 
     var body: some View {
         SettingsScaffold(
@@ -651,11 +686,15 @@ struct IdentityKeysSettingsView: View {
                     }
 
                     Button {
+                        showKeyBackup = true
                     } label: {
-                        Label("Copy Private Key", systemImage: "key")
+                        Label("Back Up Private Key…", systemImage: "key")
                     }
-                    .disabled(true)
-                    .help("Private-key export is not exposed by MarmotKit in this build")
+                    .disabled(!account.localSigning)
+                    .help(
+                        account.localSigning
+                            ? L10n.string("Reveal your nsec or export an encrypted NIP-49 backup")
+                            : L10n.string("This account has no private key stored on this Mac"))
                 }
 
                 Section("Account Removal") {
@@ -694,6 +733,9 @@ struct IdentityKeysSettingsView: View {
         } message: {
             Text("This removes the selected account from this Mac.")
         }
+        .sheet(isPresented: $showKeyBackup) {
+            PrivateKeyBackupSheet()
+        }
     }
 
     private var removeAccountTitle: String {
@@ -701,6 +743,119 @@ struct IdentityKeysSettingsView: View {
             return String(format: L10n.string("Remove %@?"), account.displayName)
         }
         return L10n.string("Remove account?")
+    }
+}
+
+/// Private-key backup sheet: reveal the raw `nsec` or export a passphrase-encrypted
+/// NIP-49 (`ncryptsec`) backup of the active account's signing key.
+struct PrivateKeyBackupSheet: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.dismiss) private var dismiss
+
+    private enum Mode: Hashable {
+        case nsec
+        case encrypted
+    }
+
+    @State private var mode: Mode = .encrypted
+    @State private var passphrase = ""
+    @State private var revealedSecret: String?
+    @State private var isWorking = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Back Up Private Key")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Picker("Backup type", selection: $mode) {
+                Text("Encrypted (NIP-49)").tag(Mode.encrypted)
+                Text("Raw nsec").tag(Mode.nsec)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .onChange(of: mode) { _, _ in revealedSecret = nil }
+
+            switch mode {
+            case .encrypted:
+                Text("Protect your key with a passphrase. You'll need it to restore the backup.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                SecureField("Passphrase", text: $passphrase)
+                    .textFieldStyle(.roundedBorder)
+            case .nsec:
+                Label(
+                    "Anyone with your nsec controls this account. Never share it. Revealing it is recorded in your audit log.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.callout)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let revealedSecret {
+                GroupBox {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(revealedSecret)
+                            .font(.system(.callout, design: .monospaced))
+                            .textSelection(.enabled)
+                            .lineLimit(4)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Button {
+                            workspace.copyText(revealedSecret)
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .help(L10n.string("Copy"))
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button {
+                    Task { await produceBackup() }
+                } label: {
+                    if isWorking {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text(mode == .nsec ? L10n.string("Reveal nsec") : L10n.string("Export Backup"))
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isWorking || (mode == .encrypted && passphrase.isEmpty))
+            }
+
+            if let error = workspace.lastError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+    }
+
+    private func produceBackup() async {
+        isWorking = true
+        defer { isWorking = false }
+        switch mode {
+        case .nsec:
+            revealedSecret = await workspace.revealActiveAccountNsec()
+        case .encrypted:
+            revealedSecret = await workspace.exportActiveAccountEncryptedKey(passphrase: passphrase)
+        }
     }
 }
 
@@ -822,6 +977,26 @@ struct PrivacySecuritySettingsView: View {
                     Label("Audit Logging", systemImage: "doc.text.magnifyingglass")
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
+
+                Toggle(
+                    isOn: Binding(
+                        get: { workspace.privacySecuritySettings.auditFullDataLogging },
+                        set: { enabled in
+                            Task { await workspace.setAuditFullDataLogging(enabled) }
+                        }
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label("Full Data Logging", systemImage: "eye.trianglebadge.exclamationmark")
+                        Text(
+                            "Record decrypted message content and full identifiers. "
+                                + "Leave off to keep sensitive data obfuscated."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .disabled(workspace.isSavingPrivacySecurity || !workspace.privacySecuritySettings.auditLoggingEnabled)
 
                 if workspace.isSavingPrivacySecurity {
                     HStack(spacing: 10) {
@@ -1219,9 +1394,6 @@ struct RelayDiagnosticsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            RelayDiagnosticsRow(title: "Default", systemImage: "network", relays: settings.defaultRelays)
-            RelayDiagnosticsRow(
-                title: "Bootstrap", systemImage: "antenna.radiowaves.left.and.right", relays: settings.bootstrapRelays)
             RelayDiagnosticsRow(title: "NIP-65", systemImage: "list.bullet", relays: settings.publishedNip65)
             RelayDiagnosticsRow(title: "Inbox", systemImage: "tray.and.arrow.down", relays: settings.publishedInbox)
 

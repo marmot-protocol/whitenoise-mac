@@ -149,12 +149,11 @@ extension WorkspaceState {
     }
 
     func acceptGroupInvite(for chat: ChatItem) async {
-        guard !chat.isDirect else { return }
+        // DMs are 2-person MLS groups, so their welcomes are accepted the same way.
         await acceptGroupInvite(groupIdHex: chat.id)
     }
 
     func declineGroupInvite(for chat: ChatItem) async {
-        guard !chat.isDirect else { return }
         await declineGroupInvite(groupIdHex: chat.id)
     }
 
@@ -369,6 +368,65 @@ extension WorkspaceState {
 
         do {
             _ = try await client.declineGroupInvite(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            if groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                closeGroupDetails()
+            }
+            if case .chat(let selectedGroupId) = selection, selectedGroupId == groupIdHex {
+                stopTimelineListener()
+                selection = nil
+                pruneMessageCache(keeping: nil)
+            }
+            await reloadChats()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setDisappearingMessages(groupIdHex: String, seconds: UInt64) async {
+        guard let client, let activeAccount, !isUpdatingDisappearingMessages else { return }
+        lastError = nil
+        isUpdatingDisappearingMessages = true
+        defer { isUpdatingDisappearingMessages = false }
+
+        do {
+            _ = try await client.updateMessageRetention(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex,
+                disappearingMessageSecs: seconds
+            )
+            if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                await loadGroupDetails(groupIdHex: groupIdHex)
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func secureDeleteExpiredMessages(groupIdHex: String) async {
+        guard let client, let activeAccount else { return }
+        do {
+            _ = try await client.secureDeleteExpired(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Remove a group from local storage only (no relay/leave traffic). Used to
+    /// clear a stale or declined conversation from this device.
+    func deleteGroupLocally(groupIdHex: String) async {
+        guard let client, let activeAccount, !isDeletingGroupLocally else { return }
+        lastError = nil
+        isDeletingGroupLocally = true
+        defer { isDeletingGroupLocally = false }
+
+        do {
+            _ = try await client.deleteGroupLocal(
                 accountRef: activeAccount.accountRef,
                 groupIdHex: groupIdHex
             )
