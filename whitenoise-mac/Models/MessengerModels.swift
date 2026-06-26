@@ -615,7 +615,7 @@ nonisolated enum OutgoingMediaDraftProcessor {
             if let fileSize = resourceValues.fileSize, fileSize > maxAttachmentBytes {
                 throw Failure.attachmentTooLarge(fileSize)
             }
-            let data = try Data(contentsOf: url)
+            let data = try readAttachmentData(from: url)
             return try await SendableAttachment(
                 attachment: preparedAttachmentValue(
                     from: data,
@@ -624,6 +624,16 @@ nonisolated enum OutgoingMediaDraftProcessor {
                 ))
         }.value
         return prepared.attachment
+    }
+
+    private static func readAttachmentData(from url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        // Read at most one byte past the cap so URLs without fileSize cannot force
+        // unbounded buffering before the raw-size guard runs.
+        let data = try handle.read(upToCount: maxAttachmentBytes + 1) ?? Data()
+        try enforceRawAttachmentSize(data)
+        return data
     }
 
     static func preparedVoiceAttachment(from recording: VoiceRecordingResult) async throws -> PendingMediaAttachment {
@@ -655,6 +665,9 @@ nonisolated enum OutgoingMediaDraftProcessor {
         fileName: String?,
         typeIdentifier: String?
     ) async throws -> PendingMediaAttachment {
+        // Keep the raw-size invariant in the common funnel too, so no caller can
+        // branch into image decoding with unbounded data.
+        try enforceRawAttachmentSize(data)
         let kind = kind(for: typeIdentifier, fileName: fileName)
         if kind == .image {
             return try imageAttachment(from: data, fileName: fileName)
@@ -669,9 +682,6 @@ nonisolated enum OutgoingMediaDraftProcessor {
         else {
             throw Failure.unsupportedAttachment
         }
-        guard data.count <= maxAttachmentBytes else {
-            throw Failure.attachmentTooLarge(data.count)
-        }
         let videoDim = kind == .video ? await MediaVideoMetadata.dim(from: data, mediaType: mediaType) : nil
         return try genericAttachment(
             from: data,
@@ -680,6 +690,12 @@ nonisolated enum OutgoingMediaDraftProcessor {
             kind: kind,
             videoDim: videoDim
         )
+    }
+
+    private static func enforceRawAttachmentSize(_ data: Data) throws {
+        guard data.count <= maxAttachmentBytes else {
+            throw Failure.attachmentTooLarge(data.count)
+        }
     }
 
     private static func kind(for typeIdentifier: String?, fileName: String?) -> MessageMediaKind? {
