@@ -450,6 +450,17 @@ private final class RemoteImageLoadRegistry: @unchecked Sendable {
         taskToCancel?.cancel()
     }
 
+    func cancelAll() {
+        let tasksToCancel: [Task<LoadedImage?, Never>]
+
+        lock.lock()
+        tasksToCancel = tasks.values.map(\.task)
+        tasks.removeAll()
+        lock.unlock()
+
+        tasksToCancel.forEach { $0.cancel() }
+    }
+
     #if DEBUG
         func waiterCount(for key: String) -> Int {
             lock.lock()
@@ -491,6 +502,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
     private let cache = NSCache<NSString, NSImage>()
     private let inFlight = RemoteImageLoadRegistry()
+    private let cacheStateLock = NSLock()
+    private var cacheGeneration = 0
     private let session: URLSession
 
     var decodedCacheCountLimit: Int { cache.countLimit }
@@ -533,17 +546,24 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
 
         let key = Self.cacheKey(for: url, maxPixelSize: maxPixelSize)
-        if let cached = cache.object(forKey: key as NSString) {
+        if let cached = cachedImage(for: key) {
             return LoadedImage(nsImage: cached)
         }
 
-        let task = inFlight.task(for: key) { [self] in
+        let generation = currentCacheGeneration()
+        let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
+        let task = inFlight.task(for: taskKey) { [self] in
             Task { [self] in
-                await loadRemoteImage(for: url, cacheKey: key, maxPixelSize: maxPixelSize)
+                await loadRemoteImage(
+                    for: url,
+                    cacheKey: key,
+                    maxPixelSize: maxPixelSize,
+                    cacheGeneration: generation
+                )
             }
         }
         let waiter = RemoteImageLoadWaiter { [inFlight] in
-            inFlight.releaseWaiter(for: key)
+            inFlight.releaseWaiter(for: taskKey)
         }
 
         return await withTaskCancellationHandler {
@@ -562,17 +582,24 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// example an immutable attachment id, or a content fingerprint when ids can be reused).
     func image(for data: Data, cacheKey rawCacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
         let key = Self.cacheKey(forLocalImageID: rawCacheKey, maxPixelSize: maxPixelSize)
-        if let cached = cache.object(forKey: key as NSString) {
+        if let cached = cachedImage(for: key) {
             return LoadedImage(nsImage: cached)
         }
 
-        let task = inFlight.task(for: key) { [self] in
+        let generation = currentCacheGeneration()
+        let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
+        let task = inFlight.task(for: taskKey) { [self] in
             Task { [self] in
-                await loadLocalImage(data: data, cacheKey: key, maxPixelSize: maxPixelSize)
+                await loadLocalImage(
+                    data: data,
+                    cacheKey: key,
+                    maxPixelSize: maxPixelSize,
+                    cacheGeneration: generation
+                )
             }
         }
         let waiter = RemoteImageLoadWaiter { [inFlight] in
-            inFlight.releaseWaiter(for: key)
+            inFlight.releaseWaiter(for: taskKey)
         }
 
         return await withTaskCancellationHandler {
@@ -584,17 +611,27 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }
     }
 
-    /// Drops every decoded image held in memory. Decoded avatars derive from attacker-controlled
-    /// peer Nostr `picture` URLs, so the privacy wipe paths (account removal reset and full
-    /// local-data reset) must evict them rather than letting them linger in the process for its
-    /// lifetime. See whitenoise-mac#177.
+    /// Drops every decoded image held in memory and invalidates in-flight decodes/downloads.
+    /// Decoded avatars derive from attacker-controlled peer Nostr `picture` URLs, so the privacy
+    /// wipe paths (account removal reset and full local-data reset) must evict them rather than
+    /// letting them linger in the process for its lifetime. See whitenoise-mac#177.
     func clearCache() {
+        inFlight.cancelAll()
+
+        cacheStateLock.lock()
+        cacheGeneration += 1
         cache.removeAllObjects()
+        cacheStateLock.unlock()
     }
 
     #if DEBUG
         func inFlightWaiterCount(for url: URL, maxPixelSize: CGFloat) -> Int {
-            inFlight.waiterCount(for: Self.cacheKey(for: url, maxPixelSize: maxPixelSize))
+            inFlight.waiterCount(
+                for: Self.inFlightKey(
+                    forCacheKey: Self.cacheKey(for: url, maxPixelSize: maxPixelSize),
+                    generation: currentCacheGeneration()
+                )
+            )
         }
     #endif
 
@@ -606,20 +643,72 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         "local|\(cacheID)|\(Int(maxPixelSize))"
     }
 
-    private func loadRemoteImage(for url: URL, cacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
-        guard let data = await Self.download(url, using: session) else { return nil }
-        return await loadLocalImage(data: data, cacheKey: cacheKey, maxPixelSize: maxPixelSize)
+    private static func inFlightKey(forCacheKey cacheKey: String, generation: Int) -> String {
+        "\(generation)|\(cacheKey)"
     }
 
-    private func loadLocalImage(data: Data, cacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
-        let key = cacheKey as NSString
+    private func loadRemoteImage(
+        for url: URL,
+        cacheKey: String,
+        maxPixelSize: CGFloat,
+        cacheGeneration generation: Int
+    ) async -> LoadedImage? {
+        guard let data = await Self.download(url, using: session) else { return nil }
+        guard !Task.isCancelled, isCurrentCacheGeneration(generation) else { return nil }
+        return await loadLocalImage(
+            data: data,
+            cacheKey: cacheKey,
+            maxPixelSize: maxPixelSize,
+            cacheGeneration: generation
+        )
+    }
+
+    private func loadLocalImage(
+        data: Data,
+        cacheKey: String,
+        maxPixelSize: CGFloat,
+        cacheGeneration generation: Int
+    ) async -> LoadedImage? {
         let pixelSize = maxPixelSize
         let loaded = await Task.detached(priority: .utility) {
             Self.downsample(data: data, maxPixelSize: pixelSize).map(LoadedImage.init)
         }.value
         guard let loaded else { return nil }
-        cache.setObject(loaded.nsImage, forKey: key, cost: Self.decodedCost(for: loaded.nsImage))
+        guard !Task.isCancelled else { return nil }
+        guard storeDecodedImage(loaded.nsImage, forKey: cacheKey, cacheGeneration: generation) else {
+            return nil
+        }
         return loaded
+    }
+
+    private func cachedImage(for key: String) -> NSImage? {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        return cache.object(forKey: key as NSString)
+    }
+
+    private func currentCacheGeneration() -> Int {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        return cacheGeneration
+    }
+
+    private func isCurrentCacheGeneration(_ generation: Int) -> Bool {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        return cacheGeneration == generation
+    }
+
+    private func storeDecodedImage(
+        _ image: NSImage,
+        forKey key: String,
+        cacheGeneration generation: Int
+    ) -> Bool {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        guard cacheGeneration == generation else { return false }
+        cache.setObject(image, forKey: key as NSString, cost: Self.decodedCost(for: image))
+        return true
     }
 
     /// Downloads the response in the `Data` chunks `URLSession` delivers natively, rejecting
