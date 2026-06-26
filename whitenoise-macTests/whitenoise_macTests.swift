@@ -1242,6 +1242,91 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func mediaOnlyChatPreviewShowsAttachmentLabelInsteadOfUnsupported() async throws {
+        // Regression for whitenoise-mac#175: `ChatListMessagePreviewFfi` carries no media
+        // payload, so a media-only chat message arrives with empty plaintext. The chat-list
+        // preview must fall back to "Attachment" rather than "Unsupported message".
+        let directRow = ChatListRowFfi(
+            groupIdHex: "direct-group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Alice",
+            groupName: "",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "media-preview",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                senderDisplayName: "Alice",
+                plaintext: "",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                timelineAt: 1_700_000_000,
+                deleted: false
+            ),
+            unreadCount: 0,
+            hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 1_700_000_000
+        )
+
+        let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
+        #expect(directChat.preview == "Attachment")
+
+        let groupRow = ChatListRowFfi(
+            groupIdHex: "group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Planning",
+            groupName: "Planning",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "media-preview",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                senderDisplayName: "Alice",
+                plaintext: "",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                timelineAt: 1_700_000_000,
+                deleted: false
+            ),
+            unreadCount: 0,
+            hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 1_700_000_000
+        )
+
+        let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
+        #expect(groupChat.preview == "Attachment")
+    }
+
+    @MainActor
+    @Test func literalUnsupportedChatPreviewPreservesMessageText() async throws {
+        // A valid chat body can equal the localized unsupported-message label. That
+        // literal text must not be mistaken for the empty media-only preview sentinel.
+        let literalText = L10n.string("Unsupported message")
+        let row = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: literalText,
+            sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            timelineAt: 1_700_000_001
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+        #expect(chat.preview == literalText)
+    }
+
+    @MainActor
     @Test func imetaInsideJSONReadsSourceEpochInBothSpellings() async throws {
         // Regression for whitenoise-mac#137: the imeta-within-object branch must
         // accept both snake_case `source_epoch` and camelCase `sourceEpoch` so a
@@ -1274,6 +1359,46 @@ struct whitenoise_macTests {
 
         #expect(messages.count == 2)
         #expect(messages.allSatisfy { $0.mediaAttachments.first?.reference.sourceEpoch == 7 })
+    }
+
+    @MainActor
+    @Test func invalidNumericSourceEpochFallsBackToZeroInsteadOfWrapping() async throws {
+        // Regression for whitenoise-mac#179: a peer-controlled `source_epoch` is the MLS
+        // decryption epoch, so a negative (`-1` would wrap to `UInt64.max`), fractional
+        // (`3.9` would truncate to `3`), out-of-range (`1e30` would saturate), or boolean
+        // (`true` would parse as `1`) JSON value must be rejected by `unsignedInteger(_:)`
+        // instead of flowing through as a garbage epoch. Rejected values default the parsed
+        // attachment epoch to 0, matching `nil` from `unsignedInteger`.
+        let reference = mediaAttachmentReference(sourceEpoch: 0, mediaType: "image/png", fileName: "photo.png")
+        let invalidEpochs: [NSNumber] = [
+            NSNumber(value: -1),
+            NSNumber(value: 3.9),
+            NSNumber(value: 1e30),
+            NSNumber(value: true),
+            NSNumber(value: false),
+        ]
+        let page = TimelinePageFfi(
+            messages: invalidEpochs.enumerated().flatMap { index, rawEpoch in
+                ["source_epoch", "sourceEpoch"].enumerated().map { keyIndex, key in
+                    timelineMessage(
+                        id: "invalid-epoch-\(index)-\(keyIndex)",
+                        groupIdHex: "group",
+                        sender: "alice",
+                        plaintext: "",
+                        recordedAt: 1_700_000_000 + UInt64(index * 2 + keyIndex),
+                        mediaJson: mediaJson(for: reference, sourceEpochKey: key, rawSourceEpoch: rawEpoch)
+                    )
+                }
+            },
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == invalidEpochs.count * 2)
+        #expect(messages.allSatisfy { $0.mediaAttachments.count == 1 })
+        #expect(messages.allSatisfy { $0.mediaAttachments.first?.reference.sourceEpoch == 0 })
     }
 
     @MainActor
@@ -10179,6 +10304,15 @@ private func mediaJson(for reference: MediaAttachmentReferenceFfi) -> String {
 private func mediaJson(for reference: MediaAttachmentReferenceFfi, sourceEpochKey key: String) -> String {
     let tag = mediaIMetaTag(for: reference).values
     return mediaJSONString(fromJSONObject: ["imeta": [tag], key: NSNumber(value: reference.sourceEpoch)])
+}
+
+private func mediaJson(
+    for reference: MediaAttachmentReferenceFfi,
+    sourceEpochKey key: String,
+    rawSourceEpoch: NSNumber
+) -> String {
+    let tag = mediaIMetaTag(for: reference).values
+    return mediaJSONString(fromJSONObject: ["imeta": [tag], key: rawSourceEpoch])
 }
 
 private func mediaJson(for reference: MediaAttachmentReferenceFfi, mediaObjectDepth depth: Int) -> String {

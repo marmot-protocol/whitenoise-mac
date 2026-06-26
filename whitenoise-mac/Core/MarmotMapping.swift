@@ -79,7 +79,16 @@ extension ChatItem {
             invalidationStatus: nil,
             hasMediaAttachments: false
         )
-        guard !text.isEmpty else {
+        // `ChatListMessagePreviewFfi` carries no media payload, so a media-only chat
+        // message arrives with empty `plaintext` and `displayText` reports it as
+        // "Unsupported message". Only treat that sentinel as media-only when the
+        // source preview text is empty; a user can send that literal text.
+        let sourceTextIsEmpty = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isMediaOnlyChat =
+            presentation.isChatBubble
+            && sourceTextIsEmpty
+            && text == L10n.string("Unsupported message")
+        guard !text.isEmpty, !isMediaOnlyChat else {
             return presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
         }
         guard presentation.isChatBubble,
@@ -630,7 +639,15 @@ private nonisolated enum MessageMediaParser {
 
     private static func unsignedInteger(_ value: Any?) -> UInt64? {
         if let number = value as? NSNumber {
-            return number.uint64Value
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                return nil
+            }
+            // `uint64Value` silently wraps negatives (`-1` -> `UInt64.max`) and truncates
+            // fractions (`3.9` -> `3`). A peer-controlled `source_epoch` feeds MLS epoch
+            // selection, so reject anything that is not an exact, in-range unsigned integer
+            // rather than letting garbage flow into the crypto layer. Round-tripping through
+            // the string value keeps this path semantically aligned with the `String` branch.
+            return UInt64(number.stringValue)
         }
         if let string = value as? String {
             return UInt64(string.trimmingCharacters(in: .whitespacesAndNewlines))
