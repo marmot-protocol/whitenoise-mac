@@ -176,6 +176,36 @@ final class MediaDownloadStateStore: ObservableObject {
 
 @MainActor
 @Observable
+final class MessageTimelineStore {
+    private(set) var messages: [MessageItem]
+    private(set) var messageIDs: [String]
+    private(set) var isLoaded: Bool
+
+    init(messages: [MessageItem] = [], isLoaded: Bool = false) {
+        self.messages = messages
+        self.messageIDs = messages.map(\.id)
+        self.isLoaded = isLoaded
+    }
+
+    static func loaded(with messages: [MessageItem]) -> MessageTimelineStore {
+        MessageTimelineStore(messages: messages, isLoaded: true)
+    }
+
+    func replace(with messages: [MessageItem]) {
+        self.messages = messages
+        self.messageIDs = messages.map(\.id)
+        self.isLoaded = true
+    }
+
+    func clear() {
+        messages = []
+        messageIDs = []
+        isLoaded = false
+    }
+}
+
+@MainActor
+@Observable
 final class WorkspaceState {
     enum Phase: Equatable {
         case bootstrapping
@@ -204,7 +234,11 @@ final class WorkspaceState {
     var phase: Phase = .bootstrapping
     var accounts: [AccountItem]
     var chatsByAccount: [String: [ChatItem]]
-    var messagesByChat: [String: [MessageItem]]
+    /// Backing timeline cache for tests and non-UI lookups. Swift Observation tracks an
+    /// observed dictionary as one property, so UI reads must go through `messageTimelineStores`
+    /// to subscribe only to the selected chat's transcript (whitenoise-mac#176).
+    @ObservationIgnored var messagesByChat: [String: [MessageItem]]
+    @ObservationIgnored var messageTimelineStores: [String: MessageTimelineStore] = [:]
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
@@ -218,7 +252,10 @@ final class WorkspaceState {
 
     var activeAccountId: String?
     var selection: WorkspaceSelection? {
-        didSet { dismissGroupImagePickerIfSelectedChatUnavailable() }
+        didSet {
+            dismissGroupImagePickerIfSelectedChatUnavailable()
+            ensureSelectedMessageTimelineStore()
+        }
     }
     var searchText = ""
     var isChatListVisible = true
@@ -425,13 +462,13 @@ final class WorkspaceState {
     /// conversation is torn down.
     var activeTimelineSubscription: TimelineMessagesSubscription?
     var activeTimelineGroupId: String?
-    var messageLookupByChat: [String: [String: MessageItem]] = [:]
-    /// Cached per-chat message id arrays, materialized once per `messagesByChat`
-    /// mutation and maintained in lockstep with it (alongside `messageLookupByChat`).
-    /// SwiftUI re-evaluates `body` frequently; reading this cache avoids rebuilding a
-    /// fresh `[String]` on every access. Invalidated/recomputed only when the
-    /// underlying messages change.
-    var messageIDsByChat: [String: [String]] = [:]
+    @ObservationIgnored var messageLookupByChat: [String: [String: MessageItem]] = [:]
+    /// Cached per-chat message id arrays for tests and non-UI lookups, materialized once
+    /// per `messagesByChat` mutation and maintained in lockstep with it (alongside
+    /// `messageLookupByChat`). SwiftUI reads selected message ids through
+    /// `MessageTimelineStore` instead so the open conversation subscribes only to its
+    /// own transcript.
+    @ObservationIgnored var messageIDsByChat: [String: [String]] = [:]
     var lastMarkedReadMarkers: [String: ReadMarker] = [:]
     var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
     var deliveredNotificationKeys = Set<String>()
@@ -645,6 +682,7 @@ final class WorkspaceState {
         self.accounts = accounts
         self.chatsByAccount = chatsByAccount
         self.messagesByChat = messagesByChat
+        self.messageTimelineStores = messagesByChat.mapValues { MessageTimelineStore.loaded(with: $0) }
         self.messageLookupByChat = messagesByChat.mapValues { messages in
             Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         }
@@ -680,6 +718,7 @@ final class WorkspaceState {
         self.localNotificationCenter.setResponseHandler { [weak self] userInfo in
             self?.handleNotificationResponse(userInfo)
         }
+        ensureSelectedMessageTimelineStore()
     }
 
     static func defaultConversationWindowVisibilityProvider() -> Bool {
@@ -734,14 +773,34 @@ final class WorkspaceState {
         return newChatRecipient
     }
 
+    @discardableResult
+    func ensureMessageTimelineStore(for groupIdHex: String) -> MessageTimelineStore {
+        if let store = messageTimelineStores[groupIdHex] {
+            return store
+        }
+        let store: MessageTimelineStore
+        if let messages = messagesByChat[groupIdHex] {
+            store = MessageTimelineStore.loaded(with: messages)
+        } else {
+            store = MessageTimelineStore()
+        }
+        messageTimelineStores[groupIdHex] = store
+        return store
+    }
+
+    func ensureSelectedMessageTimelineStore() {
+        guard let selectedChat else { return }
+        ensureMessageTimelineStore(for: selectedChat.id)
+    }
+
     var selectedMessages: [MessageItem] {
         guard let selectedChat else { return [] }
-        return messagesByChat[selectedChat.id] ?? []
+        return messageTimelineStores[selectedChat.id]?.messages ?? []
     }
 
     var selectedMessageIDs: [String] {
         guard let selectedChat else { return [] }
-        return messageIDsByChat[selectedChat.id] ?? []
+        return messageTimelineStores[selectedChat.id]?.messageIDs ?? []
     }
 
     var selectedTimelinePaging: TimelinePagingState {
@@ -752,7 +811,7 @@ final class WorkspaceState {
     var selectedTimelineIsLoadingInitialPage: Bool {
         guard let selectedChat else { return false }
         return timelineInitialLoadGroupId == selectedChat.id
-            && messagesByChat[selectedChat.id] == nil
+            && !(messageTimelineStores[selectedChat.id]?.isLoaded ?? false)
     }
 
     func timelineMessage(groupIdHex: String, messageId: String) -> MessageItem? {

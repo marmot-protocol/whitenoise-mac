@@ -221,6 +221,10 @@ extension WorkspaceState {
                 stopTimelineListener()
                 stopChatListListener()
                 messagesByChat.removeAll()
+                for store in messageTimelineStores.values {
+                    store.clear()
+                }
+                messageTimelineStores.removeAll()
                 messageLookupByChat.removeAll()
                 messageIDsByChat.removeAll()
                 mediaDownloads.removeAll()
@@ -343,6 +347,10 @@ extension WorkspaceState {
         accounts = []
         chatsByAccount = [:]
         messagesByChat = [:]
+        for store in messageTimelineStores.values {
+            store.clear()
+        }
+        messageTimelineStores = [:]
         resetMediaDownloadStateStores()
         messageLookupByChat = [:]
         messageIDsByChat = [:]

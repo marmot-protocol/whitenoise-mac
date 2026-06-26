@@ -1958,10 +1958,99 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selectedMessagesObservationIgnoresUnselectedChatMutations() async throws {
+        // Regression for #176: observing the visible transcript must not subscribe the
+        // conversation view to the whole messagesByChat dictionary. A background-chat
+        // timeline delta should leave the selected transcript's observation token alone,
+        // while a selected-chat replacement must still invalidate it.
+        let account = AccountItem.samples[0]
+        let selectedChat = ChatItem.samples[0]
+        let backgroundChat = ChatItem.samples[1]
+        let selectedMessage = MessageItem(
+            id: "selected-1",
+            groupIdHex: selectedChat.id,
+            senderName: "Alice",
+            body: "Visible",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        let backgroundMessage = MessageItem(
+            id: "background-1",
+            groupIdHex: backgroundChat.id,
+            senderName: "Bob",
+            body: "Background",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isOutgoing: false
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [selectedChat, backgroundChat]],
+            messagesByChat: [
+                selectedChat.id: [selectedMessage],
+                backgroundChat.id: [backgroundMessage],
+            ],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(selectedChat.id)
+
+        #expect(state.selectedMessages.map(\.id) == ["selected-1"])
+
+        let backgroundInvalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.selectedMessages.map(\.id)
+        } onChange: {
+            backgroundInvalidated.markInvalidated()
+        }
+
+        let backgroundUpdatedMessage = MessageItem(
+            id: "background-2",
+            groupIdHex: backgroundChat.id,
+            senderName: "Bob",
+            body: "Background update",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_002),
+            isOutgoing: false
+        )
+        let backgroundTimelineStore = state.ensureMessageTimelineStore(for: backgroundChat.id)
+        state.messagesByChat[backgroundChat.id] = [backgroundUpdatedMessage]
+        state.messageLookupByChat[backgroundChat.id] = [backgroundUpdatedMessage.id: backgroundUpdatedMessage]
+        state.messageIDsByChat[backgroundChat.id] = [backgroundUpdatedMessage.id]
+        backgroundTimelineStore.replace(with: [backgroundUpdatedMessage])
+
+        #expect(!backgroundInvalidated.value)
+        #expect(backgroundTimelineStore.messages.map(\.id) == ["background-2"])
+        #expect(state.selectedMessages.map(\.id) == ["selected-1"])
+
+        let selectedInvalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.selectedMessages.map(\.id)
+        } onChange: {
+            selectedInvalidated.markInvalidated()
+        }
+
+        state.replaceMessages(
+            [
+                MessageItem(
+                    id: "selected-2",
+                    groupIdHex: selectedChat.id,
+                    senderName: "Alice",
+                    body: "Visible update",
+                    sentAt: Date(timeIntervalSince1970: 1_700_000_003),
+                    isOutgoing: false
+                )
+            ],
+            groupIdHex: selectedChat.id
+        )
+
+        #expect(selectedInvalidated.value)
+        #expect(state.selectedMessages.map(\.id) == ["selected-2"])
+    }
+
+    @MainActor
     @Test func selectedMessageIDsCacheStaysInSyncAcrossTimelineMutations() async throws {
-        // Regression for #44: selectedMessageIDs is served from a cache maintained in
-        // lockstep with messagesByChat. Verify the cached ids always equal the live
-        // message ids before and after the timeline window is replaced via a projection.
+        // Regression for #44: selectedMessageIDs is served from the selected timeline
+        // store's cached id array. Verify the cached ids always equal the live message ids
+        // before and after the timeline window is replaced via a projection.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",

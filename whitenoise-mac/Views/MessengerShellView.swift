@@ -264,7 +264,7 @@ private struct ConversationView: View {
     var body: some View {
         @Bindable var workspace = workspace
         let messages = workspace.selectedMessages
-        let messageIDs = messages.map(\.id)
+        let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
 
