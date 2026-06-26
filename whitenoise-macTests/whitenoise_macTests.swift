@@ -4494,6 +4494,43 @@ struct whitenoise_macTests {
         #expect(state.timelineSenderMemberFallbackFetchCount >= 1)
     }
 
+    // MARK: - Workspace generation counters (issue #182)
+
+    @MainActor
+    @Test func workspaceStaleResultGenerationCountersWrapAndRetainOwnership() {
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        state.newChatQuery = "alice@example.com"
+
+        state.seedStaleResultGenerationsForTesting(UInt64.max)
+        let wrappedGenerations = state.bumpStaleResultGenerationsForTesting()
+
+        #expect(wrappedGenerations.newChatLookup == 0)
+        #expect(wrappedGenerations.groupImageSearch == 0)
+        #expect(wrappedGenerations.groupDetailsLoad == 0)
+
+        let currentOwnership = state.ownsStaleResultGenerationsForTesting(
+            generation: 0,
+            newChatQuery: "alice@example.com"
+        )
+        #expect(currentOwnership.newChatLookup)
+        #expect(currentOwnership.groupImageSearch)
+        #expect(currentOwnership.groupDetailsLoad)
+
+        let staleOwnership = state.ownsStaleResultGenerationsForTesting(
+            generation: UInt64.max,
+            newChatQuery: "alice@example.com"
+        )
+        #expect(!staleOwnership.newChatLookup)
+        #expect(!staleOwnership.groupImageSearch)
+        #expect(!staleOwnership.groupDetailsLoad)
+
+        let wrongQueryOwnership = state.ownsStaleResultGenerationsForTesting(
+            generation: 0,
+            newChatQuery: "bob@example.com"
+        )
+        #expect(!wrongQueryOwnership.newChatLookup)
+    }
+
     // MARK: - ChatListRowEnrichmentTracker (issue #40 ownership invariants)
 
     @Test func enrichmentTrackerStaleTaskAfterReloadDoesNotDropNewerTask() {
