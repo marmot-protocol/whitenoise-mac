@@ -132,6 +132,7 @@ extension WorkspaceState {
         clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
         chatsByAccount[account.id] = sortedChatItems(chatItems)
         dismissGroupImagePickerIfSelectedChatUnavailable()
+        ensureSelectedMessageTimelineStore()
         startChatListEnrichment(rows: rows, account: account)
     }
 
@@ -181,6 +182,7 @@ extension WorkspaceState {
         let needsInitialMetadata = !shouldEnrich && readStateRowNeedsMetadataEnrichment(row, current: current)
 
         chatsByAccount[account.id] = ChatListOrdering.upserting(chat, into: chats)
+        ensureSelectedMessageTimelineStore()
         if shouldEnrich {
             startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
         } else if needsInitialMetadata {

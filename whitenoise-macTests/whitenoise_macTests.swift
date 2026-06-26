@@ -1944,18 +1944,22 @@ struct whitenoise_macTests {
             backgroundInvalidated.markInvalidated()
         }
 
-        state.messagesByChat[backgroundChat.id] = [
-            MessageItem(
-                id: "background-2",
-                groupIdHex: backgroundChat.id,
-                senderName: "Bob",
-                body: "Background update",
-                sentAt: Date(timeIntervalSince1970: 1_700_000_002),
-                isOutgoing: false
-            )
-        ]
+        let backgroundUpdatedMessage = MessageItem(
+            id: "background-2",
+            groupIdHex: backgroundChat.id,
+            senderName: "Bob",
+            body: "Background update",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_002),
+            isOutgoing: false
+        )
+        let backgroundTimelineStore = state.ensureMessageTimelineStore(for: backgroundChat.id)
+        state.messagesByChat[backgroundChat.id] = [backgroundUpdatedMessage]
+        state.messageLookupByChat[backgroundChat.id] = [backgroundUpdatedMessage.id: backgroundUpdatedMessage]
+        state.messageIDsByChat[backgroundChat.id] = [backgroundUpdatedMessage.id]
+        backgroundTimelineStore.replace(with: [backgroundUpdatedMessage])
 
         #expect(!backgroundInvalidated.value)
+        #expect(backgroundTimelineStore.messages.map(\.id) == ["background-2"])
         #expect(state.selectedMessages.map(\.id) == ["selected-1"])
 
         let selectedInvalidated = ObservationInvalidationFlag()
@@ -1985,9 +1989,9 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func selectedMessageIDsCacheStaysInSyncAcrossTimelineMutations() async throws {
-        // Regression for #44: selectedMessageIDs is served from a cache maintained in
-        // lockstep with messagesByChat. Verify the cached ids always equal the live
-        // message ids before and after the timeline window is replaced via a projection.
+        // Regression for #44: selectedMessageIDs is served from the selected timeline
+        // store's cached id array. Verify the cached ids always equal the live message ids
+        // before and after the timeline window is replaced via a projection.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",

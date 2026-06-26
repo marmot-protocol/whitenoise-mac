@@ -181,10 +181,14 @@ final class MessageTimelineStore {
     private(set) var messageIDs: [String]
     private(set) var isLoaded: Bool
 
-    init(messages: [MessageItem]? = nil) {
-        self.messages = messages ?? []
-        self.messageIDs = messages?.map(\.id) ?? []
-        self.isLoaded = messages != nil
+    init(messages: [MessageItem] = [], isLoaded: Bool = false) {
+        self.messages = messages
+        self.messageIDs = messages.map(\.id)
+        self.isLoaded = isLoaded
+    }
+
+    static func loaded(with messages: [MessageItem]) -> MessageTimelineStore {
+        MessageTimelineStore(messages: messages, isLoaded: true)
     }
 
     func replace(with messages: [MessageItem]) {
@@ -248,7 +252,10 @@ final class WorkspaceState {
 
     var activeAccountId: String?
     var selection: WorkspaceSelection? {
-        didSet { dismissGroupImagePickerIfSelectedChatUnavailable() }
+        didSet {
+            dismissGroupImagePickerIfSelectedChatUnavailable()
+            ensureSelectedMessageTimelineStore()
+        }
     }
     var searchText = ""
     var isChatListVisible = true
@@ -454,11 +461,11 @@ final class WorkspaceState {
     var activeTimelineSubscription: TimelineMessagesSubscription?
     var activeTimelineGroupId: String?
     @ObservationIgnored var messageLookupByChat: [String: [String: MessageItem]] = [:]
-    /// Cached per-chat message id arrays, materialized once per `messagesByChat`
-    /// mutation and maintained in lockstep with it (alongside `messageLookupByChat`).
-    /// SwiftUI re-evaluates `body` frequently; reading this cache avoids rebuilding a
-    /// fresh `[String]` on every access. Invalidated/recomputed only when the
-    /// underlying messages change.
+    /// Cached per-chat message id arrays for tests and non-UI lookups, materialized once
+    /// per `messagesByChat` mutation and maintained in lockstep with it (alongside
+    /// `messageLookupByChat`). SwiftUI reads selected message ids through
+    /// `MessageTimelineStore` instead so the open conversation subscribes only to its
+    /// own transcript.
     @ObservationIgnored var messageIDsByChat: [String: [String]] = [:]
     var lastMarkedReadMarkers: [String: ReadMarker] = [:]
     var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
@@ -632,7 +639,7 @@ final class WorkspaceState {
         self.accounts = accounts
         self.chatsByAccount = chatsByAccount
         self.messagesByChat = messagesByChat
-        self.messageTimelineStores = messagesByChat.mapValues { MessageTimelineStore(messages: $0) }
+        self.messageTimelineStores = messagesByChat.mapValues { MessageTimelineStore.loaded(with: $0) }
         self.messageLookupByChat = messagesByChat.mapValues { messages in
             Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         }
@@ -668,6 +675,7 @@ final class WorkspaceState {
         self.localNotificationCenter.setResponseHandler { [weak self] userInfo in
             self?.handleNotificationResponse(userInfo)
         }
+        ensureSelectedMessageTimelineStore()
     }
 
     static func defaultConversationWindowVisibilityProvider() -> Bool {
@@ -722,23 +730,34 @@ final class WorkspaceState {
         return newChatRecipient
     }
 
-    func messageTimelineStore(for groupIdHex: String) -> MessageTimelineStore {
+    @discardableResult
+    func ensureMessageTimelineStore(for groupIdHex: String) -> MessageTimelineStore {
         if let store = messageTimelineStores[groupIdHex] {
             return store
         }
-        let store = MessageTimelineStore(messages: messagesByChat[groupIdHex])
+        let store: MessageTimelineStore
+        if let messages = messagesByChat[groupIdHex] {
+            store = MessageTimelineStore.loaded(with: messages)
+        } else {
+            store = MessageTimelineStore()
+        }
         messageTimelineStores[groupIdHex] = store
         return store
     }
 
+    func ensureSelectedMessageTimelineStore() {
+        guard let selectedChat else { return }
+        ensureMessageTimelineStore(for: selectedChat.id)
+    }
+
     var selectedMessages: [MessageItem] {
         guard let selectedChat else { return [] }
-        return messageTimelineStore(for: selectedChat.id).messages
+        return messageTimelineStores[selectedChat.id]?.messages ?? []
     }
 
     var selectedMessageIDs: [String] {
         guard let selectedChat else { return [] }
-        return messageTimelineStore(for: selectedChat.id).messageIDs
+        return messageTimelineStores[selectedChat.id]?.messageIDs ?? []
     }
 
     var selectedTimelinePaging: TimelinePagingState {
@@ -749,7 +768,7 @@ final class WorkspaceState {
     var selectedTimelineIsLoadingInitialPage: Bool {
         guard let selectedChat else { return false }
         return timelineInitialLoadGroupId == selectedChat.id
-            && !messageTimelineStore(for: selectedChat.id).isLoaded
+            && !(messageTimelineStores[selectedChat.id]?.isLoaded ?? false)
     }
 
     func timelineMessage(groupIdHex: String, messageId: String) -> MessageItem? {
