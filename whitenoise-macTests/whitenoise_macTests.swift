@@ -4740,20 +4740,34 @@ struct whitenoise_macTests {
         // The header is a private SwiftUI view, so this source-shape regression
         // guards the user-facing toolbar affordance directly: the info button
         // must remain wired to the group details sheet instead of an empty action.
-        let testFileURL = URL(fileURLWithPath: #filePath)
-        let projectRootURL =
-            testFileURL
+        let viewsDirURL =
+            URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let messengerShellURL =
-            projectRootURL
             .appendingPathComponent("whitenoise-mac")
             .appendingPathComponent("Views")
-            .appendingPathComponent("MessengerShellView.swift")
-        let source = try String(contentsOf: messengerShellURL, encoding: .utf8)
-        let headerStart = try #require(source.range(of: "private struct ConversationHeader: View {"))
-        let headerEnd = try #require(source.range(of: "private struct GroupDetailsSheet: View {"))
-        let headerSource = String(source[headerStart.lowerBound..<headerEnd.lowerBound])
+        // ConversationHeader lives in the composer views after the shell-view
+        // split; fall back to the shell file so the guard survives further
+        // extraction. Bound the snippet by the next top-level declaration so it
+        // does not depend on which sibling struct happens to follow it.
+        let candidateFiles = ["ComposerViews.swift", "MessengerShellView.swift"]
+        var extractedHeader: String?
+        for fileName in candidateFiles {
+            let url = viewsDirURL.appendingPathComponent(fileName)
+            guard let source = try? String(contentsOf: url, encoding: .utf8),
+                let headerStart = source.range(of: "struct ConversationHeader: View {")
+            else { continue }
+            let rest = source[headerStart.upperBound...]
+            let nextDeclIndex =
+                [
+                    rest.range(of: "\nprivate struct ")?.lowerBound,
+                    rest.range(of: "\nstruct ")?.lowerBound,
+                ]
+                .compactMap { $0 }.min() ?? source.endIndex
+            extractedHeader = String(source[headerStart.lowerBound..<nextDeclIndex])
+            break
+        }
+        let headerSource = try #require(extractedHeader)
 
         #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
         #expect(headerSource.contains("Image(systemName: \"info.circle\")"))
