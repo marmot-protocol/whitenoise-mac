@@ -1079,6 +1079,7 @@ struct MessageItem: Identifiable, Hashable {
     let senderName: String
     let senderPictureURL: String?
     let body: String
+    let trimmedBody: String
     let sentAt: Date
     let timelineAt: UInt64
     let timelineKind: UInt64
@@ -1088,6 +1089,9 @@ struct MessageItem: Identifiable, Hashable {
     let reactions: [MessageReaction]
     let replyContext: MessageReplyContext?
     let mediaAttachments: [MessageMediaAttachment]
+    let visualMediaAttachments: [MessageMediaAttachment]
+    let nonvisualMediaAttachments: [MessageMediaAttachment]
+    let hasBubbleContent: Bool
     let presentation: MessagePresentation
     let timeLabel: String
     let statusLabel: String?
@@ -1111,12 +1115,16 @@ struct MessageItem: Identifiable, Hashable {
         mediaAttachments: [MessageMediaAttachment] = [],
         presentation: MessagePresentation = .chat
     ) {
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let partitionedAttachments = Self.partitionMediaAttachments(mediaAttachments)
+
         self.id = id
         self.groupIdHex = groupIdHex
         self.senderAccountIdHex = senderAccountIdHex ?? senderName
         self.senderName = senderName
         self.senderPictureURL = senderPictureURL
         self.body = body
+        self.trimmedBody = trimmedBody
         self.sentAt = sentAt
         self.timelineAt = timelineAt ?? UInt64(sentAt.timeIntervalSince1970)
         self.timelineKind = timelineKind
@@ -1126,6 +1134,9 @@ struct MessageItem: Identifiable, Hashable {
         self.reactions = reactions
         self.replyContext = replyContext
         self.mediaAttachments = mediaAttachments
+        self.visualMediaAttachments = partitionedAttachments.visual
+        self.nonvisualMediaAttachments = partitionedAttachments.nonvisual
+        self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
         self.presentation = presentation
         let timeLabel = DisplayText.messageTimestamp(for: sentAt)
         self.timeLabel = timeLabel
@@ -1143,6 +1154,24 @@ struct MessageItem: Identifiable, Hashable {
         self.metadataLabel = statusLabel.map { "\(timeLabel)  \($0)" } ?? timeLabel
     }
 
+    private static func partitionMediaAttachments(_ attachments: [MessageMediaAttachment]) -> (
+        visual: [MessageMediaAttachment], nonvisual: [MessageMediaAttachment]
+    ) {
+        var visual: [MessageMediaAttachment] = []
+        var nonvisual: [MessageMediaAttachment] = []
+
+        for attachment in attachments {
+            switch attachment.kind {
+            case .image, .video:
+                visual.append(attachment)
+            case .audio, .file:
+                nonvisual.append(attachment)
+            }
+        }
+
+        return (visual, nonvisual)
+    }
+
     var debugTitle: String {
         "kind \(timelineKind) - \(presentation.debugLabel)"
     }
@@ -1152,13 +1181,12 @@ struct MessageItem: Identifiable, Hashable {
     }
 
     private var hasCopyableBody: Bool {
-        !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !trimmedBody.isEmpty
     }
 
     var replyPreviewText: String {
-        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty {
-            return trimmed
+        if !trimmedBody.isEmpty {
+            return trimmedBody
         }
         return MessageMediaAttachment.previewText(for: mediaAttachments)
     }
