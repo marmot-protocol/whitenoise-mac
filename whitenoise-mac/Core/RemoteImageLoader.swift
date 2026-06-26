@@ -584,6 +584,14 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }
     }
 
+    /// Drops every decoded image held in memory. Decoded avatars derive from attacker-controlled
+    /// peer Nostr `picture` URLs, so the privacy wipe paths (account removal reset and full
+    /// local-data reset) must evict them rather than letting them linger in the process for its
+    /// lifetime. See whitenoise-mac#177.
+    func clearCache() {
+        cache.removeAllObjects()
+    }
+
     #if DEBUG
         func inFlightWaiterCount(for url: URL, maxPixelSize: CGFloat) -> Int {
             inFlight.waiterCount(for: Self.cacheKey(for: url, maxPixelSize: maxPixelSize))

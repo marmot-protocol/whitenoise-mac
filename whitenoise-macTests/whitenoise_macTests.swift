@@ -5533,6 +5533,30 @@ struct whitenoise_macTests {
         #expect(max(largeSize.width, largeSize.height) > max(smallSize.width, smallSize.height))
     }
 
+    @Test func remoteImageLoaderClearCacheEvictsDecodedImages() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let imageData = try Self.testPNGData(width: 400, height: 300)
+
+        let decoded = try #require(
+            await loader.image(for: imageData, cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        let cached = try #require(
+            await loader.image(for: Data([0x00]), cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        #expect(cached.nsImage === decoded.nsImage)
+
+        loader.clearCache()
+
+        // After a wipe the previously decoded bytes must be gone, so a cache-key-only lookup with
+        // bogus bytes can no longer be served and a real re-decode produces a fresh instance.
+        #expect(await loader.image(for: Data([0x00]), cacheKey: "attachment-1", maxPixelSize: 64) == nil)
+        let reDecoded = try #require(
+            await loader.image(for: imageData, cacheKey: "attachment-1", maxPixelSize: 64)
+        )
+        #expect(reDecoded.nsImage !== decoded.nsImage)
+    }
+
     @Test func remoteImageLoaderSeparatesRemoteAndLocalCacheNamespaces() async throws {
         RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
         let config = URLSessionConfiguration.ephemeral

@@ -226,6 +226,10 @@ extension WorkspaceState {
                 mediaDownloads.removeAll()
                 peerProfileFFICache.removeAll()
                 clearGroupMemberCache()
+                // Decoded peer/group avatars derive from the removed account's contacts'
+                // attacker-controlled `picture` URLs; evict them from the process-lifetime
+                // decoded-image cache so they do not linger after the account is gone. See #177.
+                RemoteImageLoader.shared.clearCache()
                 timelinePagingByChat.removeAll()
                 profileDraft = ProfileDraft()
                 keyPackages = []
@@ -348,6 +352,10 @@ extension WorkspaceState {
         messageIDsByChat = [:]
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
+        // "Delete All Local Data" must also evict decoded peer/group avatars held in the
+        // process-lifetime decoded-image cache; those images derive from attacker-controlled
+        // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
+        RemoteImageLoader.shared.clearCache()
         observabilityRuntimeConfiguration = nil
         activeAccountId = nil
         selection = nil
