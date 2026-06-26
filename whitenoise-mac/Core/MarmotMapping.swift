@@ -390,26 +390,31 @@ private nonisolated enum MessageMediaParser {
         guard remainingDepth >= 0 else { return [] }
 
         if let dictionary = value as? [String: Any] {
-            var output: [MediaAttachmentReferenceFfi] = []
-
+            // Branches are mutually exclusive in precedence order so a single object
+            // carrying multiple shapes (e.g. both `imeta` and the flat direct-reference
+            // keys) cannot emit duplicate references for the same logical attachment.
             if let imeta = dictionary["imeta"] {
                 // Safe without its own depth counter because the raw JSON pre-scan rejects
                 // any object graph deeper than maxMediaJSONTraversalDepth before parsing.
-                output.append(
-                    contentsOf: references(
-                        fromIMetaValue: imeta,
-                        sourceEpoch: unsignedInteger(dictionary["source_epoch"] ?? dictionary["sourceEpoch"])
-                    )
+                let imetaReferences = references(
+                    fromIMetaValue: imeta,
+                    sourceEpoch: unsignedInteger(dictionary["source_epoch"] ?? dictionary["sourceEpoch"])
                 )
+                if !imetaReferences.isEmpty {
+                    return imetaReferences
+                }
             }
             if let media = dictionary["media"] {
-                output.append(contentsOf: references(fromJSONObject: media, remainingDepth: remainingDepth - 1))
+                let mediaReferences = references(fromJSONObject: media, remainingDepth: remainingDepth - 1)
+                if !mediaReferences.isEmpty {
+                    return mediaReferences
+                }
             }
             if let direct = reference(fromJSONObject: dictionary) {
-                output.append(direct)
+                return [direct]
             }
 
-            return output
+            return []
         }
 
         if let array = value as? [Any] {
