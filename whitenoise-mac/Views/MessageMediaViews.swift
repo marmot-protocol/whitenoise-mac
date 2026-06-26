@@ -97,16 +97,16 @@ struct MessageBubble: View {
                         .padding(.horizontal, 4)
                 }
 
-                if !visualMediaAttachments.isEmpty {
+                if !message.visualMediaAttachments.isEmpty {
                     MessageVisualMediaGrid(
                         message: message,
-                        attachments: visualMediaAttachments,
+                        attachments: message.visualMediaAttachments,
                         isOutgoing: message.isOutgoing,
                         onOpenImageGallery: onOpenImageGallery
                     )
                 }
 
-                ForEach(nonvisualMediaAttachments) { attachment in
+                ForEach(message.nonvisualMediaAttachments) { attachment in
                     MessageMediaAttachmentView(
                         downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
                         message: message,
@@ -115,7 +115,7 @@ struct MessageBubble: View {
                     )
                 }
 
-                if hasBubbleContent {
+                if workspace.streamingDebugEnabled || message.hasBubbleContent {
                     bubbleContent
                 }
 
@@ -176,28 +176,6 @@ struct MessageBubble: View {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
     }
 
-    private var trimmedBody: String {
-        message.body.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var hasBubbleContent: Bool {
-        workspace.streamingDebugEnabled
-            || message.replyContext != nil
-            || !trimmedBody.isEmpty
-    }
-
-    private var visualMediaAttachments: [MessageMediaAttachment] {
-        message.mediaAttachments.filter { attachment in
-            attachment.kind == .image || attachment.kind == .video
-        }
-    }
-
-    private var nonvisualMediaAttachments: [MessageMediaAttachment] {
-        message.mediaAttachments.filter { attachment in
-            attachment.kind == .audio || attachment.kind == .file
-        }
-    }
-
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if workspace.streamingDebugEnabled {
@@ -208,7 +186,7 @@ struct MessageBubble: View {
                 MessageReplyContextView(context: replyContext, isOutgoing: message.isOutgoing)
             }
 
-            if !trimmedBody.isEmpty {
+            if !message.trimmedBody.isEmpty {
                 Text(message.body)
                     .font(.system(size: 15.5))
                     .foregroundStyle(message.isOutgoing ? .white : .primary)
