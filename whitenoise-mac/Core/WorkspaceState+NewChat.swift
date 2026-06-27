@@ -128,7 +128,7 @@ extension WorkspaceState {
                 memberRefs: [recipient.memberRef],
                 description: trimmedDescription.isEmpty ? nil : trimmedDescription
             )
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
             guard activeAccountId == accountId else { return }
             insertCreatedChatIfNeeded(
                 groupIdHex: groupIdHex,

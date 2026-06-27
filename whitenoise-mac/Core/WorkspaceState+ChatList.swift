@@ -16,7 +16,7 @@ import UserNotifications
 
 @MainActor
 extension WorkspaceState {
-    func reloadChats() async {
+    func reloadChats(forceFreshSnapshot: Bool = false) async {
         guard client != nil, let activeAccount else {
             cancelChatListReload()
             stopChatListListener()
@@ -26,16 +26,16 @@ extension WorkspaceState {
         let accountId = activeAccount.id
 
         // Coalesce concurrent reloads for the same account onto the same subscription/snapshot
-        // pass. Without this, independent Task call sites can duplicate FFI fan-out and have the
-        // second listener startup immediately cancel the first.
-        if let existing = reloadChatsTask, reloadChatsTaskAccountId == accountId {
+        // pass by default. Post-mutation callers can force a fresh pass so they never await a
+        // snapshot that was already in flight before the mutation completed.
+        if !forceFreshSnapshot, let existing = reloadChatsTask, reloadChatsTaskAccountId == accountId {
             await existing.value
             return
         }
 
-        // A reload for a different account supersedes the stale in-flight owner. The stale task may
-        // still resume after an FFI await, so generation checks in `performChatListReload` gate every
-        // state write and listener start.
+        // A reload for a different account, or a forced post-mutation reload for the same account,
+        // supersedes the stale in-flight owner. The stale task may still resume after an FFI await,
+        // so generation checks in `performChatListReload` gate every state write and listener start.
         reloadChatsTask?.cancel()
 
         reloadChatsGeneration &+= 1
@@ -71,27 +71,17 @@ extension WorkspaceState {
                 accountRef: activeAccount.accountRef,
                 includeArchived: false
             )
-            guard ownsChatListReload(generation: generation, accountId: accountId),
-                !Task.isCancelled
-            else { return }
+            guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
 
             let rows = try await runOffMain { subscription.snapshot() }
-            guard ownsChatListReload(generation: generation, accountId: accountId),
-                !Task.isCancelled
-            else { return }
+            guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             await applyChatRows(rows, account: activeAccount)
-            guard ownsChatListReload(generation: generation, accountId: accountId),
-                !Task.isCancelled
-            else { return }
+            guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             startChatListListener(account: activeAccount, subscription: subscription)
 
-            guard ownsChatListReload(generation: generation, accountId: accountId),
-                !Task.isCancelled
-            else { return }
+            guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             await selectMostRecentChatIfNeeded()
-            guard ownsChatListReload(generation: generation, accountId: accountId),
-                !Task.isCancelled
-            else { return }
+            guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             await refreshAccountUnreadSummary()
         } catch is CancellationError {
             return
@@ -103,6 +93,10 @@ extension WorkspaceState {
 
     func ownsChatListReload(generation: UInt64, accountId: String) -> Bool {
         reloadChatsGeneration == generation && activeAccountId == accountId
+    }
+
+    func canContinueChatListReload(generation: UInt64, accountId: String) -> Bool {
+        ownsChatListReload(generation: generation, accountId: accountId) && !Task.isCancelled
     }
 
     func cancelChatListReload() {

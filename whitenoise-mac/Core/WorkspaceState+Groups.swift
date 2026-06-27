@@ -112,7 +112,7 @@ extension WorkspaceState {
                 name: trimmedName,
                 description: trimmedDescription
             )
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
             await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
         } catch {
             lastError = error.localizedDescription
@@ -142,7 +142,7 @@ extension WorkspaceState {
             )
             groupInviteMemberQuery = ""
             applyGroupMutationResult(result)
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
         } catch {
             lastError = error.localizedDescription
         }
@@ -196,7 +196,7 @@ extension WorkspaceState {
                 groupIdHex: snapshot.groupIdHex
             )
             applyGroupMutationResult(result)
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
         } catch {
             lastError = error.localizedDescription
         }
@@ -217,7 +217,7 @@ extension WorkspaceState {
             if archived {
                 closeGroupDetails()
             }
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
             if !archived {
                 await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
             }
@@ -243,7 +243,7 @@ extension WorkspaceState {
                 groupIdHex: snapshot.groupIdHex
             )
             closeGroupDetails()
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
         } catch {
             lastError = error.localizedDescription
         }
@@ -333,7 +333,7 @@ extension WorkspaceState {
                 dim: dim,
                 thumbhash: nil
             )
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
             closeGroupImagePicker()
         } catch {
             lastError = error.localizedDescription
@@ -351,7 +351,7 @@ extension WorkspaceState {
                 accountRef: activeAccount.accountRef,
                 groupIdHex: groupIdHex
             )
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
             if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
                 await loadGroupDetails(groupIdHex: groupIdHex)
             }
@@ -379,7 +379,7 @@ extension WorkspaceState {
                 selection = nil
                 pruneMessageCache(keeping: nil)
             }
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
         } catch {
             lastError = error.localizedDescription
         }
@@ -442,7 +442,7 @@ extension WorkspaceState {
                 selection = nil
                 pruneMessageCache(keeping: nil)
             }
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
         } catch {
             lastError = error.localizedDescription
         }
@@ -519,7 +519,7 @@ extension WorkspaceState {
                 )
             }
             applyGroupMutationResult(result)
-            await reloadChats()
+            await reloadChats(forceFreshSnapshot: true)
         } catch {
             lastError = error.localizedDescription
         }
