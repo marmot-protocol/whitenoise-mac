@@ -21,13 +21,15 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct PureValueTests {
-    @Test func disappearingMessageCustomLabelClampsOversizedCoreValue() async throws {
+    @Test func disappearingMessageCustomLabelFormatsCoreUInt64Value() async throws {
         // Regression for whitenoise-mac#212: values can originate from the core as
-        // UInt64, and Int(value) traps above Int.max while rendering the picker.
+        // UInt64, and Int(value) traps above Int.max while `%d` truncates large
+        // 64-bit values to misleading labels such as "-1 seconds".
+        let above32BitSeconds = UInt64(Int32.max) + 1
         let oversizedSeconds = UInt64(Int.max) + 1
-        let clampedLabel = String(format: L10n.string("%d seconds"), Int(clamping: oversizedSeconds))
 
-        #expect(DisappearingMessageOption.custom(oversizedSeconds).label == clampedLabel)
+        #expect(DisappearingMessageOption.custom(above32BitSeconds).label == "2147483648 seconds")
+        #expect(DisappearingMessageOption.custom(oversizedSeconds).label == "9223372036854775808 seconds")
     }
 
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
