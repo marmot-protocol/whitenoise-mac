@@ -797,6 +797,7 @@ struct MessageVideoAttachmentPlayer: View {
     @State private var didFail = false
     @State private var playbackPreparationID: UUID?
     @State private var playbackTask: Task<Void, Never>?
+    @State private var endOfPlaybackObserver: NSObjectProtocol?
 
     private var isPreparingPlayback: Bool {
         playbackPreparationID != nil
@@ -908,7 +909,29 @@ struct MessageVideoAttachmentPlayer: View {
         playbackURL = url
         let next = AVPlayer(url: url)
         player = next
+        observeEndOfPlayback(for: next)
         next.play()
+    }
+
+    /// Seeks the playhead back to the start when the item plays to completion so the next tap
+    /// restarts playback instead of no-op-ing on the final frame. Mirrors the audio replay fix
+    /// (#118) for the separate `AVPlayer` video code path.
+    private func observeEndOfPlayback(for player: AVPlayer) {
+        removeEndOfPlaybackObserver()
+        endOfPlaybackObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.didPlayToEndTimeNotification,
+            object: player.currentItem,
+            queue: .main
+        ) { _ in
+            player.seek(to: .zero)
+        }
+    }
+
+    private func removeEndOfPlaybackObserver() {
+        if let endOfPlaybackObserver {
+            NotificationCenter.default.removeObserver(endOfPlaybackObserver)
+            self.endOfPlaybackObserver = nil
+        }
     }
 
     /// Cancels in-flight preparation, releases the player, and deletes the decrypted scratch
@@ -916,6 +939,7 @@ struct MessageVideoAttachmentPlayer: View {
     private func stopPlayback() {
         playbackPreparationID = nil
         isLoading = false
+        removeEndOfPlaybackObserver()
         player?.pause()
         player = nil
         if let url = playbackURL {
