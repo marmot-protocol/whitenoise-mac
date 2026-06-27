@@ -238,4 +238,84 @@ struct PureValueTests {
         #expect(RelayURLValidator.classify("ws://notlocalhost") == .insecureRejected)
         #expect(RelayURLValidator.classify("ws://127.0.0.256") == .insecureRejected)
     }
+
+    @Test func markdownLinkPolicyAllowsOnlyWebAndNostrSchemes() async throws {
+        let httpsURL = MarkdownLinkPolicy.sanitizedURL(from: "https://example.com/path")
+        #expect(httpsURL?.absoluteString == "https://example.com/path")
+
+        let httpURL = MarkdownLinkPolicy.sanitizedURL(from: " HTTP://example.com/path ")
+        #expect(httpURL?.scheme?.lowercased() == "http")
+
+        let nostrURL = MarkdownLinkPolicy.sanitizedURL(
+            from: "nostr:npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
+        )
+        #expect(nostrURL?.scheme == "nostr")
+
+        for raw in [
+            "",
+            "   ",
+            "https:example.com",
+            "file:///Applications/Calculator.app",
+            "smb://attacker/share",
+            "mailto:peer@example.com",
+            "javascript:alert(1)",
+            "x-whatever://payload",
+            "nostr:unknown1payload",
+        ] {
+            #expect(
+                MarkdownLinkPolicy.sanitizedURL(from: raw) == nil,
+                "expected rejection for \(String(reflecting: raw))"
+            )
+        }
+    }
+
+    @Test func markdownInlineBuilderDropsUnsafeMarkdownLinks() async throws {
+        let safe = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .link(
+                    dest: "https://example.com/profile",
+                    title: nil,
+                    children: [.text(content: "safe")]
+                )
+            ], remainingDepth: 32)
+        #expect(String(safe.characters) == "safe")
+        #expect(links(in: safe).map(\.absoluteString) == ["https://example.com/profile"])
+
+        let unsafe = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .link(
+                    dest: "file:///Applications/Calculator.app",
+                    title: nil,
+                    children: [.text(content: "unsafe")]
+                )
+            ], remainingDepth: 32)
+        #expect(String(unsafe.characters) == "unsafe")
+        #expect(links(in: unsafe).isEmpty)
+
+        let unsafeAutolink = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .autolink(url: "smb://attacker/share", kind: .uri)
+            ], remainingDepth: 32)
+        #expect(String(unsafeAutolink.characters) == "smb://attacker/share")
+        #expect(links(in: unsafeAutolink).isEmpty)
+    }
+
+    @Test func markdownInlineBuilderKeepsNostrEntitiesInternal() async throws {
+        let bech32 = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
+        let attributed = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: bech32))
+            ], remainingDepth: 32)
+        #expect(links(in: attributed).map(\.absoluteString) == ["nostr:\(bech32)"])
+    }
+
+    private func links(in attributed: AttributedString) -> [URL] {
+        var result: [URL] = []
+        for run in attributed.runs {
+            if let link = run.link {
+                result.append(link)
+            }
+        }
+        return result
+    }
 }

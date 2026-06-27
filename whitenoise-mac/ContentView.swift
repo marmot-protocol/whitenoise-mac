@@ -17,6 +17,12 @@ struct ContentView: View {
             .frame(minWidth: 940, minHeight: 620)
             .preferredColorScheme(effectiveColorScheme)
             .environment(\.locale, workspace.preferredLocale)
+            .environment(
+                \.openURL,
+                OpenURLAction { url in
+                    workspace.handleMessageLinkOpen(url)
+                }
+            )
             .tint(Color(nsColor: .systemBlue))
             .nativeWindowGlassBackground()
             .onAppear {
