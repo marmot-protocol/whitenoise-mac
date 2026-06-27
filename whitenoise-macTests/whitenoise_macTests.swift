@@ -7,6 +7,7 @@
 
 import AppKit
 import Combine
+import CryptoKit
 import Darwin
 import Foundation
 import ImageIO
@@ -50,6 +51,47 @@ private final class ObservationInvalidationFlag: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return invalidated
+    }
+}
+
+private final class AtomicCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = 0
+
+    @discardableResult
+    func increment() -> Int {
+        lock.lock()
+        storedValue += 1
+        let value = storedValue
+        lock.unlock()
+        return value
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+}
+
+private struct TranscriptPerformanceRows: View {
+    let messages: [MessageItem]
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(messages) { message in
+                ConversationMessageRow(
+                    message: message,
+                    isSelectable: false,
+                    showsDebugMetadata: false,
+                    onActivateSelection: { _ in }
+                ) { _ in }
+                .equatable()
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 18)
+        .frame(width: 760)
     }
 }
 
@@ -848,6 +890,122 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: legacyDirectory.path))
     }
 
+    @Test func messageMediaDiskCacheRoundTripsEncryptedPayload() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("durable cached media bytes".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+
+        let restored = try #require(await cache.cachedDownload(for: key))
+        #expect(restored.data == plaintext)
+        #expect(restored.fileName == "photo.png")
+        #expect(restored.mediaType == "image/png")
+        #expect(restored.sizeBytes == UInt64(plaintext.count))
+        #expect(restored.payload.id == key.payloadID)
+
+        let cacheFiles = try fileManager.subpathsOfDirectory(atPath: root.path)
+        #expect(cacheFiles.contains { $0.hasSuffix("metadata.bin") })
+        #expect(cacheFiles.contains { $0.hasSuffix("payload.bin") })
+        for relativePath in cacheFiles where relativePath.hasSuffix(".bin") {
+            let bytes = try Data(contentsOf: root.appendingPathComponent(relativePath))
+            #expect(!dataContains(bytes, plaintext))
+        }
+    }
+
+    @Test func messageMediaDiskCacheEvictsCorruptEntries() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("media that will be corrupted".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "clip.mp4",
+            mediaType: "video/mp4",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+        let entryDirectory = try #require(cache.entryDirectory(for: key))
+        try Data("not a sealed payload".utf8).write(to: entryDirectory.appendingPathComponent("payload.bin"))
+
+        #expect(await cache.cachedDownload(for: key) == nil)
+        #expect(!fileManager.fileExists(atPath: entryDirectory.path))
+    }
+
+    @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let didDeleteKey = MutableFlag(false)
+        let cache = messageMediaDiskCache(root: root) {
+            didDeleteKey.value = true
+        }
+        let firstPlaintext = Data("first account media".utf8)
+        let secondPlaintext = Data("second account media".utf8)
+        let firstKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: firstPlaintext, ciphertextByte: 0xaa)
+        )
+        let secondKey = MessageMediaDiskCacheKey(
+            accountId: "account-b",
+            groupIdHex: "group-b",
+            reference: mediaDiskCacheReference(plaintext: secondPlaintext, ciphertextByte: 0xbb)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: firstPlaintext,
+                fileName: "a.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(firstPlaintext.count),
+                payloadId: "first"
+            ),
+            for: firstKey
+        )
+        await cache.store(
+            MessageMediaDownload(
+                data: secondPlaintext,
+                fileName: "b.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(secondPlaintext.count),
+                payloadId: "second"
+            ),
+            for: secondKey
+        )
+
+        await cache.purgeAccount("account-a")
+        #expect(await cache.cachedDownload(for: firstKey) == nil)
+        #expect(try #require(await cache.cachedDownload(for: secondKey)).data == secondPlaintext)
+
+        await cache.purgeAll(removeEncryptionKey: true)
+        #expect(await cache.cachedDownload(for: secondKey) == nil)
+        #expect(didDeleteKey.value)
+        #expect(!fileManager.fileExists(atPath: root.path))
+    }
+
     @MainActor
     @Test func chatSearchMatchesTitleSubtitleAndPreview() async throws {
         let chats = ChatItem.samples
@@ -1071,6 +1229,168 @@ struct whitenoise_macTests {
         #expect(!outgoing.timeLabel.isEmpty)
         #expect(outgoing.statusLabel == "Sent")
         #expect(incoming.statusLabel == nil)
+    }
+
+    @MainActor
+    @Test func messageItemEqualityAndHashingIgnoreDerivedMarkdownAST() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let plain = MessageItem(
+            id: "m1",
+            senderName: "Alice",
+            body: "Hello",
+            contentMarkdown: nil,
+            sentAt: sentAt,
+            isOutgoing: false
+        )
+        let withMarkdown = MessageItem(
+            id: "m1",
+            senderName: "Alice",
+            body: "Hello",
+            contentMarkdown: MarkdownDocumentFfi(
+                blocks: [.paragraph(inlines: [.text(content: "Hello")])],
+                truncated: false
+            ),
+            sentAt: sentAt,
+            isOutgoing: false
+        )
+        // `contentMarkdown` is a deterministic projection of the content-bearing fields,
+        // so it is intentionally excluded from equality/hashing to keep timeline diffing
+        // off the recursive AST. Items agreeing on those fields are equal regardless.
+        #expect(plain == withMarkdown)
+        #expect(plain.hashValue == withMarkdown.hashValue)
+
+        let differentBody = MessageItem(
+            id: "m1",
+            senderName: "Alice",
+            body: "Goodbye",
+            sentAt: sentAt,
+            isOutgoing: false
+        )
+        #expect(plain != differentBody)
+
+        let differentSender = MessageItem(
+            id: "m1",
+            senderName: "Bob",
+            body: "Hello",
+            sentAt: sentAt,
+            isOutgoing: false
+        )
+        #expect(plain != differentSender)
+    }
+
+    @MainActor
+    @Test func markdownPlainTextFastPathKeepsEscapedAndPlaceholderContentCorrect() async throws {
+        let plainTokens = MarkdownDocumentFfi(
+            blocks: [.paragraph(inlines: [.text(content: "Hello")])],
+            truncated: false
+        )
+        let escapedTokens = MarkdownDocumentFfi(
+            blocks: [.paragraph(inlines: [.text(content: "*")])],
+            truncated: false
+        )
+        let richTokens = MarkdownDocumentFfi(
+            blocks: [.paragraph(inlines: [.strong(children: [.text(content: "Failed")])])],
+            truncated: false
+        )
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "plain",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "Hello",
+                    recordedAt: 1_800_000_000,
+                    contentTokens: plainTokens
+                ),
+                timelineMessage(
+                    id: "escaped",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "\\*",
+                    recordedAt: 1_800_000_001,
+                    contentTokens: escapedTokens
+                ),
+                timelineMessage(
+                    id: "failed",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "**Failed**",
+                    recordedAt: 1_800_000_002,
+                    contentTokens: richTokens,
+                    invalidationStatus: "signature-check-failed"
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages[0].body == "Hello")
+        #expect(messages[0].contentMarkdown == nil)
+        #expect(messages[1].body == "\\*")
+        #expect(messages[1].contentMarkdown != nil)
+        #expect(messages[2].body == "Message did not reach the group")
+        #expect(messages[2].contentMarkdown == nil)
+    }
+
+    @MainActor
+    @Test func transcriptRowStackLayoutPerformanceGuard() async throws {
+        let messages = performanceMessageItems(count: 160)
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        let warmHost = NSHostingView(rootView: TranscriptPerformanceRows(messages: messages).environment(state))
+        warmHost.frame = NSRect(x: 0, y: 0, width: 760, height: 9_000)
+        let warmSize = warmHost.fittingSize
+        #expect(warmSize.height > 1_000)
+
+        var accumulatedHeight: CGFloat = 0
+        let layoutMilliseconds = measuredMilliseconds {
+            for _ in 0..<3 {
+                let host = NSHostingView(rootView: TranscriptPerformanceRows(messages: messages).environment(state))
+                host.frame = NSRect(x: 0, y: 0, width: 760, height: 9_000)
+                host.invalidateIntrinsicContentSize()
+                accumulatedHeight += host.fittingSize.height
+            }
+        }
+
+        #expect(accumulatedHeight > 3_000)
+        print("PERF transcript_row_stack_layout_ms=\(formatMilliseconds(layoutMilliseconds)) rows=\(messages.count)")
+        #expect(layoutMilliseconds < 4_000)
+    }
+
+    @MainActor
+    @Test func timelineStoreProjectionApplyPerformanceGuard() async throws {
+        let messages = performanceMessageItems(count: 200)
+        let store = MessageTimelineStore.loaded(with: messages)
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let projectionMilliseconds = measuredMilliseconds {
+            for index in 0..<2_000 {
+                let messageIndex = index % messages.count
+                let updated = MessageItem(
+                    id: "perf-\(messageIndex)",
+                    groupIdHex: "perf-group",
+                    senderAccountIdHex: messageIndex.isMultiple(of: 2) ? "self" : "alice",
+                    senderName: messageIndex.isMultiple(of: 2) ? "Jeff" : "Alice",
+                    body: "Edited projection body \(index)",
+                    contentMarkdown: nil,
+                    sentAt: sentAt.addingTimeInterval(TimeInterval(messageIndex)),
+                    timelineAt: UInt64(1_800_000_000 + messageIndex),
+                    isOutgoing: messageIndex.isMultiple(of: 2)
+                )
+                _ = store.applyProjection(
+                    upserts: [updated],
+                    removals: [],
+                    anchoredToNewest: true,
+                    windowLimit: WorkspaceState.timelineWindowLimit
+                )
+            }
+        }
+
+        print("PERF timeline_projection_apply_ms=\(formatMilliseconds(projectionMilliseconds)) updates=2000")
+        #expect(store.messageIDs.count == 200)
+        #expect(store.messages[199].body == "Edited projection body 1999")
+        #expect(projectionMilliseconds < 1_500)
     }
 
     @MainActor
@@ -1715,6 +2035,186 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func workspaceLoadsMediaAttachmentFromDurableCacheWithoutRuntimeDownload() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let plaintext = Data([0x10, 0x20, 0x30, 0x40])
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "cached.png",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let mediaDiskCache = messageMediaDiskCache(root: root)
+        let cacheKey = MessageMediaDiskCacheKey(
+            accountId: AccountItem(summary: account).id,
+            groupIdHex: "group",
+            reference: reference
+        )
+        await mediaDiskCache.store(
+            MessageMediaDownload(
+                data: plaintext,
+                fileName: "cached.png",
+                mediaType: "image/png",
+                sizeBytes: UInt64(plaintext.count),
+                payloadId: "preseeded"
+            ),
+            for: cacheKey
+        )
+
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(
+            mediaDiskCache: mediaDiskCache,
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        let message = MessageItem(
+            id: "media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "media-message#0#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+
+        await state.loadMediaAttachment(attachment, for: message)
+
+        guard case .loaded(let loaded) = state.mediaDownloadState(for: message, attachment: attachment) else {
+            Issue.record("Expected cached media download to load")
+            return
+        }
+        #expect(loaded.data == plaintext)
+        #expect(loaded.payload.id == cacheKey.payloadID)
+        #expect(runtime.listMediaCallCount == 0)
+        #expect(runtime.downloadMediaCallCount == 0)
+    }
+
+    @Test func messageAudioMetadataCacheCoalescesAndCachesPayloadAnalysis() async throws {
+        let analysisCount = AtomicCounter()
+        let expected = MediaWaveformAnalyzer.Metadata(
+            durationSeconds: 12.5,
+            samples: Array(repeating: 0.42, count: MediaWaveformAnalyzer.sampleCount)
+        )
+        let cache = MessageAudioMetadataCache(entryLimit: 4) { _, _ in
+            analysisCount.increment()
+            Thread.sleep(forTimeInterval: 0.02)
+            return expected
+        }
+        let payload = DownloadedMediaPayload(id: "audio-payload", data: Data(repeating: 0x7f, count: 1024))
+
+        async let first = cache.metadata(for: payload, mediaType: "audio/mp4")
+        async let second = cache.metadata(for: payload, mediaType: "audio/mp4")
+        async let third = cache.metadata(for: payload, mediaType: "audio/mp4")
+
+        let values = await [first, second, third]
+
+        #expect(values == [expected, expected, expected])
+        #expect(analysisCount.value == 1)
+        #expect(await cache.metadata(for: payload, mediaType: "audio/mp4") == expected)
+        #expect(analysisCount.value == 1)
+    }
+
+    @Test func messageMediaDownloadDetailTextPerformanceGuard() {
+        let download = MessageMediaDownload(
+            data: Data(repeating: 0x52, count: 8 * 1024 * 1024),
+            fileName: "image.png",
+            mediaType: "image/png",
+            sizeBytes: 8 * 1024 * 1024,
+            payloadId: "detail-performance"
+        )
+        var cachedTotal = 0
+        var repeatedFormatterTotal = 0
+
+        let cachedMilliseconds = measuredMilliseconds {
+            for _ in 0..<100_000 {
+                cachedTotal += download.detailText(fallbackMediaType: "image/png").count
+            }
+        }
+
+        let repeatedFormatterMilliseconds = measuredMilliseconds {
+            for _ in 0..<100_000 {
+                let size = ByteCountFormatter.string(
+                    fromByteCount: Int64(clamping: download.sizeBytes),
+                    countStyle: .file
+                )
+                repeatedFormatterTotal += "\(download.mediaType) - \(size)".count
+            }
+        }
+
+        print(
+            """
+            PERF media_detail_cached_ms=\(formatMilliseconds(cachedMilliseconds)) \
+            repeated_formatter_ms=\(formatMilliseconds(repeatedFormatterMilliseconds)) calls=100000
+            """
+        )
+        #expect(cachedTotal == repeatedFormatterTotal)
+        #expect(cachedMilliseconds < repeatedFormatterMilliseconds)
+    }
+
+    @MainActor
+    @Test func mediaDownloadStateStoreAutoloadGateStartsOnlyFromIdle() {
+        let store = MediaDownloadStateStore()
+        let download = MessageMediaDownload(
+            data: Data([0x01, 0x02, 0x03]),
+            fileName: "image.png",
+            mediaType: "image/png",
+            sizeBytes: 3,
+            payloadId: "autoload-gate"
+        )
+
+        #expect(store.shouldStartAutomaticDownload)
+        store.update(.loading)
+        #expect(!store.shouldStartAutomaticDownload)
+        store.update(.loaded(download))
+        #expect(!store.shouldStartAutomaticDownload)
+        store.update(.failed("boom"))
+        #expect(!store.shouldStartAutomaticDownload)
+        store.update(.idle)
+        #expect(store.shouldStartAutomaticDownload)
+    }
+
+    @Test func messageAudioMetadataCacheHitPerformanceGuard() async throws {
+        let analysisCount = AtomicCounter()
+        let expected = MediaWaveformAnalyzer.Metadata(
+            durationSeconds: 3,
+            samples: Array(repeating: 0.5, count: MediaWaveformAnalyzer.sampleCount)
+        )
+        let cache = MessageAudioMetadataCache(entryLimit: 4) { _, _ in
+            analysisCount.increment()
+            return expected
+        }
+        let payload = DownloadedMediaPayload(id: "audio-cache-hit", data: Data(repeating: 0x41, count: 8 * 1024 * 1024))
+
+        #expect(await cache.metadata(for: payload, mediaType: "audio/mp4") == expected)
+        let hitMilliseconds = await measuredMillisecondsAsync {
+            for _ in 0..<5_000 {
+                _ = await cache.metadata(for: payload, mediaType: "audio/mp4")
+            }
+        }
+
+        print("PERF audio_metadata_cache_hit_ms=\(formatMilliseconds(hitMilliseconds)) hits=5000")
+        #expect(analysisCount.value == 1)
+        #expect(hitMilliseconds < 60)
+    }
+
+    @MainActor
     @Test func mediaDownloadStateStoresDoNotInvalidateWorkspaceObservationForUnrelatedDownloads() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
@@ -2242,8 +2742,6 @@ struct whitenoise_macTests {
         )
         let backgroundTimelineStore = state.ensureMessageTimelineStore(for: backgroundChat.id)
         state.messagesByChat[backgroundChat.id] = [backgroundUpdatedMessage]
-        state.messageLookupByChat[backgroundChat.id] = [backgroundUpdatedMessage.id: backgroundUpdatedMessage]
-        state.messageIDsByChat[backgroundChat.id] = [backgroundUpdatedMessage.id]
         backgroundTimelineStore.replace(with: [backgroundUpdatedMessage])
 
         #expect(!backgroundInvalidated.value)
@@ -2273,6 +2771,46 @@ struct whitenoise_macTests {
 
         #expect(selectedInvalidated.value)
         #expect(state.selectedMessages.map(\.id) == ["selected-2"])
+    }
+
+    @MainActor
+    @Test func timelineMessageResolvesFromStoreLookup() async throws {
+        // The per-chat id → message lookup lives on `MessageTimelineStore` (not a parallel
+        // `messageLookupByChat` dict); `timelineMessage(groupIdHex:messageId:)` resolves through
+        // it and stays in sync across window replacements.
+        let account = AccountItem.samples[0]
+        let chat = ChatItem.samples[0]
+        let first = MessageItem(
+            id: "m1",
+            groupIdHex: chat.id,
+            senderName: "Alice",
+            body: "First",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [chat]],
+            messagesByChat: [chat.id: [first]],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(chat.id)
+
+        #expect(state.timelineMessage(groupIdHex: chat.id, messageId: "m1")?.body == "First")
+        #expect(state.timelineMessage(groupIdHex: chat.id, messageId: "missing") == nil)
+
+        let second = MessageItem(
+            id: "m2",
+            groupIdHex: chat.id,
+            senderName: "Alice",
+            body: "Second",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isOutgoing: false
+        )
+        state.replaceMessages([second], groupIdHex: chat.id)
+        #expect(state.timelineMessage(groupIdHex: chat.id, messageId: "m2")?.body == "Second")
+        #expect(state.timelineMessage(groupIdHex: chat.id, messageId: "m1") == nil)
     }
 
     @MainActor
@@ -4698,6 +5236,73 @@ struct whitenoise_macTests {
 
         #expect(renamed.map(\.id) == ["alpha", "zulu", "bravo"])
         #expect(renamed.map(\.title) == ["Alpha", "Beta", "Bravo"])
+    }
+
+    @MainActor
+    @Test func workspaceChatIndexesAndFilterCachePerformanceGuard() async throws {
+        let account = AccountItem.samples[0]
+        let chats = performanceChatItems(count: 5_000)
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: chats],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat("perf-chat-4999")
+
+        #expect(state.selectedChat?.id == "perf-chat-4999")
+        #expect(state.chatIndex(accountId: account.id, chatId: "perf-chat-4999") == 4_999)
+
+        let selectedLookupMilliseconds = measuredMilliseconds {
+            for _ in 0..<50_000 {
+                _ = state.selectedChat?.id
+            }
+        }
+
+        state.searchText = "launch"
+        #expect(state.filteredChats.count == 50)
+        let cachedFilterMilliseconds = measuredMilliseconds {
+            for _ in 0..<5_000 {
+                _ = state.filteredChats.count
+            }
+        }
+
+        let indexedUpsertMilliseconds = measuredMilliseconds {
+            for offset in 0..<1_000 {
+                let id = "perf-chat-\((offset * 37) % chats.count)"
+                guard let current = state.chatItem(accountId: account.id, chatId: id) else {
+                    Issue.record("Missing chat \(id)")
+                    return
+                }
+                state.upsertChat(
+                    ChatItem(
+                        id: current.id,
+                        title: current.title,
+                        subtitle: current.subtitle,
+                        preview: "updated preview \(offset)",
+                        updatedAt: current.updatedAt,
+                        avatarSeed: current.avatarSeed,
+                        pictureURL: current.pictureURL,
+                        unreadCount: current.unreadCount,
+                        unreadMentionCount: current.unreadMentionCount,
+                        isDirect: current.isDirect,
+                        pendingConfirmation: current.pendingConfirmation
+                    ),
+                    forAccountId: account.id
+                )
+            }
+        }
+
+        print(
+            "PERF chat_selected_lookup_ms=\(formatMilliseconds(selectedLookupMilliseconds)) lookups=50000 chats=5000"
+        )
+        print("PERF chat_filter_cached_ms=\(formatMilliseconds(cachedFilterMilliseconds)) hits=5000 chats=5000")
+        print("PERF chat_indexed_upsert_ms=\(formatMilliseconds(indexedUpsertMilliseconds)) updates=1000 chats=5000")
+
+        #expect(selectedLookupMilliseconds < 60)
+        #expect(cachedFilterMilliseconds < 40)
+        #expect(indexedUpsertMilliseconds < 500)
+        #expect(state.selectedChat?.id == "perf-chat-4999")
     }
 
     @Test func readStateChatRowsPreserveResolvedMetadataWhenSkippingEnrichment() {
@@ -9690,29 +10295,28 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         return windowPage()
     }
 
-    override func next() async -> TimelinePageFfi? {
-        guard !updates.isEmpty else {
-            if endsWhenExhausted { return nil }
-            return await awaitSubscriptionCancellation()
-        }
-        if updateDelayNanoseconds > 0 {
-            try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
-        }
+    /// Dequeue the next queued signal, mutate the fake's server-side `fullSet` and
+    /// re-window `lo`/`hi` exactly as the runtime's `recv()` does, and hand back both the
+    /// original update (so `nextUpdate()` can surface the raw `.projection`) and the
+    /// re-materialized window (what a `.page`/`snapshot()` observes). Shared by `next()`
+    /// and `nextUpdate()` so both stay faithful to the same windowing contract.
+    private func consumeSignalApplyingWindow() -> (update: TimelineSubscriptionUpdateFfi, page: TimelinePageFfi) {
         let update = updates.removeFirst()
         let priorSpan = hi - lo
         let wasAnchored = hi >= fullSet.messages.count
         switch update {
         case .page(let page):
             // A head `.page` refresh never replaces a scrolled-back (detached) window.
-            guard wasAnchored else { return windowPage() }
-            for message in page.messages {
-                if let index = fullSet.messages.firstIndex(where: { $0.messageIdHex == message.messageIdHex }) {
-                    fullSet.messages[index] = message
-                } else {
-                    fullSet.messages.append(message)
+            if wasAnchored {
+                for message in page.messages {
+                    if let index = fullSet.messages.firstIndex(where: { $0.messageIdHex == message.messageIdHex }) {
+                        fullSet.messages[index] = message
+                    } else {
+                        fullSet.messages.append(message)
+                    }
                 }
+                fullSet.sortCanonical()
             }
-            fullSet.sortCanonical()
         case .projection(update: let runtimeUpdate):
             fullSet.applyProjectionUpdate(runtimeUpdate.update)
         }
@@ -9725,7 +10329,18 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
             hi = min(hi, count)
             lo = min(lo, hi)
         }
-        return windowPage()
+        return (update, windowPage())
+    }
+
+    override func next() async -> TimelinePageFfi? {
+        guard !updates.isEmpty else {
+            if endsWhenExhausted { return nil }
+            return await awaitSubscriptionCancellation()
+        }
+        if updateDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
+        }
+        return consumeSignalApplyingWindow().page
     }
 
     override func nextUpdate() async -> TimelineSubscriptionUpdateFfi? {
@@ -9736,7 +10351,15 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
         if updateDelayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: updateDelayNanoseconds)
         }
-        return updates.removeFirst()
+        let (update, page) = consumeSignalApplyingWindow()
+        // Mirror the runtime: a refresh surfaces the re-materialized window as a `.page`,
+        // while a projection surfaces the raw delta for the client to apply incrementally.
+        switch update {
+        case .page:
+            return .page(page: page)
+        case .projection:
+            return update
+        }
     }
 }
 
@@ -10046,7 +10669,10 @@ private func timelineMessage(
     recordedAt: UInt64,
     mediaJson: String? = nil,
     agentTextStreamJson: String? = nil,
-    reactions: TimelineReactionSummaryFfi = projectedReactionSummary([])
+    reactions: TimelineReactionSummaryFfi = projectedReactionSummary([]),
+    contentTokens: MarkdownDocumentFfi = emptyMarkdownDocument(),
+    deleted: Bool = false,
+    invalidationStatus: String? = nil
 ) -> TimelineMessageRecordFfi {
     TimelineMessageRecordFfi(
         messageIdHex: id,
@@ -10055,7 +10681,7 @@ private func timelineMessage(
         groupIdHex: groupIdHex,
         sender: sender,
         plaintext: plaintext,
-        contentTokens: emptyMarkdownDocument(),
+        contentTokens: contentTokens,
         kind: kind,
         tags: tags,
         timelineAt: recordedAt,
@@ -10067,9 +10693,9 @@ private func timelineMessage(
         agentTextStreamJson: agentTextStreamJson,
         groupSystem: nil,
         reactions: reactions,
-        deleted: false,
+        deleted: deleted,
         deletedByMessageIdHex: nil,
-        invalidationStatus: nil
+        invalidationStatus: invalidationStatus
     )
 }
 
@@ -10145,6 +10771,29 @@ private func chatListOrderingTestItem(
         isDirect: false,
         pendingConfirmation: false
     )
+}
+
+private func performanceChatItems(count: Int) -> [ChatItem] {
+    (0..<count).map { index in
+        let id = "perf-chat-\(index)"
+        let preview = index.isMultiple(of: 100) ? "launch planning \(index)" : "ordinary preview \(index)"
+        let updatedAt = Date(timeIntervalSince1970: Double(2_000_000_000 - index))
+        let unreadCount = index % 5
+        let unreadMentionCount = index % 2
+        return ChatItem(
+            id: id,
+            title: "Performance Chat \(index)",
+            subtitle: "npub\(index)",
+            preview: preview,
+            updatedAt: updatedAt,
+            avatarSeed: id,
+            pictureURL: nil,
+            unreadCount: unreadCount,
+            unreadMentionCount: unreadMentionCount,
+            isDirect: index.isMultiple(of: 3),
+            pendingConfirmation: false
+        )
+    }
 }
 
 private func projectedReactionSummary(_ reactions: [TimelineUserReactionFfi]) -> TimelineReactionSummaryFfi {
@@ -10613,6 +11262,171 @@ private func mediaIMetaTag(for reference: MediaAttachmentReferenceFfi) -> Messag
         values.append("thumbhash \(thumbhash)")
     }
     return MessageTagFfi(values: values)
+}
+
+private func performanceMessageItems(count: Int, groupIdHex: String = "perf-group") -> [MessageItem] {
+    let baseDate = Date(timeIntervalSince1970: 1_800_000_000)
+    let richMarkdown = richMarkdownDocumentForPerformance()
+    let compactMarkdown = MarkdownDocumentFfi(
+        blocks: [
+            .paragraph(inlines: [
+                .text(content: "Compact update with "),
+                .strong(children: [.text(content: "status")]),
+                .text(content: " and "),
+                .code(content: "trace_id"),
+                .text(content: "."),
+            ]),
+        ],
+        truncated: false
+    )
+
+    return (0..<count).map { index in
+        let isOutgoing = index.isMultiple(of: 2)
+        let markdown: MarkdownDocumentFfi?
+        if index.isMultiple(of: 5) {
+            markdown = richMarkdown
+        } else if index.isMultiple(of: 3) {
+            markdown = compactMarkdown
+        } else {
+            markdown = nil
+        }
+
+        return MessageItem(
+            id: "perf-\(index)",
+            groupIdHex: groupIdHex,
+            senderAccountIdHex: isOutgoing ? "self" : "alice",
+            senderName: isOutgoing ? "Jeff" : "Alice",
+            body: """
+                Performance transcript fixture \(index). This row is intentionally long \
+                enough to wrap across multiple lines and exercise bubble layout while \
+                remaining deterministic.
+                """,
+            contentMarkdown: markdown,
+            sentAt: baseDate.addingTimeInterval(TimeInterval(index)),
+            timelineAt: UInt64(1_800_000_000 + index),
+            isOutgoing: isOutgoing
+        )
+    }
+}
+
+private func richMarkdownDocumentForPerformance() -> MarkdownDocumentFfi {
+    MarkdownDocumentFfi(
+        blocks: [
+            .heading(level: 3, inlines: [
+                .text(content: "Release checklist"),
+            ]),
+            .paragraph(inlines: [
+                .text(content: "Review "),
+                .strong(children: [.text(content: "rendering")]),
+                .text(content: ", validate "),
+                .emph(children: [.text(content: "scroll position")]),
+                .text(content: ", and open "),
+                .link(
+                    dest: "https://example.com/perf",
+                    title: nil,
+                    children: [.text(content: "perf notes")]
+                ),
+                .text(content: "."),
+            ]),
+            .list(
+                kind: .bullet(marker: "-"),
+                tight: true,
+                items: [
+                    MarkdownListItemFfi(
+                        blocks: [
+                            .paragraph(inlines: [.text(content: "No jump when older history prepends")]),
+                        ],
+                        checked: nil
+                    ),
+                    MarkdownListItemFfi(
+                        blocks: [
+                            .paragraph(inlines: [.text(content: "No full transcript diff for one update")]),
+                        ],
+                        checked: true
+                    ),
+                ]
+            ),
+            .table(
+                alignments: [.left, .right],
+                header: [
+                    MarkdownTableCellFfi(inlines: [.text(content: "Path")]),
+                    MarkdownTableCellFfi(inlines: [.text(content: "Target")]),
+                ],
+                rows: [
+                    [
+                        MarkdownTableCellFfi(inlines: [.code(content: "body")]),
+                        MarkdownTableCellFfi(inlines: [.text(content: "< 16ms")]),
+                    ],
+                    [
+                        MarkdownTableCellFfi(inlines: [.code(content: "diff")]),
+                        MarkdownTableCellFfi(inlines: [.text(content: "bounded")]),
+                    ],
+                ]
+            ),
+            .codeBlock(kind: .fenced, info: "swift", content: "let row = ConversationMessageRow(message: item)"),
+        ],
+        truncated: false
+    )
+}
+
+private func measuredMilliseconds(_ work: () -> Void) -> Double {
+    let start = CFAbsoluteTimeGetCurrent()
+    work()
+    return (CFAbsoluteTimeGetCurrent() - start) * 1_000
+}
+
+private func measuredMillisecondsAsync(_ work: () async -> Void) async -> Double {
+    let start = CFAbsoluteTimeGetCurrent()
+    await work()
+    return (CFAbsoluteTimeGetCurrent() - start) * 1_000
+}
+
+private func formatMilliseconds(_ milliseconds: Double) -> String {
+    String(format: "%.2f", milliseconds)
+}
+
+private func messageMediaDiskCache(
+    root: URL,
+    keyData: Data = Data(repeating: 0x42, count: 32),
+    keyDeleter: @escaping @Sendable () -> Void = {}
+) -> MessageMediaDiskCache {
+    MessageMediaDiskCache(
+        directoryResolver: { root },
+        keyProvider: { SymmetricKey(data: keyData) },
+        keyDeleter: keyDeleter
+    )
+}
+
+private func mediaDiskCacheReference(
+    plaintext: Data,
+    ciphertextByte: UInt8 = 0xcc
+) -> MediaAttachmentReferenceFfi {
+    MediaAttachmentReferenceFfi(
+        locators: [],
+        ciphertextSha256: String(repeating: String(format: "%02x", ciphertextByte), count: 32),
+        plaintextSha256: hexSHA256(plaintext),
+        nonceHex: String(repeating: "00", count: 12),
+        fileName: "cached.bin",
+        mediaType: "application/octet-stream",
+        version: "encrypted-media-v1",
+        sourceEpoch: 7,
+        dim: nil,
+        thumbhash: nil
+    )
+}
+
+private func hexSHA256(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+}
+
+private func dataContains(_ haystack: Data, _ needle: Data) -> Bool {
+    guard !needle.isEmpty, haystack.count >= needle.count else { return false }
+    for offset in 0...(haystack.count - needle.count) {
+        if haystack[offset..<(offset + needle.count)].elementsEqual(needle) {
+            return true
+        }
+    }
+    return false
 }
 
 private func emptyMarkdownDocument() -> MarkdownDocumentFfi {

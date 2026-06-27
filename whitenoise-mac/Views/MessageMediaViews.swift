@@ -13,8 +13,16 @@ import AVKit
 import AppKit
 import SwiftUI
 
-struct ConversationMessageRow: View {
+struct ConversationMessageRow: View, Equatable {
     let message: MessageItem
+    /// Whether this row is the currently text-selectable bubble (drives `.textSelection`).
+    /// Passed by value so value-diffing only re-runs the rows whose selectability flipped.
+    var isSelectable: Bool = false
+    /// Keep the debug toggle as a row input so `.equatable()` still updates rows when the
+    /// diagnostics presentation changes, while ordinary hover/selection churn skips rows
+    /// whose value inputs are unchanged.
+    var showsDebugMetadata = false
+    let onActivateSelection: (String) -> Void
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     // Receives the resolved MessageItem by value (not via a shared @Observable lookup),
@@ -22,16 +30,29 @@ struct ConversationMessageRow: View {
     // instead of invalidating every visible row on each page load / streaming update.
     var body: some View {
         if message.presentation.isChatBubble {
-            MessageBubble(message: message, onOpenImageGallery: onOpenImageGallery)
+            MessageBubble(
+                message: message,
+                isSelectable: isSelectable,
+                showsDebugMetadata: showsDebugMetadata,
+                onActivateSelection: onActivateSelection,
+                onOpenImageGallery: onOpenImageGallery
+            )
         } else {
-            TimelineNoticeRow(message: message)
+            TimelineNoticeRow(message: message, showsDebugMetadata: showsDebugMetadata)
         }
+    }
+
+    static func == (lhs: ConversationMessageRow, rhs: ConversationMessageRow) -> Bool {
+        lhs.message == rhs.message
+            && lhs.isSelectable == rhs.isSelectable
+            && lhs.showsDebugMetadata == rhs.showsDebugMetadata
     }
 }
 
 struct TimelineNoticeRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
+    let showsDebugMetadata: Bool
 
     var body: some View {
         HStack {
@@ -53,7 +74,7 @@ struct TimelineNoticeRow: View {
                         .foregroundStyle(.tertiary)
                 }
 
-                if workspace.streamingDebugEnabled {
+                if showsDebugMetadata {
                     MessageDebugMetadataView(message: message, isOutgoing: false)
                 }
             }
@@ -79,10 +100,13 @@ struct TimelineNoticeRow: View {
 
 struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
     let message: MessageItem
+    /// Whether this bubble's text is selectable right now (only the active bubble is).
+    var isSelectable: Bool = false
+    let showsDebugMetadata: Bool
+    let onActivateSelection: (String) -> Void
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     var body: some View {
@@ -115,7 +139,7 @@ struct MessageBubble: View {
                     )
                 }
 
-                if workspace.streamingDebugEnabled || message.hasBubbleContent {
+                if showsDebugMetadata || message.hasBubbleContent {
                     bubbleContent
                 }
 
@@ -169,7 +193,14 @@ struct MessageBubble: View {
                 MessageOverflowMenuItems(message: message)
             }
         }
-        .onHover { isHovering = $0 }
+        .onHover { hovering in
+            isHovering = hovering
+            // Make this the active (selectable) bubble on hover-enter; do NOT clear on
+            // exit, so the selection survives moving the cursor toward ⌘C / the menu bar.
+            if hovering {
+                onActivateSelection(message.id)
+            }
+        }
     }
 
     private var showsInlineActions: Bool {
@@ -178,7 +209,7 @@ struct MessageBubble: View {
 
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if workspace.streamingDebugEnabled {
+            if showsDebugMetadata {
                 MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
             }
 
@@ -192,11 +223,14 @@ struct MessageBubble: View {
                     .foregroundStyle(message.isOutgoing ? .white : .primary)
             }
         }
+        // One hover-gated selection gate for the whole bubble: `.textSelection(.enabled)`
+        // propagates through the environment to the body + reply-quote Text, so only the
+        // active bubble (`isSelectable`) is backed by a selection NSView. Non-active bubbles
+        // get no modifier (Text is non-selectable by default). See whitenoise-mac#205.
+        .textSelectable(isSelectable)
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
-        .background {
-            bubbleBackground
-        }
+        .background { BubbleBackground(isOutgoing: message.isOutgoing) }
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
             if showsInlineActions {
@@ -210,26 +244,45 @@ struct MessageBubble: View {
         }
         .animation(.smooth(duration: 0.12), value: showsInlineActions)
     }
+}
 
+private extension View {
+    /// Enable text selection only when `enabled`. `.textSelection(.enabled)` and `.disabled`
+    /// are distinct types (so a ternary won't type-check); a plain `Text` is non-selectable
+    /// by default, so the inactive case simply applies no modifier.
     @ViewBuilder
-    private var bubbleBackground: some View {
+    func textSelectable(_ enabled: Bool) -> some View {
+        if enabled {
+            textSelection(.enabled)
+        } else {
+            self
+        }
+    }
+}
+
+/// The chat-bubble shape: a rounded rectangle with the trailing/leading bottom corner
+/// tucked in on the sender's side. Outgoing bubbles use the accent fill; incoming bubbles
+/// use a scheme-aware translucent fill with a hairline stroke.
+private struct BubbleBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let isOutgoing: Bool
+
+    var body: some View {
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: 20,
-            bottomLeadingRadius: message.isOutgoing ? 20 : 6,
-            bottomTrailingRadius: message.isOutgoing ? 6 : 20,
+            bottomLeadingRadius: isOutgoing ? 20 : 6,
+            bottomTrailingRadius: isOutgoing ? 6 : 20,
             topTrailingRadius: 20,
             style: .continuous
         )
 
-        if message.isOutgoing {
-            shape
-                .fill(MessagesPalette.sentBubble)
+        if isOutgoing {
+            shape.fill(MessagesPalette.sentBubble)
         } else {
             shape
                 .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
                 .overlay {
-                    shape
-                        .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.24), lineWidth: 1)
+                    shape.stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.24), lineWidth: 1)
                 }
         }
     }
@@ -352,8 +405,13 @@ struct MessageVisualMediaTile: View {
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
         .clipped()
-        .task(id: attachment.id) {
-            await workspace.loadMediaAttachment(attachment, for: message)
+        .onAppear {
+            startAutomaticDownloadIfNeeded()
+        }
+        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
+            if shouldStart {
+                startAutomaticDownloadIfNeeded()
+            }
         }
         .onTapGesture {
             if attachment.kind == .image,
@@ -362,6 +420,11 @@ struct MessageVisualMediaTile: View {
                 onOpenImageGallery(gallery)
             }
         }
+    }
+
+    private func startAutomaticDownloadIfNeeded() {
+        guard downloadState.shouldStartAutomaticDownload else { return }
+        Task { await workspace.loadMediaAttachment(attachment, for: message) }
     }
 
     @ViewBuilder
@@ -375,8 +438,7 @@ struct MessageVisualMediaTile: View {
             switch attachment.kind {
             case .image:
                 DownsampledDataImage(
-                    data: download.data,
-                    cacheKey: attachment.id,
+                    payload: download.payload,
                     maxPixelSize: sideLength * max(1, displayScale) * 2
                 ) { image in
                     image
@@ -449,9 +511,19 @@ struct MessageMediaAttachmentView: View {
                 }
             }
         }
-        .task(id: attachment.id) {
-            await workspace.loadMediaAttachment(attachment, for: message)
+        .onAppear {
+            startAutomaticDownloadIfNeeded()
         }
+        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
+            if shouldStart {
+                startAutomaticDownloadIfNeeded()
+            }
+        }
+    }
+
+    private func startAutomaticDownloadIfNeeded() {
+        guard downloadState.shouldStartAutomaticDownload else { return }
+        Task { await workspace.loadMediaAttachment(attachment, for: message) }
     }
 
     @ViewBuilder
@@ -459,8 +531,7 @@ struct MessageMediaAttachmentView: View {
         switch attachment.kind {
         case .image:
             DownsampledDataImage(
-                data: download.data,
-                cacheKey: attachment.id,
+                payload: download.payload,
                 maxPixelSize: 260 * max(1, displayScale) * 2
             ) { image in
                 image
@@ -501,9 +572,7 @@ struct MessageMediaAttachmentView: View {
     }
 
     private func mediaDetail(_ download: MessageMediaDownload) -> String {
-        let type = download.mediaType.nilIfBlank ?? attachment.mediaType
-        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
-        return "\(type) - \(size)"
+        download.detailText(fallbackMediaType: attachment.mediaType)
     }
 }
 
@@ -524,9 +593,7 @@ struct MessageDocumentAttachmentRow: View {
     }
 
     private var mediaDetail: String {
-        let type = download.mediaType.nilIfBlank ?? attachment.mediaType
-        let size = ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
-        return "\(type) - \(size)"
+        download.detailText(fallbackMediaType: attachment.mediaType)
     }
 
     @MainActor
@@ -636,6 +703,7 @@ struct MessageAudioAttachmentPlayer: View {
     @State private var playbackPreparationID: UUID?
     @State private var playbackProgress: CGFloat = 0
     @State private var metadata: MediaWaveformAnalyzer.Metadata?
+    @State private var metadataPayloadID: String?
     @State private var playbackMonitor: Task<Void, Never>?
     @State private var audioPlayerDelegate = MessageAudioPlayerDelegate()
 
@@ -666,7 +734,7 @@ struct MessageAudioAttachmentPlayer: View {
 
                 HStack(spacing: 8) {
                     ComposerAudioWaveformView(
-                        samples: metadata?.samples ?? MediaWaveformAnalyzer.fallback(),
+                        samples: visibleMetadata?.samples ?? MediaWaveformAnalyzer.fallback(),
                         progress: playbackProgress,
                         barColor: isOutgoing ? Color.white.opacity(0.42) : Color.secondary.opacity(0.55),
                         playedColor: isOutgoing ? Color.white.opacity(0.9) : Color.accentColor
@@ -692,20 +760,27 @@ struct MessageAudioAttachmentPlayer: View {
         .onDisappear {
             stopPlayback()
         }
-        .task(id: "\(download.fileName)-\(download.sizeBytes)-\(download.mediaType)") {
-            let data = download.data
-            let mediaType = download.mediaType
-            metadata = await Task.detached(priority: .utility) {
-                MediaWaveformAnalyzer.metadata(from: data, mediaType: mediaType)
-            }.value
+        .task(id: download.payload.id) {
+            let payloadID = download.payload.id
+            if metadataPayloadID != payloadID {
+                metadata = nil
+            }
+            let loaded = await MessageAudioMetadataCache.shared.metadata(for: download)
+            guard !Task.isCancelled else { return }
+            metadata = loaded
+            metadataPayloadID = payloadID
         }
     }
 
+    private var visibleMetadata: MediaWaveformAnalyzer.Metadata? {
+        metadataPayloadID == download.payload.id ? metadata : nil
+    }
+
     private var durationLabel: String {
-        if let durationSeconds = metadata?.durationSeconds {
+        if let durationSeconds = visibleMetadata?.durationSeconds {
             return MediaDurationLabel.string(for: durationSeconds)
         }
-        return ByteCountFormatter.string(fromByteCount: Int64(clamping: download.sizeBytes), countStyle: .file)
+        return download.sizeLabel
     }
 
     private func togglePlayback() async {
@@ -720,7 +795,7 @@ struct MessageAudioAttachmentPlayer: View {
         var preparationID: UUID?
         do {
             if player == nil {
-                let data = download.data
+                let data = download.payload.data
                 let nextPreparationID = UUID()
                 preparationID = nextPreparationID
                 playbackPreparationID = nextPreparationID
@@ -966,7 +1041,7 @@ enum MessageMediaPlaybackFileStore {
         let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
         let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
         let attachmentID = attachment.id
-        let data = download.data
+        let data = download.payload.data
 
         return await Task.detached(priority: .utility) {
             do {
@@ -1072,9 +1147,6 @@ struct MessageImageGalleryOverlay: View {
                     .padding(.horizontal, 22)
                 }
             }
-            .task(id: selectedAttachment.id) {
-                await workspace.loadMediaAttachment(selectedAttachment, for: presentation.message)
-            }
         }
     }
 
@@ -1112,27 +1184,45 @@ struct MessageImageGalleryContent: View {
     let attachment: MessageMediaAttachment
 
     var body: some View {
-        switch downloadState.state {
-        case .idle, .loading:
-            ProgressView()
-                .controlSize(.regular)
-                .tint(.white)
-        case .failed:
-            VStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.title2)
-                Text("Image unavailable")
-                    .font(.callout.weight(.semibold))
-                Button {
-                    Task { await workspace.loadMediaAttachment(attachment, for: message) }
-                } label: {
-                    Label("Retry", systemImage: "arrow.clockwise")
+        Group {
+            switch downloadState.state {
+            case .idle, .loading:
+                ProgressView()
+                    .controlSize(.regular)
+                    .tint(.white)
+            case .failed:
+                VStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title2)
+                    Text("Image unavailable")
+                        .font(.callout.weight(.semibold))
+                    Button {
+                        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
                 }
+                .foregroundStyle(.white)
+            case .loaded(let download):
+                DownsampledMessageGalleryImage(download: download, attachment: attachment)
             }
-            .foregroundStyle(.white)
-        case .loaded(let download):
-            DownsampledMessageGalleryImage(download: download, attachment: attachment)
         }
+        .onAppear {
+            startAutomaticDownloadIfNeeded()
+        }
+        .onChange(of: attachment.id) { _, _ in
+            startAutomaticDownloadIfNeeded()
+        }
+        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
+            if shouldStart {
+                startAutomaticDownloadIfNeeded()
+            }
+        }
+    }
+
+    private func startAutomaticDownloadIfNeeded() {
+        guard downloadState.shouldStartAutomaticDownload else { return }
+        Task { await workspace.loadMediaAttachment(attachment, for: message) }
     }
 }
 
@@ -1144,8 +1234,7 @@ struct DownsampledMessageGalleryImage: View {
     var body: some View {
         GeometryReader { proxy in
             DownsampledDataImage(
-                data: download.data,
-                cacheKey: attachment.id,
+                payload: download.payload,
                 maxPixelSize: DownsampledImageSizing.galleryPixelSize(
                     for: proxy.size,
                     displayScale: displayScale
@@ -1304,29 +1393,58 @@ struct MessageEmojiPickerPopover: View {
     }
 }
 
+/// The Copy/Delete actions available on a message row, gated by the message's own
+/// `canCopyText` / `canDelete`. Centralised here so both presentations — the native
+/// `.contextMenu` (`MessageOverflowMenuItems`) and the inline hover popover
+/// (`MessageOverflowPopover`) — share one source of truth for which actions exist and what
+/// they do, while each keeps its own button styling.
+struct MessageRowAction: Identifiable {
+    enum Kind { case copy, delete }
+
+    let kind: Kind
+    let title: LocalizedStringKey
+    let systemImage: String
+    let role: ButtonRole?
+    let run: () -> Void
+
+    var id: Kind { kind }
+
+    @MainActor
+    static func all(
+        for message: MessageItem,
+        workspace: WorkspaceState,
+        dismiss: @escaping () -> Void = {}
+    ) -> [MessageRowAction] {
+        var actions: [MessageRowAction] = []
+        if message.canCopyText {
+            actions.append(
+                MessageRowAction(kind: .copy, title: "Copy Text", systemImage: "doc.on.doc", role: nil) {
+                    workspace.copyText(of: message)
+                    dismiss()
+                })
+        }
+        if message.canDelete {
+            actions.append(
+                MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {
+                    dismiss()
+                    Task { await workspace.deleteMessage(message) }
+                })
+        }
+        return actions
+    }
+}
+
 struct MessageOverflowPopover: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     let dismiss: () -> Void
 
     var body: some View {
+        let actions = MessageRowAction.all(for: message, workspace: workspace, dismiss: dismiss)
         VStack(spacing: 0) {
-            if message.canCopyText {
-                overflowButton("Copy Text", systemImage: "doc.on.doc") {
-                    workspace.copyText(of: message)
-                    dismiss()
-                }
-            }
-
-            if message.canCopyText && message.canDelete {
-                Divider()
-            }
-
-            if message.canDelete {
-                overflowButton("Delete", systemImage: "trash", role: .destructive) {
-                    dismiss()
-                    Task { await workspace.deleteMessage(message) }
-                }
+            ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+                if index > 0 { Divider() }
+                overflowButton(action)
             }
         }
         .padding(.vertical, 6)
@@ -1335,17 +1453,12 @@ struct MessageOverflowPopover: View {
         .glassCard(material: .regularMaterial)
     }
 
-    private func overflowButton(
-        _ title: String,
-        systemImage: String,
-        role: ButtonRole? = nil,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(role: role, action: action) {
+    private func overflowButton(_ action: MessageRowAction) -> some View {
+        Button(role: action.role, action: action.run) {
             HStack(spacing: 10) {
-                Image(systemName: systemImage)
+                Image(systemName: action.systemImage)
                     .frame(width: 18)
-                Text(title)
+                Text(action.title)
                 Spacer()
             }
             .padding(.horizontal, 12)
@@ -1353,7 +1466,7 @@ struct MessageOverflowPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(role == .destructive ? Color.red : Color.primary)
+        .foregroundStyle(action.role == .destructive ? Color.red : Color.primary)
     }
 }
 
@@ -1362,23 +1475,11 @@ struct MessageOverflowMenuItems: View {
     let message: MessageItem
 
     var body: some View {
-        if message.canCopyText {
-            Button {
-                workspace.copyText(of: message)
-            } label: {
-                Label("Copy Text", systemImage: "doc.on.doc")
-            }
-        }
-
-        if message.canCopyText && message.canDelete {
-            Divider()
-        }
-
-        if message.canDelete {
-            Button(role: .destructive) {
-                Task { await workspace.deleteMessage(message) }
-            } label: {
-                Label("Delete", systemImage: "trash")
+        let actions = MessageRowAction.all(for: message, workspace: workspace)
+        ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+            if index > 0 { Divider() }
+            Button(role: action.role, action: action.run) {
+                Label(action.title, systemImage: action.systemImage)
             }
         }
     }

@@ -132,6 +132,16 @@ extension MessageItem {
             tags: record.tags,
             messageIdHex: record.messageIdHex
         )
+        let body = MessageItem.systemText(record.groupSystem)
+            ?? MessageItem.displayText(
+                kind: record.kind,
+                plaintext: record.plaintext,
+                tags: record.tags,
+                deleted: record.deleted,
+                invalidationStatus: record.invalidationStatus,
+                hasMediaAttachments: !mediaAttachments.isEmpty
+            )
+
         self.init(
             id: record.messageIdHex,
             groupIdHex: record.groupIdHex,
@@ -142,18 +152,12 @@ extension MessageItem {
                 presentation: presentation
             ),
             senderPictureURL: senderProfile?.pictureURL,
-            body: MessageItem.systemText(record.groupSystem)
-                ?? MessageItem.displayText(
-                    kind: record.kind,
-                    plaintext: record.plaintext,
-                    tags: record.tags,
-                    deleted: record.deleted,
-                    invalidationStatus: record.invalidationStatus,
-                    hasMediaAttachments: !mediaAttachments.isEmpty
-                ),
+            body: body,
             contentMarkdown: MessageItem.renderableMarkdown(
                 document: record.contentTokens,
+                displayedBody: body,
                 deleted: record.deleted,
+                invalidationStatus: record.invalidationStatus,
                 presentation: presentation
             ),
             sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
@@ -223,11 +227,44 @@ extension MessageItem {
     /// the core parsed into no blocks (e.g. media-only / empty plaintext).
     fileprivate static func renderableMarkdown(
         document: MarkdownDocumentFfi,
+        displayedBody: String,
         deleted: Bool,
+        invalidationStatus: String?,
         presentation: MessagePresentation
     ) -> MarkdownDocumentFfi? {
-        guard presentation.isChatBubble, !deleted, !document.blocks.isEmpty else { return nil }
+        guard presentation.isChatBubble, !deleted, invalidationStatus == nil, !document.blocks.isEmpty else { return nil }
+        // Fast path: an unstyled single-paragraph message renders identically to the plain
+        // `Text(message.body)` fallback, which is dramatically cheaper for SwiftUI to size
+        // than the Markdown block/inline view tree (VStack → ForEach → MarkdownBlockView →
+        // MarkdownInlineText → fixed-size Text). Most chat messages are exactly this, and
+        // sizing/re-measuring that tree for ~100–200 rows during scroll-anchor resolution was
+        // the send-time main-thread freeze (Instruments: continuous StackLayout.sizeThatFits /
+        // LazyStack.measureEstimates). Returning nil keeps the common message as light as the
+        // pre-Markdown bubble — and, since `MessageItem.contentMarkdown` is then nil, also
+        // shrinks the struct SwiftUI copies per row. See whitenoise-mac#205.
+        if isPlainTextParagraph(document, displayedBody: displayedBody) { return nil }
         return document
+    }
+
+    /// True when `document` is a single paragraph of unstyled text runs — no emphasis, code,
+    /// links, mentions, soft/hard breaks, or multiple blocks — and the parsed text exactly
+    /// matches the displayed body. Escaped Markdown (`\*`) parses to a different displayed
+    /// string (`*`), so it must keep the Markdown renderer even though the AST contains only
+    /// a text run.
+    fileprivate static func isPlainTextParagraph(
+        _ document: MarkdownDocumentFfi,
+        displayedBody: String
+    ) -> Bool {
+        guard !document.truncated, document.blocks.count == 1,
+            case .paragraph(let inlines) = document.blocks[0]
+        else { return false }
+
+        var parsedText = ""
+        for inline in inlines {
+            guard case .text(let content) = inline else { return false }
+            parsedText += content
+        }
+        return parsedText == displayedBody
     }
 
     fileprivate static func displayText(

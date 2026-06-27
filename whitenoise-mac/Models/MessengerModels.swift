@@ -259,11 +259,78 @@ struct MessageMediaAttachment: Identifiable, Hashable {
     }
 }
 
-struct MessageMediaDownload: Hashable {
-    let data: Data
+nonisolated final class DownloadedMediaPayload: @unchecked Sendable, Hashable {
+    let id: String
+    private let storage: Data
+
+    init(id: String = UUID().uuidString, data: Data) {
+        self.id = id
+        self.storage = data
+    }
+
+    var data: Data {
+        storage
+    }
+
+    var byteCount: Int {
+        storage.count
+    }
+
+    static func == (lhs: DownloadedMediaPayload, rhs: DownloadedMediaPayload) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+}
+
+nonisolated struct MessageMediaDownload: Hashable {
+    let payload: DownloadedMediaPayload
     let fileName: String
     let mediaType: String
     let sizeBytes: UInt64
+    let sizeLabel: String
+
+    init(
+        payload: DownloadedMediaPayload,
+        fileName: String,
+        mediaType: String,
+        sizeBytes: UInt64
+    ) {
+        self.payload = payload
+        self.fileName = fileName
+        self.mediaType = mediaType
+        self.sizeBytes = sizeBytes
+        self.sizeLabel = Self.sizeLabel(for: sizeBytes)
+    }
+
+    init(
+        data: Data,
+        fileName: String,
+        mediaType: String,
+        sizeBytes: UInt64,
+        payloadId: String = UUID().uuidString
+    ) {
+        self.init(
+            payload: DownloadedMediaPayload(id: payloadId, data: data),
+            fileName: fileName,
+            mediaType: mediaType,
+            sizeBytes: sizeBytes
+        )
+    }
+
+    var data: Data {
+        payload.data
+    }
+
+    func detailText(fallbackMediaType: String) -> String {
+        "\(mediaType.nilIfBlank ?? fallbackMediaType) - \(sizeLabel)"
+    }
+
+    private static func sizeLabel(for sizeBytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: sizeBytes), countStyle: .file)
+    }
 }
 
 nonisolated enum MessageMediaGridPresentation {
@@ -845,7 +912,7 @@ nonisolated enum OutgoingMediaDraftProcessor {
 }
 
 nonisolated enum MediaWaveformAnalyzer {
-    struct Metadata: Sendable {
+    struct Metadata: Equatable, Sendable {
         let durationSeconds: Double?
         let samples: [CGFloat]
     }
@@ -991,6 +1058,106 @@ nonisolated enum MediaWaveformAnalyzer {
     }
 }
 
+nonisolated final class MessageAudioMetadataCache: @unchecked Sendable {
+    typealias Analyzer = @Sendable (DownloadedMediaPayload, String) -> MediaWaveformAnalyzer.Metadata
+
+    static let shared = MessageAudioMetadataCache()
+
+    private let lock = NSLock()
+    private let entryLimit: Int
+    private let analyzer: Analyzer
+    private var cached: [String: MediaWaveformAnalyzer.Metadata] = [:]
+    private var accessOrder: [String] = []
+    private var inFlight: [String: Task<MediaWaveformAnalyzer.Metadata, Never>] = [:]
+    private var generation = 0
+
+    init(
+        entryLimit: Int = 128,
+        analyzer: @escaping Analyzer = { payload, mediaType in
+            MediaWaveformAnalyzer.metadata(from: payload.data, mediaType: mediaType)
+        }
+    ) {
+        self.entryLimit = max(1, entryLimit)
+        self.analyzer = analyzer
+    }
+
+    func metadata(for download: MessageMediaDownload) async -> MediaWaveformAnalyzer.Metadata {
+        await metadata(for: download.payload, mediaType: download.mediaType)
+    }
+
+    func metadata(
+        for payload: DownloadedMediaPayload,
+        mediaType: String
+    ) async -> MediaWaveformAnalyzer.Metadata {
+        let key = payload.id
+        let task: Task<MediaWaveformAnalyzer.Metadata, Never>
+        let taskGeneration: Int
+
+        lock.lock()
+        if let value = cached[key] {
+            markRecentlyUsed(key)
+            lock.unlock()
+            return value
+        }
+        if let existing = inFlight[key] {
+            lock.unlock()
+            return await existing.value
+        }
+
+        taskGeneration = generation
+        task = Task.detached(priority: .utility) { [analyzer] in
+            analyzer(payload, mediaType)
+        }
+        inFlight[key] = task
+        lock.unlock()
+
+        let value = await task.value
+
+        lock.lock()
+        if generation == taskGeneration {
+            inFlight[key] = nil
+            cached[key] = value
+            markRecentlyUsed(key)
+            trimIfNeeded()
+        }
+        lock.unlock()
+
+        return value
+    }
+
+    func clear() {
+        let tasks: [Task<MediaWaveformAnalyzer.Metadata, Never>]
+        lock.lock()
+        generation += 1
+        cached.removeAll()
+        accessOrder.removeAll()
+        tasks = Array(inFlight.values)
+        inFlight.removeAll()
+        lock.unlock()
+        tasks.forEach { $0.cancel() }
+    }
+
+    #if DEBUG
+        var cachedEntryCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return cached.count
+        }
+    #endif
+
+    private func markRecentlyUsed(_ key: String) {
+        accessOrder.removeAll { $0 == key }
+        accessOrder.append(key)
+    }
+
+    private func trimIfNeeded() {
+        while cached.count > entryLimit, let oldest = accessOrder.first {
+            accessOrder.removeFirst()
+            cached[oldest] = nil
+        }
+    }
+}
+
 nonisolated private enum MediaVideoMetadata {
     static func dim(from data: Data, mediaType: String) async -> String? {
         await TemporaryOutgoingMediaFile.withURL(
@@ -1096,10 +1263,10 @@ struct MessageItem: Identifiable, Hashable {
     let senderName: String
     let senderPictureURL: String?
     let body: String
-    /// Parsed Markdown AST for the message body, supplied by the Marmot core
-    /// (`TimelineMessageRecordFfi.contentTokens`). Non-nil only for rendered chat
-    /// bubbles with text; `nil` for system rows, deleted, or media-only messages.
-    let contentMarkdown: MarkdownDocumentFfi?
+    /// Pre-rendered Markdown display model for the message body. The Marmot core supplies
+    /// parsed tokens; `MessageItem` converts them once so SwiftUI body/layout passes do not
+    /// rebuild attributed strings or enumerated block arrays while scrolling.
+    let contentMarkdown: MarkdownDisplayDocument?
     let trimmedBody: String
     let sentAt: Date
     let timelineAt: UInt64
@@ -1149,7 +1316,7 @@ struct MessageItem: Identifiable, Hashable {
         self.senderName = senderName
         self.senderPictureURL = senderPictureURL
         self.body = body
-        self.contentMarkdown = contentMarkdown
+        self.contentMarkdown = contentMarkdown.map(MarkdownDisplayDocument.init(document:))
         self.trimmedBody = trimmedBody
         self.sentAt = sentAt
         self.timelineAt = timelineAt ?? UInt64(sentAt.timeIntervalSince1970)
@@ -1243,6 +1410,53 @@ struct MessageItem: Identifiable, Hashable {
 
     var canDelete: Bool {
         isActionableChatBubble && isOutgoing
+    }
+}
+
+extension MessageItem {
+    // Hand-written `Equatable`/`Hashable` so equality and hashing stay O(1) instead of
+    // recursively walking `contentMarkdown`'s pre-rendered Markdown tree.
+    //
+    // `contentMarkdown` is a deterministic display projection of the message content
+    // (the core's `contentTokens`), fully determined by the content-bearing fields
+    // compared below — chiefly `body`, `isDeleted`, and `presentation`. Two items that
+    // agree on those always carry the same AST, so excluding it from equality is sound
+    // while avoiding an O(AST) traversal on every comparison. That traversal otherwise
+    // ran for each row whenever SwiftUI diffed the transcript (and on any Set/Dictionary
+    // use), adding up across a live-update burst. The remaining fields are the
+    // independent inputs; rendered labels are compared too because they are cheap and
+    // directly displayed by the row. The rest of the stored properties (`trimmedBody`, the
+    // media partitions, `hasBubbleContent`) are pure functions of these, so comparing them
+    // too would be redundant.
+    static func == (lhs: MessageItem, rhs: MessageItem) -> Bool {
+        lhs.id == rhs.id
+            && lhs.groupIdHex == rhs.groupIdHex
+            && lhs.senderAccountIdHex == rhs.senderAccountIdHex
+            && lhs.senderName == rhs.senderName
+            && lhs.senderPictureURL == rhs.senderPictureURL
+            && lhs.body == rhs.body
+            && lhs.sentAt == rhs.sentAt
+            && lhs.timelineAt == rhs.timelineAt
+            && lhs.timelineKind == rhs.timelineKind
+            && lhs.isDeleted == rhs.isDeleted
+            && lhs.invalidationStatus == rhs.invalidationStatus
+            && lhs.isOutgoing == rhs.isOutgoing
+            && lhs.reactions == rhs.reactions
+            && lhs.replyContext == rhs.replyContext
+            && lhs.mediaAttachments == rhs.mediaAttachments
+            && lhs.presentation == rhs.presentation
+            && lhs.timeLabel == rhs.timeLabel
+            && lhs.statusLabel == rhs.statusLabel
+            && lhs.metadataLabel == rhs.metadataLabel
+    }
+
+    // Hashes a cheap, well-distributed subset of the equality fields. Hashing only a
+    // subset is valid — equal values still hash equally — and keeps the message id (which
+    // is unique per message) doing the bulk of the distribution work.
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(timelineAt)
+        hasher.combine(body)
     }
 }
 

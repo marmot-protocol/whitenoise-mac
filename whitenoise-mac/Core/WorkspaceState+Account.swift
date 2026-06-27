@@ -234,8 +234,9 @@ extension WorkspaceState {
             }
             try await client.removeAccount(accountRef: account.accountRef)
             clearComposerDrafts(forAccountId: removedAccountId)
+            await mediaDiskCache.purgeAccount(removedAccountId)
             accounts = try await accountItemsFromRuntime(client: client)
-            chatsByAccount[removedAccountId] = nil
+            removeChats(forAccountId: removedAccountId)
 
             // `activeAccountId` may have changed during the await above — e.g. the user
             // selected an account from settings while this removal was in flight. Decide
@@ -294,8 +295,6 @@ extension WorkspaceState {
             store.clear()
         }
         messageTimelineStores.removeAll()
-        messageLookupByChat.removeAll()
-        messageIDsByChat.removeAll()
         mediaDownloads.removeAll()
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
@@ -324,7 +323,7 @@ extension WorkspaceState {
             _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
             clearComposerDrafts(forAccountId: account.id)
             accounts = try await accountItemsFromRuntime(client: client)
-            chatsByAccount[account.id] = nil
+            removeChats(forAccountId: account.id)
             await refreshAccountUnreadSummary()
 
             guard wasActive else { return }
@@ -400,9 +399,10 @@ extension WorkspaceState {
             stopTimelineListener()
 
             // Marmot only owns its storage root; the decrypted-attachment playback scratch
-            // directory lives outside it, so purge it before the potentially throwing
-            // Marmot deletion call when wiping local data.
+            // directory and encrypted media cache live outside it, so purge them before the
+            // potentially throwing Marmot deletion call when wiping local data.
             try? await runOffMain { MediaPlaybackTempStore.purge() }
+            await mediaDiskCache.purgeAll(removeEncryptionKey: true)
             try await client.deleteAllLocalData()
             self.client = nil
             observabilityRuntimeConfiguration = nil
@@ -469,15 +469,13 @@ extension WorkspaceState {
 
     func resetToNewInstallState(storageRootPath: String) {
         accounts = []
-        chatsByAccount = [:]
+        resetChats()
         messagesByChat = [:]
         for store in messageTimelineStores.values {
             store.clear()
         }
         messageTimelineStores = [:]
         resetMediaDownloadStateStores()
-        messageLookupByChat = [:]
-        messageIDsByChat = [:]
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
         // "Delete All Local Data" must also evict decoded peer/group avatars held in the

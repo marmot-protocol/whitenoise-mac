@@ -73,6 +73,17 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         let groupIdHex = message.groupIdHex
         stateStore.update(.loading)
+        let cacheKey = MessageMediaDiskCacheKey(
+            accountId: accountId,
+            groupIdHex: groupIdHex,
+            reference: attachment.reference
+        )
+
+        if let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) {
+            guard activeAccountId == accountId else { return }
+            stateStore.update(.loaded(cachedDownload))
+            return
+        }
 
         do {
             let reference = try await resolvedMediaReference(
@@ -87,16 +98,19 @@ extension WorkspaceState {
                 reference: reference
             )
             guard activeAccountId == accountId else { return }
-            stateStore.update(
-                .loaded(
-                    MessageMediaDownload(
-                        data: download.plaintext,
-                        fileName: download.fileName,
-                        mediaType: download.mediaType,
-                        sizeBytes: download.sizeBytes
-                    )
-                )
+            let mediaDownload = MessageMediaDownload(
+                payload: DownloadedMediaPayload(
+                    id: "\(key)|\(UUID().uuidString)",
+                    data: download.plaintext
+                ),
+                fileName: download.fileName,
+                mediaType: download.mediaType,
+                sizeBytes: download.sizeBytes
             )
+            stateStore.update(.loaded(mediaDownload))
+            Task {
+                await mediaDiskCache.store(mediaDownload, for: cacheKey)
+            }
         } catch {
             guard activeAccountId == accountId else { return }
             stateStore.update(.failed(error.localizedDescription))
@@ -349,6 +363,7 @@ extension WorkspaceState {
             store.update(.idle)
         }
         mediaDownloads.removeAll()
+        MessageAudioMetadataCache.shared.clear()
     }
 
     func resolvedMediaReference(

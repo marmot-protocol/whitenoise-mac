@@ -161,8 +161,7 @@ extension WorkspaceState {
 
     func insertCreatedChatIfNeeded(groupIdHex: String, title: String, avatarSeed: String, pictureURL: String?) {
         guard let activeAccountId else { return }
-        let chats = chatsByAccount[activeAccountId] ?? []
-        guard !chats.contains(where: { $0.id == groupIdHex }) else { return }
+        guard chatItem(accountId: activeAccountId, chatId: groupIdHex) == nil else { return }
 
         let chat = ChatItem(
             id: groupIdHex,
@@ -175,7 +174,7 @@ extension WorkspaceState {
             unreadCount: 0,
             isDirect: true
         )
-        chatsByAccount[activeAccountId] = ChatListOrdering.upserting(chat, into: chats)
+        upsertChat(chat, forAccountId: activeAccountId)
     }
 
     func looksLikeMemberRef(_ value: String) -> Bool {
