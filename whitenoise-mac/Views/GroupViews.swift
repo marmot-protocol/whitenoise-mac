@@ -757,7 +757,7 @@ enum DisappearingMessageOption: Hashable, Identifiable {
         case .oneDay: return L10n.string("1 day")
         case .oneWeek: return L10n.string("1 week")
         case .oneMonth: return L10n.string("1 month")
-        case .custom(let value): return String(format: L10n.string("%d seconds"), Int(value))
+        case .custom(let value): return String(format: L10n.string("%d seconds"), Int(clamping: value))
         }
     }
 

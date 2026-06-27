@@ -21,6 +21,15 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct PureValueTests {
+    @Test func disappearingMessageCustomLabelClampsOversizedCoreValue() async throws {
+        // Regression for whitenoise-mac#212: values can originate from the core as
+        // UInt64, and Int(value) traps above Int.max while rendering the picker.
+        let oversizedSeconds = UInt64(Int.max) + 1
+        let clampedLabel = String(format: L10n.string("%d seconds"), Int(clamping: oversizedSeconds))
+
+        #expect(DisappearingMessageOption.custom(oversizedSeconds).label == clampedLabel)
+    }
+
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
         // The string entry point used by the UI must also reject internal destinations.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
