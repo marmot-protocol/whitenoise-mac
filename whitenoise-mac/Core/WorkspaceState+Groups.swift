@@ -406,7 +406,11 @@ extension WorkspaceState {
     }
 
     func secureDeleteExpiredMessages(groupIdHex: String) async {
-        guard let client, let activeAccount else { return }
+        guard let client, let activeAccount, !isSecureDeletingExpired else { return }
+        lastError = nil
+        isSecureDeletingExpired = true
+        defer { isSecureDeletingExpired = false }
+
         do {
             _ = try await client.secureDeleteExpired(
                 accountRef: activeAccount.accountRef,
