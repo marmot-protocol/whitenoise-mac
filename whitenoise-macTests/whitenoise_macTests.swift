@@ -7497,6 +7497,45 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func deleteAllAuditLogFilesRefreshesListAfterMidLoopFailure() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let firstFile = AuditLogFileFfi(
+            accountRef: account.label,
+            path: "/tmp/audit-1.jsonl",
+            fileName: "audit-1.jsonl",
+            sizeBytes: 123,
+            modifiedAtMs: nil
+        )
+        let secondFile = AuditLogFileFfi(
+            accountRef: account.label,
+            path: "/tmp/audit-2.jsonl",
+            fileName: "audit-2.jsonl",
+            sizeBytes: 456,
+            modifiedAtMs: nil
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.storedAuditLogFiles = [firstFile, secondFile]
+        runtime.auditLogDeleteFailurePaths = [secondFile.path]
+        let expectedDeleteError = FakeMarmotRuntimeError.auditLogDeleteFailed.localizedDescription
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.auditLogFiles.map(\.path) == [firstFile.path, secondFile.path])
+
+        await state.deleteAllAuditLogFiles()
+
+        #expect(runtime.deletedAuditLogFilePaths == [firstFile.path])
+        #expect(state.auditLogFiles.map(\.path) == [secondFile.path])
+        #expect(state.lastError == expectedDeleteError)
+    }
+
+    @MainActor
     @Test func enablingLocalNotificationsRequestsPermissionAndUpdatesRuntime() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -8286,6 +8325,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     )
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .obfuscatedSensitiveData)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
+    var auditLogDeleteFailurePaths: Set<String> = []
     var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(
         enabled: true,
         uploaded: [],
@@ -8565,6 +8605,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi {
+        guard !auditLogDeleteFailurePaths.contains(path) else {
+            throw FakeMarmotRuntimeError.auditLogDeleteFailed
+        }
         deletedAuditLogFilePaths.append(path)
         storedAuditLogFiles.removeAll { $0.path == path }
         return AuditLogDeleteResultFfi(stillRecording: storedAuditLogSettings.enabled)
@@ -9319,9 +9362,21 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 }
 
-private enum FakeMarmotRuntimeError: Error {
+private enum FakeMarmotRuntimeError: Error, LocalizedError {
     case missingCreatedAccount
+    case auditLogDeleteFailed
     case unused
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCreatedAccount:
+            return "Missing created account."
+        case .auditLogDeleteFailed:
+            return "Audit log delete failed."
+        case .unused:
+            return "Unused fake runtime error."
+        }
+    }
 }
 
 private struct SentReply: Equatable {
