@@ -570,7 +570,8 @@ private nonisolated enum MessageMediaParser {
 
         for field in tag.dropFirst() {
             if field.hasPrefix("blurhash ") {
-                return nil
+                // Recognized NIP-92 placeholder; unsupported locally, but keep the attachment.
+                continue
             }
             if let locator = field.dropPrefix("locator "),
                 let split = locator.firstIndex(of: " ")
