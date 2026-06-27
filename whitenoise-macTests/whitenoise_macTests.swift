@@ -5741,6 +5741,8 @@ struct whitenoise_macTests {
             await Task.yield()
         }
 
+        // The overlapping call should return at the WorkspaceState guard before suspending
+        // in the fake FFI gate, so the runtime invocation count must stay unchanged.
         await state.secureDeleteExpiredMessages(groupIdHex: "group")
         #expect(runtime.secureDeleteExpiredCallCount == 1)
 
