@@ -901,7 +901,15 @@ struct MessageVideoAttachmentPlayer: View {
                 download: download
             )
         }
-        guard playbackPreparationID == nextPreparationID, !Task.isCancelled else { return }
+        guard playbackPreparationID == nextPreparationID, !Task.isCancelled else {
+            // Preparation was superseded or cancelled after `fileURL` materialized a fresh
+            // decrypted scratch file. `playbackURL` is still unset on this path, so the
+            // teardown paths can't reclaim it — delete it here to avoid leaking plaintext.
+            if let resolvedURL, resolvedURL != playbackURL {
+                MessageMediaPlaybackFileStore.remove(at: resolvedURL)
+            }
+            return
+        }
         guard let url = resolvedURL else {
             didFail = true
             return
