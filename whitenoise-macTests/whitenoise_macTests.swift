@@ -3586,6 +3586,45 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func concurrentReloadChatsForSameAccountCoalesces() async throws {
+        // Issue #210: reloadChats() is reachable from independently-spawned Tasks. Two overlapping
+        // same-account reloads must share one in-flight subscription/snapshot pass instead of
+        // duplicating FFI work and churn-cancelling the chat-list listener the first reload started.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didHydrateChats = await waitFor {
+            state.activeChats.count == 2
+        }
+        #expect(didHydrateChats)
+
+        let subscriptionBaseline = runtime.chatListSubscriptionCount
+        runtime.chatListSubscriptionDelayNanoseconds = 100_000_000
+
+        async let firstReload: Void = state.reloadChats()
+        let didStartFirstReload = await waitFor {
+            runtime.chatListSubscriptionCount == subscriptionBaseline + 1
+        }
+        #expect(didStartFirstReload)
+
+        async let secondReload: Void = state.reloadChats()
+        _ = await (firstReload, secondReload)
+
+        #expect(runtime.chatListSubscriptionCount == subscriptionBaseline + 1)
+        #expect(state.isRefreshing == false)
+        #expect(state.activeChats.count == 2)
+    }
+
+    @MainActor
     @Test func subscriptionSnapshotsRunOffMainThread() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -9607,6 +9646,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var timelineSubscriptionCount = 0
     private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
     var chatListStreamEndsAfterUpdates = false
+    /// Simulates async relay/runtime latency before a chat-list subscription is ready.
+    var chatListSubscriptionDelayNanoseconds: UInt64 = 0
     var notificationStreamEndsImmediately = false
     var timelineStreamEndsAfterUpdates = false
     private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
@@ -10439,6 +10480,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
         chatListSubscriptionCount += 1
+        if chatListSubscriptionDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: chatListSubscriptionDelayNanoseconds)
+        }
         return FakeChatListSubscription(
             rows: chatListRows(includeArchived: includeArchived),
             updates: chatListUpdates,

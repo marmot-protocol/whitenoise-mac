@@ -17,28 +17,100 @@ import UserNotifications
 @MainActor
 extension WorkspaceState {
     func reloadChats() async {
-        guard let client, let activeAccount else { return }
+        guard client != nil, let activeAccount else {
+            cancelChatListReload()
+            stopChatListListener()
+            return
+        }
+
+        let accountId = activeAccount.id
+
+        // Coalesce concurrent reloads for the same account onto the same subscription/snapshot
+        // pass. Without this, independent Task call sites can duplicate FFI fan-out and have the
+        // second listener startup immediately cancel the first.
+        if let existing = reloadChatsTask, reloadChatsTaskAccountId == accountId {
+            await existing.value
+            return
+        }
+
+        // A reload for a different account supersedes the stale in-flight owner. The stale task may
+        // still resume after an FFI await, so generation checks in `performChatListReload` gate every
+        // state write and listener start.
+        reloadChatsTask?.cancel()
+
+        reloadChatsGeneration &+= 1
+        let generation = reloadChatsGeneration
+        let task = Task<Void, Never> { [weak self] in
+            guard let self else { return }
+            await self.performChatListReload(accountId: accountId, generation: generation)
+        }
+        reloadChatsTask = task
+        reloadChatsTaskAccountId = accountId
+
+        await task.value
+
+        // Only clear ownership if no newer reload has since taken over this slot.
+        if reloadChatsTask == task {
+            reloadChatsTask = nil
+            reloadChatsTaskAccountId = nil
+        }
+    }
+
+    func performChatListReload(accountId: String, generation: UInt64) async {
+        guard let client, let activeAccount, activeAccount.id == accountId else { return }
         stopChatListListener()
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            if ownsChatListReload(generation: generation, accountId: accountId) {
+                isRefreshing = false
+            }
+        }
 
         do {
             let subscription = try await client.subscribeChatList(
                 accountRef: activeAccount.accountRef,
                 includeArchived: false
             )
-            guard activeAccountId == activeAccount.id else { return }
+            guard ownsChatListReload(generation: generation, accountId: accountId),
+                !Task.isCancelled
+            else { return }
 
             let rows = try await runOffMain { subscription.snapshot() }
-            guard activeAccountId == activeAccount.id, !Task.isCancelled else { return }
+            guard ownsChatListReload(generation: generation, accountId: accountId),
+                !Task.isCancelled
+            else { return }
             await applyChatRows(rows, account: activeAccount)
+            guard ownsChatListReload(generation: generation, accountId: accountId),
+                !Task.isCancelled
+            else { return }
             startChatListListener(account: activeAccount, subscription: subscription)
 
+            guard ownsChatListReload(generation: generation, accountId: accountId),
+                !Task.isCancelled
+            else { return }
             await selectMostRecentChatIfNeeded()
+            guard ownsChatListReload(generation: generation, accountId: accountId),
+                !Task.isCancelled
+            else { return }
             await refreshAccountUnreadSummary()
+        } catch is CancellationError {
+            return
         } catch {
+            guard ownsChatListReload(generation: generation, accountId: accountId) else { return }
             lastError = error.localizedDescription
         }
+    }
+
+    func ownsChatListReload(generation: UInt64, accountId: String) -> Bool {
+        reloadChatsGeneration == generation && activeAccountId == accountId
+    }
+
+    func cancelChatListReload() {
+        reloadChatsTask?.cancel()
+        reloadChatsTask = nil
+        reloadChatsTaskAccountId = nil
+        reloadChatsGeneration &+= 1
+        isRefreshing = false
     }
 
     func startChatListListener(
