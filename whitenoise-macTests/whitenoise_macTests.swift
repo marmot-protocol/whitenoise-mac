@@ -5726,6 +5726,32 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func secureDeleteExpiredMessagesDropsOverlappingDuplicateInvocation() async throws {
+        // Issue #216: secure-delete is destructive, so overlapping invocations must be dropped
+        // before they issue duplicate FFI calls.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        runtime.secureDeleteExpiredGateEnabled = true
+        async let firstDelete: Void = state.secureDeleteExpiredMessages(groupIdHex: "group")
+        while !(state.isSecureDeletingExpired && runtime.didReachSecureDeleteExpiredGate) {
+            await Task.yield()
+        }
+
+        await state.secureDeleteExpiredMessages(groupIdHex: "group")
+        #expect(runtime.secureDeleteExpiredCallCount == 1)
+
+        runtime.releaseSecureDeleteExpiredGate()
+        await firstDelete
+
+        #expect(runtime.secureDeleteExpiredCallCount == 1)
+        #expect(!state.isSecureDeletingExpired)
+    }
+
+    @MainActor
     @Test func groupDetailsSelfDemoteUsesDetailedMutation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -9177,6 +9203,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var updateMessageRetentionCallCount = 0
     var lastRetentionSecs: UInt64?
     var secureDeleteExpiredCallCount = 0
+    var secureDeleteExpiredGateEnabled = false
+    private(set) var didReachSecureDeleteExpiredGate = false
+    private var secureDeleteExpiredGateContinuation: CheckedContinuation<Void, Never>?
     var accountUnreadSummaryRows: [AccountUnreadFfi] = []
 
     func parseMarkdown(text: String) -> MarkdownDocumentFfi {
@@ -9235,7 +9264,23 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
         secureDeleteExpiredCallCount += 1
+        await passSecureDeleteExpiredGateIfArmed()
         return SecureDeleteExpiredResultFfi(prunedMessages: 0, mediaCiphertextSha256: [])
+    }
+
+    private func passSecureDeleteExpiredGateIfArmed() async {
+        guard secureDeleteExpiredGateEnabled, secureDeleteExpiredGateContinuation == nil,
+            !didReachSecureDeleteExpiredGate
+        else { return }
+        didReachSecureDeleteExpiredGate = true
+        await withCheckedContinuation { continuation in
+            secureDeleteExpiredGateContinuation = continuation
+        }
+    }
+
+    func releaseSecureDeleteExpiredGate() {
+        secureDeleteExpiredGateContinuation?.resume()
+        secureDeleteExpiredGateContinuation = nil
     }
 
     private func chatListRow(for group: AppGroupRecordFfi) -> ChatListRowFfi {

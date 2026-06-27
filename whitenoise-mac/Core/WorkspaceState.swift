@@ -398,6 +398,7 @@ final class WorkspaceState {
     var isArchivingGroup = false
     var isLeavingGroup = false
     var isUpdatingDisappearingMessages = false
+    var isSecureDeletingExpired = false
     var isDeletingGroupLocally = false
     var isExportingGroupTranscript = false
     var groupTranscriptExportStatus: String?
