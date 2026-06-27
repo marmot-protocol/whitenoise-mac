@@ -11,6 +11,10 @@ import Foundation
 /// LaunchServices. `http`/`https` links may be handed to the system browser after the app-side
 /// `OpenURLAction` gate runs; `nostr:` links are handled internally by `WorkspaceState`.
 nonisolated enum MarkdownLinkPolicy {
+    private static let resolvableProfilePrefixes = ["npub1", "nprofile1"]
+    private static let recognizedNostrReferencePrefixes =
+        resolvableProfilePrefixes + ["note1", "nevent1", "naddr1", "nrelay1"]
+
     static func sanitizedURL(from raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
@@ -53,13 +57,27 @@ nonisolated enum MarkdownLinkPolicy {
     }
 
     static func isResolvableProfileReference(_ reference: String) -> Bool {
-        reference.lowercased().hasPrefix("npub1")
+        hasNostrPrefix(in: reference, prefixes: resolvableProfilePrefixes)
+    }
+
+    static func isProfileReferenceInput(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.lowercased()
+        let reference: String
+        if normalized.hasPrefix("nostr:") {
+            reference = String(normalized.dropFirst("nostr:".count))
+        } else {
+            reference = normalized
+        }
+        return hasNostrPrefix(in: reference, prefixes: resolvableProfilePrefixes)
     }
 
     private static func isRecognizedNostrReference(_ reference: String) -> Bool {
+        hasNostrPrefix(in: reference, prefixes: recognizedNostrReferencePrefixes)
+    }
+
+    private static func hasNostrPrefix(in reference: String, prefixes: [String]) -> Bool {
         let normalized = reference.lowercased()
-        return ["npub1", "note1", "nevent1", "nprofile1", "naddr1", "nrelay1"].contains { prefix in
-            normalized.hasPrefix(prefix)
-        }
+        return prefixes.contains { normalized.hasPrefix($0) }
     }
 }

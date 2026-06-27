@@ -251,6 +251,13 @@ struct PureValueTests {
         )
         #expect(nostrURL?.scheme == "nostr")
 
+        let nprofileURL = MarkdownLinkPolicy.sanitizedURL(from: "nostr:nprofile1alice")
+        #expect(nprofileURL?.absoluteString == "nostr:nprofile1alice")
+        #expect(MarkdownLinkPolicy.isResolvableProfileReference("npub1alice"))
+        #expect(MarkdownLinkPolicy.isResolvableProfileReference("nprofile1alice"))
+        #expect(MarkdownLinkPolicy.isProfileReferenceInput("nostr:nprofile1alice"))
+        #expect(!MarkdownLinkPolicy.isResolvableProfileReference("note1alice"))
+
         for raw in [
             "",
             "   ",
