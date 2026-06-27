@@ -57,6 +57,9 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let unreadMentionCount: Int
     let isDirect: Bool
     let pendingConfirmation: Bool
+    /// Precomputed once from `updatedAt` (which is immutable for a given value) to
+    /// avoid re-formatting the date on every chat-row render.
+    let timestampLabel: String
 
     /// Whether this chat has at least one unread @-mention of the active account.
     var hasMention: Bool { unreadMentionCount > 0 }
@@ -85,11 +88,11 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.unreadMentionCount = unreadMentionCount
         self.isDirect = isDirect
         self.pendingConfirmation = pendingConfirmation
-    }
-
-    var timestampLabel: String {
-        guard let updatedAt else { return "" }
-        return DisplayText.relativeTimestamp(for: updatedAt)
+        if let updatedAt {
+            self.timestampLabel = DisplayText.relativeTimestamp(for: updatedAt)
+        } else {
+            self.timestampLabel = ""
+        }
     }
 }
 
