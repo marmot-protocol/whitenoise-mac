@@ -534,10 +534,11 @@ extension WorkspaceState {
             for file in auditLogFiles {
                 _ = try await client.deleteAuditLogFile(path: file.path)
             }
-            await loadAuditLogFiles()
         } catch {
             lastError = error.localizedDescription
         }
+
+        await loadAuditLogFiles()
     }
 
     func uploadAuditLogFiles() async {
