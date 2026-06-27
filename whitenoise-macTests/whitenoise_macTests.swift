@@ -7494,6 +7494,7 @@ struct whitenoise_macTests {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.storedAuditLogFiles = [firstFile, secondFile]
         runtime.auditLogDeleteFailurePaths = [secondFile.path]
+        let expectedDeleteError = FakeMarmotRuntimeError.auditLogDeleteFailed.localizedDescription
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
@@ -7503,7 +7504,7 @@ struct whitenoise_macTests {
 
         #expect(runtime.deletedAuditLogFilePaths == [firstFile.path])
         #expect(state.auditLogFiles.map(\.path) == [secondFile.path])
-        #expect(state.lastError != nil)
+        #expect(state.lastError == expectedDeleteError)
     }
 
     @MainActor
@@ -8577,7 +8578,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi {
         guard !auditLogDeleteFailurePaths.contains(path) else {
-            throw FakeMarmotRuntimeError.unused
+            throw FakeMarmotRuntimeError.auditLogDeleteFailed
         }
         deletedAuditLogFilePaths.append(path)
         storedAuditLogFiles.removeAll { $0.path == path }
@@ -9314,9 +9315,21 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 }
 
-private enum FakeMarmotRuntimeError: Error {
+private enum FakeMarmotRuntimeError: Error, LocalizedError {
     case missingCreatedAccount
+    case auditLogDeleteFailed
     case unused
+
+    var errorDescription: String? {
+        switch self {
+        case .missingCreatedAccount:
+            return "Missing created account."
+        case .auditLogDeleteFailed:
+            return "Audit log delete failed."
+        case .unused:
+            return "Unused fake runtime error."
+        }
+    }
 }
 
 private struct SentReply: Equatable {
