@@ -25,8 +25,7 @@ final class ChatPerformanceUITests: XCTestCase {
 
     func testHeavyTranscriptScrollPerformance() {
         let app = launchFixture()
-        let transcript = app.scrollViews["conversation.transcript"]
-        XCTAssertTrue(transcript.waitForExistence(timeout: 10))
+        let transcript = waitForTranscript(in: app)
 
         measure(metrics: interactionMetrics(for: app)) {
             scrollWheel(transcript, deltaY: -900)
@@ -39,8 +38,7 @@ final class ChatPerformanceUITests: XCTestCase {
 
     func testHeavyTranscriptLongDistancePagingScrollPerformance() {
         let app = launchFixture()
-        let transcript = app.scrollViews["conversation.transcript"]
-        XCTAssertTrue(transcript.waitForExistence(timeout: 10))
+        let transcript = waitForTranscript(in: app)
 
         let pagingDelta = dominantVerticalScrollDelta(in: transcript)
         let resetDelta = -pagingDelta
@@ -81,8 +79,7 @@ final class ChatPerformanceUITests: XCTestCase {
 
     func testVisibleMediaScrollPerformance() {
         let app = launchFixture()
-        let transcript = app.scrollViews["conversation.transcript"]
-        XCTAssertTrue(transcript.waitForExistence(timeout: 10))
+        let transcript = waitForTranscript(in: app)
 
         let mediaTile = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "message.media.visualTile."))
@@ -100,7 +97,7 @@ final class ChatPerformanceUITests: XCTestCase {
     private func launchFixture() -> XCUIApplication {
         let launchedApp = fixtureApplication()
         launchedApp.launch()
-        XCTAssertTrue(launchedApp.scrollViews["conversation.transcript"].waitForExistence(timeout: 10))
+        _ = waitForTranscript(in: launchedApp)
         app = launchedApp
         return launchedApp
     }
@@ -110,6 +107,17 @@ final class ChatPerformanceUITests: XCTestCase {
         app.launchArguments += ["-uiFixture", "heavy-chat"]
         app.launchEnvironment["WHITE_NOISE_UI_FIXTURE"] = "heavy-chat"
         return app
+    }
+
+    private func waitForTranscript(in app: XCUIApplication, timeout: TimeInterval = 10) -> XCUIElement {
+        let candidate = transcriptElement(in: app)
+        _ = candidate.waitForExistence(timeout: timeout)
+        XCTAssertTrue(candidate.exists, "conversation.transcript did not appear")
+        return candidate
+    }
+
+    private func transcriptElement(in app: XCUIApplication) -> XCUIElement {
+        app.scrollViews["conversation.transcript"]
     }
 
     private func interactionMetrics(for app: XCUIApplication) -> [any XCTMetric] {

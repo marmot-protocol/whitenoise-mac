@@ -32,7 +32,8 @@ private enum UIFixtureWorkspace {
 
     static func makeHeavyChatWorkspace() -> WorkspaceState {
         let chats = makeChats()
-        let messages = makeMessages()
+        let allMessages = makeMessages()
+        let messages = Array(allMessages.suffix(WorkspaceState.timelineWindowLimit))
         let state = WorkspaceState(
             accounts: [account],
             chatsByAccount: [account.id: chats],
@@ -52,8 +53,8 @@ private enum UIFixtureWorkspace {
             ChatItem(
                 id: heavyChatId,
                 title: "Heavy Chat Fixture",
-                subtitle: "900 messages",
-                preview: "Deterministic scroll, markdown, reaction, and media stress data.",
+                subtitle: "\(WorkspaceState.timelineWindowLimit) visible of 900 messages",
+                preview: "Deterministic scroll, markdown, reaction, and media stress data at the production window cap.",
                 updatedAt: baseDate,
                 avatarSeed: heavyChatId,
                 pictureURL: nil,
