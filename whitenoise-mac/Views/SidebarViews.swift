@@ -175,7 +175,7 @@ struct ChatListDrawerView: View {
                         .help("New chat")
                     }
 
-                    MessagesSearchField(text: $workspace.searchText)
+                    MessagesSearchField(text: $workspace.searchText, accessibilityIdentifier: "chat.search")
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 14)
@@ -195,11 +195,13 @@ struct ChatListDrawerView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("chat.row.\(chat.id)")
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
                 }
+                .accessibilityIdentifier("chat.list")
                 .overlay {
                     if filteredChats.isEmpty {
                         EmptyDrawerState()

@@ -22,23 +22,31 @@ xcodebuild -scheme whitenoise-mac -configuration Debug build CODE_SIGNING_ALLOWE
 # Build the unit-test target (catches test-only breakage without running)
 xcodebuild -scheme whitenoise-mac -configuration Debug build-for-testing CODE_SIGNING_ALLOWED=NO
 
-# Run the unit tests
+# Run the unit tests in the PR test plan
 xcodebuild test-without-building -scheme whitenoise-mac -configuration Debug \
   -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO
+
+# Run UI performance tests (requires macOS UI automation permissions)
+xcodebuild test -scheme whitenoise-mac -configuration Debug -testPlan UIPerformance \
+  -destination 'platform=macOS,arch=arm64'
 ```
 
-There is no UI-test target (the empty `whitenoise-macUITests` target was removed).
 Unit tests live in `whitenoise-macTests/` and use Swift Testing in a single
 `@Suite(.serialized)` struct; the runner's per-test `-only-testing:` filter does
 not reliably match individual functions in that serialized suite, so prefer
-running the whole suite.
+running the whole suite. UI performance tests live in `whitenoise-macUITests/`,
+are isolated in the `UIPerformance` test plan, and launch the app with the
+DEBUG-only `-uiFixture heavy-chat` argument for deterministic chat/search/media
+data.
 
 ## Project structure is filesystem-synchronized
 
 `whitenoise-mac.xcodeproj` uses `PBXFileSystemSynchronizedRootGroup`, so source
-files under `whitenoise-mac/` are picked up automatically by path. **Adding a new
-`.swift` file requires no `project.pbxproj` edit** — just write it under the right
-directory and it joins the target on the next build.
+files under `whitenoise-mac/`, `whitenoise-macTests/`, and
+`whitenoise-macUITests/` are picked up automatically by path. **Adding a new
+`.swift` file under one of those roots requires no `project.pbxproj` edit** —
+just write it under the right directory and it joins the target on the next
+build.
 
 ## The MarmotKit / darkmatter FFI boundary
 

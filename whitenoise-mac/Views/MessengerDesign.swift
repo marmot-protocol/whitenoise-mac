@@ -92,6 +92,7 @@ enum MessagesPalette {
 
 struct MessagesSearchField: View {
     @Binding var text: String
+    var accessibilityIdentifier: String?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -102,6 +103,7 @@ struct MessagesSearchField: View {
             TextField("Search", text: $text)
                 .textFieldStyle(.plain)
                 .font(.callout)
+                .accessibilityIdentifier(accessibilityIdentifier ?? "search.field")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)

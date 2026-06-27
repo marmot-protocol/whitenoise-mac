@@ -420,6 +420,7 @@ struct MessageVisualMediaTile: View {
                 onOpenImageGallery(gallery)
             }
         }
+        .accessibilityIdentifier("message.media.visualTile.\(attachment.id)")
     }
 
     private func startAutomaticDownloadIfNeeded() {
@@ -519,6 +520,7 @@ struct MessageMediaAttachmentView: View {
                 startAutomaticDownloadIfNeeded()
             }
         }
+        .accessibilityIdentifier("message.media.attachment.\(attachment.id)")
     }
 
     private func startAutomaticDownloadIfNeeded() {
