@@ -180,6 +180,7 @@ struct GroupDetailsSheet: View {
                             } label: {
                                 Label("Delete expired now", systemImage: "trash")
                             }
+                            .disabled(workspace.isSecureDeletingExpired)
                             .help(L10n.string("Securely prune already-expired messages on this device"))
                         }
                     }
