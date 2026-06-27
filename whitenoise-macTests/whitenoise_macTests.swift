@@ -1362,6 +1362,38 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func imetaBlurhashFieldDoesNotDropAttachment() async throws {
+        // Regression for whitenoise-mac#208: `blurhash` is a standard optional NIP-92
+        // imeta field. The macOS client does not consume it, but its presence must not
+        // make the local-parse fallback discard the whole media attachment.
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "blurhash-imeta",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJson(
+                        for: reference,
+                        appendingIMetaField: "blurhash LEHV6nWB2yk8pyo0adR*.7kCMdnj"
+                    )
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(message.mediaAttachments.first?.reference.fileName == reference.fileName)
+        #expect(message.mediaAttachments.first?.reference.thumbhash == nil)
+    }
+
+    @MainActor
     @Test func invalidNumericSourceEpochFallsBackToZeroInsteadOfWrapping() async throws {
         // Regression for whitenoise-mac#179: a peer-controlled `source_epoch` is the MLS
         // decryption epoch, so a negative (`-1` would wrap to `UInt64.max`), fractional
@@ -10400,6 +10432,12 @@ private func mediaAttachmentReference(
 
 private func mediaJson(for reference: MediaAttachmentReferenceFfi) -> String {
     let tag = mediaIMetaTag(for: reference).values
+    return mediaJSONString(fromJSONObject: ["imeta": [tag]])
+}
+
+private func mediaJson(for reference: MediaAttachmentReferenceFfi, appendingIMetaField field: String) -> String {
+    var tag = mediaIMetaTag(for: reference).values
+    tag.append(field)
     return mediaJSONString(fromJSONObject: ["imeta": [tag]])
 }
 

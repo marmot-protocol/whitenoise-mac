@@ -570,7 +570,7 @@ private nonisolated enum MessageMediaParser {
 
         for field in tag.dropFirst() {
             if field.hasPrefix("blurhash ") {
-                return nil
+                continue
             }
             if let locator = field.dropPrefix("locator "),
                 let split = locator.firstIndex(of: " ")
