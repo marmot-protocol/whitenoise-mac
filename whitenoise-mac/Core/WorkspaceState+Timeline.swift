@@ -175,6 +175,109 @@ extension WorkspaceState {
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
+    /// Route a live timeline subscription update to the right apply path.
+    ///
+    /// `.projection` is the steady-state hot path: a single send emits a burst of these
+    /// (the new row, then each delivery-state transition, the relay echo, per-relay
+    /// acks). Each carries only the changed rows, so we apply it incrementally rather
+    /// than re-mapping every `MessageItem` (and its Markdown AST) in the window and
+    /// replacing the whole transcript per delivery. `.page` is the runtime's
+    /// authoritative re-window, emitted only when the event stream lags and the window
+    /// must be re-materialized; it is applied wholesale.
+    func applyTimelineSubscriptionUpdate(
+        _ update: TimelineSubscriptionUpdateFfi,
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        switch update {
+        case .page(let page):
+            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: account, client: client)
+        case .projection(let runtimeUpdate):
+            await applyTimelineProjection(
+                runtimeUpdate.update,
+                groupIdHex: groupIdHex,
+                account: account,
+                client: client
+            )
+        }
+    }
+
+    /// Apply a projection delta to the selected rendered window. Only changed records are
+    /// mapped to `MessageItem`s, then `MessageTimelineStore` mutates the affected rows in
+    /// place using its id/index caches. That avoids the old live-update shape of copying,
+    /// searching, sorting, and replacing the whole transcript for every delivery tick.
+    func applyTimelineProjection(
+        _ update: TimelineProjectionUpdateFfi,
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        guard update.groupIdHex == groupIdHex else { return }
+
+        // Partition the delta into upserts (need mapping) and removals. An empty
+        // `changes` list means the runtime sent the resolved rows directly in
+        // `messages`, all of which are upserts (matching the core's own fall-through).
+        var upsertRecords: [TimelineMessageRecordFfi] = []
+        var removalIds: Set<String> = []
+        if update.changes.isEmpty {
+            upsertRecords = update.messages
+        } else {
+            for change in update.changes {
+                switch change {
+                case .upsert(_, let message):
+                    upsertRecords.append(message)
+                case .remove(let messageIdHex, _):
+                    removalIds.insert(messageIdHex)
+                }
+            }
+        }
+        guard !upsertRecords.isEmpty || !removalIds.isEmpty else { return }
+
+        // Resolve senders for just the changed records (the common case is an all-cached
+        // lookup) and map only those records — not the entire window.
+        let senderProfiles = await messageSenderProfiles(
+            from: upsertRecords,
+            groupIdHex: groupIdHex,
+            activeAccount: account,
+            client: client
+        )
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        let mappedUpserts = MessageItem.timeline(
+            from: TimelinePageFfi(messages: upsertRecords, hasMoreBefore: false, hasMoreAfter: false),
+            activeAccountIdHex: account.accountIdHex,
+            senderProfiles: senderProfiles
+        )
+
+        let paging = timelinePagingByChat[groupIdHex] ?? .empty
+        // The window is "anchored" to the live head while there is no newer history to
+        // page toward. A detached (scrolled-back) window must not grow a new head row —
+        // the user re-anchors via forward pagination — so a brand-new message that sorts
+        // strictly after the window's newest row is suppressed, exactly as the runtime
+        // does. Existing rows still update in place (edits, reactions, delivery state).
+        let anchored = !paging.hasMoreAfter
+        let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
+        let result = timelineStore.applyProjection(
+            upserts: mappedUpserts,
+            removals: removalIds,
+            anchoredToNewest: anchored,
+            windowLimit: Self.timelineWindowLimit
+        )
+        guard result.didChange else { return }
+
+        finalizeTimelineStoreMutation(
+            groupIdHex: groupIdHex,
+            paging: TimelinePagingState(
+                hasMoreBefore: paging.hasMoreBefore || result.didTrimOlderMessages,
+                hasMoreAfter: paging.hasMoreAfter,
+                isLoadingBefore: paging.isLoadingBefore,
+                isLoadingAfter: paging.isLoadingAfter
+            )
+        )
+        await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
+    }
+
     func startReply(to message: MessageItem) {
         guard message.supportsChatActions else { return }
         replyDraftContext = MessageReplyContext(
@@ -314,6 +417,11 @@ extension WorkspaceState {
             draftText = ""
             replyDraftContext = nil
             pendingMediaAttachmentsByConversation[draftKey] = nil
+            // One authoritative re-window so the user sees their just-sent message
+            // immediately, even if the live projection for it is momentarily in flight.
+            // The follow-on delivery-state transitions then arrive as projection deltas
+            // and are applied incrementally by `applyTimelineProjection` — no longer a
+            // full re-map per delivery.
             await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
             lastError = error.localizedDescription
@@ -392,21 +500,24 @@ extension WorkspaceState {
                         )
                     }
                 }
-                // `next()` blocks for the next live change and returns the resulting
-                // authoritative window (ordering, dedup, head-anchoring while scrolled back,
-                // and the cap are all owned by the runtime), so we render it directly.
+                // `nextUpdate()` blocks for the next live change and returns the raw
+                // delta. A `.projection` carries only the changed rows, so we apply it
+                // incrementally against the current window instead of re-materializing
+                // and re-rendering the whole transcript on every delivery-state tick a
+                // send emits; a `.page` is an authoritative re-window (broadcast lag),
+                // applied wholesale.
                 while !Task.isCancelled,
                     activeAccountId == account.id,
                     selectedChat?.id == groupIdHex
                 {
-                    guard let page = await subscription.next() else { break }
+                    guard let update = await subscription.nextUpdate() else { break }
                     guard !Task.isCancelled,
                         activeAccountId == account.id,
                         selectedChat?.id == groupIdHex
                     else { break }
                     reconnectAttempt = 0
-                    await applyTimelineWindow(
-                        page,
+                    await applyTimelineSubscriptionUpdate(
+                        update,
                         groupIdHex: groupIdHex,
                         account: account,
                         client: client
@@ -448,10 +559,10 @@ extension WorkspaceState {
         paging: TimelinePagingState? = nil
     ) {
         // The window is already ordered, deduped, and capped by the runtime subscription,
-        // so render it as-is.
+        // so render it as-is. The per-chat id/lookup caches live on the store
+        // (`MessageTimelineStore.replace` rebuilds them), so this only maintains the
+        // non-UI `messagesByChat` backing alongside it.
         let nextPaging = paging ?? timelinePagingByChat[groupIdHex] ?? .empty
-        let messageLookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
-        let messageIDs = messages.map(\.id)
         let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
 
         for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
@@ -460,12 +571,8 @@ extension WorkspaceState {
 
         if messagesByChat.count == 1, messagesByChat[groupIdHex] != nil {
             messagesByChat[groupIdHex] = messages
-            messageLookupByChat[groupIdHex] = messageLookup
-            messageIDsByChat[groupIdHex] = messageIDs
         } else {
             messagesByChat = [groupIdHex: messages]
-            messageLookupByChat = [groupIdHex: messageLookup]
-            messageIDsByChat = [groupIdHex: messageIDs]
         }
         messageTimelineStores = [groupIdHex: timelineStore]
         timelineStore.replace(with: messages)
@@ -474,6 +581,20 @@ extension WorkspaceState {
         } else {
             timelinePagingByChat = [groupIdHex: nextPaging]
         }
+        finishTimelineInitialLoad(groupIdHex: groupIdHex)
+    }
+
+    func finalizeTimelineStoreMutation(
+        groupIdHex: String,
+        paging: TimelinePagingState
+    ) {
+        let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
+        for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
+            store.clear()
+        }
+        messagesByChat = [groupIdHex: timelineStore.messages]
+        messageTimelineStores = [groupIdHex: timelineStore]
+        timelinePagingByChat = [groupIdHex: paging]
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
     }
 
@@ -516,8 +637,6 @@ extension WorkspaceState {
                 store.clear()
             }
             messagesByChat = [:]
-            messageLookupByChat = [:]
-            messageIDsByChat = [:]
             messageTimelineStores = [:]
             timelinePagingByChat = [:]
             timelineInitialLoadGroupId = nil
@@ -530,8 +649,6 @@ extension WorkspaceState {
                 store.clear()
             }
             messagesByChat = [groupIdHex: messages]
-            messageLookupByChat = [groupIdHex: Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })]
-            messageIDsByChat = [groupIdHex: messages.map(\.id)]
             messageTimelineStores = [groupIdHex: timelineStore]
             timelineStore.replace(with: messages)
         } else if let timelineStore = messageTimelineStores[groupIdHex] {
@@ -539,16 +656,12 @@ extension WorkspaceState {
                 store.clear()
             }
             messagesByChat = [:]
-            messageLookupByChat = [:]
-            messageIDsByChat = [:]
             messageTimelineStores = [groupIdHex: timelineStore]
         } else {
             for store in messageTimelineStores.values {
                 store.clear()
             }
             messagesByChat = [:]
-            messageLookupByChat = [:]
-            messageIDsByChat = [:]
             messageTimelineStores = [:]
         }
         if let paging = timelinePagingByChat[groupIdHex] {

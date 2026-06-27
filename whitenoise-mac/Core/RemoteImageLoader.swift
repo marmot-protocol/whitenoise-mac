@@ -348,14 +348,13 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
 /// with `NSImage(data:)` in a SwiftUI `body` would synchronously inflate the full-resolution bitmap
 /// every time Observation re-evaluates the view.
 struct DownsampledDataImage<Content: View, Placeholder: View>: View {
-    let data: Data
-    let cacheKey: String
+    let payload: DownloadedMediaPayload
     let maxPixelSize: CGFloat
     @ViewBuilder var content: (Image) -> Content
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: Image?
-    @State private var displayedCacheKey: String?
+    @State private var displayedPayloadID: String?
 
     var body: some View {
         ZStack {
@@ -371,31 +370,30 @@ struct DownsampledDataImage<Content: View, Placeholder: View>: View {
     }
 
     private var taskKey: TaskKey {
-        TaskKey(cacheKey: cacheKey, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
+        TaskKey(payloadID: payload.id, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
     }
 
     @MainActor
     private func loadImage(for taskKey: TaskKey) async {
-        if displayedCacheKey != taskKey.cacheKey {
+        if displayedPayloadID != taskKey.payloadID {
             image = nil
         }
 
         if let loaded = await RemoteImageLoader.shared.image(
-            for: data,
-            cacheKey: taskKey.cacheKey,
+            for: payload,
             maxPixelSize: taskKey.size
         ) {
             guard !Task.isCancelled else { return }
-            displayedCacheKey = taskKey.cacheKey
+            displayedPayloadID = taskKey.payloadID
             image = Image(nsImage: loaded.nsImage)
-        } else if displayedCacheKey != taskKey.cacheKey {
+        } else if displayedPayloadID != taskKey.payloadID {
             guard !Task.isCancelled else { return }
             image = nil
         }
     }
 
     private struct TaskKey: Equatable {
-        let cacheKey: String
+        let payloadID: String
         let size: CGFloat
     }
 }
@@ -611,6 +609,40 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }
     }
 
+    /// Downsamples and caches a decrypted/local media payload without storing the raw bytes in
+    /// SwiftUI view values. The payload id is generated when the download completes, so a retry or
+    /// replacement under the same attachment id cannot reuse a stale decoded image.
+    func image(for payload: DownloadedMediaPayload, maxPixelSize: CGFloat) async -> LoadedImage? {
+        let key = Self.cacheKey(forLocalImageID: payload.id, maxPixelSize: maxPixelSize)
+        if let cached = cachedImage(for: key) {
+            return LoadedImage(nsImage: cached)
+        }
+
+        let generation = currentCacheGeneration()
+        let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
+        let task = inFlight.task(for: taskKey) { [self] in
+            Task { [self] in
+                await loadLocalImage(
+                    payload: payload,
+                    cacheKey: key,
+                    maxPixelSize: maxPixelSize,
+                    cacheGeneration: generation
+                )
+            }
+        }
+        let waiter = RemoteImageLoadWaiter { [inFlight] in
+            inFlight.releaseWaiter(for: taskKey)
+        }
+
+        return await withTaskCancellationHandler {
+            let loaded = await task.value
+            waiter.release()
+            return Task.isCancelled ? nil : loaded
+        } onCancel: {
+            waiter.release()
+        }
+    }
+
     /// Drops every decoded image held in memory and invalidates in-flight decodes/downloads.
     /// Decoded avatars derive from attacker-controlled peer Nostr `picture` URLs, so the privacy
     /// wipe paths (account removal reset and full local-data reset) must evict them rather than
@@ -679,6 +711,21 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             return nil
         }
         return loaded
+    }
+
+    private func loadLocalImage(
+        payload: DownloadedMediaPayload,
+        cacheKey: String,
+        maxPixelSize: CGFloat,
+        cacheGeneration generation: Int
+    ) async -> LoadedImage? {
+        let data = payload.data
+        return await loadLocalImage(
+            data: data,
+            cacheKey: cacheKey,
+            maxPixelSize: maxPixelSize,
+            cacheGeneration: generation
+        )
     }
 
     private func cachedImage(for key: String) -> NSImage? {

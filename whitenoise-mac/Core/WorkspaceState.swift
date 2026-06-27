@@ -86,22 +86,45 @@ struct ChatListRowEnrichmentTracker {
 }
 
 nonisolated struct ChatListOrdering {
+    struct UpsertResult {
+        let chats: [ChatItem]
+        let reindexStart: Int?
+    }
+
     static func sorted(_ chatItems: [ChatItem]) -> [ChatItem] {
         chatItems.sorted(by: areInDisplayOrder)
     }
 
     static func upserting(_ chat: ChatItem, into chats: [ChatItem]) -> [ChatItem] {
+        upsertResult(chat, into: chats, existingIndex: chats.firstIndex(where: { $0.id == chat.id })).chats
+    }
+
+    static func upserting(_ chat: ChatItem, into chats: [ChatItem], existingIndex: Int?) -> [ChatItem] {
+        upsertResult(chat, into: chats, existingIndex: existingIndex).chats
+    }
+
+    static func upsertResult(_ chat: ChatItem, into chats: [ChatItem], existingIndex: Int?) -> UpsertResult {
         var result = chats
-        if let index = result.firstIndex(where: { $0.id == chat.id }) {
+        if let index = existingIndex {
             if canReplaceInPlace(chat, at: index, in: result) {
                 result[index] = chat
-                return result
+                return UpsertResult(chats: result, reindexStart: nil)
             }
             result.remove(at: index)
+            let nextIndex = insertionIndex(for: chat, in: result)
+            result.insert(chat, at: nextIndex)
+            return UpsertResult(chats: result, reindexStart: min(index, nextIndex))
         }
 
-        result.insert(chat, at: insertionIndex(for: chat, in: result))
-        return result
+        let nextIndex = insertionIndex(for: chat, in: result)
+        result.insert(chat, at: nextIndex)
+        return UpsertResult(chats: result, reindexStart: nextIndex)
+    }
+
+    static func mostRecent(in chatItems: [ChatItem]) -> ChatItem? {
+        chatItems.min { lhs, rhs in
+            areInDisplayOrder(lhs, rhs)
+        }
     }
 
     static func preservingResolvedMetadata(in chat: ChatItem, from current: ChatItem) -> ChatItem {
@@ -169,6 +192,13 @@ nonisolated struct ChatListOrdering {
 final class MediaDownloadStateStore: ObservableObject {
     @Published private(set) var state: MediaDownloadState = .idle
 
+    var shouldStartAutomaticDownload: Bool {
+        if case .idle = state {
+            return true
+        }
+        return false
+    }
+
     func update(_ newState: MediaDownloadState) {
         guard state != newState else { return }
         state = newState
@@ -178,13 +208,26 @@ final class MediaDownloadStateStore: ObservableObject {
 @MainActor
 @Observable
 final class MessageTimelineStore {
+    struct ProjectionApplyResult: Equatable {
+        let didChange: Bool
+        let didTrimOlderMessages: Bool
+    }
+
     private(set) var messages: [MessageItem]
     private(set) var messageIDs: [String]
+    /// O(1) id → message map for non-UI lookups (`timelineMessage(groupIdHex:messageId:)`).
+    /// `@ObservationIgnored`: it is never read from a view body — only `messages`/`messageIDs`
+    /// drive rendering — so it must not enlarge a view's observation set. The store owns this
+    /// (and `messageIDs`) so callers don't maintain parallel per-chat dictionaries.
+    @ObservationIgnored private(set) var lookup: [String: MessageItem]
+    @ObservationIgnored private var indexById: [String: Int]
     private(set) var isLoaded: Bool
 
     init(messages: [MessageItem] = [], isLoaded: Bool = false) {
         self.messages = messages
         self.messageIDs = messages.map(\.id)
+        self.lookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        self.indexById = Dictionary(uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) })
         self.isLoaded = isLoaded
     }
 
@@ -194,14 +237,133 @@ final class MessageTimelineStore {
 
     func replace(with messages: [MessageItem]) {
         self.messages = messages
-        self.messageIDs = messages.map(\.id)
+        rebuildIndexes()
         self.isLoaded = true
     }
 
     func clear() {
         messages = []
         messageIDs = []
+        lookup = [:]
+        indexById = [:]
         isLoaded = false
+    }
+
+    func containsMessage(id: String) -> Bool {
+        lookup[id] != nil
+    }
+
+    func applyProjection(
+        upserts: [MessageItem],
+        removals removalIds: Set<String>,
+        anchoredToNewest: Bool,
+        windowLimit: Int
+    ) -> ProjectionApplyResult {
+        let newestKey = messages.last.map(TimelineSortKey.init)
+        var didChange = false
+
+        if !removalIds.isEmpty {
+            let originalCount = messages.count
+            messages.removeAll { removalIds.contains($0.id) }
+            didChange = messages.count != originalCount
+            if didChange {
+                rebuildIndexes()
+            }
+        }
+
+        for item in upserts {
+            if let existingIndex = indexById[item.id] {
+                guard messages[existingIndex] != item else { continue }
+                if TimelineSortKey(messages[existingIndex]) == TimelineSortKey(item) {
+                    messages[existingIndex] = item
+                    lookup[item.id] = item
+                    didChange = true
+                    continue
+                }
+                removeMessage(at: existingIndex)
+                insertMessage(item, at: insertionIndex(for: item))
+                didChange = true
+                continue
+            }
+
+            let isInsideDetachedWindow = newestKey.map { TimelineSortKey(item) <= $0 } ?? false
+            guard anchoredToNewest || isInsideDetachedWindow else { continue }
+            insertMessage(item, at: insertionIndex(for: item))
+            didChange = true
+        }
+
+        var didTrimOlderMessages = false
+        if messages.count > windowLimit {
+            messages.removeFirst(messages.count - windowLimit)
+            rebuildIndexes()
+            didTrimOlderMessages = true
+            didChange = true
+        }
+
+        if didChange {
+            isLoaded = true
+        }
+        return ProjectionApplyResult(didChange: didChange, didTrimOlderMessages: didTrimOlderMessages)
+    }
+
+    private func rebuildIndexes() {
+        messageIDs = messages.map(\.id)
+        lookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        indexById = Dictionary(uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) })
+    }
+
+    private func insertMessage(_ item: MessageItem, at index: Int) {
+        messages.insert(item, at: index)
+        messageIDs.insert(item.id, at: index)
+        lookup[item.id] = item
+        reindexMessages(startingAt: index)
+    }
+
+    private func removeMessage(at index: Int) {
+        let removed = messages.remove(at: index)
+        messageIDs.remove(at: index)
+        lookup[removed.id] = nil
+        indexById[removed.id] = nil
+        reindexMessages(startingAt: index)
+    }
+
+    private func reindexMessages(startingAt startIndex: Int) {
+        guard startIndex < messages.endIndex else { return }
+        for index in startIndex..<messages.endIndex {
+            indexById[messages[index].id] = index
+        }
+    }
+
+    private func insertionIndex(for item: MessageItem) -> Int {
+        let key = TimelineSortKey(item)
+        var lowerBound = messages.startIndex
+        var upperBound = messages.endIndex
+        while lowerBound < upperBound {
+            let middle = lowerBound + (upperBound - lowerBound) / 2
+            if TimelineSortKey(messages[middle]) < key {
+                lowerBound = middle + 1
+            } else {
+                upperBound = middle
+            }
+        }
+        return lowerBound
+    }
+
+    private struct TimelineSortKey: Comparable {
+        let timelineAt: UInt64
+        let id: String
+
+        init(_ message: MessageItem) {
+            timelineAt = message.timelineAt
+            id = message.id
+        }
+
+        static func < (lhs: TimelineSortKey, rhs: TimelineSortKey) -> Bool {
+            if lhs.timelineAt != rhs.timelineAt {
+                return lhs.timelineAt < rhs.timelineAt
+            }
+            return lhs.id < rhs.id
+        }
     }
 }
 
@@ -232,15 +394,27 @@ final class WorkspaceState {
         let auditLogTrackerConfig: AuditLogTrackerConfigFfi
     }
 
+    struct FilteredChatsCache {
+        let accountId: String
+        let generation: Int
+        let query: String
+        let result: [ChatItem]
+    }
+
     var phase: Phase = .bootstrapping
     var accounts: [AccountItem]
     var chatsByAccount: [String: [ChatItem]]
+    @ObservationIgnored var chatLookupByAccount: [String: [String: ChatItem]] = [:]
+    @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
+    @ObservationIgnored var chatListGenerationByAccount: [String: Int] = [:]
+    @ObservationIgnored var filteredChatsCache: FilteredChatsCache?
     /// Backing timeline cache for tests and non-UI lookups. Swift Observation tracks an
     /// observed dictionary as one property, so UI reads must go through `messageTimelineStores`
     /// to subscribe only to the selected chat's transcript (whitenoise-mac#176).
     @ObservationIgnored var messagesByChat: [String: [MessageItem]]
     @ObservationIgnored var messageTimelineStores: [String: MessageTimelineStore] = [:]
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
+    @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.
@@ -469,13 +643,6 @@ final class WorkspaceState {
     /// conversation is torn down.
     var activeTimelineSubscription: TimelineMessagesSubscription?
     var activeTimelineGroupId: String?
-    @ObservationIgnored var messageLookupByChat: [String: [String: MessageItem]] = [:]
-    /// Cached per-chat message id arrays for tests and non-UI lookups, materialized once
-    /// per `messagesByChat` mutation and maintained in lockstep with it (alongside
-    /// `messageLookupByChat`). SwiftUI reads selected message ids through
-    /// `MessageTimelineStore` instead so the open conversation subscribes only to its
-    /// own transcript.
-    @ObservationIgnored var messageIDsByChat: [String: [String]] = [:]
     var lastMarkedReadMarkers: [String: ReadMarker] = [:]
     var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
     var deliveredNotificationKeys = Set<String>()
@@ -586,6 +753,12 @@ final class WorkspaceState {
     static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
     static let deliveredNotificationKeyLimit = 256
     static let timelinePageLimit: UInt32 = 100
+    /// Upper bound on the materialized live window, matching the runtime's
+    /// `TIMELINE_WINDOW_LIMIT`. Live projection deltas grow the window up to this cap
+    /// before the oldest rows are trimmed (and `hasMoreBefore` is re-flagged), mirroring
+    /// `apply_projection_to_window` in the core so client-side delta application stays in
+    /// lockstep with the runtime's windowing.
+    static let timelineWindowLimit = 200
     /// Reconnect immediately once when a subscription stream ends, then use a capped
     /// backoff if a broken stream keeps ending during startup. This avoids silent
     /// listener death without tight-looping on an already-closed runtime channel.
@@ -684,16 +857,13 @@ final class WorkspaceState {
         },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
+        mediaDiskCache: MessageMediaDiskCache = .shared,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
         self.chatsByAccount = chatsByAccount
         self.messagesByChat = messagesByChat
         self.messageTimelineStores = messagesByChat.mapValues { MessageTimelineStore.loaded(with: $0) }
-        self.messageLookupByChat = messagesByChat.mapValues { messages in
-            Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
-        }
-        self.messageIDsByChat = messagesByChat.mapValues { $0.map(\.id) }
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
         self.appActivityProvider = appActivityProvider
         self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
@@ -701,6 +871,7 @@ final class WorkspaceState {
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.nowProvider = nowProvider
+        self.mediaDiskCache = mediaDiskCache
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
@@ -713,6 +884,7 @@ final class WorkspaceState {
         self.notificationPreviewMode = storedPreviewMode.flatMap(NotificationPreviewMode.init(rawValue:)) ?? .full
         let storedLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
         self.languagePreference = AppLanguage.resolved(rawValue: storedLanguage)
+        rebuildChatIndexes()
         self.activeAccountId =
             UserDefaults.standard.string(forKey: Self.activeAccountKey)
             ?? accounts.first?.id
@@ -764,12 +936,30 @@ final class WorkspaceState {
     }
 
     var filteredChats: [ChatItem] {
-        ChatFilter.filtered(activeChats, query: searchText)
+        guard let activeAccountId else { return [] }
+        let generation = chatListGenerationByAccount[activeAccountId] ?? 0
+        let query = searchText
+        if let cache = filteredChatsCache,
+            cache.accountId == activeAccountId,
+            cache.generation == generation,
+            cache.query == query
+        {
+            return cache.result
+        }
+
+        let result = ChatFilter.filtered(chatsByAccount[activeAccountId] ?? [], query: query)
+        filteredChatsCache = FilteredChatsCache(
+            accountId: activeAccountId,
+            generation: generation,
+            query: query,
+            result: result
+        )
+        return result
     }
 
     var selectedChat: ChatItem? {
         guard case .chat(let chatId) = selection else { return nil }
-        return activeChats.first { $0.id == chatId }
+        return activeAccountId.flatMap { chatLookupByAccount[$0]?[chatId] }
     }
 
     var resolvedNewChatRecipient: NewChatRecipient? {
@@ -778,6 +968,118 @@ final class WorkspaceState {
         else { return nil }
 
         return newChatRecipient
+    }
+
+    func setChats(_ chats: [ChatItem], forAccountId accountId: String) {
+        chatsByAccount[accountId] = chats
+        rebuildChatIndexes(forAccountId: accountId)
+    }
+
+    func upsertChat(_ chat: ChatItem, forAccountId accountId: String) {
+        let chats = chatsByAccount[accountId] ?? []
+        let result = ChatListOrdering.upsertResult(
+            chat,
+            into: chats,
+            existingIndex: chatIndex(accountId: accountId, chatId: chat.id)
+        )
+        chatsByAccount[accountId] = result.chats
+
+        if let reindexStart = result.reindexStart {
+            reindexChats(forAccountId: accountId, startingAt: reindexStart)
+        } else {
+            var lookup = chatLookupByAccount[accountId] ?? [:]
+            lookup[chat.id] = chat
+            chatLookupByAccount[accountId] = lookup
+        }
+        bumpChatListGeneration(forAccountId: accountId)
+    }
+
+    func removeChatFromList(chatId: String, forAccountId accountId: String) -> [ChatItem] {
+        var chats = chatsByAccount[accountId] ?? []
+        if let index = chatIndex(accountId: accountId, chatId: chatId) {
+            chats.remove(at: index)
+            chatsByAccount[accountId] = chats
+
+            var lookup = chatLookupByAccount[accountId] ?? [:]
+            lookup[chatId] = nil
+            chatLookupByAccount[accountId] = lookup
+
+            var indexes = chatIndexByAccount[accountId] ?? [:]
+            indexes[chatId] = nil
+            chatIndexByAccount[accountId] = indexes
+
+            reindexChats(forAccountId: accountId, startingAt: index)
+            bumpChatListGeneration(forAccountId: accountId)
+            return chats
+        }
+
+        let originalCount = chats.count
+        chats.removeAll { $0.id == chatId }
+        guard chats.count != originalCount else { return chats }
+        setChats(chats, forAccountId: accountId)
+        return chats
+    }
+
+    func removeChats(forAccountId accountId: String) {
+        chatsByAccount[accountId] = nil
+        chatLookupByAccount[accountId] = nil
+        chatIndexByAccount[accountId] = nil
+        bumpChatListGeneration(forAccountId: accountId)
+    }
+
+    func resetChats() {
+        chatsByAccount = [:]
+        chatLookupByAccount = [:]
+        chatIndexByAccount = [:]
+        chatListGenerationByAccount = [:]
+        filteredChatsCache = nil
+    }
+
+    func rebuildChatIndexes() {
+        chatLookupByAccount = [:]
+        chatIndexByAccount = [:]
+        for accountId in chatsByAccount.keys {
+            rebuildChatIndexes(forAccountId: accountId)
+        }
+    }
+
+    func rebuildChatIndexes(forAccountId accountId: String) {
+        let chats = chatsByAccount[accountId] ?? []
+        chatLookupByAccount[accountId] = Dictionary(uniqueKeysWithValues: chats.map { ($0.id, $0) })
+        chatIndexByAccount[accountId] = Dictionary(uniqueKeysWithValues: chats.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        bumpChatListGeneration(forAccountId: accountId)
+    }
+
+    func reindexChats(forAccountId accountId: String, startingAt startIndex: Int) {
+        let chats = chatsByAccount[accountId] ?? []
+        guard startIndex < chats.endIndex else { return }
+
+        var lookup = chatLookupByAccount[accountId] ?? [:]
+        var indexes = chatIndexByAccount[accountId] ?? [:]
+        for index in max(0, startIndex)..<chats.endIndex {
+            let chat = chats[index]
+            lookup[chat.id] = chat
+            indexes[chat.id] = index
+        }
+        chatLookupByAccount[accountId] = lookup
+        chatIndexByAccount[accountId] = indexes
+    }
+
+    func chatItem(accountId: String, chatId: String) -> ChatItem? {
+        chatLookupByAccount[accountId]?[chatId]
+    }
+
+    func chatIndex(accountId: String, chatId: String) -> Int? {
+        chatIndexByAccount[accountId]?[chatId]
+    }
+
+    private func bumpChatListGeneration(forAccountId accountId: String) {
+        chatListGenerationByAccount[accountId, default: 0] += 1
+        if filteredChatsCache?.accountId == accountId {
+            filteredChatsCache = nil
+        }
     }
 
     @discardableResult
@@ -822,7 +1124,12 @@ final class WorkspaceState {
     }
 
     func timelineMessage(groupIdHex: String, messageId: String) -> MessageItem? {
-        messageLookupByChat[groupIdHex]?[messageId]
+        messageTimelineStores[groupIdHex]?.lookup[messageId]
+    }
+
+    func selectedTimelineContainsMessage(_ messageId: String) -> Bool {
+        guard let selectedChat else { return false }
+        return messageTimelineStores[selectedChat.id]?.containsMessage(id: messageId) ?? false
     }
 
     var marmotBuildSummary: String {

@@ -135,7 +135,7 @@ extension WorkspaceState {
             invalidateGroupMembers(for: groupId)
         }
         clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
-        chatsByAccount[account.id] = sortedChatItems(chatItems)
+        setChats(sortedChatItems(chatItems), forAccountId: account.id)
         dismissGroupImagePickerIfSelectedChatUnavailable()
         ensureSelectedMessageTimelineStore()
         startChatListEnrichment(rows: rows, account: account)
@@ -163,14 +163,13 @@ extension WorkspaceState {
     ) async {
         guard activeAccountId == account.id else { return }
 
-        let chats = chatsByAccount[account.id] ?? []
         if row.archived {
             removeChat(groupIdHex: row.groupIdHex, account: account)
             return
         }
 
         var chat = baseChatItem(from: row, account: account)
-        let current = chats.first(where: { $0.id == chat.id })
+        let current = chatItem(accountId: account.id, chatId: chat.id)
         if skippingStaleRow,
             let current,
             isOlderChatRow(chat, than: current)
@@ -186,7 +185,7 @@ extension WorkspaceState {
         }
         let needsInitialMetadata = !shouldEnrich && readStateRowNeedsMetadataEnrichment(row, current: current)
 
-        chatsByAccount[account.id] = ChatListOrdering.upserting(chat, into: chats)
+        upsertChat(chat, forAccountId: account.id)
         ensureSelectedMessageTimelineStore()
         if shouldEnrich {
             startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
@@ -220,14 +219,10 @@ extension WorkspaceState {
     func removeChat(groupIdHex: String, account: AccountItem) {
         guard activeAccountId == account.id else { return }
 
-        var chats = chatsByAccount[account.id] ?? []
-        chats.removeAll { $0.id == groupIdHex }
-        chatsByAccount[account.id] = chats
+        let chats = removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
         messagesByChat[groupIdHex] = nil
         messageTimelineStores[groupIdHex]?.clear()
         messageTimelineStores[groupIdHex] = nil
-        messageLookupByChat[groupIdHex] = nil
-        messageIDsByChat[groupIdHex] = nil
         invalidateGroupMembers(for: groupIdHex)
         timelinePagingByChat[groupIdHex] = nil
         clearComposerDrafts(for: [groupIdHex], accountId: account.id)
@@ -321,7 +316,7 @@ extension WorkspaceState {
         let incremental = enrichedItems.count == 1
         var didUpdate = false
         for enrichedItem in enrichedItems {
-            guard let index = chats.firstIndex(where: { $0.id == enrichedItem.id }) else { continue }
+            guard let index = chatIndex(accountId: account.id, chatId: enrichedItem.id) else { continue }
             let current = chats[index]
             let next = ChatItem(
                 id: current.id,
@@ -338,15 +333,15 @@ extension WorkspaceState {
             )
             guard next != current else { continue }
             if incremental {
-                chats = ChatListOrdering.upserting(next, into: chats)
+                upsertChat(next, forAccountId: account.id)
             } else {
                 chats[index] = next
             }
             didUpdate = true
         }
 
-        if didUpdate {
-            chatsByAccount[account.id] = incremental ? chats : sortedChatItems(chats)
+        if didUpdate, !incremental {
+            setChats(sortedChatItems(chats), forAccountId: account.id)
         }
     }
 
@@ -397,7 +392,7 @@ extension WorkspaceState {
     }
 
     func mostRecentChat(in chatItems: [ChatItem]) -> ChatItem? {
-        sortedChatItems(chatItems).first
+        ChatListOrdering.mostRecent(in: chatItems)
     }
 
     func sortedChatItems(_ chatItems: [ChatItem]) -> [ChatItem] {
