@@ -154,13 +154,21 @@ extension WorkspaceState {
             return
         }
 
+        // The FFI call is not cancellation-aware, so an A→B account switch can leave account A's
+        // slower-resolving load in flight. Capture the account id on entry and re-check after the
+        // await (mirroring `performSettingsLoad` / `loadMediaAttachment`) so a stale result can't
+        // overwrite — or, on error, blank — the newer account's key-package list.
+        let accountId = activeAccount.id
+
         do {
             let packages = try await client.accountKeyPackages(
                 accountRef: activeAccount.accountRef,
                 bootstrapRelays: relaySettings.networkBootstrapRelays
             )
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             keyPackages = packages.map(KeyPackageItem.init(package:))
         } catch {
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             lastError = error.localizedDescription
             keyPackages = []
         }

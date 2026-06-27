@@ -6792,6 +6792,64 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleKeyPackageLoadDoesNotClobberSwitchedAccountList() async throws {
+        // Issue #207: `loadKeyPackages` is driven by `.task(id: activeAccountId)` and awaits the
+        // completion-ordered `accountKeyPackages` FFI. On an A→B account switch, account A's
+        // slower-resolving load must not overwrite account B's key-package list.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installKeyPackages(
+            accountRef: "Desktop Account",
+            packages: [keyPackageFixture(accountRef: "Desktop Account", eventIdHex: "event-account-a")]
+        )
+        runtime.installKeyPackages(
+            accountRef: "Backup Account",
+            packages: [keyPackageFixture(accountRef: "Backup Account", eventIdHex: "event-account-b")]
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        // Arm the gate so account A's load suspends in-flight after capturing A's packages.
+        runtime.accountKeyPackagesGateEnabled = true
+        async let staleLoad: Void = state.loadKeyPackages()
+        while !runtime.didReachAccountKeyPackagesGate {
+            await Task.yield()
+        }
+
+        // Switch to account B and run a fresh load to completion. The gate only holds the first
+        // call, so B's load is not gated.
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        await state.loadKeyPackages()
+        #expect(state.keyPackages.map(\.eventIdHex) == ["event-account-b"])
+
+        // Release account A's stale load. Its completion is now superseded, so it must neither
+        // overwrite B's list nor report an error.
+        runtime.releaseAccountKeyPackagesGate()
+        _ = await staleLoad
+
+        #expect(state.keyPackages.map(\.eventIdHex) == ["event-account-b"])
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func concurrentSettingsLoadsForSameAccountCoalesce() async throws {
         // Issue #4: settings loading is driven from more than one entry point (the settings
         // view's `.task(id: activeAccountId)` and explicit reloads), so two overlapping
@@ -8313,6 +8371,18 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var groupDetailsGateEnabled = false
     private(set) var didReachGroupDetailsGate = false
     private var groupDetailsGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #207 last-request-wins-test support: when armed, the first `accountKeyPackages` FFI
+    /// call suspends until `releaseAccountKeyPackagesGate()` is invoked, holding an older
+    /// `loadKeyPackages()` in-flight so a test can switch the active account, run a newer load to
+    /// completion, then assert the stale older completion does not overwrite (or, on error, blank)
+    /// the newer account's key-package list.
+    var accountKeyPackagesGateEnabled = false
+    private(set) var didReachAccountKeyPackagesGate = false
+    private var accountKeyPackagesGateContinuation: CheckedContinuation<Void, Never>?
+    /// Per-account key packages keyed by `accountRef`. Falls back to the default `keyPackages`
+    /// fixture when an account has no explicit install, so existing single-account tests are
+    /// unaffected.
+    private var keyPackagesByAccountRef: [String: [AccountKeyPackageFfi]] = [:]
     private var profilesByAccountId: [String: UserProfileMetadataFfi] = [:]
     private var normalizedMembersByRef: [String: MemberRefFfi] = [:]
     private var groupDetailsById: [String: GroupDetailsFfi] = [:]
@@ -8591,7 +8661,30 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi] {
         accountKeyPackagesCallCount += 1
         lastPackageFetchBootstrapRelays = bootstrapRelays
-        return keyPackages
+        // Snapshot the result *before* the gate so a held older load returns its account's packages
+        // and a later switch/mutation cannot retroactively change them (issue #207).
+        let result = keyPackagesByAccountRef[accountRef] ?? keyPackages
+        await passAccountKeyPackagesGateIfArmed()
+        return result
+    }
+
+    func installKeyPackages(accountRef: String, packages: [AccountKeyPackageFfi]) {
+        keyPackagesByAccountRef[accountRef] = packages
+    }
+
+    private func passAccountKeyPackagesGateIfArmed() async {
+        guard accountKeyPackagesGateEnabled, accountKeyPackagesGateContinuation == nil,
+            !didReachAccountKeyPackagesGate
+        else { return }
+        didReachAccountKeyPackagesGate = true
+        await withCheckedContinuation { continuation in
+            accountKeyPackagesGateContinuation = continuation
+        }
+    }
+
+    func releaseAccountKeyPackagesGate() {
+        accountKeyPackagesGateContinuation?.resume()
+        accountKeyPackagesGateContinuation = nil
     }
 
     func auditLogFiles() throws -> [AuditLogFileFfi] {
@@ -10244,6 +10337,21 @@ private func desktopAccount() -> AccountSummaryFfi {
         localSigning: true,
         signedOut: false,
         running: true
+    )
+}
+
+private func keyPackageFixture(accountRef: String, eventIdHex: String) -> AccountKeyPackageFfi {
+    AccountKeyPackageFfi(
+        accountRef: accountRef,
+        accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        keyPackageId: "slot-\(eventIdHex)",
+        keyPackageRefHex: "ref-\(eventIdHex)",
+        eventIdHex: eventIdHex,
+        publishedAt: 1_700_000_000,
+        keyPackageBytes: 512,
+        sourceRelays: MarmotClient.seedRelays,
+        local: true,
+        relay: false
     )
 }
 
