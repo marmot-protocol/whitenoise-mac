@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "E8B3E793-3BC0-4862-B8B9-C724FA60B63D",
+      "name" : "UI Performance",
+      "options" : {
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:whitenoise-mac.xcodeproj",
+      "identifier" : "1F5D021F2FC5862E0016665B",
+      "name" : "whitenoise-mac"
+    },
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:whitenoise-mac.xcodeproj",
+        "identifier" : "2B616D152FD2000000010001",
+        "name" : "whitenoise-macUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

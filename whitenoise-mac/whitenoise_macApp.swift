@@ -9,7 +9,14 @@ import SwiftUI
 
 @main
 struct whitenoise_macApp: App {
-    @State private var workspace = WorkspaceState()
+    @State private var workspace: WorkspaceState
+    private let shouldBootstrapWorkspace: Bool
+
+    init() {
+        let configuration = AppLaunchConfiguration.current
+        _workspace = State(initialValue: configuration.makeWorkspace())
+        shouldBootstrapWorkspace = configuration.shouldBootstrapWorkspace
+    }
 
     var body: some Scene {
         // A single `Window` scene (not `WindowGroup`) intentionally restricts the app to
@@ -23,7 +30,9 @@ struct whitenoise_macApp: App {
             ContentView()
                 .environment(workspace)
                 .task {
-                    await workspace.bootstrap()
+                    if shouldBootstrapWorkspace {
+                        await workspace.bootstrap()
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)

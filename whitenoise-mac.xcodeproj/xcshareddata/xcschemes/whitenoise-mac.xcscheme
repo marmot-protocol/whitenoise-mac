@@ -33,6 +33,9 @@
             reference = "container:TestPlans/PR.xctestplan"
             default = "YES">
          </TestPlanReference>
+         <TestPlanReference
+            reference = "container:TestPlans/UIPerformance.xctestplan">
+         </TestPlanReference>
       </TestPlans>
       <Testables>
          <TestableReference

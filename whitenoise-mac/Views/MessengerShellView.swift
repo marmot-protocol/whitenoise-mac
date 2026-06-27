@@ -346,6 +346,7 @@ private struct ConversationView: View {
                     .padding(.top, 18)
                     .padding(.bottom, 8)
                 }
+                .accessibilityIdentifier("conversation.transcript")
                 .id(chat.id)
                 .defaultScrollAnchor(.bottom)
                 .onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
@@ -466,6 +467,7 @@ private struct ConversationView: View {
                             .background {
                                 MessagesComposerFieldBackground()
                             }
+                            .accessibilityIdentifier("composer.message")
 
                         Button {
                             Task { await workspace.toggleVoiceRecording() }
