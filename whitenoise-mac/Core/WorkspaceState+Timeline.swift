@@ -104,7 +104,9 @@ extension WorkspaceState {
             // The subscription owns the materialized window; `paginateBackwards` extends it
             // toward older history off the main thread and returns the new authoritative
             // window (already sorted, deduped, capped, with correct has-more flags).
-            let page = try await subscription.paginateBackwards(count: Self.timelinePageLimit)
+            let page = try await TimelineSignpost.pagination.asyncInterval("paginateBackwards") {
+                try await subscription.paginateBackwards(count: Self.timelinePageLimit)
+            }
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
             await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
         } catch {
@@ -131,7 +133,9 @@ extension WorkspaceState {
         }
 
         do {
-            let page = try await subscription.paginateForwards(count: Self.timelinePageLimit)
+            let page = try await TimelineSignpost.pagination.asyncInterval("paginateForwards") {
+                try await subscription.paginateForwards(count: Self.timelinePageLimit)
+            }
             guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
             await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
         } catch {
@@ -149,29 +153,42 @@ extension WorkspaceState {
         client: any MarmotRuntime
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-        let senderProfiles = await messageSenderProfiles(
-            from: page.messages,
-            groupIdHex: groupIdHex,
-            activeAccount: account,
-            client: client
-        )
+        let senderProfiles = await TimelineSignpost.mapping.asyncInterval(
+            "resolveSenders.window", count: page.messages.count
+        ) {
+            await messageSenderProfiles(
+                from: page.messages,
+                groupIdHex: groupIdHex,
+                activeAccount: account,
+                client: client
+            )
+        }
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
 
         let currentPaging = timelinePagingByChat[groupIdHex]
-        replaceMessages(
+        // Maps every record in the window and builds each bubble's Markdown display model
+        // (attributed strings + block ids) eagerly — historically the dominant scroll-back cost.
+        let mappedMessages = TimelineSignpost.mapping.interval(
+            "mapWindow", count: page.messages.count
+        ) {
             MessageItem.timeline(
                 from: page,
                 activeAccountIdHex: account.accountIdHex,
                 senderProfiles: senderProfiles
-            ),
-            groupIdHex: groupIdHex,
-            paging: TimelinePagingState(
-                hasMoreBefore: page.hasMoreBefore,
-                hasMoreAfter: page.hasMoreAfter,
-                isLoadingBefore: currentPaging?.isLoadingBefore ?? false,
-                isLoadingAfter: currentPaging?.isLoadingAfter ?? false
             )
-        )
+        }
+        TimelineSignpost.store.interval("replaceMessages", count: mappedMessages.count) {
+            replaceMessages(
+                mappedMessages,
+                groupIdHex: groupIdHex,
+                paging: TimelinePagingState(
+                    hasMoreBefore: page.hasMoreBefore,
+                    hasMoreAfter: page.hasMoreAfter,
+                    isLoadingBefore: currentPaging?.isLoadingBefore ?? false,
+                    isLoadingAfter: currentPaging?.isLoadingAfter ?? false
+                )
+            )
+        }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
@@ -237,18 +254,26 @@ extension WorkspaceState {
 
         // Resolve senders for just the changed records (the common case is an all-cached
         // lookup) and map only those records — not the entire window.
-        let senderProfiles = await messageSenderProfiles(
-            from: upsertRecords,
-            groupIdHex: groupIdHex,
-            activeAccount: account,
-            client: client
-        )
+        let senderProfiles = await TimelineSignpost.mapping.asyncInterval(
+            "resolveSenders.projection", count: upsertRecords.count
+        ) {
+            await messageSenderProfiles(
+                from: upsertRecords,
+                groupIdHex: groupIdHex,
+                activeAccount: account,
+                client: client
+            )
+        }
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-        let mappedUpserts = MessageItem.timeline(
-            from: TimelinePageFfi(messages: upsertRecords, hasMoreBefore: false, hasMoreAfter: false),
-            activeAccountIdHex: account.accountIdHex,
-            senderProfiles: senderProfiles
-        )
+        let mappedUpserts = TimelineSignpost.mapping.interval(
+            "mapProjection", count: upsertRecords.count
+        ) {
+            MessageItem.timeline(
+                from: TimelinePageFfi(messages: upsertRecords, hasMoreBefore: false, hasMoreAfter: false),
+                activeAccountIdHex: account.accountIdHex,
+                senderProfiles: senderProfiles
+            )
+        }
 
         let paging = timelinePagingByChat[groupIdHex] ?? .empty
         // The window is "anchored" to the live head while there is no newer history to
@@ -258,12 +283,16 @@ extension WorkspaceState {
         // does. Existing rows still update in place (edits, reactions, delivery state).
         let anchored = !paging.hasMoreAfter
         let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
-        let result = timelineStore.applyProjection(
-            upserts: mappedUpserts,
-            removals: removalIds,
-            anchoredToNewest: anchored,
-            windowLimit: Self.timelineWindowLimit
-        )
+        let result = TimelineSignpost.store.interval(
+            "applyProjection", count: mappedUpserts.count + removalIds.count
+        ) {
+            timelineStore.applyProjection(
+                upserts: mappedUpserts,
+                removals: removalIds,
+                anchoredToNewest: anchored,
+                windowLimit: Self.timelineWindowLimit
+            )
+        }
         guard result.didChange else { return }
 
         finalizeTimelineStoreMutation(

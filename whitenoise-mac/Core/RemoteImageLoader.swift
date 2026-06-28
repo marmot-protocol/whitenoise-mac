@@ -782,17 +782,22 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     }
 
     private static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {
-        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
-        let options =
-            [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixelSize)),
-            ] as CFDictionary
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
-        return DownsampledImageSizing.image(fromDownsampled: cgImage)
+        // Stamped with the encoded byte count so a slow decode is correlatable with the
+        // source image's weight. Runs off-main (`Task.detached(.utility)`), but if it
+        // backs up it starves media tiles from displaying mid-scroll.
+        TimelineSignpost.decode.interval("downsample", count: data.count) {
+            let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+            guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+            let options =
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: Int(max(1, maxPixelSize)),
+                ] as CFDictionary
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+            return DownsampledImageSizing.image(fromDownsampled: cgImage)
+        }
     }
 
     private static func decodedCost(for image: NSImage) -> Int {

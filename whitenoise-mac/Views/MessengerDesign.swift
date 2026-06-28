@@ -422,17 +422,21 @@ struct GlassCardModifier: ViewModifier {
 
 struct GlassCapsuleBackground: View {
     @Environment(\.colorScheme) private var colorScheme
-    var material: Material = .ultraThinMaterial
     var borderColor: Color?
 
     var body: some View {
+        // Flat translucent fill instead of `.ultraThinMaterial`. A material capsule renders a
+        // `CABackdropLayer` blur per instance — fine once, but these are per-row chrome
+        // (reactions, system notices), and rendering every visible one was a measurable slice
+        // of initial-render / scroll cost (Instruments: CA::Render::copy_image / -[CAFilter
+        // CA_copyRenderValue]). `.quaternary` is a solid, adaptive hierarchical fill that reads
+        // almost identically without the backdrop pass. See the #205 scroll-performance work.
         Capsule(style: .continuous)
-            .fill(material)
+            .fill(.quaternary)
             .overlay {
                 Capsule(style: .continuous)
                     .stroke(borderColor ?? Color.white.opacity(colorScheme == .dark ? 0.14 : 0.3), lineWidth: 1)
             }
-            .nativeBackgroundExtensionEffect()
     }
 }
 
