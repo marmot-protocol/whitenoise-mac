@@ -99,6 +99,14 @@ extension WorkspaceState {
 
     func createNewChat() async {
         guard let client, let activeAccount, !isCreatingChat else { return }
+
+        // Capture the creating account on entry so a mid-await A→B account switch (e.g. via
+        // a notification tap while `createGroup`/`reloadChats` are suspended) cannot graft
+        // account A's freshly created group onto account B's chat list or select/load it
+        // under B's context. The group's FFI data stays partitioned by account ref; this
+        // only guards the workspace UI state. See whitenoise-mac#229.
+        let accountId = activeAccount.id
+
         let recipient: NewChatRecipient?
         if let resolvedNewChatRecipient {
             recipient = resolvedNewChatRecipient
@@ -121,6 +129,7 @@ extension WorkspaceState {
                 description: trimmedDescription.isEmpty ? nil : trimmedDescription
             )
             await reloadChats()
+            guard activeAccountId == accountId else { return }
             insertCreatedChatIfNeeded(
                 groupIdHex: groupIdHex,
                 title: trimmedName.isEmpty ? recipient.title : trimmedName,
