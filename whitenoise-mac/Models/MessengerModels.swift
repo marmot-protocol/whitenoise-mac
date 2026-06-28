@@ -1093,34 +1093,51 @@ nonisolated final class MessageAudioMetadataCache: @unchecked Sendable {
         let task: Task<MediaWaveformAnalyzer.Metadata, Never>
         let taskGeneration: Int
 
-        lock.lock()
-        if let value = cached[key] {
-            markRecentlyUsed(key)
-            lock.unlock()
-            return value
-        }
-        if let existing = inFlight[key] {
-            lock.unlock()
-            return await existing.value
+        // Scoped `withLock` rather than manual lock/unlock: `lock()`/`unlock()` are unavailable
+        // from async contexts (a lock must not be held across a suspension). The critical
+        // sections here are fully synchronous — the `await`s happen *outside* the lock — so the
+        // behavior is unchanged; resolve what to do under the lock, then suspend without it.
+        enum Lookup {
+            case cached(MediaWaveformAnalyzer.Metadata)
+            case awaitInFlight(Task<MediaWaveformAnalyzer.Metadata, Never>)
+            case started(Task<MediaWaveformAnalyzer.Metadata, Never>, generation: Int)
         }
 
-        taskGeneration = generation
-        task = Task.detached(priority: .utility) { [analyzer] in
-            analyzer(payload, mediaType)
+        let lookup: Lookup = lock.withLock {
+            if let value = cached[key] {
+                markRecentlyUsed(key)
+                return .cached(value)
+            }
+            if let existing = inFlight[key] {
+                return .awaitInFlight(existing)
+            }
+            let started = Task.detached(priority: .utility) { [analyzer] in
+                analyzer(payload, mediaType)
+            }
+            inFlight[key] = started
+            return .started(started, generation: generation)
         }
-        inFlight[key] = task
-        lock.unlock()
+
+        switch lookup {
+        case .cached(let value):
+            return value
+        case .awaitInFlight(let existing):
+            return await existing.value
+        case .started(let started, let gen):
+            task = started
+            taskGeneration = gen
+        }
 
         let value = await task.value
 
-        lock.lock()
-        if generation == taskGeneration {
-            inFlight[key] = nil
-            cached[key] = value
-            markRecentlyUsed(key)
-            trimIfNeeded()
+        lock.withLock {
+            if generation == taskGeneration {
+                inFlight[key] = nil
+                cached[key] = value
+                markRecentlyUsed(key)
+                trimIfNeeded()
+            }
         }
-        lock.unlock()
 
         return value
     }
