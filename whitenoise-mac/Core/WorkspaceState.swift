@@ -633,6 +633,10 @@ final class WorkspaceState {
     /// wraparound, and wrapping avoids overflow traps (issue #182). See `loadSettingsData` /
     /// issue #4.
     var settingsLoadGeneration: UInt64 = 0
+    /// Monotonic token for notification-settings reads/writes. Unlike `activeAccountId`, this
+    /// bumps on every active-account transition, so an older A request cannot commit after a rapid
+    /// A→B→A re-entry or after a newer notification load/toggle for the same account.
+    var notificationSettingsGeneration: UInt64 = 0
     var timelineTask: Task<Void, Never>?
     var timelineTaskGroupId: String?
     /// The live timeline subscription for the open conversation. It owns the

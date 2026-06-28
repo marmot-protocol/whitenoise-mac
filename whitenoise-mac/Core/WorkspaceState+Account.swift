@@ -84,6 +84,7 @@ extension WorkspaceState {
         stopChatListListener()
         clearEnteredLoginIdentity()
         activeAccountId = account.id
+        invalidateNotificationSettingsOperations()
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
         closeNewChatComposer()
@@ -261,6 +262,7 @@ extension WorkspaceState {
 
             if accounts.isEmpty {
                 activeAccountId = nil
+                invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 selection = nil
                 phase = .onboarding
@@ -335,6 +337,7 @@ extension WorkspaceState {
                 await loadSettingsData()
             } else {
                 activeAccountId = nil
+                invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 selection = nil
                 phase = .onboarding
@@ -431,6 +434,7 @@ extension WorkspaceState {
             return
         }
         activeAccountId = accounts.first?.id
+        invalidateNotificationSettingsOperations()
         if let activeAccountId {
             UserDefaults.standard.set(activeAccountId, forKey: Self.activeAccountKey)
         }
@@ -447,6 +451,7 @@ extension WorkspaceState {
 
         accounts = refreshed
         activeAccountId = preferredAccount.id
+        invalidateNotificationSettingsOperations()
         UserDefaults.standard.set(preferredAccount.id, forKey: Self.activeAccountKey)
         searchText = ""
         clearAllComposerDrafts()
@@ -484,6 +489,7 @@ extension WorkspaceState {
         RemoteImageLoader.shared.clearCache()
         observabilityRuntimeConfiguration = nil
         activeAccountId = nil
+        invalidateNotificationSettingsOperations()
         selection = nil
         searchText = ""
         isChatListVisible = true
