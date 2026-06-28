@@ -1042,6 +1042,52 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: root.path))
     }
 
+    @Test func messageMediaDiskCacheRejectsDirectStoreDuringFullWipe() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyProviderCalls = AtomicCounter()
+        let deleterEntered = DispatchSemaphore(value: 0)
+        let releaseDeleter = DispatchSemaphore(value: 0)
+        let cache = MessageMediaDiskCache(
+            directoryResolver: { root },
+            keyProvider: {
+                keyProviderCalls.increment()
+                return SymmetricKey(data: Data(repeating: 0x42, count: 32))
+            },
+            keyDeleter: {
+                deleterEntered.signal()
+                _ = releaseDeleter.wait(timeout: .now() + 5)
+            }
+        )
+        let plaintext = Data("store racing full wipe".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "race.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "network-download"
+        )
+
+        let purge = Task {
+            await cache.purgeAll(removeEncryptionKey: true)
+        }
+        #expect(deleterEntered.wait(timeout: .now() + 2) == .success)
+
+        await cache.store(download, for: key)
+        #expect(keyProviderCalls.value == 0)
+        #expect(!fileManager.fileExists(atPath: root.path))
+
+        releaseDeleter.signal()
+        await purge.value
+        #expect(keyProviderCalls.value == 0)
+        #expect(!fileManager.fileExists(atPath: root.path))
+    }
+
     @MainActor
     @Test func chatSearchMatchesTitleSubtitleAndPreview() async throws {
         let chats = ChatItem.samples
