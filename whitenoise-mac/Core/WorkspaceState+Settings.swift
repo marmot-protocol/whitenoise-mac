@@ -178,6 +178,21 @@ extension WorkspaceState {
         notificationAuthorizationStatus = await localNotificationCenter.authorizationStatus()
     }
 
+    func beginNotificationSettingsOperation() -> UInt64 {
+        notificationSettingsGeneration &+= 1
+        return notificationSettingsGeneration
+    }
+
+    func invalidateNotificationSettingsOperations() {
+        notificationSettingsGeneration &+= 1
+    }
+
+    func ownsNotificationSettingsOperation(accountId: String, generation: UInt64) -> Bool {
+        !Task.isCancelled
+            && activeAccountId == accountId
+            && notificationSettingsGeneration == generation
+    }
+
     func requestLocalNotificationPermission() async {
         lastError = nil
         do {
@@ -195,6 +210,7 @@ extension WorkspaceState {
 
         let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
+        let generation = beginNotificationSettingsOperation()
 
         lastError = nil
         isSavingNotifications = true
@@ -205,15 +221,20 @@ extension WorkspaceState {
             if !status.canPostNotifications {
                 do {
                     status = try await localNotificationCenter.requestAuthorization()
+                    let isCurrent = ownsNotificationSettingsOperation(accountId: accountId, generation: generation)
+                    guard isCurrent else { return }
                     notificationAuthorizationStatus = status
                 } catch {
-                    guard !Task.isCancelled, activeAccountId == accountId else { return }
-                    await handleNotificationPermissionError(error)
+                    let isCurrent = ownsNotificationSettingsOperation(accountId: accountId, generation: generation)
+                    guard isCurrent else { return }
+                    await handleNotificationPermissionError(error) { [accountId, generation] in
+                        self.ownsNotificationSettingsOperation(accountId: accountId, generation: generation)
+                    }
                     return
                 }
             }
 
-            guard !Task.isCancelled, activeAccountId == accountId else { return }
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             guard status.canPostNotifications else {
                 lastError = Self.notificationPermissionGuidance
                 return
@@ -227,10 +248,10 @@ extension WorkspaceState {
                     enabled: enabled
                 )
             }
-            guard !Task.isCancelled, activeAccountId == accountId else { return }
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
-            guard !Task.isCancelled, activeAccountId == accountId else { return }
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             lastError = error.localizedDescription
         }
     }
@@ -394,15 +415,16 @@ extension WorkspaceState {
 
         let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
+        let generation = beginNotificationSettingsOperation()
 
         do {
             let settings = try await runOffMain {
                 try client.notificationSettings(accountRef: accountRef)
             }
-            guard !Task.isCancelled, activeAccountId == accountId else { return }
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
-            guard !Task.isCancelled, activeAccountId == accountId else { return }
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = .defaults
             lastError = error.localizedDescription
         }
