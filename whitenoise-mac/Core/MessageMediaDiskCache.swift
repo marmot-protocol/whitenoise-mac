@@ -423,9 +423,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 using: symmetricKey,
                 authenticatedBy: payloadAAD(for: key.cacheID)
             )
-            guard UInt64(plaintext.count) == metadata.sizeBytes,
-                Self.hexSHA256(plaintext) == metadata.plaintextSha256
-            else {
+            // AES-GCM `open` above already authenticates the payload against its key
+            // and AAD, so a full SHA-256 re-hash of the plaintext on every read would
+            // be redundant tamper detection. Keep only the cheap length sanity check.
+            guard UInt64(plaintext.count) == metadata.sizeBytes else {
                 try? FileManager.default.removeItem(at: entryDirectory)
                 return nil
             }

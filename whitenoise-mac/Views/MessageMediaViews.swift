@@ -13,6 +13,14 @@ import AVKit
 import AppKit
 import SwiftUI
 
+/// Oversample factor applied to media thumbnails over their display-point size.
+/// Because tiles use `scaledToFill` (which crops to the center square), a source
+/// whose aspect ratio is `r:1` needs `r×` the display pixels on its shorter side
+/// to stay crisp. 1.5 keeps the common 4:3/3:2 photo ratios sharp while decoding
+/// ~44% fewer pixels than the previous 2× factor, which also lets ~2× more tiles
+/// fit in the cost-bounded decoded-image cache.
+private let mediaThumbnailOversample: CGFloat = 1.5
+
 struct ConversationMessageRow: View, Equatable {
     let message: MessageItem
     /// Whether this row is the currently text-selectable bubble (drives `.textSelection`).
@@ -441,7 +449,7 @@ struct MessageVisualMediaTile: View {
             case .image:
                 DownsampledDataImage(
                     payload: download.payload,
-                    maxPixelSize: sideLength * max(1, displayScale) * 2
+                    maxPixelSize: sideLength * max(1, displayScale) * mediaThumbnailOversample
                 ) { image in
                     image
                         .resizable()
@@ -535,7 +543,7 @@ struct MessageMediaAttachmentView: View {
         case .image:
             DownsampledDataImage(
                 payload: download.payload,
-                maxPixelSize: 260 * max(1, displayScale) * 2
+                maxPixelSize: 260 * max(1, displayScale) * mediaThumbnailOversample
             ) { image in
                 image
                     .resizable()
