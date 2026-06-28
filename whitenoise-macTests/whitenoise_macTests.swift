@@ -11275,7 +11275,7 @@ private func performanceMessageItems(count: Int, groupIdHex: String = "perf-grou
                 .text(content: " and "),
                 .code(content: "trace_id"),
                 .text(content: "."),
-            ]),
+            ])
         ],
         truncated: false
     )
@@ -11312,9 +11312,11 @@ private func performanceMessageItems(count: Int, groupIdHex: String = "perf-grou
 private func richMarkdownDocumentForPerformance() -> MarkdownDocumentFfi {
     MarkdownDocumentFfi(
         blocks: [
-            .heading(level: 3, inlines: [
-                .text(content: "Release checklist"),
-            ]),
+            .heading(
+                level: 3,
+                inlines: [
+                    .text(content: "Release checklist")
+                ]),
             .paragraph(inlines: [
                 .text(content: "Review "),
                 .strong(children: [.text(content: "rendering")]),
@@ -11334,13 +11336,13 @@ private func richMarkdownDocumentForPerformance() -> MarkdownDocumentFfi {
                 items: [
                     MarkdownListItemFfi(
                         blocks: [
-                            .paragraph(inlines: [.text(content: "No jump when older history prepends")]),
+                            .paragraph(inlines: [.text(content: "No jump when older history prepends")])
                         ],
                         checked: nil
                     ),
                     MarkdownListItemFfi(
                         blocks: [
-                            .paragraph(inlines: [.text(content: "No full transcript diff for one update")]),
+                            .paragraph(inlines: [.text(content: "No full transcript diff for one update")])
                         ],
                         checked: true
                     ),

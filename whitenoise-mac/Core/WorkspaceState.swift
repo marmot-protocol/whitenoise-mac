@@ -1046,9 +1046,10 @@ final class WorkspaceState {
     func rebuildChatIndexes(forAccountId accountId: String) {
         let chats = chatsByAccount[accountId] ?? []
         chatLookupByAccount[accountId] = Dictionary(uniqueKeysWithValues: chats.map { ($0.id, $0) })
-        chatIndexByAccount[accountId] = Dictionary(uniqueKeysWithValues: chats.enumerated().map {
-            ($0.element.id, $0.offset)
-        })
+        chatIndexByAccount[accountId] = Dictionary(
+            uniqueKeysWithValues: chats.enumerated().map {
+                ($0.element.id, $0.offset)
+            })
         bumpChatListGeneration(forAccountId: accountId)
     }
 
