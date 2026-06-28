@@ -613,6 +613,17 @@ final class WorkspaceState {
     var notificationTask: Task<Void, Never>?
     var chatListTask: Task<Void, Never>?
     var chatListTaskAccountId: String?
+    /// Single-owner coalescing for full chat-list reloads (issue #210). `reloadChats()` is
+    /// reachable from independently-spawned tasks (account switch, notification taps, group
+    /// mutations), so two same-account calls should usually share the in-flight
+    /// subscription/snapshot work instead of duplicating FFI fan-out and racing listener teardown.
+    /// Post-mutation call sites can force a fresh snapshot to preserve immediate-refresh semantics.
+    /// Requests for a different account cancel the stale reload; the generation token prevents the
+    /// stale task from applying rows, starting a listener, or clearing the newer reload's spinner if
+    /// it resumes later.
+    var reloadChatsTask: Task<Void, Never>?
+    var reloadChatsTaskAccountId: String?
+    var reloadChatsGeneration: UInt64 = 0
     var chatListEnrichmentTask: Task<Void, Never>?
     /// Incremental, per-row chat-list enrichment task ownership (issue #40). Single-row updates
     /// (the chat-list subscription delta path) spawn one enrichment task per group; this tracker

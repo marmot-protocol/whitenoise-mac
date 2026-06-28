@@ -81,6 +81,7 @@ extension WorkspaceState {
     ) {
         cancelVoiceRecording()
         stopTimelineListener()
+        cancelChatListReload()
         stopChatListListener()
         clearEnteredLoginIdentity()
         activeAccountId = account.id
@@ -234,6 +235,7 @@ extension WorkspaceState {
         do {
             if wasActive {
                 stopTimelineListener()
+                cancelChatListReload()
                 stopChatListListener()
             }
             try await client.removeAccount(accountRef: account.accountRef)
@@ -295,6 +297,7 @@ extension WorkspaceState {
     /// drafts, settings snapshots). Shared by account removal and sign-out.
     func resetActiveAccountUIState() {
         stopTimelineListener()
+        cancelChatListReload()
         stopChatListListener()
         messagesByChat.removeAll()
         for store in messageTimelineStores.values {
@@ -325,6 +328,7 @@ extension WorkspaceState {
         do {
             if wasActive {
                 stopTimelineListener()
+                cancelChatListReload()
                 stopChatListListener()
             }
             _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
@@ -405,6 +409,7 @@ extension WorkspaceState {
 
         do {
             stopNotificationListener()
+            cancelChatListReload()
             stopChatListListener()
             stopTimelineListener()
 
