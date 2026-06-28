@@ -515,7 +515,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             let contents = try FileManager.default.contentsOfDirectory(
                 at: directory,
                 includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
+                options: []
             )
             guard contents.isEmpty else { return }
             try FileManager.default.removeItem(at: directory)
