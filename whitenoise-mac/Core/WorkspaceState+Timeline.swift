@@ -589,8 +589,8 @@ extension WorkspaceState {
     ) {
         // The window is already ordered, deduped, and capped by the runtime subscription,
         // so render it as-is. The per-chat id/lookup caches live on the store
-        // (`MessageTimelineStore.replace` rebuilds them), so this only maintains the
-        // non-UI `messagesByChat` backing alongside it.
+        // (`MessageTimelineStore.replace` rebuilds them); we only mark this chat as the one
+        // cached window.
         let nextPaging = paging ?? timelinePagingByChat[groupIdHex] ?? .empty
         let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
 
@@ -598,11 +598,7 @@ extension WorkspaceState {
             store.clear()
         }
 
-        if messagesByChat.count == 1, messagesByChat[groupIdHex] != nil {
-            messagesByChat[groupIdHex] = messages
-        } else {
-            messagesByChat = [groupIdHex: messages]
-        }
+        cachedMessageChatIds = [groupIdHex]
         messageTimelineStores = [groupIdHex: timelineStore]
         timelineStore.replace(with: messages)
         if timelinePagingByChat.count == 1, timelinePagingByChat[groupIdHex] != nil {
@@ -621,7 +617,7 @@ extension WorkspaceState {
         for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
             store.clear()
         }
-        messagesByChat = [groupIdHex: timelineStore.messages]
+        cachedMessageChatIds = [groupIdHex]
         messageTimelineStores = [groupIdHex: timelineStore]
         timelinePagingByChat = [groupIdHex: paging]
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
@@ -665,33 +661,29 @@ extension WorkspaceState {
             for store in messageTimelineStores.values {
                 store.clear()
             }
-            messagesByChat = [:]
+            cachedMessageChatIds = []
             messageTimelineStores = [:]
             timelinePagingByChat = [:]
             timelineInitialLoadGroupId = nil
             return
         }
 
-        if let messages = messagesByChat[groupIdHex] {
-            let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
+        // Keep only the surviving chat's store and drop the rest. Whether the survivor stays
+        // "cached" mirrors the old behaviour: it was cached iff its window had been recorded
+        // (now tracked by `cachedMessageChatIds`) rather than merely having an empty store.
+        let survivorWasCached = cachedMessageChatIds.contains(groupIdHex)
+        if let timelineStore = messageTimelineStores[groupIdHex] {
             for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
                 store.clear()
             }
-            messagesByChat = [groupIdHex: messages]
             messageTimelineStores = [groupIdHex: timelineStore]
-            timelineStore.replace(with: messages)
-        } else if let timelineStore = messageTimelineStores[groupIdHex] {
-            for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
-                store.clear()
-            }
-            messagesByChat = [:]
-            messageTimelineStores = [groupIdHex: timelineStore]
+            cachedMessageChatIds = survivorWasCached ? [groupIdHex] : []
         } else {
             for store in messageTimelineStores.values {
                 store.clear()
             }
-            messagesByChat = [:]
             messageTimelineStores = [:]
+            cachedMessageChatIds = []
         }
         if let paging = timelinePagingByChat[groupIdHex] {
             timelinePagingByChat = [groupIdHex: paging]
