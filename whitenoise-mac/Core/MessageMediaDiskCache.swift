@@ -214,7 +214,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     func store(_ download: MessageMediaDownload, for key: MessageMediaDiskCacheKey) async {
+        // #236: atomically reject the store if a wipe/purge is in flight — `beginStore()`
+        // returns nil under an active purge, so we never resurrect the cache root after the
+        // key has been (or is about to be) deleted. #230: also honor cooperative cancellation
+        // so a store whose owning WorkspaceState task is cancelled mid-flight (account purge)
+        // bails and cleans up its staging rather than committing late. `start.generation` is
+        // the snapshot taken under the lock by `beginStore()`.
         guard let start = beginStore() else { return }
+        guard !Task.isCancelled else { return }
 
         let root: URL
         let symmetricKey: SymmetricKey
@@ -224,6 +231,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         } catch {
             return
         }
+        guard !Task.isCancelled, currentGeneration() == start.generation else { return }
 
         let plaintext = download.payload.data
         let prepared = await Task.detached(priority: .utility) {
@@ -237,6 +245,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }.value
 
         guard let prepared else { return }
+        guard !Task.isCancelled else {
+            Self.discardPreparedEntry(prepared)
+            return
+        }
         commitPreparedEntry(prepared, startGeneration: start.generation)
     }
 
@@ -337,7 +349,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         defer { lock.unlock() }
 
         guard generation == startGeneration else {
-            try? FileManager.default.removeItem(at: prepared.stagingDirectory)
+            Self.discardPreparedEntry(prepared)
             return
         }
 
@@ -365,6 +377,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private struct PreparedEntry {
+        let root: URL
         let stagingDirectory: URL
         let finalDirectory: URL
     }
@@ -480,10 +493,34 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 to: stagingDirectory.appendingPathComponent(payloadFileName),
                 options: [.atomic, .completeFileProtection]
             )
-            return PreparedEntry(stagingDirectory: stagingDirectory, finalDirectory: finalDirectory)
+            return PreparedEntry(root: root, stagingDirectory: stagingDirectory, finalDirectory: finalDirectory)
         } catch {
-            try? FileManager.default.removeItem(at: stagingDirectory)
+            discardStagingDirectory(stagingDirectory, root: root)
             return nil
+        }
+    }
+
+    private static func discardPreparedEntry(_ prepared: PreparedEntry) {
+        discardStagingDirectory(prepared.stagingDirectory, root: prepared.root)
+    }
+
+    private static func discardStagingDirectory(_ stagingDirectory: URL, root: URL) {
+        try? FileManager.default.removeItem(at: stagingDirectory)
+        removeEmptyDirectory(stagingDirectory.deletingLastPathComponent())
+        removeEmptyDirectory(root)
+    }
+
+    private static func removeEmptyDirectory(_ directory: URL) {
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: []
+            )
+            guard contents.isEmpty else { return }
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            return
         }
     }
 
