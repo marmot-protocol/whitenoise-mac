@@ -2472,6 +2472,7 @@ struct whitenoise_macTests {
             ]
         )
         let attachment = try #require(message.mediaAttachments.first)
+        let stateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
         let cacheKey = MessageMediaDiskCacheKey(
             accountId: AccountItem(summary: account).id,
             groupIdHex: "group",
@@ -2494,6 +2495,9 @@ struct whitenoise_macTests {
         }
 
         #expect(state.mediaDiskStoreTasks.isEmpty)
+        if case .loaded = stateStore.state {
+            Issue.record("Late download should not update loaded state after deleteAllData()")
+        }
         #expect(await mediaDiskCache.cachedDownload(for: cacheKey) == nil)
         #expect(!fileManager.fileExists(atPath: root.path))
     }
