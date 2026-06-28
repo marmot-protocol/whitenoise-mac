@@ -7857,6 +7857,43 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func openingNostrProfileLinkShowsNewChatComposerAndResolvesRecipient() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let nprofile = "nprofile1alice"
+        let query = "nostr:\(nprofile)"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: query, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Link",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.newChatQuery = "stale draft"
+        state.newChatName = "Stale room"
+        _ = state.handleMessageLinkOpen(URL(string: query)!)
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == query
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.newChatQuery == query)
+        #expect(state.newChatName.isEmpty)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(state.resolvedNewChatRecipient?.title == "Alice Link")
+    }
+
+    @MainActor
     @Test func staleNewChatRecipientLookupDoesNotReplaceCurrentResult() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",

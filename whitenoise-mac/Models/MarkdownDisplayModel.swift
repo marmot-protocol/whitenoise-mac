@@ -194,14 +194,16 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 remainingDepth: remainingDepth - 1
             )
         case .link(let dest, _, let children):
-            return concat(children, intent: intent, link: URL(string: dest) ?? link, remainingDepth: remainingDepth - 1)
+            return concat(
+                children, intent: intent, link: MarkdownLinkPolicy.sanitizedURL(from: dest),
+                remainingDepth: remainingDepth - 1)
         case .image(_, let title, let alt):
             if !alt.isEmpty {
                 return concat(alt, intent: intent, link: link, remainingDepth: remainingDepth - 1)
             }
             return styled(title ?? "", intent: intent, link: link)
         case .autolink(let url, _):
-            return styled(url, intent: intent, link: URL(string: url) ?? link)
+            return styled(url, intent: intent, link: MarkdownLinkPolicy.sanitizedURL(from: url))
         case .math(let content):
             return styled(content, intent: intent.union(.code), link: link)
         case .nostrMention(let entity), .nostrUri(let entity):
@@ -257,7 +259,9 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         if !intent.isEmpty {
             attributed.inlinePresentationIntent = intent
         }
-        attributed.link = URL(string: "nostr:\(entity.bech32)")
+        if let link = MarkdownLinkPolicy.nostrURL(for: entity.bech32) {
+            attributed.link = link
+        }
         return attributed
     }
 

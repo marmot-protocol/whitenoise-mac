@@ -189,7 +189,7 @@ extension WorkspaceState {
     func looksLikeMemberRef(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercased = trimmed.lowercased()
-        if lowercased.hasPrefix("npub") || lowercased.hasPrefix("nostr:npub") {
+        if MarkdownLinkPolicy.isProfileReferenceInput(trimmed) {
             return true
         }
         if lowercased.hasPrefix("darkmatter://profile/") {
