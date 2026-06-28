@@ -429,7 +429,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     ) -> PreparedEntry? {
         guard hexSHA256(plaintext) == key.plaintextSha256 else { return nil }
 
-        let stagingDirectory = root
+        let stagingDirectory =
+            root
             .appendingPathComponent("staging", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let finalDirectory = entryDirectory(for: key, root: root)
@@ -480,18 +481,22 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         root: URL,
         symmetricKey: SymmetricKey
     ) {
-        guard let shardDirectories = try? FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
+        guard
+            let shardDirectories = try? FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
 
         for shardDirectory in shardDirectories where shardDirectory.lastPathComponent != "staging" {
-            guard let entryDirectories = try? FileManager.default.contentsOfDirectory(
-                at: shardDirectory,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+            guard
+                let entryDirectories = try? FileManager.default.contentsOfDirectory(
+                    at: shardDirectory,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )
+            else { continue }
 
             for entryDirectory in entryDirectories {
                 let cacheID = entryDirectory.lastPathComponent

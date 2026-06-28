@@ -43,7 +43,8 @@ struct AppLaunchConfiguration {
         }
 
         let prefix = "--ui-fixture="
-        return arguments
+        return
+            arguments
             .first { $0.hasPrefix(prefix) }
             .flatMap { String($0.dropFirst(prefix.count)).nilIfBlank }
     }

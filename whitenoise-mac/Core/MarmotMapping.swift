@@ -132,7 +132,8 @@ extension MessageItem {
             tags: record.tags,
             messageIdHex: record.messageIdHex
         )
-        let body = MessageItem.systemText(record.groupSystem)
+        let body =
+            MessageItem.systemText(record.groupSystem)
             ?? MessageItem.displayText(
                 kind: record.kind,
                 plaintext: record.plaintext,
@@ -232,7 +233,9 @@ extension MessageItem {
         invalidationStatus: String?,
         presentation: MessagePresentation
     ) -> MarkdownDocumentFfi? {
-        guard presentation.isChatBubble, !deleted, invalidationStatus == nil, !document.blocks.isEmpty else { return nil }
+        guard presentation.isChatBubble, !deleted, invalidationStatus == nil, !document.blocks.isEmpty else {
+            return nil
+        }
         // Fast path: an unstyled single-paragraph message renders identically to the plain
         // `Text(message.body)` fallback, which is dramatically cheaper for SwiftUI to size
         // than the Markdown block/inline view tree (VStack → ForEach → MarkdownBlockView →
