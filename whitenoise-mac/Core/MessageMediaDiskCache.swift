@@ -214,8 +214,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     func store(_ download: MessageMediaDownload, for key: MessageMediaDiskCacheKey) async {
-        await waitForActivePurge()
-        let startGeneration = currentGeneration()
+        guard let start = beginStore() else { return }
 
         let root: URL
         let symmetricKey: SymmetricKey
@@ -238,21 +237,22 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }.value
 
         guard let prepared else { return }
-        commitPreparedEntry(prepared, startGeneration: startGeneration)
+        commitPreparedEntry(prepared, startGeneration: start.generation)
     }
 
     func purgeAll(removeEncryptionKey: Bool = false) async {
         let root = try? directoryResolver()
+        let deleteKey = keyDeleter
         let task = beginPurge {
             if let root {
                 try? FileManager.default.removeItem(at: root)
             }
+            if removeEncryptionKey {
+                deleteKey()
+            }
         }
         await task.task.value
         finishPurge(task)
-        if removeEncryptionKey {
-            keyDeleter()
-        }
     }
 
     func purgeAccount(_ accountId: String) async {
@@ -301,6 +301,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return generation
+    }
+
+    private func beginStore() -> StoreHandle? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard purgeTask == nil else { return nil }
+        return StoreHandle(generation: generation)
     }
 
     private func beginPurge(_ work: @escaping @Sendable () -> Void) -> PurgeHandle {
@@ -360,6 +367,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private struct PreparedEntry {
         let stagingDirectory: URL
         let finalDirectory: URL
+    }
+
+    private struct StoreHandle {
+        let generation: Int
     }
 
     private struct PurgeHandle {
