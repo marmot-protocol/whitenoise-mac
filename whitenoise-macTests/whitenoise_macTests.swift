@@ -595,6 +595,115 @@ struct whitenoise_macTests {
         #expect(UserDefaults.standard.string(forKey: "whitenoise.mac.activeAccountId") == nil)
     }
 
+    @MainActor
+    @Test func deleteAllDataClearsAccountUnreadBadges() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        runtime.accountUnreadSummaryRows = [
+            AccountUnreadFfi(
+                accountIdHex: primary.accountIdHex,
+                unreadCount: 7,
+                unreadConversations: 1,
+                hasUnread: true
+            )
+        ]
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == 7)
+
+        await state.deleteAllData()
+
+        // The per-account unread cache must not survive a full local-data wipe. See #213.
+        #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == 0)
+    }
+
+    @MainActor
+    @Test func resetActiveAccountUIStateClearsAccountUnreadBadges() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        runtime.accountUnreadSummaryRows = [
+            AccountUnreadFfi(
+                accountIdHex: primary.accountIdHex,
+                unreadCount: 4,
+                unreadConversations: 1,
+                hasUnread: true
+            )
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == 4)
+
+        state.resetActiveAccountUIState()
+
+        // Sign-out and active-account removal share this reset path. See #213.
+        #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == 0)
+    }
+
+    @MainActor
+    @Test func removeNonActiveAccountClearsItsUnreadBadge() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.accountUnreadSummaryRows = [
+            AccountUnreadFfi(
+                accountIdHex: primary.accountIdHex,
+                unreadCount: 3,
+                unreadConversations: 1,
+                hasUnread: true
+            ),
+            AccountUnreadFfi(
+                accountIdHex: secondary.accountIdHex,
+                unreadCount: 5,
+                unreadConversations: 1,
+                hasUnread: true
+            ),
+        ]
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: secondary.accountIdHex) == 5)
+
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        await state.removeAccount(backupAccount)
+
+        // Removing a background identity must drop its unread badge without
+        // disturbing the surviving active account's count. See #213.
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(state.unreadCount(forAccountIdHex: secondary.accountIdHex) == 0)
+        #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == 3)
+    }
+
     @Test func deleteAllLocalDataWipesStorageWhenAccountCleanupFails() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

@@ -227,6 +227,7 @@ extension WorkspaceState {
         defer { isRemovingAccount = false }
 
         let removedAccountId = account.id
+        let removedAccountIdHex = account.accountIdHex
         let wasActive = activeAccountId == removedAccountId
         do {
             if wasActive {
@@ -238,6 +239,7 @@ extension WorkspaceState {
             await mediaDiskCache.purgeAccount(removedAccountId)
             accounts = try await accountItemsFromRuntime(client: client)
             removeChats(forAccountId: removedAccountId)
+            accountUnreadByIdHex[removedAccountIdHex] = nil
 
             // `activeAccountId` may have changed during the await above — e.g. the user
             // selected an account from settings while this removal was in flight. Decide
@@ -301,6 +303,7 @@ extension WorkspaceState {
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
         timelinePagingByChat.removeAll()
+        accountUnreadByIdHex.removeAll()
         profileDraft = ProfileDraft()
         keyPackages = []
         auditLogFiles = []
@@ -483,6 +486,7 @@ extension WorkspaceState {
         resetMediaDownloadStateStores()
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
+        accountUnreadByIdHex.removeAll()
         // "Delete All Local Data" must also evict decoded peer/group avatars held in the
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
