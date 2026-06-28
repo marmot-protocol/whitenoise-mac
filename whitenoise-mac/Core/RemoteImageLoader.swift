@@ -543,33 +543,14 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         // to sanitize. This is the network chokepoint for all remote image loads.
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
 
-        let key = Self.cacheKey(for: url, maxPixelSize: maxPixelSize)
-        if let cached = cachedImage(for: key) {
-            return LoadedImage(nsImage: cached)
-        }
-
-        let generation = currentCacheGeneration()
-        let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
-        let task = inFlight.task(for: taskKey) { [self] in
-            Task { [self] in
-                await loadRemoteImage(
-                    for: url,
-                    cacheKey: key,
-                    maxPixelSize: maxPixelSize,
-                    cacheGeneration: generation
-                )
-            }
-        }
-        let waiter = RemoteImageLoadWaiter { [inFlight] in
-            inFlight.releaseWaiter(for: taskKey)
-        }
-
-        return await withTaskCancellationHandler {
-            let loaded = await task.value
-            waiter.release()
-            return Task.isCancelled ? nil : loaded
-        } onCancel: {
-            waiter.release()
+        return await coalescedLoad(cacheKey: Self.cacheKey(for: url, maxPixelSize: maxPixelSize)) {
+            [self] cacheKey, generation in
+            await loadRemoteImage(
+                for: url,
+                cacheKey: cacheKey,
+                maxPixelSize: maxPixelSize,
+                cacheGeneration: generation
+            )
         }
     }
 
@@ -579,33 +560,14 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// `data`, so callers must provide a stable key that uniquely identifies the bytes (for
     /// example an immutable attachment id, or a content fingerprint when ids can be reused).
     func image(for data: Data, cacheKey rawCacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
-        let key = Self.cacheKey(forLocalImageID: rawCacheKey, maxPixelSize: maxPixelSize)
-        if let cached = cachedImage(for: key) {
-            return LoadedImage(nsImage: cached)
-        }
-
-        let generation = currentCacheGeneration()
-        let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
-        let task = inFlight.task(for: taskKey) { [self] in
-            Task { [self] in
-                await loadLocalImage(
-                    data: data,
-                    cacheKey: key,
-                    maxPixelSize: maxPixelSize,
-                    cacheGeneration: generation
-                )
-            }
-        }
-        let waiter = RemoteImageLoadWaiter { [inFlight] in
-            inFlight.releaseWaiter(for: taskKey)
-        }
-
-        return await withTaskCancellationHandler {
-            let loaded = await task.value
-            waiter.release()
-            return Task.isCancelled ? nil : loaded
-        } onCancel: {
-            waiter.release()
+        return await coalescedLoad(cacheKey: Self.cacheKey(forLocalImageID: rawCacheKey, maxPixelSize: maxPixelSize)) {
+            [self] cacheKey, generation in
+            await loadLocalImage(
+                data: data,
+                cacheKey: cacheKey,
+                maxPixelSize: maxPixelSize,
+                cacheGeneration: generation
+            )
         }
     }
 
@@ -613,7 +575,26 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// SwiftUI view values. The payload id is generated when the download completes, so a retry or
     /// replacement under the same attachment id cannot reuse a stale decoded image.
     func image(for payload: DownloadedMediaPayload, maxPixelSize: CGFloat) async -> LoadedImage? {
-        let key = Self.cacheKey(forLocalImageID: payload.id, maxPixelSize: maxPixelSize)
+        return await coalescedLoad(cacheKey: Self.cacheKey(forLocalImageID: payload.id, maxPixelSize: maxPixelSize)) {
+            [self] cacheKey, generation in
+            await loadLocalImage(
+                data: payload.data,
+                cacheKey: cacheKey,
+                maxPixelSize: maxPixelSize,
+                cacheGeneration: generation
+            )
+        }
+    }
+
+    /// Shared decode-coalescing front end for every `image(for:)` entry point: serve a cached
+    /// decode if present, otherwise join (or start) the single in-flight decode for `cacheKey`
+    /// and tear its waiter down on completion or cancellation. `load` performs the actual
+    /// decode for a cache miss, receiving the resolved cache key and the cache generation it
+    /// must still belong to.
+    private func coalescedLoad(
+        cacheKey key: String,
+        load: @escaping @Sendable (_ cacheKey: String, _ cacheGeneration: Int) async -> LoadedImage?
+    ) async -> LoadedImage? {
         if let cached = cachedImage(for: key) {
             return LoadedImage(nsImage: cached)
         }
@@ -622,12 +603,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
         let task = inFlight.task(for: taskKey) { [self] in
             Task { [self] in
-                await loadLocalImage(
-                    payload: payload,
-                    cacheKey: key,
-                    maxPixelSize: maxPixelSize,
-                    cacheGeneration: generation
-                )
+                await load(key, generation)
             }
         }
         let waiter = RemoteImageLoadWaiter { [inFlight] in
@@ -711,21 +687,6 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             return nil
         }
         return loaded
-    }
-
-    private func loadLocalImage(
-        payload: DownloadedMediaPayload,
-        cacheKey: String,
-        maxPixelSize: CGFloat,
-        cacheGeneration generation: Int
-    ) async -> LoadedImage? {
-        let data = payload.data
-        return await loadLocalImage(
-            data: data,
-            cacheKey: cacheKey,
-            maxPixelSize: maxPixelSize,
-            cacheGeneration: generation
-        )
     }
 
     private func cachedImage(for key: String) -> NSImage? {

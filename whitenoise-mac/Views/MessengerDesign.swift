@@ -199,39 +199,45 @@ struct MessagesComposerFieldBackground: View {
     }
 }
 
-struct MessagesWindowBackground: View {
+/// The shared "liquid glass" recipe used by every chrome surface: a blurred
+/// material under a scheme-aware tint. Each surface wraps this with its own
+/// background-extension / safe-area composition (the order differs between the
+/// `Messages*` and `Glass*` families), so only the duplicated inner fill lives
+/// here.
+struct GlassFill: View {
     @Environment(\.colorScheme) private var colorScheme
+    var material: Material = .regularMaterial
+    var darkOpacity: Double
+    var lightOpacity: Double
+    var lightTint: NSColor = .windowBackgroundColor
 
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(.regularMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
-                .opacity(colorScheme == .dark ? 0.52 : 0.2)
+                .fill(material)
+            Color(nsColor: colorScheme == .dark ? .black : lightTint)
+                .opacity(colorScheme == .dark ? darkOpacity : lightOpacity)
         }
-        .nativeBackgroundExtensionEffect()
-        .ignoresSafeArea()
+    }
+}
+
+struct MessagesWindowBackground: View {
+    var body: some View {
+        GlassFill(darkOpacity: 0.52, lightOpacity: 0.2)
+            .nativeBackgroundExtensionEffect()
+            .ignoresSafeArea()
     }
 }
 
 struct MessagesTranscriptBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.regularMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .textBackgroundColor)
-                .opacity(colorScheme == .dark ? 0.72 : 0.52)
-        }
-        .nativeBackgroundExtensionEffect()
-        .ignoresSafeArea()
+        GlassFill(darkOpacity: 0.72, lightOpacity: 0.52, lightTint: .textBackgroundColor)
+            .nativeBackgroundExtensionEffect()
+            .ignoresSafeArea()
     }
 }
 
 struct MessagesSidebarBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     enum Level {
         case rail
         case drawer
@@ -240,57 +246,38 @@ struct MessagesSidebarBackground: View {
     let level: Level
 
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.regularMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
-                .opacity(backgroundOpacity)
-        }
-        .nativeBackgroundExtensionEffect()
-        .ignoresSafeArea()
+        GlassFill(darkOpacity: darkOpacity, lightOpacity: lightOpacity)
+            .nativeBackgroundExtensionEffect()
+            .ignoresSafeArea()
     }
 
-    private var backgroundOpacity: Double {
-        if colorScheme == .dark {
-            switch level {
-            case .rail: 0.5
-            case .drawer: 0.44
-            }
-        } else {
-            switch level {
-            case .rail: 0.16
-            case .drawer: 0.1
-            }
+    private var darkOpacity: Double {
+        switch level {
+        case .rail: 0.5
+        case .drawer: 0.44
+        }
+    }
+
+    private var lightOpacity: Double {
+        switch level {
+        case .rail: 0.16
+        case .drawer: 0.1
         }
     }
 }
 
 struct MessagesHeaderBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
-                .opacity(colorScheme == .dark ? 0.34 : 0.18)
-        }
-        .nativeBackgroundExtensionEffect()
-        .ignoresSafeArea()
+        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.34, lightOpacity: 0.18)
+            .nativeBackgroundExtensionEffect()
+            .ignoresSafeArea()
     }
 }
 
 struct MessagesComposerBarBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
-                .opacity(colorScheme == .dark ? 0.42 : 0.2)
-        }
-        .nativeBackgroundExtensionEffect()
+        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.42, lightOpacity: 0.2)
+            .nativeBackgroundExtensionEffect()
     }
 }
 
@@ -319,71 +306,27 @@ struct GlassSeparator: View {
 }
 
 struct GlassPaneBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
     let opacity: Double
 
     var body: some View {
-        if #available(macOS 26.0, *) {
-            background
-                .backgroundExtensionEffect()
-        } else {
-            background
-        }
-    }
-
-    private var background: some View {
-        ZStack {
-            Rectangle()
-                .fill(.regularMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
-                .opacity(colorScheme == .dark ? opacity * 0.42 : opacity * 0.32)
-        }
-        .ignoresSafeArea()
+        GlassFill(darkOpacity: opacity * 0.42, lightOpacity: opacity * 0.32)
+            .ignoresSafeArea()
+            .nativeBackgroundExtensionEffect()
     }
 }
 
 struct GlassToolbarBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        if #available(macOS 26.0, *) {
-            background
-                .backgroundExtensionEffect()
-        } else {
-            background
-        }
-    }
-
-    private var background: some View {
-        ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
-                .opacity(colorScheme == .dark ? 0.24 : 0.34)
-        }
+        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.24, lightOpacity: 0.34)
+            .nativeBackgroundExtensionEffect()
     }
 }
 
 struct LiquidGlassBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        if #available(macOS 26.0, *) {
-            background
-                .backgroundExtensionEffect()
-        } else {
-            background
-        }
-    }
-
-    private var background: some View {
-        ZStack {
-            Rectangle()
-                .fill(.regularMaterial)
-            Color(nsColor: colorScheme == .dark ? .black : .windowBackgroundColor)
-                .opacity(colorScheme == .dark ? 0.18 : 0.28)
-        }
-        .ignoresSafeArea()
+        GlassFill(darkOpacity: 0.18, lightOpacity: 0.28)
+            .ignoresSafeArea()
+            .nativeBackgroundExtensionEffect()
     }
 }
 
