@@ -32,8 +32,8 @@
 		1F5D022F2FC5862F0016665B /* whitenoise-macTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B616D042FCF000000010001 /* Config/AppBuild.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/AppBuild.xcconfig; sourceTree = "<group>"; };
 		2B616D052FCF100000010001 /* PR.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = PR.xctestplan; sourceTree = "<group>"; };
-		2B616D1B2FD2000000010001 /* UIPerformance.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = UIPerformance.xctestplan; sourceTree = "<group>"; };
 		2B616D102FD2000000010001 /* whitenoise-macUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "whitenoise-macUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2B616D1B2FD2000000010001 /* UIPerformance.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = UIPerformance.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -437,7 +437,7 @@
 				CODE_SIGN_ENTITLEMENTS = "whitenoise-mac/whitenoise-mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DARKMATTER_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_DARKMATTER_MAC)";
 				DARKMATTER_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_DARKMATTER_MAC)";
 				DARKMATTER_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
@@ -458,7 +458,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 2026.6.21;
+				MARKETING_VERSION = 2026.6.28;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -488,7 +488,7 @@
 				CODE_SIGN_ENTITLEMENTS = "whitenoise-mac/whitenoise-mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DARKMATTER_AUDIT_LOG_BEARER_TOKEN = "$(AUDIT_LOG_TOKEN_DARKMATTER_MAC)";
 				DARKMATTER_OTLP_BEARER_TOKEN = "$(OTLP_TOKEN_DARKMATTER_MAC)";
 				DARKMATTER_OTLP_ENDPOINT = "https://otlp.ipf.dev/v1/metrics";
@@ -509,7 +509,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 2026.6.21;
+				MARKETING_VERSION = 2026.6.28;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
