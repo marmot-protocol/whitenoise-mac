@@ -1355,7 +1355,7 @@ struct whitenoise_macTests {
 
         #expect(accumulatedHeight > 3_000)
         print("PERF transcript_row_stack_layout_ms=\(formatMilliseconds(layoutMilliseconds)) rows=\(messages.count)")
-        #expect(layoutMilliseconds < 4_000)
+        #expect(layoutMilliseconds < 4_000 * performanceSlack)
     }
 
     @MainActor
@@ -1390,7 +1390,7 @@ struct whitenoise_macTests {
         print("PERF timeline_projection_apply_ms=\(formatMilliseconds(projectionMilliseconds)) updates=2000")
         #expect(store.messageIDs.count == 200)
         #expect(store.messages[199].body == "Edited projection body 1999")
-        #expect(projectionMilliseconds < 1_500)
+        #expect(projectionMilliseconds < 1_500 * performanceSlack)
     }
 
     @MainActor
@@ -2211,7 +2211,7 @@ struct whitenoise_macTests {
 
         print("PERF audio_metadata_cache_hit_ms=\(formatMilliseconds(hitMilliseconds)) hits=5000")
         #expect(analysisCount.value == 1)
-        #expect(hitMilliseconds < 60)
+        #expect(hitMilliseconds < 60 * performanceSlack)
     }
 
     @MainActor
@@ -5299,9 +5299,9 @@ struct whitenoise_macTests {
         print("PERF chat_filter_cached_ms=\(formatMilliseconds(cachedFilterMilliseconds)) hits=5000 chats=5000")
         print("PERF chat_indexed_upsert_ms=\(formatMilliseconds(indexedUpsertMilliseconds)) updates=1000 chats=5000")
 
-        #expect(selectedLookupMilliseconds < 60)
-        #expect(cachedFilterMilliseconds < 40)
-        #expect(indexedUpsertMilliseconds < 500)
+        #expect(selectedLookupMilliseconds < 60 * performanceSlack)
+        #expect(cachedFilterMilliseconds < 40 * performanceSlack)
+        #expect(indexedUpsertMilliseconds < 500 * performanceSlack)
         #expect(state.selectedChat?.id == "perf-chat-4999")
     }
 
@@ -11370,6 +11370,11 @@ private func richMarkdownDocumentForPerformance() -> MarkdownDocumentFfi {
         truncated: false
     )
 }
+
+/// Absolute wall-clock performance guards run with generous slack on CI, whose shared
+/// runners have high, unpredictable timing variance, while staying strict for local runs
+/// where the numbers are meaningful. GitHub Actions sets `CI`; opt into the relaxed bound there.
+private let performanceSlack: Double = ProcessInfo.processInfo.environment["CI"] != nil ? 4 : 1
 
 private func measuredMilliseconds(_ work: () -> Void) -> Double {
     let start = CFAbsoluteTimeGetCurrent()
