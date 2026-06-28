@@ -7219,6 +7219,62 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func createNewChatDoesNotGraftGroupOntoAccountSwitchedToMidCreate() async throws {
+        // Issue #229: `createNewChat()` suspends across `createGroup`/`reloadChats`. If the active
+        // account changes (e.g. a notification tap) while suspended, the group created under
+        // account A must not be inserted into / selected / loaded under account B's context. The
+        // post-await `activeAccountId == accountId` guard drops the stale UI mutations.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        state.showNewChat()
+        state.newChatQuery = "npub1alice"
+        state.newChatName = "Project Room"
+
+        // Arm the gate so the create suspends in-flight inside `createGroup`.
+        runtime.createGroupGateEnabled = true
+        async let pendingCreate: Void = state.createNewChat()
+        while !runtime.didReachCreateGroupGate {
+            await Task.yield()
+        }
+
+        // Switch to account B while the create is suspended. Drop the runtime's shared group
+        // fixture so B's own `reloadChats()` does not legitimately surface the created group —
+        // isolating the assertion to the cross-account contamination path under test.
+        runtime.installGroups([])
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+
+        // Release the stale create. Its post-await mutations must be dropped under B's context.
+        runtime.releaseCreateGroupGate()
+        _ = await pendingCreate
+
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(state.selection != .chat("created-group"))
+        #expect(!state.activeChats.contains { $0.id == "created-group" })
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func resolvingNewChatRecipientUsesProfilePicture() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -9016,6 +9072,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var accountKeyPackagesGateEnabled = false
     private(set) var didReachAccountKeyPackagesGate = false
     private var accountKeyPackagesGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #229 stale-account-test support: when armed, the first `createGroup` FFI call suspends
+    /// until `releaseCreateGroupGate()` is invoked, holding `createNewChat()` in-flight so a test can
+    /// switch the active account before the create resolves and assert the freshly created group is
+    /// not grafted onto / selected under the switched-to account.
+    var createGroupGateEnabled = false
+    private(set) var didReachCreateGroupGate = false
+    private var createGroupGateContinuation: CheckedContinuation<Void, Never>?
     /// Per-account key packages keyed by `accountRef`. Falls back to the default `keyPackages`
     /// fixture when an account has no explicit install, so existing single-account tests are
     /// unaffected.
@@ -9476,7 +9539,21 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             groupDetailsById[group.groupIdHex] = details
             groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
         }
+        await passCreateGroupGateIfArmed()
         return "created-group"
+    }
+
+    private func passCreateGroupGateIfArmed() async {
+        guard createGroupGateEnabled, createGroupGateContinuation == nil, !didReachCreateGroupGate else { return }
+        didReachCreateGroupGate = true
+        await withCheckedContinuation { continuation in
+            createGroupGateContinuation = continuation
+        }
+    }
+
+    func releaseCreateGroupGate() {
+        createGroupGateContinuation?.resume()
+        createGroupGateContinuation = nil
     }
 
     func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi {
