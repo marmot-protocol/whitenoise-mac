@@ -4,6 +4,7 @@ import AppKit
 import CoreImage
 import ImageIO
 import MarmotKit
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -284,6 +285,10 @@ private struct ConversationView: View {
     /// backed by a selection NSView — avoiding the mass-platform-view layout hang that
     /// blanket `.textSelection(.enabled)` caused (whitenoise-mac#205).
     @State private var activeSelectionMessageID: String?
+    /// True while the ScrollView is in any non-idle phase. Drives `.allowsHitTesting` on the
+    /// transcript so per-frame hover/hit-test/tracking work is skipped during a fling and
+    /// restored the moment scrolling settles.
+    @State private var isActivelyScrolling = false
     let chat: ChatItem
     private let bottomTranscriptPadding: CGFloat = 34
 
@@ -300,7 +305,15 @@ private struct ConversationView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    // A NON-lazy `VStack`: the timeline window is capped (`timelineWindowLimit`
+                    // = 200), so eagerly realizing every row measures each exactly once and lets
+                    // scrolling be pure translation. `LazyVStack` instead re-estimated row sizes
+                    // continuously to resolve `.defaultScrollAnchor(.bottom)` — ~80 `sizeThatFits`
+                    // calls per row — which pinned the main thread for seconds while scrolling a
+                    // small group (the #205 scroll-layout storm). Measure-once removes that whole
+                    // class of hang; if a large window's eager build ever costs too much, the fix
+                    // is cheaper rows, not a return to lazy estimation.
+                    VStack(spacing: 12) {
                         if messageIDs.isEmpty {
                             if isLoadingInitialPage {
                                 TimelineInitialLoadingView()
@@ -345,10 +358,19 @@ private struct ConversationView: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 18)
                     .padding(.bottom, 8)
+                    // While actively scrolling, make the transcript content transparent to
+                    // hit-testing so SwiftUI skips per-frame hover/responder/tracking-area work
+                    // for the moving rows (Instruments: HoverEventDispatcher /
+                    // updateTrackingAreasWithInvalidCursorRects / containsGlobalPoints). The
+                    // ScrollView still scrolls; full interactivity returns once it settles.
+                    .allowsHitTesting(!isActivelyScrolling)
                 }
                 .accessibilityIdentifier("conversation.transcript")
                 .id(chat.id)
                 .defaultScrollAnchor(.bottom)
+                .onScrollPhaseChange { _, phase in
+                    isActivelyScrolling = phase != .idle
+                }
                 .onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
                     TimelineScrollMetrics(geometry: geometry, bottomPadding: bottomTranscriptPadding)
                 } action: { _, metrics in
@@ -384,7 +406,9 @@ private struct ConversationView: View {
                                 pendingAppendAnchorId == anchorId,
                                 workspace.selectedTimelineContainsMessage(anchorId)
                             else { return }
-                            proxy.scrollTo(anchorId, anchor: .bottom)
+                            TimelineSignpost.scroll.interval("restoreAppendAnchor") {
+                                proxy.scrollTo(anchorId, anchor: .bottom)
+                            }
                             pendingAppendAnchorId = nil
                         }
                         return
@@ -412,7 +436,9 @@ private struct ConversationView: View {
                             pendingPrependAnchorId == anchorId,
                             workspace.selectedTimelineContainsMessage(anchorId)
                         else { return }
-                        proxy.scrollTo(anchorId, anchor: .top)
+                        TimelineSignpost.scroll.interval("restorePrependAnchor") {
+                            proxy.scrollTo(anchorId, anchor: .top)
+                        }
                         pendingPrependAnchorId = nil
                     }
                 }
@@ -564,6 +590,9 @@ private struct ConversationView: View {
             let anchorId = workspace.selectedMessageIDs.first
         else { return }
         pendingPrependAnchorId = anchorId
+        // Marks the instant the user crossed the top threshold and older-history paging
+        // began — the head of the scroll-back cycle that ends at `restorePrependAnchor`.
+        TimelineSignpost.scroll.emitEvent("loadOlderTriggered")
         Task {
             await workspace.loadOlderMessages(groupIdHex: chat.id)
             // Fallback clear when no restoration occurs (e.g. already at the oldest message,
@@ -583,6 +612,7 @@ private struct ConversationView: View {
             let anchorId = workspace.selectedMessageIDs.last
         else { return }
         pendingAppendAnchorId = anchorId
+        TimelineSignpost.scroll.emitEvent("loadNewerTriggered")
         Task {
             await workspace.loadNewerMessages(groupIdHex: chat.id)
             if pendingAppendAnchorId == anchorId, workspace.selectedMessageIDs.last == anchorId {
@@ -602,7 +632,9 @@ private struct ConversationView: View {
             // AnimatableAttributeHelper / ScrollViewAdjustedState.adjustOffsetIfNeeded /
             // motionVectors). A plain jump positions in one pass; subsequent growth is
             // handled instantly by `.defaultScrollAnchor(.bottom)`. See whitenoise-mac#205.
-            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+            TimelineSignpost.scroll.interval("scrollToBottom") {
+                proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+            }
         }
     }
 }

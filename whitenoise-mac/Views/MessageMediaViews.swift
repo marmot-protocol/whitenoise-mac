@@ -110,83 +110,84 @@ struct MessageBubble: View {
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if message.isOutgoing { Spacer(minLength: 72) }
-
-            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 6) {
-                if !message.isOutgoing {
-                    Text(message.senderName)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
-                }
-
-                if !message.visualMediaAttachments.isEmpty {
-                    MessageVisualMediaGrid(
-                        message: message,
-                        attachments: message.visualMediaAttachments,
-                        isOutgoing: message.isOutgoing,
-                        onOpenImageGallery: onOpenImageGallery
-                    )
-                }
-
-                ForEach(message.nonvisualMediaAttachments) { attachment in
-                    MessageMediaAttachmentView(
-                        downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
-                        message: message,
-                        attachment: attachment,
-                        isOutgoing: message.isOutgoing
-                    )
-                }
-
-                if showsDebugMetadata || message.hasBubbleContent {
-                    bubbleContent
-                }
-
-                Text(message.metadataLabel)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 5)
-
-                if message.supportsChatActions && !message.reactions.isEmpty {
-                    HStack(spacing: 5) {
-                        ForEach(message.reactions) { reaction in
-                            Button {
-                                Task {
-                                    if reaction.canRemoveOwnReaction {
-                                        await workspace.removeReaction(reaction, from: message)
-                                    } else {
-                                        await workspace.react(to: message, emoji: reaction.emoji)
-                                    }
-                                }
-                            } label: {
-                                Text(reaction.label)
-                                    .font(.caption.weight(.semibold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background {
-                                        GlassCapsuleBackground(
-                                            borderColor: reaction.canRemoveOwnReaction
-                                                ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
-                                        )
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .contentShape(Capsule())
-                            .help(
-                                reaction.canRemoveOwnReaction
-                                    ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                }
-            }
-            .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
-
+        // Alignment is done with a fill-frame + opposite-side padding rather than the old
+        // `HStack { Spacer(minLength: 72); … }`. Two flexible `Spacer`s plus the nested
+        // `maxWidth` frames formed an underdetermined flexible-width system that SwiftUI
+        // re-solved on every `sizeThatFits` — and the transcript's lazy stack issues dozens
+        // of those per row while resolving the bottom scroll anchor. Frame-alignment is a
+        // single deterministic pass with the same result: bubble pinned to its side, ≥72pt
+        // gutter opposite. See whitenoise-mac#205 (scroll-layout hangs).
+        VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 6) {
             if !message.isOutgoing {
-                Spacer(minLength: 72)
+                Text(message.senderName)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+
+            if !message.visualMediaAttachments.isEmpty {
+                MessageVisualMediaGrid(
+                    message: message,
+                    attachments: message.visualMediaAttachments,
+                    isOutgoing: message.isOutgoing,
+                    onOpenImageGallery: onOpenImageGallery
+                )
+            }
+
+            ForEach(message.nonvisualMediaAttachments) { attachment in
+                MessageMediaAttachmentView(
+                    downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
+                    message: message,
+                    attachment: attachment,
+                    isOutgoing: message.isOutgoing
+                )
+            }
+
+            if showsDebugMetadata || message.hasBubbleContent {
+                bubbleContent
+            }
+
+            Text(message.metadataLabel)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 5)
+
+            if message.supportsChatActions && !message.reactions.isEmpty {
+                HStack(spacing: 5) {
+                    ForEach(message.reactions) { reaction in
+                        Button {
+                            Task {
+                                if reaction.canRemoveOwnReaction {
+                                    await workspace.removeReaction(reaction, from: message)
+                                } else {
+                                    await workspace.react(to: message, emoji: reaction.emoji)
+                                }
+                            }
+                        } label: {
+                            Text(reaction.label)
+                                .font(.caption.weight(.semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background {
+                                    GlassCapsuleBackground(
+                                        borderColor: reaction.canRemoveOwnReaction
+                                            ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
+                                    )
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Capsule())
+                        .help(
+                            reaction.canRemoveOwnReaction
+                                ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
+                    }
+                }
+                .padding(.horizontal, 4)
             }
         }
+        .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
+        .padding(message.isOutgoing ? .leading : .trailing, 72)
         .contentShape(Rectangle())
         .contextMenu {
             if message.canCopyText || message.canDelete {
