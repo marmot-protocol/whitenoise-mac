@@ -2896,6 +2896,11 @@ struct whitenoise_macTests {
         runtime.installChatListUpdates([
             .row(trigger: .newLastMessage, row: streamingChatRow)
         ])
+        // Deliver the queued projection on a delay so the pre-projection assertions below run
+        // deterministically against the initial window. Without this the listener can apply the
+        // projection (`-m1, +stream`) before the synchronous `["m1", "m2"]` check, flaking the
+        // test on faster/loaded CI runners.
+        runtime.timelineUpdateDelayNanoseconds = 300_000_000
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
