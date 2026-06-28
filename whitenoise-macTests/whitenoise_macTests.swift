@@ -73,6 +73,39 @@ private final class BlockingFfiGate: @unchecked Sendable {
     }
 }
 
+private final class OneShotKeyProviderGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private let reached = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+    private let keyData: Data
+    private var shouldBlock = true
+
+    init(keyData: Data = Data(repeating: 0x42, count: 32)) {
+        self.keyData = keyData
+    }
+
+    func symmetricKey() throws -> SymmetricKey {
+        let shouldWait = lock.withLock {
+            let value = shouldBlock
+            shouldBlock = false
+            return value
+        }
+        if shouldWait {
+            reached.signal()
+            release.wait()
+        }
+        return SymmetricKey(data: keyData)
+    }
+
+    func waitUntilReached() {
+        reached.wait()
+    }
+
+    func releaseGate() {
+        release.signal()
+    }
+}
+
 private final class ObservationInvalidationFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var invalidated = false
@@ -2370,6 +2403,135 @@ struct whitenoise_macTests {
         #expect(loaded.payload.id == cacheKey.payloadID)
         #expect(runtime.listMediaCallCount == 0)
         #expect(runtime.downloadMediaCallCount == 0)
+    }
+
+    @MainActor
+    @Test func mediaDownloadFinishingAfterDeleteAllDataDoesNotRecreateDiskCache() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let plaintext = Data([0xde, 0xad, 0xbe, 0xef])
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "late.png",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let download = MediaDownloadResultFfi(
+            plaintext: plaintext,
+            fileName: "late.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count)
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "late-media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: reference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: download
+        )
+        let mediaDiskCache = messageMediaDiskCache(root: root)
+        let state = WorkspaceState(
+            mediaDiskCache: mediaDiskCache,
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        let message = MessageItem(
+            id: "late-media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "late-media-message#0#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+        let cacheKey = MessageMediaDiskCacheKey(
+            accountId: AccountItem(summary: account).id,
+            groupIdHex: "group",
+            reference: reference
+        )
+
+        runtime.mediaDownloadGateEnabled = true
+        async let load: Void = state.loadMediaAttachment(attachment, for: message)
+        while !runtime.didReachMediaDownloadGate {
+            await Task.yield()
+        }
+
+        await state.deleteAllData()
+        #expect(!fileManager.fileExists(atPath: root.path))
+
+        runtime.releaseMediaDownloadGate()
+        await load
+        for _ in 0..<20 where !state.mediaDiskStoreTasks.isEmpty {
+            await Task.yield()
+        }
+
+        #expect(state.mediaDiskStoreTasks.isEmpty)
+        #expect(await mediaDiskCache.cachedDownload(for: cacheKey) == nil)
+        #expect(!fileManager.fileExists(atPath: root.path))
+    }
+
+    @Test func messageMediaDiskCacheCancelledStoreDoesNotCommitAfterKeyProviderReturns() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyProviderGate = OneShotKeyProviderGate()
+        let cache = MessageMediaDiskCache(
+            directoryResolver: { root },
+            keyProvider: keyProviderGate.symmetricKey,
+            keyDeleter: {}
+        )
+        let plaintext = Data("late store should not commit".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "late.bin",
+            mediaType: "application/octet-stream",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "late-store"
+        )
+
+        let storeTask = Task {
+            await cache.store(download, for: key)
+        }
+        await Task.detached {
+            keyProviderGate.waitUntilReached()
+        }.value
+        storeTask.cancel()
+        keyProviderGate.releaseGate()
+        await storeTask.value
+
+        #expect(await cache.cachedDownload(for: key) == nil)
     }
 
     @Test func messageAudioMetadataCacheCoalescesAndCachesPayloadAnalysis() async throws {
@@ -9628,6 +9790,11 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var messageActionGateEnabled = false
     private(set) var didReachMessageActionGate = false
     private var messageActionGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #230 media-cache teardown-test support: when armed, the first `downloadMedia`
+    /// call suspends after capturing the download bytes so a purge can complete before it returns.
+    var mediaDownloadGateEnabled = false
+    private(set) var didReachMediaDownloadGate = false
+    private var mediaDownloadGateContinuation: CheckedContinuation<Void, Never>?
     /// Issue #134 reentrancy-test support: when armed, the first group-avatar update FFI call
     /// suspends until `releaseGroupAvatarUpdateGate()` is invoked, holding the first invocation
     /// in-flight so a test can issue an overlapping clear/set action and assert the guard dropped it.
@@ -10590,6 +10757,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         guard let download = mediaDownloadsByPlaintextSha256[reference.plaintextSha256] else {
             throw FakeMarmotRuntimeError.unused
         }
+        await passMediaDownloadGateIfArmed()
         return download
     }
 
@@ -10667,6 +10835,22 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func releaseMessageActionGate() {
         messageActionGateContinuation?.resume()
         messageActionGateContinuation = nil
+    }
+
+    /// Suspends the first media download FFI call when the gate is armed, after the fake runtime
+    /// has captured the bytes it will return. This models a network download completing after a
+    /// user-initiated purge has already removed the account/cache.
+    private func passMediaDownloadGateIfArmed() async {
+        guard mediaDownloadGateEnabled, mediaDownloadGateContinuation == nil, !didReachMediaDownloadGate else { return }
+        didReachMediaDownloadGate = true
+        await withCheckedContinuation { continuation in
+            mediaDownloadGateContinuation = continuation
+        }
+    }
+
+    func releaseMediaDownloadGate() {
+        mediaDownloadGateContinuation?.resume()
+        mediaDownloadGateContinuation = nil
     }
 
     // MARK: - darkmatter 745959e FFI additions

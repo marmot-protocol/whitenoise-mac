@@ -214,7 +214,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     func store(_ download: MessageMediaDownload, for key: MessageMediaDiskCacheKey) async {
+        // #236: atomically reject the store if a wipe/purge is in flight — `beginStore()`
+        // returns nil under an active purge, so we never resurrect the cache root after the
+        // key has been (or is about to be) deleted. #230: also honor cooperative cancellation
+        // so a store whose owning WorkspaceState task is cancelled mid-flight (account purge)
+        // bails and cleans up its staging rather than committing late. `start.generation` is
+        // the snapshot taken under the lock by `beginStore()`.
         guard let start = beginStore() else { return }
+        guard !Task.isCancelled else { return }
 
         let root: URL
         let symmetricKey: SymmetricKey
@@ -224,6 +231,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         } catch {
             return
         }
+        guard !Task.isCancelled, currentGeneration() == start.generation else { return }
 
         let plaintext = download.payload.data
         let prepared = await Task.detached(priority: .utility) {
@@ -237,6 +245,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }.value
 
         guard let prepared else { return }
+        guard !Task.isCancelled else {
+            try? FileManager.default.removeItem(at: prepared.stagingDirectory)
+            return
+        }
         commitPreparedEntry(prepared, startGeneration: start.generation)
     }
 

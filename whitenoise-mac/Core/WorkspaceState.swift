@@ -415,6 +415,11 @@ final class WorkspaceState {
     @ObservationIgnored var messageTimelineStores: [String: MessageTimelineStore] = [:]
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
+    @ObservationIgnored var mediaDiskStoreTasks: [String: MediaDiskStoreTask] = [:]
+    @ObservationIgnored var mediaDiskStoreSuppressedAccountIds = Set<String>()
+    @ObservationIgnored var mediaDiskStoreAccountGenerations: [String: UInt64] = [:]
+    @ObservationIgnored var mediaDiskStoreGlobalGeneration: UInt64 = 0
+    @ObservationIgnored var nextMediaDiskStoreTaskToken: UInt64 = 0
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.
@@ -822,6 +827,17 @@ final class WorkspaceState {
     struct GroupMemberDetailsLookup {
         var token: UInt64
         var task: Task<[GroupMemberDetailsFfi]?, Never>
+    }
+
+    struct MediaDiskStoreGuard: Equatable {
+        var globalGeneration: UInt64
+        var accountGeneration: UInt64
+    }
+
+    struct MediaDiskStoreTask {
+        var accountId: String
+        var token: UInt64
+        var task: Task<Void, Never>
     }
 
     /// Raw output of the per-account bootstrap/settings FFI lookups.
