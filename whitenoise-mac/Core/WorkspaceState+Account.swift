@@ -229,6 +229,8 @@ extension WorkspaceState {
         let removedAccountId = account.id
         let removedAccountIdHex = account.accountIdHex
         let wasActive = activeAccountId == removedAccountId
+        suppressMediaDiskStores(forAccountId: removedAccountId)
+        defer { resumeMediaDiskStores(forAccountId: removedAccountId) }
         do {
             if wasActive {
                 stopTimelineListener()
@@ -397,6 +399,8 @@ extension WorkspaceState {
 
         isDeletingAllData = true
         lastError = nil
+        suppressAllMediaDiskStores()
+        defer { resumeAllMediaDiskStores() }
         defer { isDeletingAllData = false }
 
         do {

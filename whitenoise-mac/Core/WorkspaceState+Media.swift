@@ -43,6 +43,100 @@ extension WorkspaceState {
         }
     }
 
+    func mediaDiskStoreGuard(forAccountId accountId: String) -> MediaDiskStoreGuard {
+        MediaDiskStoreGuard(
+            globalGeneration: mediaDiskStoreGlobalGeneration,
+            accountGeneration: mediaDiskStoreAccountGenerations[accountId, default: 0]
+        )
+    }
+
+    func isMediaDiskStoreAllowed(
+        forAccountId accountId: String,
+        storeGuard: MediaDiskStoreGuard
+    ) -> Bool {
+        storeGuard.globalGeneration == mediaDiskStoreGlobalGeneration
+            && storeGuard.accountGeneration == mediaDiskStoreAccountGenerations[accountId, default: 0]
+            && !isMediaDiskStoreGloballySuppressed
+            && !mediaDiskStoreSuppressedAccountIds.contains(accountId)
+            && activeAccountId == accountId
+            && accounts.contains(where: { $0.id == accountId })
+    }
+
+    func suppressMediaDiskStores(forAccountId accountId: String) {
+        mediaDiskStoreAccountGenerations[accountId, default: 0] &+= 1
+        mediaDiskStoreSuppressedAccountIds.insert(accountId)
+        cancelMediaDiskStoreTasks(forAccountId: accountId)
+    }
+
+    func resumeMediaDiskStores(forAccountId accountId: String) {
+        mediaDiskStoreSuppressedAccountIds.remove(accountId)
+        mediaDiskStoreAccountGenerations[accountId, default: 0] &+= 1
+    }
+
+    func suppressAllMediaDiskStores() {
+        mediaDiskStoreGlobalGeneration &+= 1
+        isMediaDiskStoreGloballySuppressed = true
+        cancelAllMediaDiskStoreTasks()
+    }
+
+    func resumeAllMediaDiskStores() {
+        isMediaDiskStoreGloballySuppressed = false
+        mediaDiskStoreGlobalGeneration &+= 1
+    }
+
+    func cancelMediaDiskStoreTasks(forAccountId accountId: String) {
+        let cacheIDs = mediaDiskStoreTasks.compactMap { cacheID, tracked in
+            tracked.accountId == accountId ? cacheID : nil
+        }
+        for cacheID in cacheIDs {
+            mediaDiskStoreTasks[cacheID]?.task.cancel()
+            mediaDiskStoreTasks[cacheID] = nil
+        }
+    }
+
+    func cancelAllMediaDiskStoreTasks() {
+        for tracked in mediaDiskStoreTasks.values {
+            tracked.task.cancel()
+        }
+        mediaDiskStoreTasks.removeAll()
+    }
+
+    func scheduleMediaDiskCacheStore(
+        _ download: MessageMediaDownload,
+        for cacheKey: MessageMediaDiskCacheKey,
+        accountId: String,
+        storeGuard: MediaDiskStoreGuard
+    ) {
+        guard isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) else { return }
+
+        let cacheID = cacheKey.cacheID
+        mediaDiskStoreTasks[cacheID]?.task.cancel()
+        nextMediaDiskStoreTaskToken &+= 1
+        let token = nextMediaDiskStoreTaskToken
+        let mediaDiskCache = mediaDiskCache
+        let task = Task { [weak self, mediaDiskCache, download, cacheKey, accountId, storeGuard, cacheID, token] in
+            guard !Task.isCancelled,
+                await self?.isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) == true
+            else {
+                await self?.finishMediaDiskCacheStore(cacheID: cacheID, token: token)
+                return
+            }
+
+            await mediaDiskCache.store(download, for: cacheKey)
+            await self?.finishMediaDiskCacheStore(cacheID: cacheID, token: token)
+        }
+        mediaDiskStoreTasks[cacheID] = MediaDiskStoreTask(
+            accountId: accountId,
+            token: token,
+            task: task
+        )
+    }
+
+    func finishMediaDiskCacheStore(cacheID: String, token: UInt64) {
+        guard mediaDiskStoreTasks[cacheID]?.token == token else { return }
+        mediaDiskStoreTasks[cacheID] = nil
+    }
+
     func mediaDownloadState(for message: MessageItem, attachment: MessageMediaAttachment) -> MediaDownloadState {
         mediaDownloadStateStore(for: message, attachment: attachment).state
     }
@@ -72,6 +166,7 @@ extension WorkspaceState {
         let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
         let groupIdHex = message.groupIdHex
+        let storeGuard = mediaDiskStoreGuard(forAccountId: accountId)
         stateStore.update(.loading)
         let cacheKey = MessageMediaDiskCacheKey(
             accountId: accountId,
@@ -80,7 +175,7 @@ extension WorkspaceState {
         )
 
         if let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) {
-            guard activeAccountId == accountId else { return }
+            guard isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) else { return }
             stateStore.update(.loaded(cachedDownload))
             return
         }
@@ -97,7 +192,7 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 reference: reference
             )
-            guard activeAccountId == accountId else { return }
+            guard isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) else { return }
             let mediaDownload = MessageMediaDownload(
                 payload: DownloadedMediaPayload(
                     id: "\(key)|\(UUID().uuidString)",
@@ -108,9 +203,12 @@ extension WorkspaceState {
                 sizeBytes: download.sizeBytes
             )
             stateStore.update(.loaded(mediaDownload))
-            Task {
-                await mediaDiskCache.store(mediaDownload, for: cacheKey)
-            }
+            scheduleMediaDiskCacheStore(
+                mediaDownload,
+                for: cacheKey,
+                accountId: accountId,
+                storeGuard: storeGuard
+            )
         } catch {
             guard activeAccountId == accountId else { return }
             stateStore.update(.failed(error.localizedDescription))
