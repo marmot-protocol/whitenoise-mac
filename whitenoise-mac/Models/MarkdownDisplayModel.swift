@@ -2,7 +2,12 @@ import Foundation
 import MarmotKit
 import SwiftUI
 
-struct MarkdownDisplayDocument {
+// Pure FFI → display-model transformation (built off-main while mapping a timeline window,
+// read on the main actor by the views). Marked `nonisolated` so it does not inherit the
+// module's default main-actor isolation — otherwise constructing it from `MessageItem.init`
+// (nonisolated) warns about calling a main-actor initializer from a nonisolated context.
+
+nonisolated struct MarkdownDisplayDocument {
     let blocks: [MarkdownDisplayBlockNode]
     let truncated: Bool
 
@@ -18,12 +23,12 @@ struct MarkdownDisplayDocument {
     }
 }
 
-struct MarkdownDisplayBlockNode: Identifiable {
+nonisolated struct MarkdownDisplayBlockNode: Identifiable {
     let id: Int
     let block: MarkdownDisplayBlock
 }
 
-enum MarkdownDisplayBlock {
+nonisolated enum MarkdownDisplayBlock {
     case paragraph(AttributedString)
     case heading(level: UInt8, text: AttributedString)
     case thematicBreak
@@ -102,28 +107,28 @@ enum MarkdownDisplayBlock {
     }
 }
 
-struct MarkdownDisplayListItem: Identifiable {
+nonisolated struct MarkdownDisplayListItem: Identifiable {
     let id: Int
     let marker: MarkdownDisplayListMarker
     let blocks: [MarkdownDisplayBlockNode]
 }
 
-enum MarkdownDisplayListMarker {
+nonisolated enum MarkdownDisplayListMarker {
     case checkbox(Bool)
     case text(String)
 }
 
-struct MarkdownDisplayTableCell: Identifiable {
+nonisolated struct MarkdownDisplayTableCell: Identifiable {
     let id: Int
     let text: AttributedString
 }
 
-struct MarkdownDisplayTableRow: Identifiable {
+nonisolated struct MarkdownDisplayTableRow: Identifiable {
     let id: Int
     let cells: [MarkdownDisplayTableCell]
 }
 
-enum MarkdownDisplayInlineBuilder {
+nonisolated enum MarkdownDisplayInlineBuilder {
     static func attributedString(from inlines: [MarkdownInlineFfi]) -> AttributedString {
         var result = AttributedString()
         for inline in inlines {

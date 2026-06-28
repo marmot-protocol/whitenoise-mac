@@ -23,7 +23,11 @@ import OSLog
 /// Namespaced `OSSignposter`s, one per timeline subsystem stage. A single subsystem
 /// with distinct categories keeps everything under one filter in Instruments while
 /// still rendering each stage as its own lane.
-enum TimelineSignpost {
+///
+/// `nonisolated` because `OSSignposter` is `Sendable` and these are called from both the
+/// `@MainActor` timeline paths and off-main work (`RemoteImageLoader.downsample`, which runs
+/// on a detached utility task).
+nonisolated enum TimelineSignpost {
     static let subsystem = "com.whitenoise.timeline"
 
     /// Backwards/forwards history paging FFI calls.
@@ -42,7 +46,7 @@ enum TimelineSignpost {
     static let scroll = OSSignposter(subsystem: subsystem, category: "Scroll")
 }
 
-extension OSSignposter {
+nonisolated extension OSSignposter {
     /// Brackets a straight-line synchronous operation as a signpost interval.
     ///
     /// NB: pass only code with no early `return`/`break`/`continue` — those would exit
