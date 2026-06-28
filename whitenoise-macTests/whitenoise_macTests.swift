@@ -3175,7 +3175,7 @@ struct whitenoise_macTests {
             isOutgoing: false
         )
         let backgroundTimelineStore = state.ensureMessageTimelineStore(for: backgroundChat.id)
-        state.messagesByChat[backgroundChat.id] = [backgroundUpdatedMessage]
+        state.cachedMessageChatIds.insert(backgroundChat.id)
         backgroundTimelineStore.replace(with: [backgroundUpdatedMessage])
 
         #expect(!backgroundInvalidated.value)

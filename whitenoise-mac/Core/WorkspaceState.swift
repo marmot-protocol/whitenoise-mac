@@ -409,11 +409,28 @@ final class WorkspaceState {
     @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
     @ObservationIgnored var chatListGenerationByAccount: [String: Int] = [:]
     @ObservationIgnored var filteredChatsCache: FilteredChatsCache?
-    /// Backing timeline cache for tests and non-UI lookups. Swift Observation tracks an
-    /// observed dictionary as one property, so UI reads must go through `messageTimelineStores`
-    /// to subscribe only to the selected chat's transcript (whitenoise-mac#176).
-    @ObservationIgnored var messagesByChat: [String: [MessageItem]]
+    /// Ids of the chats whose transcript window is currently cached in `messageTimelineStores`.
+    /// The message arrays themselves live only on the stores; tracking membership in a small set
+    /// (rather than a parallel `[String: [MessageItem]]`) avoids copying the open conversation's
+    /// window on every timeline delta while preserving the cached/not-cached distinction the
+    /// prune and reseed paths rely on.
+    @ObservationIgnored var cachedMessageChatIds: Set<String> = []
     @ObservationIgnored var messageTimelineStores: [String: MessageTimelineStore] = [:]
+
+    /// Backing timeline snapshot for tests and non-UI lookups, derived from the per-chat stores.
+    /// Swift Observation tracks an observed dictionary as one property, so UI reads must still go
+    /// through `messageTimelineStores` to subscribe only to the selected chat's transcript
+    /// (whitenoise-mac#176); this derivation reads only `@ObservationIgnored` storage.
+    var messagesByChat: [String: [MessageItem]] {
+        var result: [String: [MessageItem]] = [:]
+        result.reserveCapacity(cachedMessageChatIds.count)
+        for id in cachedMessageChatIds {
+            if let store = messageTimelineStores[id] {
+                result[id] = store.messages
+            }
+        }
+        return result
+    }
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
     @ObservationIgnored var mediaDiskStoreTasks: [String: MediaDiskStoreTask] = [:]
@@ -895,8 +912,8 @@ final class WorkspaceState {
     ) {
         self.accounts = accounts
         self.chatsByAccount = chatsByAccount
-        self.messagesByChat = messagesByChat
         self.messageTimelineStores = messagesByChat.mapValues { MessageTimelineStore.loaded(with: $0) }
+        self.cachedMessageChatIds = Set(messagesByChat.keys)
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
         self.appActivityProvider = appActivityProvider
         self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
@@ -1121,12 +1138,9 @@ final class WorkspaceState {
         if let store = messageTimelineStores[groupIdHex] {
             return store
         }
-        let store: MessageTimelineStore
-        if let messages = messagesByChat[groupIdHex] {
-            store = MessageTimelineStore.loaded(with: messages)
-        } else {
-            store = MessageTimelineStore()
-        }
+        // A chat is only ever cached while its store exists (`cachedMessageChatIds` is kept a
+        // subset of `messageTimelineStores`), so a missing store means there is nothing to seed.
+        let store = MessageTimelineStore()
         messageTimelineStores[groupIdHex] = store
         return store
     }

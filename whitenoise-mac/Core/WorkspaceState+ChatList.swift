@@ -286,7 +286,7 @@ extension WorkspaceState {
         guard activeAccountId == account.id else { return }
 
         let chats = removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
-        messagesByChat[groupIdHex] = nil
+        cachedMessageChatIds.remove(groupIdHex)
         messageTimelineStores[groupIdHex]?.clear()
         messageTimelineStores[groupIdHex] = nil
         invalidateGroupMembers(for: groupIdHex)
