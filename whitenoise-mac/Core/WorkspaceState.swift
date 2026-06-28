@@ -189,8 +189,9 @@ nonisolated struct ChatListOrdering {
 }
 
 @MainActor
-final class MediaDownloadStateStore: ObservableObject {
-    @Published private(set) var state: MediaDownloadState = .idle
+@Observable
+final class MediaDownloadStateStore {
+    private(set) var state: MediaDownloadState = .idle
 
     var shouldStartAutomaticDownload: Bool {
         if case .idle = state {

@@ -392,7 +392,7 @@ struct MessageVisualMediaGrid: View {
 struct MessageVisualMediaTile: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.displayScale) private var displayScale
-    @ObservedObject var downloadState: MediaDownloadStateStore
+    let downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
     let isOutgoing: Bool
@@ -491,7 +491,7 @@ struct MessageVisualMediaTile: View {
 struct MessageMediaAttachmentView: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.displayScale) private var displayScale
-    @ObservedObject var downloadState: MediaDownloadStateStore
+    let downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
     let isOutgoing: Bool
@@ -1190,7 +1190,7 @@ struct MessageImageGalleryOverlay: View {
 
 struct MessageImageGalleryContent: View {
     @Environment(WorkspaceState.self) private var workspace
-    @ObservedObject var downloadState: MediaDownloadStateStore
+    let downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
 

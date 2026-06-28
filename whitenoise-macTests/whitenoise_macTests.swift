@@ -2780,13 +2780,14 @@ struct whitenoise_macTests {
         }
 
         let firstStoreInvalidated = ObservationInvalidationFlag()
-        let firstStoreCancellable = firstStore.objectWillChange.sink { _ in
+        withObservationTracking {
+            _ = firstStore.state
+        } onChange: {
             firstStoreInvalidated.markInvalidated()
         }
 
         await state.loadMediaAttachment(secondAttachment, for: secondMessage)
 
-        withExtendedLifetime(firstStoreCancellable) {}
         #expect(!workspaceInvalidated.value)
         #expect(!firstStoreInvalidated.value)
         #expect(firstStore.state == .idle)
