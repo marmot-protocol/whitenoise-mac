@@ -1526,6 +1526,81 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func deeplyNestedMarkdownBlocksCollapseInsteadOfRecursing() async throws {
+        // Regression for whitenoise-mac#231: contentTokens is parsed from untrusted peer
+        // content. A block quote nested far beyond the Swift-side depth bound must collapse
+        // the over-depth remainder to empty display rather than recursing the full attacker
+        // chain (which can overflow the stack).
+        let document = MarkdownDocumentFfi(
+            blocks: [nestedBlockQuote(depth: 256, leaf: .paragraph(inlines: [.text(content: "deep")]))],
+            truncated: false
+        )
+
+        let display = MarkdownDisplayDocument(document: document)
+
+        // The display tree stops nesting at the bound, so the deepest preserved quote holds
+        // no further blocks instead of the attacker's remaining 200+ levels.
+        let preservedDepth = blockQuoteNestingDepth(display.blocks)
+        #expect(preservedDepth <= 32)
+        #expect(preservedDepth >= 1)
+    }
+
+    @MainActor
+    @Test func deeplyNestedMarkdownInlinesCollapseInsteadOfRecursing() async throws {
+        // Inline emphasis/strong/strikethrough/link/image-alt recurse proportionally to
+        // attacker-chosen nesting. Past the bound the inline subtree must collapse to empty
+        // safe display rather than recursing the full chain.
+        let document = MarkdownDocumentFfi(
+            blocks: [.paragraph(inlines: [nestedStrong(depth: 256, leaf: .text(content: "deep"))])],
+            truncated: false
+        )
+
+        let display = MarkdownDisplayDocument(document: document)
+
+        guard case .paragraph(let text) = display.blocks.first?.block else {
+            Issue.record("expected a paragraph block")
+            return
+        }
+        // The leaf text sits below the bound, so it is dropped entirely rather than the
+        // renderer recursing through every wrapper to reach it.
+        #expect(String(text.characters).isEmpty)
+    }
+
+    @MainActor
+    @Test func boundedNestedMarkdownStillStylesAndLinks() async throws {
+        // Normal Markdown nesting (well within the bound) must keep its styles and links:
+        // the depth guard only collapses the over-depth remainder.
+        let document = MarkdownDocumentFfi(
+            blocks: [
+                nestedBlockQuote(
+                    depth: 3,
+                    leaf: .paragraph(inlines: [
+                        .strong(children: [
+                            .link(
+                                dest: "https://example.com",
+                                title: nil,
+                                children: [.text(content: "link text")]
+                            )
+                        ])
+                    ])
+                )
+            ],
+            truncated: false
+        )
+
+        let display = MarkdownDisplayDocument(document: document)
+
+        guard let paragraph = firstParagraph(in: display.blocks) else {
+            Issue.record("expected a nested paragraph block")
+            return
+        }
+        #expect(String(paragraph.characters) == "link text")
+        let run = paragraph.runs.first
+        #expect(run?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
+        #expect(run?.link == URL(string: "https://example.com"))
+    }
+
+    @MainActor
     @Test func transcriptRowStackLayoutPerformanceGuard() async throws {
         let messages = performanceMessageItems(count: 160)
         let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
@@ -12084,6 +12159,54 @@ private func dataContains(_ haystack: Data, _ needle: Data) -> Bool {
 
 private func emptyMarkdownDocument() -> MarkdownDocumentFfi {
     MarkdownDocumentFfi(blocks: [], truncated: false)
+}
+
+private func nestedBlockQuote(depth: Int, leaf: MarkdownBlockFfi) -> MarkdownBlockFfi {
+    var block = leaf
+    for _ in 0..<depth {
+        block = .blockQuote(blocks: [block])
+    }
+    return block
+}
+
+private func nestedStrong(depth: Int, leaf: MarkdownInlineFfi) -> MarkdownInlineFfi {
+    var inline = leaf
+    for _ in 0..<depth {
+        inline = .strong(children: [inline])
+    }
+    return inline
+}
+
+private func blockQuoteNestingDepth(_ blocks: [MarkdownDisplayBlockNode]) -> Int {
+    var depth = 0
+    var current = blocks
+    while case .blockQuote(let inner)? = current.first?.block {
+        depth += 1
+        current = inner
+    }
+    return depth
+}
+
+private func firstParagraph(in blocks: [MarkdownDisplayBlockNode]) -> AttributedString? {
+    for node in blocks {
+        switch node.block {
+        case .paragraph(let text):
+            return text
+        case .blockQuote(let inner):
+            if let found = firstParagraph(in: inner) {
+                return found
+            }
+        case .list(let items):
+            for item in items {
+                if let found = firstParagraph(in: item.blocks) {
+                    return found
+                }
+            }
+        default:
+            continue
+        }
+    }
+    return nil
 }
 
 private func restoreDefault(_ value: Any?, forKey key: String) {
