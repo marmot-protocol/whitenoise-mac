@@ -246,7 +246,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
         guard let prepared else { return }
         guard !Task.isCancelled else {
-            try? FileManager.default.removeItem(at: prepared.stagingDirectory)
+            Self.discardPreparedEntry(prepared)
             return
         }
         commitPreparedEntry(prepared, startGeneration: start.generation)
@@ -349,7 +349,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         defer { lock.unlock() }
 
         guard generation == startGeneration else {
-            try? FileManager.default.removeItem(at: prepared.stagingDirectory)
+            Self.discardPreparedEntry(prepared)
             return
         }
 
@@ -377,6 +377,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private struct PreparedEntry {
+        let root: URL
         let stagingDirectory: URL
         let finalDirectory: URL
     }
@@ -492,10 +493,34 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 to: stagingDirectory.appendingPathComponent(payloadFileName),
                 options: [.atomic, .completeFileProtection]
             )
-            return PreparedEntry(stagingDirectory: stagingDirectory, finalDirectory: finalDirectory)
+            return PreparedEntry(root: root, stagingDirectory: stagingDirectory, finalDirectory: finalDirectory)
         } catch {
-            try? FileManager.default.removeItem(at: stagingDirectory)
+            discardStagingDirectory(stagingDirectory, root: root)
             return nil
+        }
+    }
+
+    private static func discardPreparedEntry(_ prepared: PreparedEntry) {
+        discardStagingDirectory(prepared.stagingDirectory, root: prepared.root)
+    }
+
+    private static func discardStagingDirectory(_ stagingDirectory: URL, root: URL) {
+        try? FileManager.default.removeItem(at: stagingDirectory)
+        removeEmptyDirectory(stagingDirectory.deletingLastPathComponent())
+        removeEmptyDirectory(root)
+    }
+
+    private static func removeEmptyDirectory(_ directory: URL) {
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+            guard contents.isEmpty else { return }
+            try FileManager.default.removeItem(at: directory)
+        } catch {
+            return
         }
     }
 

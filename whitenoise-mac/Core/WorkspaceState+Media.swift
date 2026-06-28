@@ -56,6 +56,7 @@ extension WorkspaceState {
     ) -> Bool {
         storeGuard.globalGeneration == mediaDiskStoreGlobalGeneration
             && storeGuard.accountGeneration == mediaDiskStoreAccountGenerations[accountId, default: 0]
+            && !isMediaDiskStoreGloballySuppressed
             && !mediaDiskStoreSuppressedAccountIds.contains(accountId)
             && activeAccountId == accountId
             && accounts.contains(where: { $0.id == accountId })
@@ -74,12 +75,12 @@ extension WorkspaceState {
 
     func suppressAllMediaDiskStores() {
         mediaDiskStoreGlobalGeneration &+= 1
-        mediaDiskStoreSuppressedAccountIds.formUnion(accounts.map(\.id))
+        isMediaDiskStoreGloballySuppressed = true
         cancelAllMediaDiskStoreTasks()
     }
 
     func resumeAllMediaDiskStores() {
-        mediaDiskStoreSuppressedAccountIds.removeAll()
+        isMediaDiskStoreGloballySuppressed = false
         mediaDiskStoreGlobalGeneration &+= 1
     }
 

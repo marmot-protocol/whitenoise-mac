@@ -2532,6 +2532,7 @@ struct whitenoise_macTests {
         await storeTask.value
 
         #expect(await cache.cachedDownload(for: key) == nil)
+        #expect(!fileManager.fileExists(atPath: root.path))
     }
 
     @Test func messageAudioMetadataCacheCoalescesAndCachesPayloadAnalysis() async throws {
@@ -9792,9 +9793,14 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private var messageActionGateContinuation: CheckedContinuation<Void, Never>?
     /// Issue #230 media-cache teardown-test support: when armed, the first `downloadMedia`
     /// call suspends after capturing the download bytes so a purge can complete before it returns.
+    private let mediaDownloadGateLock = NSLock()
     var mediaDownloadGateEnabled = false
-    private(set) var didReachMediaDownloadGate = false
+    private var mediaDownloadGateReached = false
+    var didReachMediaDownloadGate: Bool {
+        mediaDownloadGateLock.withLock { mediaDownloadGateReached }
+    }
     private var mediaDownloadGateContinuation: CheckedContinuation<Void, Never>?
+    private var mediaDownloadGateReleased = false
     /// Issue #134 reentrancy-test support: when armed, the first group-avatar update FFI call
     /// suspends until `releaseGroupAvatarUpdateGate()` is invoked, holding the first invocation
     /// in-flight so a test can issue an overlapping clear/set action and assert the guard dropped it.
@@ -10841,16 +10847,34 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// has captured the bytes it will return. This models a network download completing after a
     /// user-initiated purge has already removed the account/cache.
     private func passMediaDownloadGateIfArmed() async {
-        guard mediaDownloadGateEnabled, mediaDownloadGateContinuation == nil, !didReachMediaDownloadGate else { return }
-        didReachMediaDownloadGate = true
+        let shouldSuspend = mediaDownloadGateLock.withLock {
+            mediaDownloadGateEnabled && mediaDownloadGateContinuation == nil && !mediaDownloadGateReached
+        }
+        guard shouldSuspend else { return }
         await withCheckedContinuation { continuation in
-            mediaDownloadGateContinuation = continuation
+            let resumeImmediately = mediaDownloadGateLock.withLock {
+                mediaDownloadGateContinuation = continuation
+                mediaDownloadGateReached = true
+                if mediaDownloadGateReleased {
+                    mediaDownloadGateContinuation = nil
+                    return true
+                }
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
         }
     }
 
     func releaseMediaDownloadGate() {
-        mediaDownloadGateContinuation?.resume()
-        mediaDownloadGateContinuation = nil
+        let continuation = mediaDownloadGateLock.withLock {
+            mediaDownloadGateReleased = true
+            let continuation = mediaDownloadGateContinuation
+            mediaDownloadGateContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
     }
 
     // MARK: - darkmatter 745959e FFI additions

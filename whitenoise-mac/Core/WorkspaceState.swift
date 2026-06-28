@@ -416,6 +416,7 @@ final class WorkspaceState {
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
     @ObservationIgnored var mediaDiskStoreTasks: [String: MediaDiskStoreTask] = [:]
+    @ObservationIgnored var isMediaDiskStoreGloballySuppressed = false
     @ObservationIgnored var mediaDiskStoreSuppressedAccountIds = Set<String>()
     @ObservationIgnored var mediaDiskStoreAccountGenerations: [String: UInt64] = [:]
     @ObservationIgnored var mediaDiskStoreGlobalGeneration: UInt64 = 0
