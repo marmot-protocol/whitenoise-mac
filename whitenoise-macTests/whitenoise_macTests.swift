@@ -7676,6 +7676,120 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleNotificationSettingsLoadDoesNotClobberSwitchedAccountSettings() async throws {
+        // Issue #228: `loadNotificationSettings()` reads over the non-cancellation-aware FFI
+        // boundary. If account A's read completes after switching to account B, its result must not
+        // overwrite B's published notification preference.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installNotificationSettings(
+            accountRef: "Desktop Account",
+            settings: notificationSettings(for: accountA, localEnabled: true)
+        )
+        runtime.installNotificationSettings(
+            accountRef: "Backup Account",
+            settings: notificationSettings(for: accountB, localEnabled: false)
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(
+            localNotificationCenter: FakeLocalNotificationCenter(status: .authorized),
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(state.notificationSettings.localNotificationsEnabled)
+
+        runtime.notificationSettingsGateEnabled = true
+        async let staleLoad: Void = state.loadNotificationSettings()
+        while !runtime.didReachNotificationSettingsGate {
+            await Task.yield()
+        }
+
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        await state.loadNotificationSettings()
+        #expect(state.notificationSettings.localNotificationsEnabled == false)
+
+        runtime.releaseNotificationSettingsGate()
+        _ = await staleLoad
+
+        #expect(state.notificationSettings.localNotificationsEnabled == false)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func staleLocalNotificationToggleDoesNotClobberSwitchedAccountSettings() async throws {
+        // Issue #228: `setLocalNotificationsEnabled(_:)` also awaits an FFI write before publishing
+        // the returned snapshot. A stale account A toggle must not overwrite account B's snapshot.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installNotificationSettings(
+            accountRef: "Desktop Account",
+            settings: notificationSettings(for: accountA, localEnabled: false)
+        )
+        runtime.installNotificationSettings(
+            accountRef: "Backup Account",
+            settings: notificationSettings(for: accountB, localEnabled: false)
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(
+            localNotificationCenter: FakeLocalNotificationCenter(status: .authorized),
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(state.notificationSettings.localNotificationsEnabled == false)
+
+        runtime.setLocalNotificationsGateEnabled = true
+        async let staleToggle: Void = state.setLocalNotificationsEnabled(true)
+        while !runtime.didReachSetLocalNotificationsGate {
+            await Task.yield()
+        }
+
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        await state.loadNotificationSettings()
+        #expect(state.notificationSettings.localNotificationsEnabled == false)
+
+        runtime.releaseSetLocalNotificationsGate()
+        _ = await staleToggle
+
+        #expect(runtime.localNotificationsEnabledSet == true)
+        #expect(state.notificationSettings.localNotificationsEnabled == false)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func telemetryBuildConfigUsesSeparateMacBuildSettings() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
@@ -9084,6 +9198,24 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var createGroupGateEnabled = false
     private(set) var didReachCreateGroupGate = false
     private var createGroupGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #228 last-request-wins support for synchronous notification FFI reads: when armed,
+    /// the first `notificationSettings` call blocks on the FFI queue until released, holding an
+    /// older account's result while the test switches accounts and loads the newer snapshot.
+    var notificationSettingsGateEnabled = false
+    private let notificationSettingsGateLock = NSLock()
+    private var notificationSettingsGateSemaphore: DispatchSemaphore?
+    private var _didReachNotificationSettingsGate = false
+    var didReachNotificationSettingsGate: Bool {
+        notificationSettingsGateLock.withLock { _didReachNotificationSettingsGate }
+    }
+    /// Issue #228 equivalent gate for the synchronous `setLocalNotificationsEnabled` FFI write.
+    var setLocalNotificationsGateEnabled = false
+    private let setLocalNotificationsGateLock = NSLock()
+    private var setLocalNotificationsGateSemaphore: DispatchSemaphore?
+    private var _didReachSetLocalNotificationsGate = false
+    var didReachSetLocalNotificationsGate: Bool {
+        setLocalNotificationsGateLock.withLock { _didReachSetLocalNotificationsGate }
+    }
     /// Per-account key packages keyed by `accountRef`. Falls back to the default `keyPackages`
     /// fixture when an account has no explicit install, so existing single-account tests are
     /// unaffected.
@@ -9098,6 +9230,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         localNotificationsEnabled: false,
         nativePushEnabled: false
     )
+    private var notificationSettingsByAccountRef: [String: NotificationSettingsFfi] = [:]
     var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .obfuscatedSensitiveData)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
     var auditLogDeleteFailurePaths: Set<String> = []
@@ -9413,7 +9546,35 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func notificationSettings(accountRef: String) throws -> NotificationSettingsFfi {
         recordSyncCall("notificationSettings")
-        return notificationSettings
+        let result = notificationSettingsByAccountRef[accountRef] ?? notificationSettings
+        passNotificationSettingsGateIfArmed()
+        return result
+    }
+
+    func installNotificationSettings(accountRef: String, settings: NotificationSettingsFfi) {
+        notificationSettingsByAccountRef[accountRef] = settings
+    }
+
+    private func passNotificationSettingsGateIfArmed() {
+        let semaphore = notificationSettingsGateLock.withLock { () -> DispatchSemaphore? in
+            guard notificationSettingsGateEnabled, notificationSettingsGateSemaphore == nil,
+                !_didReachNotificationSettingsGate
+            else { return nil }
+            _didReachNotificationSettingsGate = true
+            let semaphore = DispatchSemaphore(value: 0)
+            notificationSettingsGateSemaphore = semaphore
+            return semaphore
+        }
+        semaphore?.wait()
+    }
+
+    func releaseNotificationSettingsGate() {
+        let semaphore = notificationSettingsGateLock.withLock { () -> DispatchSemaphore? in
+            let semaphore = notificationSettingsGateSemaphore
+            notificationSettingsGateSemaphore = nil
+            return semaphore
+        }
+        semaphore?.signal()
     }
 
     func postAuditLogTrackerUpdate() async throws -> AuditLogTrackerUpdateResultFfi {
@@ -9441,8 +9602,37 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {
         recordSyncCall("setLocalNotificationsEnabled")
         localNotificationsEnabledSet = enabled
-        notificationSettings.localNotificationsEnabled = enabled
-        return notificationSettings
+        var updated = notificationSettingsByAccountRef[accountRef] ?? notificationSettings
+        updated.localNotificationsEnabled = enabled
+        if notificationSettingsByAccountRef[accountRef] != nil {
+            notificationSettingsByAccountRef[accountRef] = updated
+        } else {
+            notificationSettings = updated
+        }
+        passSetLocalNotificationsGateIfArmed()
+        return updated
+    }
+
+    private func passSetLocalNotificationsGateIfArmed() {
+        let semaphore = setLocalNotificationsGateLock.withLock { () -> DispatchSemaphore? in
+            guard setLocalNotificationsGateEnabled, setLocalNotificationsGateSemaphore == nil,
+                !_didReachSetLocalNotificationsGate
+            else { return nil }
+            _didReachSetLocalNotificationsGate = true
+            let semaphore = DispatchSemaphore(value: 0)
+            setLocalNotificationsGateSemaphore = semaphore
+            return semaphore
+        }
+        semaphore?.wait()
+    }
+
+    func releaseSetLocalNotificationsGate() {
+        let semaphore = setLocalNotificationsGateLock.withLock { () -> DispatchSemaphore? in
+            let semaphore = setLocalNotificationsGateSemaphore
+            setLocalNotificationsGateSemaphore = nil
+            return semaphore
+        }
+        semaphore?.signal()
     }
 
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws {

@@ -193,6 +193,9 @@ extension WorkspaceState {
     func setLocalNotificationsEnabled(_ enabled: Bool) async {
         guard let client, let activeAccount, !isSavingNotifications else { return }
 
+        let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
+
         lastError = nil
         isSavingNotifications = true
         defer { isSavingNotifications = false }
@@ -204,18 +207,18 @@ extension WorkspaceState {
                     status = try await localNotificationCenter.requestAuthorization()
                     notificationAuthorizationStatus = status
                 } catch {
+                    guard !Task.isCancelled, activeAccountId == accountId else { return }
                     await handleNotificationPermissionError(error)
                     return
                 }
             }
 
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             guard status.canPostNotifications else {
                 lastError = Self.notificationPermissionGuidance
                 return
             }
         }
-
-        let accountRef = activeAccount.accountRef
 
         do {
             let settings = try await runOffMain {
@@ -224,8 +227,10 @@ extension WorkspaceState {
                     enabled: enabled
                 )
             }
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             lastError = error.localizedDescription
         }
     }
@@ -387,13 +392,17 @@ extension WorkspaceState {
             return
         }
 
+        let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
+
         do {
-            let accountRef = activeAccount.accountRef
             let settings = try await runOffMain {
                 try client.notificationSettings(accountRef: accountRef)
             }
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             notificationSettings = .defaults
             lastError = error.localizedDescription
         }
