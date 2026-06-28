@@ -11371,10 +11371,13 @@ private func richMarkdownDocumentForPerformance() -> MarkdownDocumentFfi {
     )
 }
 
-/// Absolute wall-clock performance guards run with generous slack on CI, whose shared
-/// runners have high, unpredictable timing variance, while staying strict for local runs
-/// where the numbers are meaningful. GitHub Actions sets `CI`; opt into the relaxed bound there.
-private let performanceSlack: Double = ProcessInfo.processInfo.environment["CI"] != nil ? 4 : 1
+/// Absolute wall-clock performance guards apply a fixed slack multiplier so they stay
+/// reliable across wildly different hardware — fast local dev machines vs. loaded, shared
+/// CI runners (a hosted macos-26 runner clocked the indexed-upsert guard at ~870ms against a
+/// 500ms base). They exist to catch order-of-magnitude regressions, not runner variance.
+/// NB: Xcode does not propagate the shell `CI` env var into the xctest host process, so
+/// detecting CI from here is unreliable; a uniform margin is simpler and dependable.
+private let performanceSlack: Double = 5
 
 private func measuredMilliseconds(_ work: () -> Void) -> Double {
     let start = CFAbsoluteTimeGetCurrent()
