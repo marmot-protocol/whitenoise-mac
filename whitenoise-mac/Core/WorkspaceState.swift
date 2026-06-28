@@ -1639,7 +1639,9 @@ struct OpenverseGroupImageSearchClient: GroupImageSearchClient, Sendable {
         var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)
         components?.queryItems = [
             URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "page_size", value: "24"),
+            // Openverse caps anonymous (unauthenticated) requests at page_size 20 and
+            // rejects anything larger with HTTP 401, so stay at the anonymous ceiling.
+            URLQueryItem(name: "page_size", value: "20"),
             URLQueryItem(name: "mature", value: "false"),
         ]
 
