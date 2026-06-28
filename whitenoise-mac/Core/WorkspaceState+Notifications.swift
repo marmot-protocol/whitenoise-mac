@@ -148,9 +148,15 @@ extension WorkspaceState {
         })
     }
 
-    func handleNotificationPermissionError(_ error: Error) async {
+    func handleNotificationPermissionError(
+        _ error: Error,
+        shouldApply: @MainActor () -> Bool = { true }
+    ) async {
+        let status = await localNotificationCenter.authorizationStatus()
+        guard shouldApply() else { return }
+
+        notificationAuthorizationStatus = status
         if isNotificationsNotAllowedError(error) {
-            await refreshNotificationAuthorizationStatus()
             if !notificationAuthorizationStatus.canPostNotifications {
                 notificationAuthorizationStatus = .denied
             }
@@ -159,7 +165,6 @@ extension WorkspaceState {
         }
 
         lastError = error.localizedDescription
-        await refreshNotificationAuthorizationStatus()
     }
 
     func isNotificationsNotAllowedError(_ error: Error) -> Bool {
