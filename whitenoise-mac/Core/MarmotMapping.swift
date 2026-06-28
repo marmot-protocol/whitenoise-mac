@@ -72,7 +72,7 @@ extension ChatItem {
 
         let presentation = MessageItem.presentation(for: preview.kind)
         let text = MessageItem.displayText(
-            kind: preview.kind,
+            presentation: presentation,
             plaintext: preview.plaintext,
             tags: [],
             deleted: preview.deleted,
@@ -104,19 +104,6 @@ extension ChatItem {
 }
 
 extension MessageItem {
-    init(record: TimelineMessageRecordFfi, activeAccountIdHex: String?) {
-        self.init(
-            record: record,
-            activeAccountIdHex: activeAccountIdHex,
-            senderProfiles: [:],
-            reactions: MessageReaction.summarize(record.reactions, activeAccountIdHex: activeAccountIdHex),
-            replyContext: MessageItem.replyContext(
-                for: record.replyPreview,
-                senderProfiles: [:]
-            )
-        )
-    }
-
     private init(
         record: TimelineMessageRecordFfi,
         activeAccountIdHex: String?,
@@ -135,7 +122,7 @@ extension MessageItem {
         let body =
             MessageItem.systemText(record.groupSystem)
             ?? MessageItem.displayText(
-                kind: record.kind,
+                presentation: presentation,
                 plaintext: record.plaintext,
                 tags: record.tags,
                 deleted: record.deleted,
@@ -271,7 +258,7 @@ extension MessageItem {
     }
 
     fileprivate static func displayText(
-        kind: UInt64,
+        presentation: MessagePresentation,
         plaintext: String,
         tags: [MessageTagFfi],
         deleted: Bool,
@@ -287,20 +274,11 @@ extension MessageItem {
         }
 
         let body = plaintext.trimmingCharacters(in: .whitespacesAndNewlines)
-        let messagePresentation = presentation(for: kind)
 
-        // Plain chat messages never consult the JSON payload, so skip decoding it for
-        // the common case (this runs for every message during mapping).
-        if case .chat = messagePresentation {
-            if !body.isEmpty {
-                return body
-            }
-            return hasMediaAttachments ? "" : L10n.string("Unsupported message")
-        }
-
-        let payload = TimelinePayload.decode(from: body)
-
-        switch messagePresentation {
+        // Only the agent / group-system rows consult the JSON payload, so each of those
+        // cases decodes it locally — the common chat path (and agent-stream-start) never
+        // pays for the decode. This runs for every message during mapping.
+        switch presentation {
         case .chat:
             if !body.isEmpty {
                 return body
@@ -312,12 +290,14 @@ extension MessageItem {
             }
             return L10n.string("Agent started a response")
         case .agentActivity:
+            let payload = TimelinePayload.decode(from: body)
             return firstNonBlank([
                 payload?.text,
                 payload?.status.map { "\(L10n.string("Agent activity")): \(humanized($0))" },
                 payload == nil ? body : nil,
             ]) ?? L10n.string("Agent activity")
         case .agentOperation:
+            let payload = TimelinePayload.decode(from: body)
             if let text = firstNonBlank([payload?.text, payload?.preview]) {
                 return text
             }
@@ -334,6 +314,7 @@ extension MessageItem {
             }
             return L10n.string("Agent operation")
         case .groupSystem:
+            let payload = TimelinePayload.decode(from: body)
             if let text = firstNonBlank([payload?.text]) {
                 return text
             }
@@ -358,7 +339,7 @@ extension MessageItem {
             messageIdHex: preview.messageIdHex
         )
         let body = displayText(
-            kind: preview.kind,
+            presentation: presentation(for: preview.kind),
             plaintext: preview.plaintext,
             tags: [],
             deleted: preview.deleted,

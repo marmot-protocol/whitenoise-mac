@@ -299,7 +299,7 @@ extension WorkspaceState {
         stopTimelineListener()
         cancelChatListReload()
         stopChatListListener()
-        messagesByChat.removeAll()
+        cachedMessageChatIds.removeAll()
         for store in messageTimelineStores.values {
             store.clear()
         }
@@ -487,7 +487,7 @@ extension WorkspaceState {
     func resetToNewInstallState(storageRootPath: String) {
         accounts = []
         resetChats()
-        messagesByChat = [:]
+        cachedMessageChatIds = []
         for store in messageTimelineStores.values {
             store.clear()
         }
