@@ -276,6 +276,7 @@ struct MessagesHeaderBackground: View {
                 .opacity(colorScheme == .dark ? 0.34 : 0.18)
         }
         .nativeBackgroundExtensionEffect()
+        .ignoresSafeArea()
     }
 }
 
