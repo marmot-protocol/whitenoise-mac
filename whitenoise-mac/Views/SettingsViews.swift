@@ -550,8 +550,7 @@ struct ProfileSettingsView: View {
                         ProfileImageAvatarView(
                             seed: account.accountIdHex,
                             initials: profilePreviewName(fallback: account),
-                            sanitizedPictureURL: RemoteImageURLPolicy.sanitizedURL(
-                                from: workspace.profileDraft.picture),
+                            sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
                             size: 56,
                             isSelected: false
                         )

@@ -26,8 +26,7 @@ struct GroupDetailsSheet: View {
     }
 
     private var headerAvatarURL: URL? {
-        guard let snapshot = workspace.groupDetailsSnapshot else { return chat.sanitizedPictureURL }
-        return snapshot.sanitizedAvatarURL
+        GroupDetailsHeaderAvatar.sanitizedURL(snapshot: workspace.groupDetailsSnapshot, fallback: chat)
     }
 
     var body: some View {

@@ -13,8 +13,7 @@ struct AccountItem: Identifiable, Hashable {
     let npub: String?
     let initials: String
     let pictureURL: String?
-    /// Pre-sanitized once from the peer-controlled raw URL so avatar render passes only read it.
-    /// The view still gates loading on `WorkspaceState.loadRemoteImages`.
+    /// Pre-sanitized avatar URL; `ProfileImageAvatarView` still applies `loadRemoteImages`.
     let sanitizedPictureURL: URL?
     let localSigning: Bool
     let isRunning: Bool
@@ -58,8 +57,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let updatedAt: Date?
     let avatarSeed: String
     let pictureURL: String?
-    /// Pre-sanitized once from the peer-controlled raw URL so chat-row render passes only read it.
-    /// The view still gates loading on `WorkspaceState.loadRemoteImages`.
+    /// Pre-sanitized avatar URL for chat rows/headers; the view still applies `loadRemoteImages`.
     let sanitizedPictureURL: URL?
     let unreadCount: Int
     /// Unread messages in this chat that @-mention the active account.
@@ -169,6 +167,12 @@ struct GroupDetailsSnapshot: Hashable {
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
+}
+
+enum GroupDetailsHeaderAvatar {
+    static func sanitizedURL(snapshot: GroupDetailsSnapshot?, fallback chat: ChatItem) -> URL? {
+        snapshot?.sanitizedAvatarURL ?? chat.sanitizedPictureURL
+    }
 }
 
 struct MessageReaction: Identifiable, Hashable {
@@ -1763,12 +1767,35 @@ enum RelaySettingsSection: String, CaseIterable, Identifiable {
 }
 
 struct ProfileDraft: Equatable {
-    var name = ""
-    var displayName = ""
-    var about = ""
-    var picture = ""
-    var nip05 = ""
-    var lud16 = ""
+    var name: String
+    var displayName: String
+    var about: String
+    var picture: String {
+        didSet {
+            guard picture != oldValue else { return }
+            sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: picture)
+        }
+    }
+    private(set) var sanitizedPictureURL: URL?
+    var nip05: String
+    var lud16: String
+
+    init(
+        name: String = "",
+        displayName: String = "",
+        about: String = "",
+        picture: String = "",
+        nip05: String = "",
+        lud16: String = ""
+    ) {
+        self.name = name
+        self.displayName = displayName
+        self.about = about
+        self.picture = picture
+        self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: picture)
+        self.nip05 = nip05
+        self.lud16 = lud16
+    }
 }
 
 struct RelaySettingsSnapshot: Equatable {
