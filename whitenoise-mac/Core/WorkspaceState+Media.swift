@@ -247,7 +247,7 @@ extension WorkspaceState {
             }
             do {
                 let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
-                appendPendingMediaAttachment(attachment, for: draftKey)
+                guard appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey) else { return }
             } catch is CancellationError {
                 return
             } catch {
@@ -337,7 +337,9 @@ extension WorkspaceState {
                     waveformSamples: samples
                 )
             )
-            appendPendingMediaAttachment(attachment, for: draftKey)
+            // `preparedVoiceAttachment` already removes the recording temp file in a defer, so
+            // nothing leaks when the stale-selection guard discards the prepared attachment.
+            appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey)
         } catch is CancellationError {
             return
         } catch {
@@ -355,6 +357,21 @@ extension WorkspaceState {
             presentMaxMediaAttachmentWarning()
             return false
         }
+        return true
+    }
+
+    /// Appends a freshly prepared attachment only if the live composer selection still matches
+    /// the draft captured before the async media-preparation step. If the user switched
+    /// chats/accounts during preparation the attachment is discarded rather than filed under the
+    /// stale conversation, preventing private-content misdirection (whitenoise-mac#245). Returns
+    /// whether the selection still matched and the append was attempted.
+    @discardableResult
+    func appendPendingMediaAttachmentIfSelectionUnchanged(
+        _ attachment: PendingMediaAttachment,
+        for draftKey: ComposerDraftKey
+    ) -> Bool {
+        guard selectedComposerDraftKey == draftKey else { return false }
+        appendPendingMediaAttachment(attachment, for: draftKey)
         return true
     }
 
