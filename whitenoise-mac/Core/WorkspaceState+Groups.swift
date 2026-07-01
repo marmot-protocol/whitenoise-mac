@@ -17,7 +17,6 @@ import UserNotifications
 @MainActor
 extension WorkspaceState {
     func showGroupDetails(for chat: ChatItem) async {
-        guard !chat.isDirect else { return }
         lastError = nil
         groupDetailsSnapshot = nil
         groupInviteMemberQuery = ""

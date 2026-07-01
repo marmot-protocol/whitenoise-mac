@@ -57,12 +57,12 @@ struct GroupDetailsSheet: View {
                 Button {
                     workspace.closeGroupDetails()
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "chevron.backward")
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 28, height: 28)
                 }
                 .nativeGlassCircleButtonStyle()
-                .help("Close")
+                .help("Back to chat")
             }
             .padding(20)
 
@@ -331,7 +331,7 @@ struct GroupDetailsSheet: View {
                     }
             }
         }
-        .frame(width: 620, height: 720)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             LiquidGlassBackground()
         }

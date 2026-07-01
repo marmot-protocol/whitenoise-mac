@@ -143,5 +143,5 @@ the Marmot/MLS core in `MarmotKit` rather than in app code.
 
 ## License
 
-No license file is currently present in this repository. Until one is added,
-all rights are reserved by the project authors.
+This project is licensed under the GNU Affero General Public License v3.0
+(AGPL-3.0). See [LICENSE](LICENSE) for the full text.
