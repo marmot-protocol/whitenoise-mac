@@ -7208,6 +7208,22 @@ struct whitenoise_macTests {
             #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
         }
 
+        // whitenoise-mac#243: broadcast / multicast / reserved / CGNAT literals are not routable
+        // public destinations and must be rejected too, including an obfuscated (decimal) form so
+        // the parser path is exercised, not just the dotted-quad string.
+        let blockedV4NonPublic = [
+            "https://255.255.255.255/x.png",  // limited broadcast
+            "https://224.0.0.1/x.png",  // multicast 224.0.0.0/4 (low edge)
+            "https://239.255.255.255/x.png",  // multicast 224.0.0.0/4 (high edge)
+            "https://240.0.0.1/x.png",  // reserved 240.0.0.0/4 (low edge)
+            "https://100.64.0.1/x.png",  // CGNAT 100.64.0.0/10 (low edge)
+            "https://100.127.255.255/x.png",  // CGNAT 100.64.0.0/10 (high edge)
+            "https://4294967295/x.png",  // decimal 255.255.255.255 (obfuscated broadcast)
+        ]
+        for s in blockedV4NonPublic {
+            #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
+        }
+
         // IPv6 loopback / unspecified / ULA / link-local / IPv4-mapped private.
         let blockedV6 = [
             "https://[::1]/x.png",
@@ -7235,6 +7251,9 @@ struct whitenoise_macTests {
             "https://1.1.1.1/x.png",
             "https://172.32.0.1/x.png",  // just outside 172.16/12
             "https://192.169.0.1/x.png",  // just outside 192.168/16
+            "https://100.63.255.255/x.png",  // just below CGNAT 100.64.0.0/10
+            "https://100.128.0.1/x.png",  // just above CGNAT 100.64.0.0/10
+            "https://223.255.255.255/x.png",  // just below multicast 224.0.0.0/4
             "https://[2606:4700:4700::1111]/x.png",  // public IPv6 (Cloudflare)
             "https://[::ffff:8.8.8.8]/x.png",  // IPv4-mapped public address
         ]

@@ -96,6 +96,13 @@ struct PureValueTests {
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://127.0.0.1:8080/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[::1]/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost/x.png") == nil)
+        // whitenoise-mac#243: broadcast / multicast / reserved / CGNAT are non-public too,
+        // including an obfuscated (decimal) broadcast literal to exercise the parser path.
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://255.255.255.255/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://224.0.0.1/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://240.0.0.1/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://100.64.0.1/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://4294967295/x.png") == nil)
         // A public host still round-trips.
         #expect(
             RemoteImageURLPolicy.sanitizedURL(from: "https://cdn.example/p.png")?.absoluteString

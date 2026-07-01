@@ -80,18 +80,24 @@ nonisolated enum RemoteImageURLPolicy {
     }
 
     /// Rejects IPv4 literals in non-public ranges: loopback `127.0.0.0/8`, "this host"
-    /// `0.0.0.0/8`, private `10.0.0.0/8` / `172.16.0.0/12` / `192.168.0.0/16`, and
-    /// link-local `169.254.0.0/16`.
+    /// `0.0.0.0/8`, private `10.0.0.0/8` / `172.16.0.0/12` / `192.168.0.0/16`,
+    /// link-local `169.254.0.0/16`, CGNAT `100.64.0.0/10`, and the non-routable top of the
+    /// space: multicast `224.0.0.0/4`, reserved `240.0.0.0/4`, and limited broadcast
+    /// `255.255.255.255` (all covered by first octet `224...255`).
     private static func isPrivateIPv4(_ octets: (UInt8, UInt8, UInt8, UInt8)) -> Bool {
         let (a, b, _, _) = octets
         switch a {
         case 0, 127, 10:
+            return true
+        case 100 where (64...127).contains(b):
             return true
         case 172 where (16...31).contains(b):
             return true
         case 192 where b == 168:
             return true
         case 169 where b == 254:
+            return true
+        case 224...:
             return true
         default:
             return false
