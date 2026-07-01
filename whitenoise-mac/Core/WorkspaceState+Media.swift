@@ -281,12 +281,9 @@ extension WorkspaceState {
             return
         }
 
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("WhiteNoiseVoiceRecordings", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let fileName = "voice-\(Int(Date().timeIntervalSince1970)).m4a"
-            let url = directory.appendingPathComponent(fileName)
+            let directory = try MediaPlaybackTempStore.voiceRecordingsDirectoryURL()
+            let url = try MediaPlaybackTempStore.prepareVoiceRecordingFile(in: directory)
             let settings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                 AVSampleRateKey: 44_100,
