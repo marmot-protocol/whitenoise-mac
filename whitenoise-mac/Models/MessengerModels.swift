@@ -367,13 +367,29 @@ nonisolated enum MessageMediaGridPresentation {
 
 nonisolated enum MediaDurationLabel {
     static func string(for durationSeconds: Double) -> String {
-        let total = max(0, Int(durationSeconds.rounded(.down)))
+        // The duration can be peer-derived (see MediaWaveformAnalyzer), so it may be
+        // NaN, ±Infinity, negative, or larger than Int.max. The trapping Int(_:)
+        // initializer would crash on non-finite or out-of-range values, so clamp the
+        // floored duration into the representable range before converting.
+        let total: Int
+        if durationSeconds.isFinite {
+            let flooredSeconds = durationSeconds.rounded(.down)
+            if flooredSeconds <= 0 {
+                total = 0
+            } else if flooredSeconds >= Double(Int.max) {
+                total = Int.max
+            } else {
+                total = Int(flooredSeconds)
+            }
+        } else {
+            total = 0
+        }
         let hours = total / 3_600
         let minutes = (total % 3_600) / 60
         let seconds = total % 60
 
         if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            return "\(hours):" + String(format: "%02d:%02d", minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
     }
