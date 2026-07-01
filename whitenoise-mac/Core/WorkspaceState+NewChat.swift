@@ -109,17 +109,23 @@ extension WorkspaceState {
         }
         guard let recipient else { return false }
 
-        appendNewChatRecipient(recipient)
+        let didAppend = appendNewChatRecipient(recipient)
         invalidateNewChatLookup()
         newChatQuery = ""
         newChatRecipient = nil
         lastError = nil
-        return true
+        // `false` when the pubkey was already in the list (deduped), so callers
+        // can tell "nothing new added" from a genuine failure to resolve.
+        return didAppend
     }
 
-    func appendNewChatRecipient(_ recipient: NewChatRecipient) {
-        guard !newChatRecipients.contains(where: { $0.accountIdHex == recipient.accountIdHex }) else { return }
+    @discardableResult
+    func appendNewChatRecipient(_ recipient: NewChatRecipient) -> Bool {
+        guard !newChatRecipients.contains(where: { $0.accountIdHex == recipient.accountIdHex }) else {
+            return false
+        }
         newChatRecipients.append(recipient)
+        return true
     }
 
     func removeNewChatRecipient(_ recipient: NewChatRecipient) {
@@ -128,6 +134,13 @@ extension WorkspaceState {
 
     func createNewChat() async {
         guard let client, let activeAccount, !isCreatingChat else { return }
+
+        // Claim the in-flight flag before the first await (the pending-query
+        // resolve below). Otherwise two rapid submits both pass the `!isCreatingChat`
+        // guard while suspended and each reach `createGroup`, creating duplicate chats.
+        lastError = nil
+        isCreatingChat = true
+        defer { isCreatingChat = false }
 
         // Capture the creating account on entry so a mid-await A→B account switch (e.g. via
         // a notification tap while `createGroup`/`reloadChats` are suspended) cannot graft
@@ -156,10 +169,6 @@ extension WorkspaceState {
         }
         guard let primary = recipients.first else { return }
         let isDirect = recipients.count == 1
-
-        lastError = nil
-        isCreatingChat = true
-        defer { isCreatingChat = false }
 
         do {
             let trimmedName = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
