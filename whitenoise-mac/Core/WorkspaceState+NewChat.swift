@@ -136,17 +136,23 @@ extension WorkspaceState {
         // only guards the workspace UI state. See whitenoise-mac#229.
         let accountId = activeAccount.id
 
-        // Gather every member: the confirmed list plus any pubkey still sitting
-        // resolved-but-unadded in the input, falling back to resolving the raw
-        // query when nothing has been added yet. Dedup by account so the same
+        // Gather every member: the confirmed list plus whatever is still sitting
+        // in the input, so a pubkey typed but not yet added via return/+ is never
+        // silently dropped. If the pending query already resolved, fold it in; if
+        // there is non-empty text that has not resolved yet (e.g. the debounce
+        // hadn't fired), resolve it now and *block* creation when it can't, rather
+        // than quietly leaving that recipient out. Dedup by account so the same
         // person can't be invited twice.
         var recipients = newChatRecipients
-        if let resolvedNewChatRecipient,
-            !recipients.contains(where: { $0.accountIdHex == resolvedNewChatRecipient.accountIdHex })
-        {
-            recipients.append(resolvedNewChatRecipient)
-        } else if recipients.isEmpty, let resolved = await resolveNewChatQuery() {
-            recipients.append(resolved)
+        if let resolvedNewChatRecipient {
+            if !recipients.contains(where: { $0.accountIdHex == resolvedNewChatRecipient.accountIdHex }) {
+                recipients.append(resolvedNewChatRecipient)
+            }
+        } else if !newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let resolved = await resolveNewChatQuery() else { return }
+            if !recipients.contains(where: { $0.accountIdHex == resolved.accountIdHex }) {
+                recipients.append(resolved)
+            }
         }
         guard let primary = recipients.first else { return }
         let isDirect = recipients.count == 1

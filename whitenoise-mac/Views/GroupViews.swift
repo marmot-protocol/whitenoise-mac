@@ -118,13 +118,18 @@ struct GroupDetailsSheet: View {
                             .lineLimit(2...4)
 
                         HStack(spacing: 10) {
-                            Button {
-                                workspace.closeGroupDetails()
-                                workspace.showGroupImagePicker(for: chat)
-                            } label: {
-                                Label("Search Web Image", systemImage: "photo.badge.plus")
+                            // Group image is a group-only affordance;
+                            // `showGroupImagePicker` no-ops for direct chats, so
+                            // don't surface a dead button when a DM opens details.
+                            if !chat.isDirect {
+                                Button {
+                                    workspace.closeGroupDetails()
+                                    workspace.showGroupImagePicker(for: chat)
+                                } label: {
+                                    Label("Search Web Image", systemImage: "photo.badge.plus")
+                                }
+                                .disabled(workspace.isSavingGroupImage)
                             }
-                            .disabled(workspace.isSavingGroupImage)
 
                             Spacer()
 

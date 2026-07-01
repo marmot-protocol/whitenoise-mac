@@ -7788,6 +7788,36 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func createNewChatIncludesPendingQueryAlongsideAddedMembers() async throws {
+        // Regression: a pubkey typed into the input but not yet committed via
+        // return/+ must not be silently dropped when confirmed members already
+        // exist — createNewChat resolves the pending query and folds it in.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: "npub1bob", accountIdHex: bobId, npub: "npub1bob")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+
+        // Commit the first member the normal way (this clears the input).
+        state.newChatQuery = "npub1alice"
+        _ = await state.addCurrentNewChatRecipient()
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId])
+        #expect(state.newChatQuery.isEmpty)
+
+        // Leave the second pubkey pending in the input, then create directly.
+        state.newChatQuery = "npub1bob"
+        await state.createNewChat()
+
+        #expect(runtime.createdGroupMemberRefs == ["npub1alice", "npub1bob"])
+        #expect(state.selection == .chat("created-group"))
+    }
+
+    @MainActor
     @Test func createNewChatDoesNotGraftGroupOntoAccountSwitchedToMidCreate() async throws {
         // Issue #229: `createNewChat()` suspends across `createGroup`/`reloadChats`. If the active
         // account changes (e.g. a notification tap) while suspended, the group created under
