@@ -166,6 +166,88 @@ struct PureValueTests {
         #expect(sanitized?.absoluteString == "https://cdn.example/p.png")
     }
 
+    @Test func avatarModelsPrecomputeSanitizedPictureURLs() async throws {
+        let account = AccountItem(
+            id: "account",
+            accountRef: "account",
+            displayName: "Account",
+            accountIdHex: "abc123",
+            pictureURL: "  https://cdn.example/account.png  "
+        )
+        #expect(account.pictureURL == "  https://cdn.example/account.png  ")
+        #expect(account.sanitizedPictureURL?.absoluteString == "https://cdn.example/account.png")
+
+        let chat = ChatItem(
+            id: "chat",
+            title: "Chat",
+            subtitle: "Group message",
+            preview: "No messages yet",
+            updatedAt: nil,
+            avatarSeed: "chat",
+            pictureURL: "https://0x7f000001/avatar.png",
+            unreadCount: 0
+        )
+        #expect(chat.pictureURL == "https://0x7f000001/avatar.png")
+        #expect(chat.sanitizedPictureURL == nil)
+
+        let recipient = NewChatRecipient(
+            sourceQuery: "npub1recipient",
+            memberRef: "npub1recipient",
+            accountIdHex: "def456",
+            npub: "npub1recipient",
+            displayName: "Recipient",
+            pictureURL: "https://cdn.example/recipient.png"
+        )
+        #expect(recipient.sanitizedPictureURL?.absoluteString == "https://cdn.example/recipient.png")
+
+        let snapshot = groupDetailsSnapshot(
+            avatarURL: "  https://cdn.example/group.png  ",
+            sanitizedAvatarURL: RemoteImageURLPolicy.sanitizedURL(
+                from: "  https://cdn.example/group.png  ")
+        )
+        #expect(snapshot.avatarURL == "  https://cdn.example/group.png  ")
+        #expect(snapshot.sanitizedAvatarURL?.absoluteString == "https://cdn.example/group.png")
+    }
+
+    @Test func groupDetailsHeaderAvatarFallsBackToChatAvatarWhenSnapshotHasNone() async throws {
+        let chat = ChatItem(
+            id: "chat",
+            title: "Chat",
+            subtitle: "Group message",
+            preview: "No messages yet",
+            updatedAt: nil,
+            avatarSeed: "chat",
+            pictureURL: "https://cdn.example/chat.png",
+            unreadCount: 0
+        )
+        let emptySnapshot = groupDetailsSnapshot(avatarURL: nil, sanitizedAvatarURL: nil)
+        let snapshotWithAvatar = groupDetailsSnapshot(
+            avatarURL: "https://cdn.example/group.png",
+            sanitizedAvatarURL: RemoteImageURLPolicy.sanitizedURL(from: "https://cdn.example/group.png")
+        )
+
+        #expect(
+            GroupDetailsHeaderAvatar.sanitizedURL(snapshot: nil, fallback: chat)?.absoluteString
+                == "https://cdn.example/chat.png")
+        #expect(
+            GroupDetailsHeaderAvatar.sanitizedURL(snapshot: emptySnapshot, fallback: chat)?.absoluteString
+                == "https://cdn.example/chat.png")
+        #expect(
+            GroupDetailsHeaderAvatar.sanitizedURL(snapshot: snapshotWithAvatar, fallback: chat)?.absoluteString
+                == "https://cdn.example/group.png")
+    }
+
+    @Test func profileDraftCachesSanitizedPictureURL() async throws {
+        var draft = ProfileDraft(picture: "  https://cdn.example/profile.png  ")
+        #expect(draft.sanitizedPictureURL?.absoluteString == "https://cdn.example/profile.png")
+
+        draft.displayName = "Updated"
+        #expect(draft.sanitizedPictureURL?.absoluteString == "https://cdn.example/profile.png")
+
+        draft.picture = "https://127.0.0.1/profile.png"
+        #expect(draft.sanitizedPictureURL == nil)
+    }
+
     @Test func downsampledImageSizingCeilsAndBucketsRequestedPixels() async throws {
         #expect(DownsampledImageSizing.requestedPixelSize(0) == 1)
         #expect(DownsampledImageSizing.requestedPixelSize(63.1) == 64)
@@ -410,5 +492,29 @@ struct PureValueTests {
             }
         }
         return result
+    }
+
+    private func groupDetailsSnapshot(avatarURL: String?, sanitizedAvatarURL: URL?) -> GroupDetailsSnapshot {
+        GroupDetailsSnapshot(
+            groupIdHex: "group",
+            endpoint: "",
+            name: "Group",
+            description: "",
+            avatarURL: avatarURL,
+            sanitizedAvatarURL: sanitizedAvatarURL,
+            avatarDimension: nil,
+            nostrGroupIdHex: "",
+            relays: [],
+            adminIds: [],
+            archived: false,
+            pendingConfirmation: false,
+            members: [],
+            isSelfAdmin: false,
+            isLastAdmin: false,
+            canInvite: false,
+            canLeave: true,
+            requiresSelfDemoteBeforeLeave: false,
+            disappearingMessageSecs: 0
+        )
     }
 }

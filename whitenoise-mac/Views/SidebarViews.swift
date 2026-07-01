@@ -87,7 +87,7 @@ private struct AccountRailAvatar: View {
             ProfileImageAvatarView(
                 seed: account.accountIdHex,
                 initials: account.initials,
-                pictureURL: account.pictureURL,
+                sanitizedPictureURL: account.sanitizedPictureURL,
                 size: 42,
                 isSelected: isActive
             )
@@ -259,7 +259,7 @@ struct SettingsListDrawerView: View {
                 ProfileImageAvatarView(
                     seed: account.accountIdHex,
                     initials: account.initials,
-                    pictureURL: account.pictureURL,
+                    sanitizedPictureURL: account.sanitizedPictureURL,
                     size: 34,
                     isSelected: false
                 )
@@ -333,7 +333,7 @@ struct ChatRowContent: View {
             ProfileImageAvatarView(
                 seed: chat.avatarSeed,
                 initials: chat.title,
-                pictureURL: chat.pictureURL,
+                sanitizedPictureURL: chat.sanitizedPictureURL,
                 size: 42,
                 isSelected: false
             )
