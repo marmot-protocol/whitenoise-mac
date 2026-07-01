@@ -31,7 +31,14 @@ extension WorkspaceState {
         let lookupGeneration = beginNewChatLookup()
         isResolvingNewChat = true
         defer {
-            if isCurrentNewChatLookup(generation: lookupGeneration, query: query) {
+            // Spinner ownership is keyed on the generation ALONE, independent of the stricter
+            // generation+query guard used for committing results. Only a newer lookup or an
+            // `invalidateNewChatLookup` (both bump the generation, and each sets the spinner
+            // state itself) supersedes this one's ownership of `isResolvingNewChat`. Editing the
+            // query mid-flight without resubmitting must NOT strand the spinner at `true`, so it
+            // is deliberately not part of this check — see issue #255 (mirrors the #110 fix for
+            // group-image search).
+            if ownsNewChatLookup(generation: lookupGeneration) {
                 isResolvingNewChat = false
             }
         }
@@ -221,8 +228,20 @@ extension WorkspaceState {
         isResolvingNewChat = false
     }
 
-    func isCurrentNewChatLookup(generation: UInt64, query: String) -> Bool {
+    /// True while `generation` still owns the new-chat lookup spinner — i.e. no newer
+    /// `beginNewChatLookup` or `invalidateNewChatLookup` has bumped the generation. This is
+    /// intentionally looser than `isCurrentNewChatLookup`: it does NOT require the live query to
+    /// match, because spinner ownership must transfer cleanly even when the user edits the query
+    /// mid-flight without resubmitting (otherwise the spinner would stay stuck `true` — issue #255).
+    func ownsNewChatLookup(generation: UInt64) -> Bool {
         newChatLookupGeneration == generation
+    }
+
+    /// True only if `generation` is still the latest new-chat lookup and the live (trimmed) query
+    /// still equals the one this lookup was issued for. Either a newer lookup or an edited query
+    /// invalidates the in-flight result so it cannot overwrite `newChatRecipient` / `lastError`.
+    func isCurrentNewChatLookup(generation: UInt64, query: String) -> Bool {
+        ownsNewChatLookup(generation: generation)
             && newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
 
