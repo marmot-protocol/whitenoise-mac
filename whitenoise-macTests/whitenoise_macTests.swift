@@ -6600,10 +6600,12 @@ struct whitenoise_macTests {
         #expect(!state.isGroupImagePickerPresented)
     }
 
-    @Test func conversationHeaderChatInfoButtonOpensGroupDetailsSheet() throws {
-        // The header is a private SwiftUI view, so this source-shape regression
-        // guards the user-facing toolbar affordance directly: the info button
-        // must remain wired to the group details sheet instead of an empty action.
+    @Test func conversationHeaderChatInfoOpensSlideInGroupDetails() throws {
+        // These are private SwiftUI views, so this source-shape regression guards
+        // the user-facing wiring directly. The chat-info affordance is now the
+        // header's avatar/title button (works for direct chats too), and the
+        // details screen slides in over the transcript from ConversationView
+        // rather than presenting as a header sheet.
         let viewsDirURL =
             URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -6633,13 +6635,18 @@ struct whitenoise_macTests {
         }
         let headerSource = try #require(extractedHeader)
 
+        // Tapping the header avatar/title opens the chat info screen.
         #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
-        #expect(headerSource.contains("Image(systemName: \"info.circle\")"))
-        #expect(headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
-        #expect(headerSource.contains("GroupDetailsSheet(chat: chat)"))
-        #expect(!headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle"))
-        #expect(
-            !headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle.fill"))
+        // The details screen is no longer a modal sheet hung off the header.
+        #expect(!headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
+
+        // ConversationView presents the details panel inline as a slide-in,
+        // gated on the same flag, so it replaces the transcript in place.
+        let shellURL = viewsDirURL.appendingPathComponent("MessengerShellView.swift")
+        let shellSource = try String(contentsOf: shellURL, encoding: .utf8)
+        #expect(shellSource.contains("if workspace.isGroupDetailsPresented"))
+        #expect(shellSource.contains("GroupDetailsSheet(chat: chat)"))
+        #expect(shellSource.contains(".move(edge: .trailing)"))
     }
 
     @MainActor
