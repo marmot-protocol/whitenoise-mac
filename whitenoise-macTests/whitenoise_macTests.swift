@@ -6600,10 +6600,12 @@ struct whitenoise_macTests {
         #expect(!state.isGroupImagePickerPresented)
     }
 
-    @Test func conversationHeaderChatInfoButtonOpensGroupDetailsSheet() throws {
-        // The header is a private SwiftUI view, so this source-shape regression
-        // guards the user-facing toolbar affordance directly: the info button
-        // must remain wired to the group details sheet instead of an empty action.
+    @Test func conversationHeaderChatInfoOpensSlideInGroupDetails() throws {
+        // These are private SwiftUI views, so this source-shape regression guards
+        // the user-facing wiring directly. The chat-info affordance is now the
+        // header's avatar/title button (works for direct chats too), and the
+        // details screen slides in over the transcript from ConversationView
+        // rather than presenting as a header sheet.
         let viewsDirURL =
             URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -6633,13 +6635,18 @@ struct whitenoise_macTests {
         }
         let headerSource = try #require(extractedHeader)
 
+        // Tapping the header avatar/title opens the chat info screen.
         #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
-        #expect(headerSource.contains("Image(systemName: \"info.circle\")"))
-        #expect(headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
-        #expect(headerSource.contains("GroupDetailsSheet(chat: chat)"))
-        #expect(!headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle"))
-        #expect(
-            !headerSource.contains("Button {} label: {\n                        Image(systemName: \"info.circle.fill"))
+        // The details screen is no longer a modal sheet hung off the header.
+        #expect(!headerSource.contains(".sheet(isPresented: $workspace.isGroupDetailsPresented)"))
+
+        // ConversationView presents the details panel inline as a slide-in,
+        // gated on the same flag, so it replaces the transcript in place.
+        let shellURL = viewsDirURL.appendingPathComponent("MessengerShellView.swift")
+        let shellSource = try String(contentsOf: shellURL, encoding: .utf8)
+        #expect(shellSource.contains("if workspace.isGroupDetailsPresented"))
+        #expect(shellSource.contains("GroupDetailsSheet(chat: chat)"))
+        #expect(shellSource.contains(".move(edge: .trailing)"))
     }
 
     @MainActor
@@ -7778,6 +7785,36 @@ struct whitenoise_macTests {
         #expect(state.selection == .chat("created-group"))
         #expect(!state.isNewChatComposerVisible)
         #expect(state.activeChats.map(\.id) == ["created-group"])
+    }
+
+    @MainActor
+    @Test func createNewChatIncludesPendingQueryAlongsideAddedMembers() async throws {
+        // Regression: a pubkey typed into the input but not yet committed via
+        // return/+ must not be silently dropped when confirmed members already
+        // exist — createNewChat resolves the pending query and folds it in.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: "npub1bob", accountIdHex: bobId, npub: "npub1bob")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+
+        // Commit the first member the normal way (this clears the input).
+        state.newChatQuery = "npub1alice"
+        _ = await state.addCurrentNewChatRecipient()
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId])
+        #expect(state.newChatQuery.isEmpty)
+
+        // Leave the second pubkey pending in the input, then create directly.
+        state.newChatQuery = "npub1bob"
+        await state.createNewChat()
+
+        #expect(runtime.createdGroupMemberRefs == ["npub1alice", "npub1bob"])
+        #expect(state.selection == .chat("created-group"))
     }
 
     @MainActor

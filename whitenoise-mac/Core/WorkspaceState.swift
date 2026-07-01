@@ -566,6 +566,7 @@ final class WorkspaceState {
     var newChatName = ""
     var newChatDescription = ""
     var newChatRecipient: NewChatRecipient?
+    var newChatRecipients: [NewChatRecipient] = []
     var replyDraftContext: MessageReplyContext? {
         get {
             guard let selectedComposerDraftKey else { return nil }
