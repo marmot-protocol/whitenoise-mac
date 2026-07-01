@@ -690,6 +690,39 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func resetActiveAccountUIStateClearsReadMarkersAndDeliveredNotificationKeys() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        let marker = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            messageId: "m0"
+        )
+        state.lastMarkedReadMarkers["group-a"] = marker
+        state.lastConfirmedReadMarkers["group-a"] = marker
+        state.deliveredNotificationKeys.insert("notif-1")
+        state.deliveredNotificationKeyOrder.append("notif-1")
+
+        state.resetActiveAccountUIState()
+
+        // Sign-out and active-account removal share this reset path; per-group read
+        // markers and delivered-notification keys must not survive it. See #241.
+        #expect(state.lastMarkedReadMarkers.isEmpty)
+        #expect(state.lastConfirmedReadMarkers.isEmpty)
+        #expect(state.deliveredNotificationKeys.isEmpty)
+        #expect(state.deliveredNotificationKeyOrder.isEmpty)
+    }
+
+    @MainActor
     @Test func removeNonActiveAccountClearsItsUnreadBadge() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",

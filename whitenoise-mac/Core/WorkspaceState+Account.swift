@@ -309,6 +309,14 @@ extension WorkspaceState {
         clearGroupMemberCache()
         timelinePagingByChat.removeAll()
         accountUnreadByIdHex.removeAll()
+        // Read markers are keyed by groupIdHex; leaving them behind both retains a
+        // record of which messages the signed-out identity read and lets a recurring
+        // group id suppress the first legitimate read-mark advance after re-login. The
+        // delivered-notification keys are likewise account-scoped residue. See #241.
+        lastMarkedReadMarkers.removeAll()
+        lastConfirmedReadMarkers.removeAll()
+        deliveredNotificationKeys.removeAll()
+        deliveredNotificationKeyOrder.removeAll()
         profileDraft = ProfileDraft()
         keyPackages = []
         auditLogFiles = []
