@@ -1352,7 +1352,26 @@ struct MessageItem: Identifiable, Hashable {
         self.contentMarkdown = contentMarkdown.map(MarkdownDisplayDocument.init(document:))
         self.trimmedBody = trimmedBody
         self.sentAt = sentAt
-        self.timelineAt = timelineAt ?? UInt64(sentAt.timeIntervalSince1970)
+        // `timelineAt` is normally supplied by the core mapping; the fallback derives it from
+        // `sentAt`. A pre-epoch, non-finite, or oversized `sentAt` would trap the `UInt64(_:)`
+        // conversion, so clamp the floored timestamp into the representable range first.
+        let fallbackTimeline = sentAt.timeIntervalSince1970
+        let resolvedTimelineAt: UInt64
+        if let timelineAt = timelineAt {
+            resolvedTimelineAt = timelineAt
+        } else if fallbackTimeline.isFinite {
+            let flooredTimeline = fallbackTimeline.rounded(.down)
+            if flooredTimeline <= 0 {
+                resolvedTimelineAt = 0
+            } else if flooredTimeline >= Double(UInt64.max) {
+                resolvedTimelineAt = UInt64.max
+            } else {
+                resolvedTimelineAt = UInt64(flooredTimeline)
+            }
+        } else {
+            resolvedTimelineAt = 0
+        }
+        self.timelineAt = resolvedTimelineAt
         self.timelineKind = timelineKind
         self.isDeleted = isDeleted
         self.invalidationStatus = invalidationStatus
