@@ -6241,26 +6241,24 @@ struct whitenoise_macTests {
         #expect(wrappedGenerations.groupDetailsLoad == 0)
 
         let currentOwnership = state.ownsStaleResultGenerationsForTesting(
-            generation: 0,
-            newChatQuery: "alice@example.com"
+            generation: 0
         )
         #expect(currentOwnership.newChatLookup)
         #expect(currentOwnership.groupImageSearch)
         #expect(currentOwnership.groupDetailsLoad)
 
         let staleOwnership = state.ownsStaleResultGenerationsForTesting(
-            generation: UInt64.max,
-            newChatQuery: "alice@example.com"
+            generation: UInt64.max
         )
         #expect(!staleOwnership.newChatLookup)
         #expect(!staleOwnership.groupImageSearch)
         #expect(!staleOwnership.groupDetailsLoad)
 
-        let wrongQueryOwnership = state.ownsStaleResultGenerationsForTesting(
-            generation: 0,
-            newChatQuery: "bob@example.com"
+        state.newChatQuery = "bob@example.com"
+        let editedQueryOwnership = state.ownsStaleResultGenerationsForTesting(
+            generation: 0
         )
-        #expect(!wrongQueryOwnership.newChatLookup)
+        #expect(editedQueryOwnership.newChatLookup)
     }
 
     // MARK: - ChatListRowEnrichmentTracker (issue #40 ownership invariants)
@@ -7987,6 +7985,56 @@ struct whitenoise_macTests {
 
         #expect(state.resolvedNewChatRecipient?.accountIdHex == fastId)
         #expect(state.resolvedNewChatRecipient?.title == "Fast Recipient")
+    }
+
+    @MainActor
+    @Test func newChatLookupQueryEditedMidFlightClearsSpinnerWithoutCommitting() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let slowId = "1111111111111111111111111111111111111111111111111111111111111111"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1slow", accountIdHex: slowId, npub: "npub1slow")
+        runtime.installProfile(
+            accountIdHex: slowId,
+            profile: UserProfileMetadataFfi(
+                name: "slow",
+                displayName: "Slow Recipient",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.profileRefreshDelaysByAccountId[slowId] = 150_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1slow"
+        let slowLookup = Task { @MainActor in
+            await state.resolveNewChatQueryIfReady()
+        }
+        let slowLookupStarted = await waitFor {
+            runtime.refreshedProfileIds.contains(slowId)
+        }
+        #expect(slowLookupStarted)
+        #expect(state.isResolvingNewChat)
+
+        // Edit the query mid-flight WITHOUT starting a newer lookup: the in-flight
+        // lookup still owns the generation, so when it resumes its defer must clear
+        // the spinner (keyed on generation ownership) even though the stricter
+        // generation+query commit guard now fails and blocks the stale result.
+        state.newChatQuery = "npub1edited"
+        await slowLookup.value
+
+        #expect(!state.isResolvingNewChat)
+        #expect(state.resolvedNewChatRecipient == nil)
+        #expect(state.lastError == nil)
     }
 
     @MainActor

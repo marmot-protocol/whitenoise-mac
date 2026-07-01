@@ -764,17 +764,14 @@ final class WorkspaceState {
             )
         }
 
-        /// Evaluates the production equality guards for a captured generation token.
-        func ownsStaleResultGenerationsForTesting(
-            generation: UInt64,
-            newChatQuery query: String
-        ) -> (
+        /// Evaluates the production generation-ownership guards for a captured token.
+        func ownsStaleResultGenerationsForTesting(generation: UInt64) -> (
             newChatLookup: Bool,
             groupImageSearch: Bool,
             groupDetailsLoad: Bool
         ) {
             return (
-                isCurrentNewChatLookup(generation: generation, query: query),
+                ownsNewChatLookup(generation: generation),
                 ownsGroupImageSearch(generation: generation),
                 ownsGroupDetailsLoad(generation: generation)
             )
