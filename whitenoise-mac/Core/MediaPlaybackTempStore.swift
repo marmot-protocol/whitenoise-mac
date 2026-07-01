@@ -92,7 +92,7 @@ nonisolated enum MediaPlaybackTempStore {
     ) throws -> URL {
         try prepareDirectory(directory, fileManager: fileManager)
         let url = directory.appendingPathComponent("voice-\(uniqueID.uuidString).m4a")
-        try Data().write(to: url, options: [.atomic, .completeFileProtection])
+        try writeProtectedData(Data(), to: url, fileManager: fileManager)
         return url
     }
 
@@ -114,7 +114,7 @@ nonisolated enum MediaPlaybackTempStore {
         try prepareDirectory(directory, fileManager: fileManager)
         let sanitized = sanitizedFileName(fileName, fallbackExtension: fallbackExtension)
         let url = directory.appendingPathComponent("\(stableStem(for: id))-\(uniqueID.uuidString)-\(sanitized)")
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        try writeProtectedData(data, to: url, fileManager: fileManager)
         return url
     }
 
@@ -182,6 +182,16 @@ nonisolated enum MediaPlaybackTempStore {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try directoryURL.setResourceValues(values)
+    }
+
+    private static func writeProtectedData(_ data: Data, to url: URL, fileManager: FileManager) throws {
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        // Some macOS volumes downgrade or reject explicit protection changes; keep the
+        // scratch write usable, but request the strongest class when the volume accepts it.
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: url.path
+        )
     }
 
     private static func purgeSingleDirectory(_ directory: URL, fileManager: FileManager) {

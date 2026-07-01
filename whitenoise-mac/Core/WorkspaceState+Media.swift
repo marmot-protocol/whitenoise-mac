@@ -284,6 +284,7 @@ extension WorkspaceState {
         do {
             let directory = try MediaPlaybackTempStore.voiceRecordingsDirectoryURL()
             let url = try MediaPlaybackTempStore.prepareVoiceRecordingFile(in: directory)
+            voiceRecordingURL = url
             let settings: [String: Any] = [
                 AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
                 AVSampleRateKey: 44_100,
@@ -297,7 +298,6 @@ extension WorkspaceState {
             }
 
             voiceRecorder = recorder
-            voiceRecordingURL = url
             voiceRecordingSamples = []
             voiceRecordingDurationSeconds = 0
             isRecordingVoiceMessage = true

@@ -972,6 +972,10 @@ struct whitenoise_macTests {
         )
 
         #expect(fileManager.fileExists(atPath: url.path))
+        let fileAttributes = try fileManager.attributesOfItem(atPath: url.path)
+        if let protection = fileAttributes[.protectionKey] as? FileProtectionType {
+            #expect(protection == .complete || protection == .completeUntilFirstUserAuthentication)
+        }
         #expect(url.lastPathComponent == "voice-\(uniqueID.uuidString).m4a")
         #expect(url.deletingLastPathComponent().path == directory.path)
         let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
