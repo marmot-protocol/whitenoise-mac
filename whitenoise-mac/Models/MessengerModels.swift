@@ -13,6 +13,9 @@ struct AccountItem: Identifiable, Hashable {
     let npub: String?
     let initials: String
     let pictureURL: String?
+    /// Pre-sanitized once from the peer-controlled raw URL so avatar render passes only read it.
+    /// The view still gates loading on `WorkspaceState.loadRemoteImages`.
+    let sanitizedPictureURL: URL?
     let localSigning: Bool
     let isRunning: Bool
     /// True when the account has been signed out (non-destructive): local data is
@@ -27,6 +30,7 @@ struct AccountItem: Identifiable, Hashable {
         npub: String? = nil,
         initials: String? = nil,
         pictureURL: String? = nil,
+        sanitizedPictureURL: URL? = nil,
         localSigning: Bool = true,
         isRunning: Bool = true,
         signedOut: Bool = false
@@ -38,6 +42,8 @@ struct AccountItem: Identifiable, Hashable {
         self.npub = npub
         self.initials = initials ?? DisplayText.initials(for: displayName, fallback: accountIdHex)
         self.pictureURL = pictureURL
+        self.sanitizedPictureURL =
+            sanitizedPictureURL ?? RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
         self.localSigning = localSigning
         self.isRunning = isRunning
         self.signedOut = signedOut
@@ -52,6 +58,9 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let updatedAt: Date?
     let avatarSeed: String
     let pictureURL: String?
+    /// Pre-sanitized once from the peer-controlled raw URL so chat-row render passes only read it.
+    /// The view still gates loading on `WorkspaceState.loadRemoteImages`.
+    let sanitizedPictureURL: URL?
     let unreadCount: Int
     /// Unread messages in this chat that @-mention the active account.
     let unreadMentionCount: Int
@@ -72,6 +81,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         updatedAt: Date?,
         avatarSeed: String,
         pictureURL: String?,
+        sanitizedPictureURL: URL? = nil,
         unreadCount: Int,
         unreadMentionCount: Int = 0,
         isDirect: Bool = false,
@@ -84,6 +94,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.updatedAt = updatedAt
         self.avatarSeed = avatarSeed
         self.pictureURL = pictureURL
+        self.sanitizedPictureURL =
+            sanitizedPictureURL ?? RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
         self.unreadCount = unreadCount
         self.unreadMentionCount = unreadMentionCount
         self.isDirect = isDirect
@@ -135,6 +147,8 @@ struct GroupDetailsSnapshot: Hashable {
     let name: String
     let description: String
     let avatarURL: String?
+    /// Pre-sanitized once from the group profile avatar URL for details/header rendering.
+    let sanitizedAvatarURL: URL?
     let avatarDimension: String?
     let nostrGroupIdHex: String
     let relays: [String]
@@ -1863,6 +1877,25 @@ struct NewChatRecipient: Equatable {
     let npub: String
     let displayName: String?
     let pictureURL: String?
+    /// Pre-sanitized once from the peer-controlled raw URL so recipient rows only read it.
+    let sanitizedPictureURL: URL?
+
+    init(
+        sourceQuery: String,
+        memberRef: String,
+        accountIdHex: String,
+        npub: String,
+        displayName: String?,
+        pictureURL: String?
+    ) {
+        self.sourceQuery = sourceQuery
+        self.memberRef = memberRef
+        self.accountIdHex = accountIdHex
+        self.npub = npub
+        self.displayName = displayName
+        self.pictureURL = pictureURL
+        self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
+    }
 
     var title: String {
         guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),

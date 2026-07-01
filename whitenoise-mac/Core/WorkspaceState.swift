@@ -1277,13 +1277,15 @@ final class WorkspaceState {
                 if lhs.isAdmin != rhs.isAdmin { return lhs.isAdmin }
                 return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
+        let avatarURL = firstNonBlank([details.group.avatarUrl])
 
         return GroupDetailsSnapshot(
             groupIdHex: details.group.groupIdHex,
             endpoint: details.group.endpoint,
             name: firstNonBlank([details.group.name]) ?? L10n.string("Unnamed group"),
             description: details.group.description,
-            avatarURL: firstNonBlank([details.group.avatarUrl]),
+            avatarURL: avatarURL,
+            sanitizedAvatarURL: RemoteImageURLPolicy.sanitizedURL(from: avatarURL),
             avatarDimension: firstNonBlank([details.group.avatarDim]),
             nostrGroupIdHex: details.group.nostrGroupIdHex,
             relays: details.group.relays,

@@ -25,6 +25,11 @@ struct GroupDetailsSheet: View {
                 != snapshot.description
     }
 
+    private var headerAvatarURL: URL? {
+        guard let snapshot = workspace.groupDetailsSnapshot else { return chat.sanitizedPictureURL }
+        return snapshot.sanitizedAvatarURL
+    }
+
     var body: some View {
         @Bindable var workspace = workspace
 
@@ -33,7 +38,7 @@ struct GroupDetailsSheet: View {
                 ProfileImageAvatarView(
                     seed: chat.avatarSeed,
                     initials: chat.title,
-                    pictureURL: workspace.groupDetailsSnapshot?.avatarURL ?? chat.pictureURL,
+                    sanitizedPictureURL: headerAvatarURL,
                     size: 48,
                     isSelected: false
                 )
@@ -559,7 +564,7 @@ struct GroupImagePickerSheet: View {
                     ProfileImageAvatarView(
                         seed: chat.avatarSeed,
                         initials: chat.title,
-                        pictureURL: chat.pictureURL,
+                        sanitizedPictureURL: chat.sanitizedPictureURL,
                         size: 46,
                         isSelected: false
                     )

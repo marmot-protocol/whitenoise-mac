@@ -131,6 +131,41 @@ struct PureValueTests {
         #expect(sanitized?.absoluteString == "https://cdn.example/p.png")
     }
 
+    @Test func avatarModelsPrecomputeSanitizedPictureURLs() async throws {
+        let account = AccountItem(
+            id: "account",
+            accountRef: "account",
+            displayName: "Account",
+            accountIdHex: "abc123",
+            pictureURL: "  https://cdn.example/account.png  "
+        )
+        #expect(account.pictureURL == "  https://cdn.example/account.png  ")
+        #expect(account.sanitizedPictureURL?.absoluteString == "https://cdn.example/account.png")
+
+        let chat = ChatItem(
+            id: "chat",
+            title: "Chat",
+            subtitle: "Group message",
+            preview: "No messages yet",
+            updatedAt: nil,
+            avatarSeed: "chat",
+            pictureURL: "https://0x7f000001/avatar.png",
+            unreadCount: 0
+        )
+        #expect(chat.pictureURL == "https://0x7f000001/avatar.png")
+        #expect(chat.sanitizedPictureURL == nil)
+
+        let recipient = NewChatRecipient(
+            sourceQuery: "npub1recipient",
+            memberRef: "npub1recipient",
+            accountIdHex: "def456",
+            npub: "npub1recipient",
+            displayName: "Recipient",
+            pictureURL: "https://cdn.example/recipient.png"
+        )
+        #expect(recipient.sanitizedPictureURL?.absoluteString == "https://cdn.example/recipient.png")
+    }
+
     @Test func downsampledImageSizingCeilsAndBucketsRequestedPixels() async throws {
         #expect(DownsampledImageSizing.requestedPixelSize(0) == 1)
         #expect(DownsampledImageSizing.requestedPixelSize(63.1) == 64)

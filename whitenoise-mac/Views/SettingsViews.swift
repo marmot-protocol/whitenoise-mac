@@ -297,7 +297,7 @@ struct AccountSettingsRow: View {
                     ProfileImageAvatarView(
                         seed: account.accountIdHex,
                         initials: account.initials,
-                        pictureURL: account.pictureURL,
+                        sanitizedPictureURL: account.sanitizedPictureURL,
                         size: 44,
                         isSelected: false
                     )
@@ -550,7 +550,8 @@ struct ProfileSettingsView: View {
                         ProfileImageAvatarView(
                             seed: account.accountIdHex,
                             initials: profilePreviewName(fallback: account),
-                            pictureURL: workspace.profileDraft.picture,
+                            sanitizedPictureURL: RemoteImageURLPolicy.sanitizedURL(
+                                from: workspace.profileDraft.picture),
                             size: 56,
                             isSelected: false
                         )
@@ -631,7 +632,7 @@ struct IdentityKeysSettingsView: View {
                         ProfileImageAvatarView(
                             seed: account.accountIdHex,
                             initials: account.initials,
-                            pictureURL: account.pictureURL,
+                            sanitizedPictureURL: account.sanitizedPictureURL,
                             size: 52,
                             isSelected: false
                         )
