@@ -519,7 +519,8 @@ struct NewChatColumnView: View {
                     }
 
                     if let recipient = workspace.resolvedNewChatRecipient,
-                        !workspace.newChatRecipients.contains(where: { $0.accountIdHex == recipient.accountIdHex }) {
+                        !workspace.newChatRecipients.contains(where: { $0.accountIdHex == recipient.accountIdHex })
+                    {
                         NewChatRecipientCard(recipient: recipient, role: .pending)
                     }
 

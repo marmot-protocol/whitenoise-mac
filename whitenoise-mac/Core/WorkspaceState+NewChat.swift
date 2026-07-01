@@ -142,7 +142,8 @@ extension WorkspaceState {
         // person can't be invited twice.
         var recipients = newChatRecipients
         if let resolvedNewChatRecipient,
-            !recipients.contains(where: { $0.accountIdHex == resolvedNewChatRecipient.accountIdHex }) {
+            !recipients.contains(where: { $0.accountIdHex == resolvedNewChatRecipient.accountIdHex })
+        {
             recipients.append(resolvedNewChatRecipient)
         } else if recipients.isEmpty, let resolved = await resolveNewChatQuery() {
             recipients.append(resolved)
@@ -157,7 +158,8 @@ extension WorkspaceState {
         do {
             let trimmedName = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDescription = newChatDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-            let fallbackTitle = isDirect
+            let fallbackTitle =
+                isDirect
                 ? primary.title
                 : recipients.map(\.title).joined(separator: ", ")
             let groupName = trimmedName.isEmpty ? fallbackTitle : trimmedName
