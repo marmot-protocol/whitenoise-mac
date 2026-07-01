@@ -8971,6 +8971,59 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func notificationResponseForActiveAccountAllowsUnsyncedGroupBeforeReload() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "primary-account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == account.label)
+
+        // Simulate a notification for an active-account chat that the runtime can return,
+        // but the current chat-list snapshot has not learned about yet. The tap path must
+        // select first and let the reload discover it, not reject it as unavailable.
+        state.setChats([], forAccountId: account.label)
+        state.selection = .settings(.accounts)
+        runtime.clearTimelineMessageQueries()
+
+        state.handleNotificationResponse([
+            "groupIdHex": "direct-group",
+            "accountIdHex": account.accountIdHex,
+            "accountRef": account.label,
+        ])
+
+        #expect(state.selection == .chat("direct-group"))
+        #expect(
+            state.backgroundStatus
+                != "This notification is for an account or chat that is no longer available."
+        )
+    }
+
+    @MainActor
     @Test func notificationResponseForUnresolvableAccountDoesNotSelectForeignGroup() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }

@@ -61,14 +61,16 @@ extension WorkspaceState {
         if let account, !account.signedOut, activeAccountId != account.id {
             prepareForActiveAccountSwitch(to: account, preservingMessageCacheFor: groupIdHex)
             switchedAccounts = true
-        } else {
-            guard activeAccountContainsNotificationGroup(groupIdHex) else {
+        } else if account == nil || account?.signedOut == true {
+            guard activeAccountHasChat(groupIdHex: groupIdHex) else {
                 setBackgroundStatus(
                     L10n.string("This notification is for an account or chat that is no longer available.")
                 )
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 return
             }
+            switchedAccounts = false
+        } else {
             switchedAccounts = false
         }
 
@@ -87,7 +89,7 @@ extension WorkspaceState {
         }
     }
 
-    func activeAccountContainsNotificationGroup(_ groupIdHex: String) -> Bool {
+    func activeAccountHasChat(groupIdHex: String) -> Bool {
         guard let activeAccountId else { return false }
         return chatItem(accountId: activeAccountId, chatId: groupIdHex) != nil
     }
