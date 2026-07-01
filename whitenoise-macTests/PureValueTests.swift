@@ -276,6 +276,34 @@ struct PureValueTests {
         }
     }
 
+    @Test func markdownLinkPolicyRejectsPrivateAndLoopbackHosts() async throws {
+        // whitenoise-mac#249: peer-controlled Markdown links to literal private/loopback/
+        // link-local destinations must be suppressed symmetrically with avatar image URLs,
+        // even though the scheme is an otherwise-allowed http/https.
+        for raw in [
+            "http://192.168.0.1/admin/reboot",
+            "https://[::1]:9000/",
+            "http://127.0.0.1:8080/",
+            "https://10.0.0.5/x",
+            "http://169.254.169.254/latest/meta-data",
+            "https://[fe80::1]/",
+            "http://localhost/admin",
+            "https://printer.local/status",
+            // Obfuscated loopback literal (decimal form of 127.0.0.1).
+            "http://2130706433/",
+        ] {
+            #expect(
+                MarkdownLinkPolicy.sanitizedURL(from: raw) == nil,
+                "expected rejection for \(String(reflecting: raw))"
+            )
+        }
+
+        // Public http/https hosts and internal nostr links still pass.
+        #expect(MarkdownLinkPolicy.sanitizedURL(from: "https://example.com/path") != nil)
+        #expect(MarkdownLinkPolicy.sanitizedURL(from: "http://cdn.example.com/a") != nil)
+        #expect(MarkdownLinkPolicy.sanitizedURL(from: "nostr:nprofile1alice") != nil)
+    }
+
     @Test func markdownInlineBuilderDropsUnsafeMarkdownLinks() async throws {
         let safe = MarkdownDisplayInlineBuilder.attributedString(
             from: [

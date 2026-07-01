@@ -37,6 +37,13 @@ nonisolated enum MarkdownLinkPolicy {
             return false
         }
         guard let host = url.host, !host.isEmpty else { return false }
+        // Peer-controlled links must not point at literal private/loopback/link-local
+        // destinations. Reuse the SSRF host check already implemented for avatar image URLs so
+        // a Markdown link to a LAN/loopback address is suppressed symmetrically with images
+        // (whitenoise-mac#249). Public http/https hosts still pass; the same DNS-rebinding
+        // limitation documented on `RemoteImageURLPolicy` applies (a public-looking hostname can
+        // still resolve to a private IP).
+        guard !RemoteImageURLPolicy.isDisallowedHost(host) else { return false }
         return true
     }
 
