@@ -631,7 +631,7 @@ struct NewChatRecipientCard: View {
             ProfileImageAvatarView(
                 seed: recipient.accountIdHex,
                 initials: recipient.title,
-                pictureURL: recipient.pictureURL,
+                sanitizedPictureURL: recipient.sanitizedPictureURL,
                 size: 44,
                 isSelected: false
             )
@@ -694,21 +694,14 @@ struct ProfileImageAvatarView: View {
     @Environment(WorkspaceState.self) private var workspace
     let seed: String
     let initials: String
-    let pictureURL: String?
+    /// Already passed through `RemoteImageURLPolicy`; body only checks the user preference.
+    let sanitizedPictureURL: URL?
     let size: CGFloat
     let isSelected: Bool
 
-    /// Only returns a fetchable URL when the user has opted into loading remote images AND the
-    /// URL passes the safety policy (https + valid host). Otherwise nil, so a generated avatar
-    /// is shown and no outbound request is made to a sender-chosen server.
-    private var imageURL: URL? {
-        guard workspace.loadRemoteImages else { return nil }
-        return RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
-    }
-
     var body: some View {
         Group {
-            if let imageURL {
+            if workspace.loadRemoteImages, let imageURL = sanitizedPictureURL {
                 DownsampledAsyncImage(url: imageURL, maxPixelSize: size * 2) { image in
                     image
                         .resizable()
@@ -743,7 +736,7 @@ struct ConversationHeader: View {
                     ProfileImageAvatarView(
                         seed: chat.avatarSeed,
                         initials: chat.title,
-                        pictureURL: chat.pictureURL,
+                        sanitizedPictureURL: chat.sanitizedPictureURL,
                         size: 38,
                         isSelected: false
                     )
