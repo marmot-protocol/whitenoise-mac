@@ -480,7 +480,7 @@ struct NewChatColumnView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Public key")
+                        Text("Members")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
 
@@ -488,7 +488,7 @@ struct NewChatColumnView: View {
                             .textFieldStyle(.plain)
                             .focused($isSearchFocused)
                             .onSubmit {
-                                Task { await workspace.resolveNewChatQuery() }
+                                Task { await workspace.addCurrentNewChatRecipient() }
                             }
                             .task(id: workspace.newChatQuery) {
                                 // Debounce keystrokes and let `.task(id:)` cancel the
@@ -506,6 +506,10 @@ struct NewChatColumnView: View {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(isSearchFocused ? MessagesPalette.sentBubble : Color.clear, lineWidth: 1)
                             }
+
+                        Text("Add one or more people by npub or hex public key. Press return or tap + to add each one.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
 
                     if workspace.isResolvingNewChat {
@@ -514,8 +518,26 @@ struct NewChatColumnView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if let recipient = workspace.resolvedNewChatRecipient {
-                        NewChatRecipientCard(recipient: recipient)
+                    if let recipient = workspace.resolvedNewChatRecipient,
+                        !workspace.newChatRecipients.contains(where: { $0.accountIdHex == recipient.accountIdHex })
+                    {
+                        NewChatRecipientCard(recipient: recipient, role: .pending)
+                    }
+
+                    if !workspace.newChatRecipients.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(
+                                workspace.newChatRecipients.count == 1
+                                    ? L10n.string("1 member added")
+                                    : "\(workspace.newChatRecipients.count) \(L10n.string("members added"))"
+                            )
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                            ForEach(workspace.newChatRecipients, id: \.accountIdHex) { recipient in
+                                NewChatRecipientCard(recipient: recipient, role: .added)
+                            }
+                        }
                     }
 
                     NewChatDetailsForm()
@@ -582,14 +604,25 @@ struct NewChatDetailsForm: View {
             }
             .controlSize(.large)
             .nativeGlassProminentButtonStyle()
-            .disabled(workspace.resolvedNewChatRecipient == nil || workspace.isCreatingChat)
+            .disabled(
+                (workspace.newChatRecipients.isEmpty && workspace.resolvedNewChatRecipient == nil)
+                    || workspace.isCreatingChat
+            )
         }
     }
 }
 
 struct NewChatRecipientCard: View {
+    enum Role {
+        /// Freshly resolved from the input, not yet added to the members list.
+        case pending
+        /// Already in the confirmed members list.
+        case added
+    }
+
     @Environment(WorkspaceState.self) private var workspace
     let recipient: NewChatRecipient
+    var role: Role = .pending
 
     var body: some View {
         let publicKey = recipient.npub.isEmpty ? recipient.accountIdHex : recipient.npub
@@ -628,6 +661,29 @@ struct NewChatRecipientCard: View {
             }
 
             Spacer()
+
+            switch role {
+            case .pending:
+                Button {
+                    Task { await workspace.addCurrentNewChatRecipient() }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .nativeGlassCircleButtonStyle()
+                .help(L10n.string("Add member"))
+            case .added:
+                Button {
+                    workspace.removeNewChatRecipient(recipient)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 28, height: 28)
+                }
+                .nativeGlassCircleButtonStyle()
+                .help(L10n.string("Remove member"))
+            }
         }
         .padding(12)
         .glassCard()
@@ -677,85 +733,76 @@ struct ConversationHeader: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        ZStack {
-            VStack(spacing: 4) {
-                ProfileImageAvatarView(
-                    seed: chat.avatarSeed,
-                    initials: chat.title,
-                    pictureURL: chat.pictureURL,
-                    size: 38,
-                    isSelected: false
-                )
+        HStack(spacing: 10) {
+            // Tapping the avatar or title opens the chat info / settings panel,
+            // which slides in over the transcript (see ConversationView).
+            Button {
+                Task { await workspace.showGroupDetails(for: chat) }
+            } label: {
+                HStack(spacing: 10) {
+                    ProfileImageAvatarView(
+                        seed: chat.avatarSeed,
+                        initials: chat.title,
+                        pictureURL: chat.pictureURL,
+                        size: 38,
+                        isSelected: false
+                    )
 
-                Text(chat.title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(.thinMaterial, in: Capsule())
+                    Text(chat.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .lineLimit(1)
+                        .foregroundStyle(.primary)
+                }
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: 220)
+            .buttonStyle(.plain)
+            .help("Chat info")
 
-            HStack {
-                Spacer()
+            Spacer()
 
-                if chat.pendingConfirmation {
-                    Button {
-                        Task { await workspace.acceptGroupInvite(for: chat) }
-                    } label: {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                    .help("Accept invite")
-
-                    Button(role: .destructive) {
-                        Task { await workspace.declineGroupInvite(for: chat) }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                    .help("Decline invite")
+            if chat.pendingConfirmation {
+                Button {
+                    Task { await workspace.acceptGroupInvite(for: chat) }
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
                 }
+                .buttonStyle(.plain)
+                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                .help("Accept invite")
 
-                if !chat.isDirect {
-                    Button {
-                        Task { await workspace.showGroupDetails(for: chat) }
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .help("Group details")
-
-                    Button {
-                        workspace.showGroupImagePicker(for: chat)
-                    } label: {
-                        Image(systemName: "photo.badge.plus")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .background {
-                                MessagesCircleControlBackground()
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .help("Set group image")
+                Button(role: .destructive) {
+                    Task { await workspace.declineGroupInvite(for: chat) }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
                 }
+                .buttonStyle(.plain)
+                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                .help("Decline invite")
+            }
+
+            if !chat.isDirect {
+                Button {
+                    workspace.showGroupImagePicker(for: chat)
+                } label: {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
+                }
+                .buttonStyle(.plain)
+                .help("Set group image")
             }
         }
         .padding(.horizontal, 14)
@@ -764,9 +811,6 @@ struct ConversationHeader: View {
         .frame(height: 76)
         .background {
             MessagesHeaderBackground()
-        }
-        .sheet(isPresented: $workspace.isGroupDetailsPresented) {
-            GroupDetailsSheet(chat: chat)
         }
         .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
             GroupImagePickerSheet()

@@ -97,8 +97,50 @@ extension WorkspaceState {
         await resolveNewChatQuery()
     }
 
+    /// Resolve the current query (if needed) and move that recipient into the
+    /// confirmed members list, clearing the input so the next pubkey can be added.
+    @discardableResult
+    func addCurrentNewChatRecipient() async -> Bool {
+        let recipient: NewChatRecipient?
+        if let resolvedNewChatRecipient {
+            recipient = resolvedNewChatRecipient
+        } else {
+            recipient = await resolveNewChatQuery()
+        }
+        guard let recipient else { return false }
+
+        let didAppend = appendNewChatRecipient(recipient)
+        invalidateNewChatLookup()
+        newChatQuery = ""
+        newChatRecipient = nil
+        lastError = nil
+        // `false` when the pubkey was already in the list (deduped), so callers
+        // can tell "nothing new added" from a genuine failure to resolve.
+        return didAppend
+    }
+
+    @discardableResult
+    func appendNewChatRecipient(_ recipient: NewChatRecipient) -> Bool {
+        guard !newChatRecipients.contains(where: { $0.accountIdHex == recipient.accountIdHex }) else {
+            return false
+        }
+        newChatRecipients.append(recipient)
+        return true
+    }
+
+    func removeNewChatRecipient(_ recipient: NewChatRecipient) {
+        newChatRecipients.removeAll { $0.accountIdHex == recipient.accountIdHex }
+    }
+
     func createNewChat() async {
         guard let client, let activeAccount, !isCreatingChat else { return }
+
+        // Claim the in-flight flag before the first await (the pending-query
+        // resolve below). Otherwise two rapid submits both pass the `!isCreatingChat`
+        // guard while suspended and each reach `createGroup`, creating duplicate chats.
+        lastError = nil
+        isCreatingChat = true
+        defer { isCreatingChat = false }
 
         // Capture the creating account on entry so a mid-await A→B account switch (e.g. via
         // a notification tap while `createGroup`/`reloadChats` are suspended) cannot graft
@@ -107,34 +149,49 @@ extension WorkspaceState {
         // only guards the workspace UI state. See whitenoise-mac#229.
         let accountId = activeAccount.id
 
-        let recipient: NewChatRecipient?
+        // Gather every member: the confirmed list plus whatever is still sitting
+        // in the input, so a pubkey typed but not yet added via return/+ is never
+        // silently dropped. If the pending query already resolved, fold it in; if
+        // there is non-empty text that has not resolved yet (e.g. the debounce
+        // hadn't fired), resolve it now and *block* creation when it can't, rather
+        // than quietly leaving that recipient out. Dedup by account so the same
+        // person can't be invited twice.
+        var recipients = newChatRecipients
         if let resolvedNewChatRecipient {
-            recipient = resolvedNewChatRecipient
-        } else {
-            recipient = await resolveNewChatQuery()
+            if !recipients.contains(where: { $0.accountIdHex == resolvedNewChatRecipient.accountIdHex }) {
+                recipients.append(resolvedNewChatRecipient)
+            }
+        } else if !newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let resolved = await resolveNewChatQuery() else { return }
+            if !recipients.contains(where: { $0.accountIdHex == resolved.accountIdHex }) {
+                recipients.append(resolved)
+            }
         }
-        guard let recipient else { return }
-
-        lastError = nil
-        isCreatingChat = true
-        defer { isCreatingChat = false }
+        guard let primary = recipients.first else { return }
+        let isDirect = recipients.count == 1
 
         do {
             let trimmedName = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDescription = newChatDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fallbackTitle =
+                isDirect
+                ? primary.title
+                : recipients.map(\.title).joined(separator: ", ")
+            let groupName = trimmedName.isEmpty ? fallbackTitle : trimmedName
             let groupIdHex = try await client.createGroup(
                 accountRef: activeAccount.accountRef,
-                name: trimmedName.isEmpty ? recipient.title : trimmedName,
-                memberRefs: [recipient.memberRef],
+                name: groupName,
+                memberRefs: recipients.map(\.memberRef),
                 description: trimmedDescription.isEmpty ? nil : trimmedDescription
             )
             await reloadChats(forceFreshSnapshot: true)
             guard activeAccountId == accountId else { return }
             insertCreatedChatIfNeeded(
                 groupIdHex: groupIdHex,
-                title: trimmedName.isEmpty ? recipient.title : trimmedName,
-                avatarSeed: recipient.accountIdHex,
-                pictureURL: recipient.pictureURL
+                title: groupName,
+                avatarSeed: primary.accountIdHex,
+                pictureURL: isDirect ? primary.pictureURL : nil,
+                isDirect: isDirect
             )
             selection = .chat(groupIdHex)
             closeNewChatComposer()
@@ -151,6 +208,7 @@ extension WorkspaceState {
         newChatName = ""
         newChatDescription = ""
         newChatRecipient = nil
+        newChatRecipients = []
     }
 
     func beginNewChatLookup() -> UInt64 {
@@ -168,20 +226,26 @@ extension WorkspaceState {
             && newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
 
-    func insertCreatedChatIfNeeded(groupIdHex: String, title: String, avatarSeed: String, pictureURL: String?) {
+    func insertCreatedChatIfNeeded(
+        groupIdHex: String,
+        title: String,
+        avatarSeed: String,
+        pictureURL: String?,
+        isDirect: Bool = true
+    ) {
         guard let activeAccountId else { return }
         guard chatItem(accountId: activeAccountId, chatId: groupIdHex) == nil else { return }
 
         let chat = ChatItem(
             id: groupIdHex,
             title: title,
-            subtitle: L10n.string("Direct message"),
+            subtitle: isDirect ? L10n.string("Direct message") : L10n.string("Group chat"),
             preview: L10n.string("No messages yet"),
             updatedAt: nil,
             avatarSeed: avatarSeed,
             pictureURL: pictureURL,
             unreadCount: 0,
-            isDirect: true
+            isDirect: isDirect
         )
         upsertChat(chat, forAccountId: activeAccountId)
     }

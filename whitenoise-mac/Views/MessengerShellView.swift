@@ -571,6 +571,30 @@ private struct ConversationView: View {
                     .allowsHitTesting(false)
             }
         }
+        // Chat info / settings slides in from the right and replaces the
+        // transcript instead of presenting as a modal sheet, giving the
+        // settings page the full conversation width. An opaque base behind the
+        // glass keeps the transcript from bleeding through while it stays
+        // mounted underneath (preserving scroll position on the way back).
+        .overlay {
+            if workspace.isGroupDetailsPresented {
+                GroupDetailsSheet(chat: chat)
+                    .background {
+                        Rectangle().fill(.background)
+                        MessagesTranscriptBackground()
+                    }
+                    .transition(.move(edge: .trailing))
+                    .zIndex(3)
+            }
+        }
+        .animation(.smooth(duration: 0.24), value: workspace.isGroupDetailsPresented)
+        // Switching conversations must not leave the previous chat's info panel
+        // open over a different transcript.
+        .onChange(of: chat.id) { _, _ in
+            if workspace.isGroupDetailsPresented {
+                workspace.closeGroupDetails()
+            }
+        }
     }
 
     private var bottomAnchorId: String {
