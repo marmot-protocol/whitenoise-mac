@@ -5114,6 +5114,62 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func preparedMediaAttachmentIsDiscardedWhenSelectionChangesDuringPrep() async throws {
+        // Issue #245: media/voice prep captures the composer draft key before an async prep
+        // step. If the user switches chats while prep is in flight, the finished attachment
+        // must be discarded rather than filed under the chat they just left. The append is
+        // gated by `appendPendingMediaAttachmentIfSelectionUnchanged`, which discards when the
+        // live selection no longer matches the captured key.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        guard let chatA = state.activeChats.first(where: { $0.id == "group" }),
+            let chatB = state.activeChats.first(where: { $0.id == "direct-group" })
+        else {
+            Issue.record("Expected both test chats")
+            return
+        }
+
+        state.selectChat(chatA)
+        guard let staleKey = state.selectedComposerDraftKey else {
+            Issue.record("Expected a composer draft key for chat A")
+            return
+        }
+
+        let attachment = PendingMediaAttachment(
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("hello media".utf8),
+            dim: nil
+        )
+
+        // Simulate the user switching to chat B while prep is in flight, then the prep
+        // completing with chat A's captured key.
+        state.selectChat(chatB)
+        let appended = state.appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: staleKey)
+
+        #expect(!appended)
+        // Nothing lands in the chat the user left, nor in the chat they are now viewing.
+        #expect(state.pendingMediaAttachmentsByConversation[staleKey] == nil)
+        #expect(state.pendingMediaAttachments.isEmpty)
+
+        // Sanity check the positive path: with selection unchanged the attachment is appended.
+        state.selectChat(chatA)
+        let appendedAgain = state.appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: staleKey)
+        #expect(appendedAgain)
+        #expect(state.pendingMediaAttachments.map(\.fileName) == ["notes.txt"])
+    }
+
+    @MainActor
     @Test func mediaSendRefreshesSelectedTimelineImmediately() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
