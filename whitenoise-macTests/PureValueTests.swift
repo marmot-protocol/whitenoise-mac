@@ -32,6 +32,29 @@ struct PureValueTests {
         #expect(DisappearingMessageOption.custom(oversizedSeconds).label == "9223372036854775808 seconds")
     }
 
+    @Test func mediaDurationLabelClampsNonFiniteAndOversizedDurations() async throws {
+        // Regression for whitenoise-mac#253: the audio duration is peer-derived
+        // (MediaWaveformAnalyzer -> AVAudioFile.length / sampleRate), so it may be
+        // NaN, ±Infinity, or larger than Int.max. Int(_:) traps on any of those, so
+        // the label must clamp instead of crashing while rendering an audio row.
+        #expect(MediaDurationLabel.string(for: .nan) == "0:00")
+        #expect(MediaDurationLabel.string(for: .infinity) == "0:00")
+        #expect(MediaDurationLabel.string(for: -.infinity) == "0:00")
+        #expect(MediaDurationLabel.string(for: -1) == "0:00")
+
+        // A crafted header can drive the duration above Int.max; clamping to Int.max
+        // must not trap and must still format as an hours label. Double(Int.max)
+        // rounds up to 2^63, which is > Int.max, so it exercises the clamp path.
+        let expected = "2562047788015215:30:07"
+        #expect(MediaDurationLabel.string(for: 1e19) == expected)
+        #expect(MediaDurationLabel.string(for: Double(Int.max)) == expected)
+        #expect(MediaDurationLabel.string(for: .greatestFiniteMagnitude) == expected)
+
+        // Ordinary values keep formatting exactly as before.
+        #expect(MediaDurationLabel.string(for: 3_599) == "59:59")
+        #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
+    }
+
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
         // The string entry point used by the UI must also reject internal destinations.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
