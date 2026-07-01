@@ -8971,6 +8971,113 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func notificationResponseForUnresolvableAccountDoesNotSelectForeignGroup() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "primary-account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == account.label)
+        #expect(state.selection == .chat("direct-group"))
+
+        runtime.clearTimelineMessageQueries()
+        state.handleNotificationResponse([
+            "groupIdHex": "foreign-group",
+            "accountIdHex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "accountRef": "removed-account",
+        ])
+
+        #expect(state.activeAccountId == account.label)
+        #expect(state.selection == .chat("direct-group"))
+        #expect(
+            state.backgroundStatus
+                == "This notification is for an account or chat that is no longer available."
+        )
+        #expect(runtime.timelineMessageQueries.isEmpty)
+    }
+
+    @MainActor
+    @Test func notificationResponseForSignedOutAccountDoesNotSwitchOrSelectForeignGroup() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.removeObject(forKey: "whitenoise.mac.activeAccountId")
+
+        let primary = AccountSummaryFfi(
+            label: "primary-account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let signedOut = AccountSummaryFfi(
+            label: "signed-out-account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            signedOut: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, signedOut])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: primary.accountIdHex,
+            otherAccountIdHex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == primary.label)
+        #expect(state.selection == .chat("direct-group"))
+
+        runtime.clearTimelineMessageQueries()
+        state.handleNotificationResponse([
+            "groupIdHex": "foreign-group",
+            "accountIdHex": signedOut.accountIdHex,
+            "accountRef": signedOut.label,
+        ])
+
+        #expect(state.activeAccountId == primary.label)
+        #expect(state.selection == .chat("direct-group"))
+        #expect(
+            state.backgroundStatus
+                == "This notification is for an account or chat that is no longer available."
+        )
+        #expect(runtime.timelineMessageQueries.isEmpty)
+    }
+
+    @MainActor
     @Test func enablingPrivacySecurityTogglesRequireConfiguredTokens() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",

@@ -56,11 +56,19 @@ extension WorkspaceState {
     func handleNotificationResponse(_ userInfo: [String: String]) {
         guard let groupIdHex = userInfo["groupIdHex"] else { return }
 
+        let account = notificationAccount(from: userInfo)
         let switchedAccounts: Bool
-        if let account = notificationAccount(from: userInfo), activeAccountId != account.id {
+        if let account, !account.signedOut, activeAccountId != account.id {
             prepareForActiveAccountSwitch(to: account, preservingMessageCacheFor: groupIdHex)
             switchedAccounts = true
         } else {
+            guard activeAccountContainsNotificationGroup(groupIdHex) else {
+                setBackgroundStatus(
+                    L10n.string("This notification is for an account or chat that is no longer available.")
+                )
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                return
+            }
             switchedAccounts = false
         }
 
@@ -77,6 +85,11 @@ extension WorkspaceState {
             await reloadChats()
             await loadMessages(groupIdHex: groupIdHex)
         }
+    }
+
+    func activeAccountContainsNotificationGroup(_ groupIdHex: String) -> Bool {
+        guard let activeAccountId else { return false }
+        return chatItem(accountId: activeAccountId, chatId: groupIdHex) != nil
     }
 
     func startNotificationListener() {
