@@ -55,6 +55,41 @@ struct PureValueTests {
         #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
     }
 
+    @Test func messageItemTimelineFallbackClampsPreEpochAndNonFiniteDates() async throws {
+        // Regression for whitenoise-mac#247: the timelineAt fallback derives from
+        // sentAt via UInt64(_:), which traps on negative (pre-1970) or non-finite
+        // dates. The fallback must clamp instead of crashing the initializer.
+        func timelineAt(for sentAt: Date) -> UInt64 {
+            MessageItem(id: "t", senderName: "s", body: "b", sentAt: sentAt, isOutgoing: false).timelineAt
+        }
+
+        // Pre-epoch dates have a negative timeIntervalSince1970 and clamp to 0.
+        #expect(timelineAt(for: Date(timeIntervalSince1970: -1)) == 0)
+        #expect(timelineAt(for: Date(timeIntervalSince1970: -1_000)) == 0)
+
+        // Non-finite dates also clamp to 0 rather than trapping.
+        #expect(timelineAt(for: Date(timeIntervalSince1970: .nan)) == 0)
+        #expect(timelineAt(for: Date(timeIntervalSince1970: .infinity)) == 0)
+        #expect(timelineAt(for: Date(timeIntervalSince1970: -.infinity)) == 0)
+
+        // Ordinary positive dates floor to their epoch seconds.
+        #expect(timelineAt(for: Date(timeIntervalSince1970: 1_700_000_000.75)) == 1_700_000_000)
+
+        // Oversized finite dates clamp to UInt64.max instead of trapping.
+        #expect(timelineAt(for: Date(timeIntervalSince1970: 1e30)) == UInt64.max)
+
+        // An explicit timelineAt still overrides the fallback entirely.
+        let explicit = MessageItem(
+            id: "t",
+            senderName: "s",
+            body: "b",
+            sentAt: Date(timeIntervalSince1970: -5),
+            timelineAt: 42,
+            isOutgoing: false
+        )
+        #expect(explicit.timelineAt == 42)
+    }
+
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
         // The string entry point used by the UI must also reject internal destinations.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
