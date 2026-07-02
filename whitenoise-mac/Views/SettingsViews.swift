@@ -499,12 +499,16 @@ struct QRCodeImageView: View {
             }
         }
         .task(id: payload) {
-            renderedImage = Self.image(for: payload)
+            let image = await Task.detached(priority: .userInitiated) {
+                Self.image(for: payload)
+            }.value
+            guard !Task.isCancelled else { return }
+            renderedImage = image
             renderedPayload = payload
         }
     }
 
-    private static func image(for payload: String) -> NSImage? {
+    nonisolated private static func image(for payload: String) -> NSImage? {
         guard !payload.isEmpty,
             let filter = CIFilter(name: "CIQRCodeGenerator")
         else { return nil }
