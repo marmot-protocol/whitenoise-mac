@@ -6017,6 +6017,36 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func conversationTranscriptExportFailsWhenNonEmptyPageDoesNotAdvanceCursor() throws {
+        // Regression for the sibling of #139: a *non-empty* page whose oldest message equals
+        // the current `before` cursor while `hasMoreBefore == true` also cannot advance, so the
+        // export must fail loudly rather than silently truncating older history. The first page
+        // returns one message with more before it; the second page returns that same message
+        // (same `timelineAt` + `messageIdHex`) while still claiming more history exists.
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let firstId = String(repeating: "1", count: 64)
+        let boundary = timelineMessage(
+            id: firstId,
+            groupIdHex: "group",
+            sender: String(repeating: "a", count: 64),
+            plaintext: "newest",
+            recordedAt: 10
+        )
+        // Every page returns only the boundary message, so after the first page the oldest
+        // message always equals the current cursor and the loop can never make progress.
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [boundary], hasMoreBefore: true, hasMoreAfter: false)
+        }
+
+        #expect(throws: ConversationTranscriptExport.ExportError.self) {
+            try ConversationTranscriptExport.fetchAllMessages(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group"
+            )
+        }
+    }
+
     @Test func conversationTranscriptExportStopsCleanlyWhenEmptyPageHasNoMoreHistory() throws {
         // The companion to the regression above: an empty page with `hasMoreBefore == false`
         // is genuinely done and must terminate the loop without throwing.
