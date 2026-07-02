@@ -556,10 +556,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                         using: symmetricKey,
                         authenticatedBy: metadataAAD(for: cacheID)
                     ),
-                    let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext),
-                    metadata.accountDigest == accountDigest
-                else { continue }
-                try? FileManager.default.removeItem(at: entryDirectory)
+                    let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext)
+                else {
+                    try? FileManager.default.removeItem(at: entryDirectory)
+                    continue
+                }
+                if metadata.accountDigest == accountDigest {
+                    try? FileManager.default.removeItem(at: entryDirectory)
+                }
             }
         }
     }

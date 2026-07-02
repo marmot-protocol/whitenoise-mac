@@ -1163,6 +1163,61 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: entryDirectory.path))
     }
 
+    @Test func messageMediaDiskCacheAccountPurgeDeletesUnreadableEntries() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let corruptPlaintext = Data("account media with unreadable metadata".utf8)
+        let preservedPlaintext = Data("other account media".utf8)
+        let corruptKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: corruptPlaintext, ciphertextByte: 0xaa)
+        )
+        let preservedKey = MessageMediaDiskCacheKey(
+            accountId: "account-b",
+            groupIdHex: "group-b",
+            reference: mediaDiskCacheReference(plaintext: preservedPlaintext, ciphertextByte: 0xbb)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: corruptPlaintext,
+                fileName: "corrupt.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(corruptPlaintext.count),
+                payloadId: "corrupt"
+            ),
+            for: corruptKey
+        )
+        await cache.store(
+            MessageMediaDownload(
+                data: preservedPlaintext,
+                fileName: "preserved.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(preservedPlaintext.count),
+                payloadId: "preserved"
+            ),
+            for: preservedKey
+        )
+
+        let corruptEntryDirectory = try #require(cache.entryDirectory(for: corruptKey))
+        let preservedEntryDirectory = try #require(cache.entryDirectory(for: preservedKey))
+        try Data("not sealed metadata".utf8).write(
+            to: corruptEntryDirectory.appendingPathComponent("metadata.bin")
+        )
+
+        await cache.purgeAccount("account-a")
+
+        #expect(!fileManager.fileExists(atPath: corruptEntryDirectory.path))
+        #expect(await cache.cachedDownload(for: corruptKey) == nil)
+        #expect(fileManager.fileExists(atPath: preservedEntryDirectory.path))
+        #expect(try #require(await cache.cachedDownload(for: preservedKey)).data == preservedPlaintext)
+    }
+
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
