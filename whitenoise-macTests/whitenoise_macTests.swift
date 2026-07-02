@@ -10899,6 +10899,147 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleSettingsProfileLoadDoesNotClobberSwitchedAccount() async throws {
+        // Issue #283: `performSettingsLoad` reads `userProfile` over the non-cancellation-aware FFI
+        // boundary, then writes `profileDraft` and — via the live `activeAccountId` —
+        // `updateActiveAccountProfile`. On an A→B switch while account A's read is in flight, A's
+        // profile must not overwrite B's freshly-loaded `profileDraft` or B's `accounts[]` entry.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox.example"]
+        )
+        runtime.installProfile(
+            accountIdHex: accountA.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "desktop",
+                displayName: "Desktop Original",
+                about: nil,
+                picture: "https://example.com/desktop.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: accountB.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "backup",
+                displayName: "Backup Original",
+                about: nil,
+                picture: "https://example.com/backup.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        // Arm the gate so account A's profile read suspends in-flight.
+        runtime.userProfileGateEnabled = true
+        async let staleLoad: Void = state.loadSettingsData()
+        while !runtime.didReachUserProfileGate {
+            await Task.yield()
+        }
+
+        // Switch to account B and load its settings to completion.
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        await state.loadSettingsData()
+        #expect(state.profileDraft.displayName == "Backup Original")
+
+        // Release account A's stale read; its post-await writes must not touch account B's state.
+        runtime.releaseUserProfileGate()
+        _ = await staleLoad
+
+        #expect(state.profileDraft.displayName == "Backup Original")
+        #expect(state.profileDraft.picture == "https://example.com/backup.png")
+        let backupEntry = try #require(state.accounts.first { $0.id == "Backup Account" })
+        #expect(backupEntry.displayName == "Backup Original")
+        #expect(backupEntry.pictureURL == "https://example.com/backup.png")
+    }
+
+    @MainActor
+    @Test func staleSettingsRelayLoadDoesNotClobberSwitchedAccount() async throws {
+        // Issue #283: `performSettingsLoad` reads `accountRelayLists` over the non-cancellation-aware
+        // FFI boundary, then writes `relaySettings` / `relayDraft`. On an A→B switch while account A's
+        // read is in flight, A's relays must not overwrite B's freshly-loaded relay state.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox-a.example"]
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        // Arm the gate so account A's relay read suspends in-flight.
+        runtime.accountRelayListsGateEnabled = true
+        async let staleLoad: Void = state.loadSettingsData()
+        while !runtime.didReachAccountRelayListsGate {
+            await Task.yield()
+        }
+
+        // Switch to account B and load its (distinct) inbox to completion.
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox-b.example"]
+        )
+        await state.loadSettingsData()
+        state.selectRelaySection(.inbox)
+        #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
+
+        // Release account A's stale read; its post-await writes must not touch account B's state.
+        runtime.releaseAccountRelayListsGate()
+        _ = await staleLoad
+
+        #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
+        #expect(state.relayDraft == ["wss://inbox-b.example"])
+    }
+
+    @MainActor
     @Test func accountSwitchResetsSearchAndSelectsFirstChatForAccount() async throws {
         let state = WorkspaceState.preview()
         state.searchText = "relay"
@@ -11152,6 +11293,28 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachSetLocalNotificationsGate: Bool {
         setLocalNotificationsGate.didReach
     }
+    /// Issue #283 stale-account-test support: when armed, the first synchronous `userProfile` FFI
+    /// read blocks on the off-main FFI batch until released, holding `performSettingsLoad`'s profile
+    /// fetch in-flight so a test can switch the active account and assert account A's stale profile
+    /// is not written onto account B's `profileDraft` / `accounts[]` entry.
+    private let userProfileGate = BlockingFfiGate()
+    var userProfileGateEnabled: Bool {
+        get { userProfileGate.isEnabled }
+        set { userProfileGate.isEnabled = newValue }
+    }
+    var didReachUserProfileGate: Bool {
+        userProfileGate.didReach
+    }
+    /// Issue #283 equivalent gate for the synchronous `accountRelayLists` FFI read, holding
+    /// `performSettingsLoad`'s relay fetch in-flight across an account switch.
+    private let accountRelayListsGate = BlockingFfiGate()
+    var accountRelayListsGateEnabled: Bool {
+        get { accountRelayListsGate.isEnabled }
+        set { accountRelayListsGate.isEnabled = newValue }
+    }
+    var didReachAccountRelayListsGate: Bool {
+        accountRelayListsGate.didReach
+    }
     /// Issue #287 stale-account-test support: when armed, the first `publishUserProfile` FFI call
     /// suspends until `releasePublishUserProfileGate()` is invoked, holding `saveProfile()` in-flight
     /// so a test can switch the active account before the publish resolves and assert the just-saved
@@ -11268,8 +11431,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         // simulate a slow batch advancing the wall clock so the post-FFI cache stamp can
         // be distinguished from a pre-FFI one (whitenoise-mac#181).
         onUserProfileLookup?(accountIdHex)
-        guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
-        return profilesByAccountId[accountIdHex] ?? profile
+        // Snapshot the result *before* the gate so a held older load returns its account's profile
+        // and a later switch/reinstall cannot retroactively change them (issue #283).
+        let result: UserProfileMetadataFfi? =
+            accountIdsMissingProfiles.contains(accountIdHex) ? nil : (profilesByAccountId[accountIdHex] ?? profile)
+        userProfileGate.passIfArmed()
+        return result
+    }
+
+    func releaseUserProfileGate() {
+        userProfileGate.release()
     }
 
     func normalizeMemberRef(memberRef: String) throws -> MemberRefFfi {
@@ -11459,7 +11630,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
         accountRelayListsCallCount += 1
         recordSyncCall("accountRelayLists")
-        return relayLists
+        // Snapshot the result *before* the gate so a held older load returns its account's relays
+        // and a later switch/reinstall cannot retroactively change them (issue #283).
+        let result = relayLists
+        accountRelayListsGate.passIfArmed()
+        return result
+    }
+
+    func releaseAccountRelayListsGate() {
+        accountRelayListsGate.release()
     }
 
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi] {
