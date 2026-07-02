@@ -23903,6 +23903,65 @@
         }
       }
     },
+    "This notification is for an account or chat that is no longer available." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Benachrichtigung gehört zu einem Konto oder Chat, der nicht mehr verfügbar ist."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta notificación es de una cuenta o chat que ya no está disponible."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette notification concerne un compte ou une discussion qui n’est plus disponible."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa notifica riguarda un account o una chat che non è più disponibile."
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta notificação é de uma conta ou conversa que não está mais disponível."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это уведомление относится к учетной записи или чату, которые больше недоступны."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu bildirim artık kullanılamayan bir hesaba veya sohbete ait."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此通知对应的账号或聊天已不可用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此通知對應的帳號或聊天已不可用。"
+          }
+        }
+      }
+    },
     "This permanently removes every local audit JSONL file on this Mac." : {
 
     },
