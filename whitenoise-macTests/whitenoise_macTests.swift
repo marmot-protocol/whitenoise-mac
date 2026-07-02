@@ -1191,6 +1191,95 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: legacyVoiceRecordings.path))
     }
 
+    @Test func outgoingMediaMetadataTempStoreLivesInsideAppContainerNotSharedTemp() {
+        let base = URL(fileURLWithPath: "/Container", isDirectory: true)
+        let directory = OutgoingMediaMetadataTempStore.directoryURL(baseURL: base)
+
+        #expect(
+            directory.path == "/Container/White Noise/WhiteNoiseMediaWork"
+        )
+        #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
+    }
+
+    @Test func outgoingMediaMetadataTempStoreMaterializesProtectedWorkFile() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-outgoing-media-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let uniqueID = UUID(uuidString: "00000000-0000-0000-0000-000000000006")!
+        let url = try OutgoingMediaMetadataTempStore.materialize(
+            data: Data("draft media plaintext".utf8),
+            fileExtension: "MOV / unsafe",
+            directory: directory,
+            uniqueID: uniqueID
+        )
+
+        #expect(fileManager.fileExists(atPath: url.path))
+        #expect(url.deletingLastPathComponent().path == directory.path)
+        #expect(url.lastPathComponent == "metadata-\(uniqueID.uuidString).mov---unsafe")
+        #expect(try Data(contentsOf: url) == Data("draft media plaintext".utf8))
+
+        let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(values.isExcludedFromBackup == true)
+
+        OutgoingMediaMetadataTempStore.remove(at: url)
+        #expect(!fileManager.fileExists(atPath: url.path))
+    }
+
+    @Test func outgoingMediaMetadataTempStorePurgesCurrentAndLegacyDirectories() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-outgoing-media-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        _ = try OutgoingMediaMetadataTempStore.materialize(
+            data: Data("draft".utf8),
+            fileExtension: "jpg",
+            directory: directory
+        )
+        #expect(fileManager.fileExists(atPath: directory.path))
+
+        let legacyDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-legacy-outgoing-media-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: legacyDirectory, withIntermediateDirectories: true)
+        try Data("legacy".utf8).write(to: legacyDirectory.appendingPathComponent("old-work.jpg"))
+        defer { try? fileManager.removeItem(at: legacyDirectory) }
+
+        OutgoingMediaMetadataTempStore.purge(directory: directory, legacyDirectory: legacyDirectory)
+        #expect(!fileManager.fileExists(atPath: directory.path))
+        #expect(!fileManager.fileExists(atPath: legacyDirectory.path))
+
+        // Purging a missing directory is a no-op.
+        OutgoingMediaMetadataTempStore.purge(directory: directory, legacyDirectory: legacyDirectory)
+        #expect(!fileManager.fileExists(atPath: directory.path))
+        #expect(!fileManager.fileExists(atPath: legacyDirectory.path))
+    }
+
+    @Test func temporaryOutgoingMediaFileUsesFallbackWhenScratchUnavailable() {
+        var invokedWork = false
+        let result = TemporaryOutgoingMediaFile.withURL(
+            data: Data("draft".utf8),
+            fileExtension: "jpg",
+            directoryResolver: {
+                throw NSError(domain: "OutgoingMediaMetadataTempStoreTests", code: 1, userInfo: nil)
+            },
+            fallback: "fallback",
+            { url in
+                invokedWork = true
+                return url.path
+            }
+        )
+
+        #expect(result == "fallback")
+        #expect(!invokedWork)
+    }
+
+    @Test func outgoingMediaMetadataTempStoreSanitizesEmptyExtensionsToBin() {
+        #expect(OutgoingMediaMetadataTempStore.sanitizedFileExtension("") == "bin")
+        #expect(OutgoingMediaMetadataTempStore.sanitizedFileExtension(" .. / ") == "bin")
+    }
+
     @Test func messageMediaDiskCacheRoundTripsEncryptedPayload() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

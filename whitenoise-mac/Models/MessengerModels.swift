@@ -1016,7 +1016,8 @@ nonisolated enum MediaWaveformAnalyzer {
     static func metadata(from data: Data, mediaType: String) -> Metadata {
         TemporaryOutgoingMediaFile.withURL(
             data: data,
-            fileExtension: OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType)
+            fileExtension: OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType),
+            fallback: Metadata(durationSeconds: nil, samples: fallback())
         ) { url in
             do {
                 let file = try AVAudioFile(forReading: url)
@@ -1213,7 +1214,8 @@ nonisolated private enum MediaVideoMetadata {
     static func dim(from data: Data, mediaType: String) async -> String? {
         await TemporaryOutgoingMediaFile.withURL(
             data: data,
-            fileExtension: OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType)
+            fileExtension: OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType),
+            fallback: nil as String?
         ) { url in
             let asset = AVURLAsset(url: url)
             do {
@@ -1234,29 +1236,60 @@ nonisolated private enum MediaVideoMetadata {
     }
 }
 
-nonisolated private enum TemporaryOutgoingMediaFile {
-    static func withURL<T>(data: Data, fileExtension: String, _ work: (URL) -> T) -> T {
-        let url = makeTempURL(data: data, fileExtension: fileExtension)
-        defer { try? FileManager.default.removeItem(at: url) }
+nonisolated enum TemporaryOutgoingMediaFile {
+    static func withURL<T>(
+        data: Data,
+        fileExtension: String,
+        directoryResolver: () throws -> URL = { try OutgoingMediaMetadataTempStore.directoryURL() },
+        fallback: T,
+        _ work: (URL) -> T
+    ) -> T {
+        guard
+            let url = makeTempURL(
+                data: data,
+                fileExtension: fileExtension,
+                directoryResolver: directoryResolver
+            )
+        else {
+            return fallback
+        }
+        defer { OutgoingMediaMetadataTempStore.remove(at: url) }
         return work(url)
     }
 
-    static func withURL<T>(data: Data, fileExtension: String, _ work: (URL) async -> T) async -> T {
-        let url = makeTempURL(data: data, fileExtension: fileExtension)
-        defer { try? FileManager.default.removeItem(at: url) }
+    static func withURL<T>(
+        data: Data,
+        fileExtension: String,
+        directoryResolver: () throws -> URL = { try OutgoingMediaMetadataTempStore.directoryURL() },
+        fallback: T,
+        _ work: (URL) async -> T
+    ) async -> T {
+        guard
+            let url = makeTempURL(
+                data: data,
+                fileExtension: fileExtension,
+                directoryResolver: directoryResolver
+            )
+        else {
+            return fallback
+        }
+        defer { OutgoingMediaMetadataTempStore.remove(at: url) }
         return await work(url)
     }
 
-    private static func makeTempURL(data: Data, fileExtension: String) -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("WhiteNoiseMediaWork", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url =
-            directory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension(fileExtension)
-        try? data.write(to: url, options: [.atomic])
-        return url
+    private static func makeTempURL(
+        data: Data,
+        fileExtension: String,
+        directoryResolver: () throws -> URL
+    ) -> URL? {
+        guard let directory = try? directoryResolver() else {
+            return nil
+        }
+        return try? OutgoingMediaMetadataTempStore.materialize(
+            data: data,
+            fileExtension: fileExtension,
+            directory: directory
+        )
     }
 }
 
