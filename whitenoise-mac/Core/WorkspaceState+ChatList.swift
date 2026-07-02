@@ -214,10 +214,28 @@ extension WorkspaceState {
         switch update {
         case .row(let trigger, let row):
             invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
-            await applyChatRow(row, account: account)
+            // Metadata-invariant deltas (last-message/read-state/pending-confirmation) do not
+            // change the metadata enrichment resolves (direct-chat title/avatar/isDirect), so
+            // skip the per-row FFI fan-out and preserve the already-resolved metadata. This is
+            // the same fast path the Timeline read-state call sites use (issue #170); re-sorting
+            // still happens via `upsertChat` inside `applyChatRow` (issue #251).
+            await applyChatRow(row, account: account, shouldEnrich: chatListTriggerRequiresEnrichment(trigger))
         case .removeRow(trigger: _, let groupIdHex):
             invalidateGroupMembers(for: groupIdHex)
             removeChat(groupIdHex: groupIdHex, account: account)
+        }
+    }
+
+    /// Whether a live chat-list delta can change the metadata enrichment resolves
+    /// (direct-chat title/avatar/`isDirect`). Metadata-invariant triggers only carry
+    /// unread/preview/timestamp/pending-confirmation changes, so they take the
+    /// `shouldEnrich: false` fast path and never trigger the per-row FFI fan-out.
+    func chatListTriggerRequiresEnrichment(_ trigger: ChatListUpdateTriggerFfi) -> Bool {
+        switch trigger {
+        case .newLastMessage, .lastMessageDeleted, .pendingConfirmationChanged, .unreadChanged:
+            return false
+        case .newGroup, .archiveChanged, .membershipChanged, .snapshotRefresh, .removed:
+            return true
         }
     }
 
