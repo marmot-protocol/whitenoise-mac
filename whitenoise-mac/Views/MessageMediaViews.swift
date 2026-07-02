@@ -271,25 +271,23 @@ private extension View {
     func autoDownloadMediaAttachment(
         _ downloadState: MediaDownloadStateStore,
         attachment: MessageMediaAttachment,
-        message: MessageItem,
-        in workspace: WorkspaceState
+        message: MessageItem
     ) -> some View {
         modifier(
             AutomaticMediaDownloadModifier(
                 downloadState: downloadState,
                 attachment: attachment,
-                message: message,
-                workspace: workspace
+                message: message
             )
         )
     }
 }
 
 private struct AutomaticMediaDownloadModifier: ViewModifier {
+    @Environment(WorkspaceState.self) private var workspace
     let downloadState: MediaDownloadStateStore
     let attachment: MessageMediaAttachment
     let message: MessageItem
-    let workspace: WorkspaceState
 
     func body(content: Content) -> some View {
         content
@@ -433,7 +431,6 @@ struct MessageVisualMediaGrid: View {
 }
 
 struct MessageVisualMediaTile: View {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.displayScale) private var displayScale
     let downloadState: MediaDownloadStateStore
     let message: MessageItem
@@ -460,8 +457,7 @@ struct MessageVisualMediaTile: View {
         .autoDownloadMediaAttachment(
             downloadState,
             attachment: attachment,
-            message: message,
-            in: workspace
+            message: message
         )
         .onTapGesture {
             if attachment.kind == .image,
@@ -560,8 +556,7 @@ struct MessageMediaAttachmentView: View {
         .autoDownloadMediaAttachment(
             downloadState,
             attachment: attachment,
-            message: message,
-            in: workspace
+            message: message
         )
         .accessibilityIdentifier("message.media.attachment.\(attachment.id)")
     }
@@ -1250,8 +1245,7 @@ struct MessageImageGalleryContent: View {
         .autoDownloadMediaAttachment(
             downloadState,
             attachment: attachment,
-            message: message,
-            in: workspace
+            message: message
         )
     }
 }
