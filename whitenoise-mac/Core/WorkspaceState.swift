@@ -433,6 +433,9 @@ final class WorkspaceState {
     }
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
+    @ObservationIgnored var mediaReferenceIndexes: [MediaReferenceCacheKey: MediaReferenceIndex] = [:]
+    @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
+    @ObservationIgnored var mediaReferenceIndexGeneration: UInt64 = 0
     @ObservationIgnored var mediaDiskStoreTasks: [String: MediaDiskStoreTask] = [:]
     @ObservationIgnored var isMediaDiskStoreGloballySuppressed = false
     @ObservationIgnored var mediaDiskStoreSuppressedAccountIds = Set<String>()
@@ -862,6 +865,62 @@ final class WorkspaceState {
         var accountGeneration: UInt64
     }
 
+    struct MediaReferenceCacheKey: Hashable, Sendable {
+        var accountId: String
+        var groupIdHex: String
+    }
+
+    struct MediaReferenceIndex: Sendable {
+        private struct Entry: Sendable {
+            var order: Int
+            var reference: MediaAttachmentReferenceFfi
+        }
+
+        private let referencesBySHA: [String: Entry]
+
+        init(records: [MediaRecordFfi]) {
+            var referencesBySHA: [String: Entry] = [:]
+            referencesBySHA.reserveCapacity(records.count * 2)
+            for (order, record) in records.enumerated() {
+                // Preserve `first(where:)` semantics from the old linear scan when duplicate
+                // hashes appear: the oldest record in list order wins for either SHA key.
+                if referencesBySHA[record.reference.plaintextSha256] == nil {
+                    referencesBySHA[record.reference.plaintextSha256] = Entry(
+                        order: order,
+                        reference: record.reference
+                    )
+                }
+                if referencesBySHA[record.reference.ciphertextSha256] == nil {
+                    referencesBySHA[record.reference.ciphertextSha256] = Entry(
+                        order: order,
+                        reference: record.reference
+                    )
+                }
+            }
+            self.referencesBySHA = referencesBySHA
+        }
+
+        func resolvedReference(matching reference: MediaAttachmentReferenceFfi) -> MediaAttachmentReferenceFfi? {
+            let plaintextEntry = referencesBySHA[reference.plaintextSha256]
+            let ciphertextEntry = referencesBySHA[reference.ciphertextSha256]
+            switch (plaintextEntry, ciphertextEntry) {
+            case (let plaintext?, let ciphertext?):
+                return plaintext.order <= ciphertext.order ? plaintext.reference : ciphertext.reference
+            case (let plaintext?, nil):
+                return plaintext.reference
+            case (nil, let ciphertext?):
+                return ciphertext.reference
+            case (nil, nil):
+                return nil
+            }
+        }
+    }
+
+    struct MediaReferenceIndexTask {
+        var generation: UInt64
+        var task: Task<MediaReferenceIndex, Error>
+    }
+
     struct MediaDiskStoreTask {
         var accountId: String
         var token: UInt64
@@ -878,7 +937,7 @@ final class WorkspaceState {
     }
 
     /// Runs a blocking FFI closure off the main thread and resumes on the caller's actor.
-    nonisolated func runOffMain<T>(
+    nonisolated static func runFFI<T>(
         _ work: @escaping @Sendable () throws -> T
     ) async throws -> T {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
@@ -886,6 +945,13 @@ final class WorkspaceState {
                 continuation.resume(with: Result { try work() })
             }
         }
+    }
+
+    /// Runs a blocking FFI closure off the main thread and resumes on the caller's actor.
+    nonisolated func runOffMain<T>(
+        _ work: @escaping @Sendable () throws -> T
+    ) async throws -> T {
+        try await Self.runFFI(work)
     }
     static var notificationPermissionGuidance: String {
         L10n.string("Open System Settings > Notifications and allow White Noise notifications, then try again.")

@@ -252,6 +252,10 @@ extension WorkspaceState {
         }
         guard !upsertRecords.isEmpty || !removalIds.isEmpty else { return }
 
+        if upsertRecords.contains(where: { timelineRecordMayContainMediaAttachment($0) }) {
+            clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
+        }
+
         // Resolve senders for just the changed records (the common case is an all-cached
         // lookup) and map only those records — not the entire window.
         let senderProfiles = await TimelineSignpost.mapping.asyncInterval(
@@ -305,6 +309,12 @@ extension WorkspaceState {
             )
         )
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
+    }
+
+    private func timelineRecordMayContainMediaAttachment(_ record: TimelineMessageRecordFfi) -> Bool {
+        if !record.media.isEmpty { return true }
+        if record.mediaJson?.isEmpty == false { return true }
+        return record.tags.contains { $0.values.first == "imeta" }
     }
 
     func startReply(to message: MessageItem) {
@@ -429,6 +439,7 @@ extension WorkspaceState {
                         blossomServer: nil
                     )
                 )
+                clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: selectedChat.id)
             } else if let replyDraftContext {
                 _ = try await client.replyToMessage(
                     accountRef: activeAccount.accountRef,

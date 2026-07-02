@@ -90,6 +90,7 @@ extension WorkspaceState {
         searchText = ""
         closeNewChatComposer()
         pruneMessageCache(keeping: groupIdHex)
+        clearMediaReferenceResolutionCache()
         // Lookup caches are scoped to the active account's view (directory display names and
         // group membership visibility can differ per account); drop them on switch so the new
         // account does not inherit stale cross-account entries (whitenoise-mac#8/#9).
@@ -241,6 +242,7 @@ extension WorkspaceState {
             try await client.removeAccount(accountRef: account.accountRef)
             clearComposerDrafts(forAccountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
+            clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
             accounts = try await accountItemsFromRuntime(client: client)
             removeChats(forAccountId: removedAccountId)
             accountUnreadByIdHex[removedAccountIdHex] = nil
@@ -305,6 +307,7 @@ extension WorkspaceState {
         }
         messageTimelineStores.removeAll()
         mediaDownloads.removeAll()
+        clearMediaReferenceResolutionCache()
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
         // Active-account teardown must evict decoded peer/group avatars held in the
@@ -344,6 +347,7 @@ extension WorkspaceState {
             }
             _ = try await client.signOut(accountRef: account.accountRef, deleteKeyPackages: true)
             clearComposerDrafts(forAccountId: account.id)
+            clearMediaReferenceResolutionCache(forAccountId: account.id)
             accounts = try await accountItemsFromRuntime(client: client)
             removeChats(forAccountId: account.id)
             await refreshAccountUnreadSummary()

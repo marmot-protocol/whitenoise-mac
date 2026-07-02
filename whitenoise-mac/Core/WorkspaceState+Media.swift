@@ -197,6 +197,7 @@ extension WorkspaceState {
         do {
             let reference = try await resolvedMediaReference(
                 attachment.reference,
+                accountId: accountId,
                 accountRef: accountRef,
                 groupIdHex: groupIdHex,
                 client: client
@@ -495,11 +496,13 @@ extension WorkspaceState {
             store.update(.idle)
         }
         mediaDownloads.removeAll()
+        clearMediaReferenceResolutionCache()
         MessageAudioMetadataCache.shared.clear()
     }
 
     func resolvedMediaReference(
         _ reference: MediaAttachmentReferenceFfi,
+        accountId: String,
         accountRef: String,
         groupIdHex: String,
         client: any MarmotRuntime
@@ -508,12 +511,84 @@ extension WorkspaceState {
             return reference
         }
 
-        let records = try await runOffMain {
-            try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+        let cacheKey = MediaReferenceCacheKey(accountId: accountId, groupIdHex: groupIdHex)
+        if let cachedIndex = mediaReferenceIndexes[cacheKey] {
+            return cachedIndex.resolvedReference(matching: reference) ?? reference
         }
-        return records.first { record in
-            record.reference.plaintextSha256 == reference.plaintextSha256
-                || record.reference.ciphertextSha256 == reference.ciphertextSha256
-        }?.reference ?? reference
+
+        let index = try await mediaReferenceIndex(
+            for: cacheKey,
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            client: client
+        )
+        return index.resolvedReference(matching: reference) ?? reference
+    }
+
+    func mediaReferenceIndex(
+        for cacheKey: MediaReferenceCacheKey,
+        accountRef: String,
+        groupIdHex: String,
+        client: any MarmotRuntime
+    ) async throws -> MediaReferenceIndex {
+        if let existing = mediaReferenceIndexTasks[cacheKey] {
+            return try await existing.task.value
+        }
+
+        let generation = mediaReferenceIndexGeneration
+        let task = Task.detached(priority: .userInitiated) { [client, accountRef, groupIdHex] in
+            let records = try await WorkspaceState.runFFI {
+                try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+            }
+            return MediaReferenceIndex(records: records)
+        }
+        mediaReferenceIndexTasks[cacheKey] = MediaReferenceIndexTask(generation: generation, task: task)
+
+        do {
+            let index = try await task.value
+            if mediaReferenceIndexTasks[cacheKey]?.generation == generation {
+                mediaReferenceIndexTasks[cacheKey] = nil
+                mediaReferenceIndexes[cacheKey] = index
+            }
+            return index
+        } catch {
+            if mediaReferenceIndexTasks[cacheKey]?.generation == generation {
+                mediaReferenceIndexTasks[cacheKey] = nil
+            }
+            throw error
+        }
+    }
+
+    func clearMediaReferenceResolutionCache() {
+        let tasks = mediaReferenceIndexTasks.values.map(\.task)
+        mediaReferenceIndexGeneration &+= 1
+        mediaReferenceIndexes.removeAll()
+        mediaReferenceIndexTasks.removeAll()
+        tasks.forEach { $0.cancel() }
+    }
+
+    func clearMediaReferenceResolutionCache(forAccountId accountId: String) {
+        let keys = Set(mediaReferenceIndexes.keys.filter { $0.accountId == accountId })
+            .union(mediaReferenceIndexTasks.keys.filter { $0.accountId == accountId })
+        guard !keys.isEmpty else { return }
+
+        let tasks = keys.compactMap { mediaReferenceIndexTasks[$0]?.task }
+        mediaReferenceIndexGeneration &+= 1
+        for key in keys {
+            mediaReferenceIndexes[key] = nil
+            mediaReferenceIndexTasks[key] = nil
+        }
+        tasks.forEach { $0.cancel() }
+    }
+
+    func clearMediaReferenceResolutionCache(forAccountId accountId: String, groupIdHex: String) {
+        let key = MediaReferenceCacheKey(accountId: accountId, groupIdHex: groupIdHex)
+        guard mediaReferenceIndexes[key] != nil || mediaReferenceIndexTasks[key] != nil else { return }
+
+        let task = mediaReferenceIndexTasks[key]?.task
+        mediaReferenceIndexGeneration &+= 1
+        mediaReferenceIndexes[key] = nil
+        mediaReferenceIndexTasks[key] = nil
+        task?.cancel()
     }
 }

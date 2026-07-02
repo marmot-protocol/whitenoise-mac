@@ -241,6 +241,7 @@ extension WorkspaceState {
                 accountRef: activeAccount.accountRef,
                 groupIdHex: snapshot.groupIdHex
             )
+            clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: snapshot.groupIdHex)
             closeGroupDetails()
             await reloadChats(forceFreshSnapshot: true)
         } catch {
@@ -433,6 +434,7 @@ extension WorkspaceState {
                 accountRef: activeAccount.accountRef,
                 groupIdHex: groupIdHex
             )
+            clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: groupIdHex)
             if groupDetailsSnapshot?.groupIdHex == groupIdHex {
                 closeGroupDetails()
             }
