@@ -526,7 +526,7 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         "xlsx",
     ]
 
-    static var fileImporterAllowedTypes: [UTType] {
+    static let fileImporterAllowedTypes: [UTType] = {
         var types: [UTType] = [.image, .movie, .audio, .pdf, .plainText, .rtf, .commaSeparatedText, .json]
         for ext in supportedDocumentExtensions.sorted() {
             if let type = UTType(filenameExtension: ext), !types.contains(type) {
@@ -534,7 +534,7 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
             }
         }
         return types
-    }
+    }()
 
     static func canonicalMediaType(_ mediaType: String) -> String {
         let base =
