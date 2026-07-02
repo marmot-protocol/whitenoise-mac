@@ -649,6 +649,11 @@ private nonisolated enum MessageMediaParser {
                     return value
                 }
             } else if let number = value as? NSNumber {
+                if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                    // JSON booleans bridge as NSNumber. Skip them rather than returning
+                    // "1"/"0", and allow later alias keys to supply the real string.
+                    continue
+                }
                 return number.stringValue
             }
         }
