@@ -7864,6 +7864,7 @@ struct whitenoise_macTests {
         // IPv4 loopback / private / link-local / "this host".
         let blockedV4 = [
             "https://127.0.0.1/x.png",
+            "https://127.0.0.1./x.png",
             "https://127.1.2.3/x.png",
             "https://10.0.0.5/x.png",
             "https://10.255.255.255/x.png",
@@ -7921,8 +7922,10 @@ struct whitenoise_macTests {
 
         // Local hostnames.
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://localhost/x.png")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://localhost./x.png")!))
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://LOCALHOST/x.png")!))
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://printer.local/x.png")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://printer.local./x.png")!))
 
         // Allowed: genuine public hosts and public IP literals are not affected.
         let allowed = [

@@ -55,10 +55,16 @@ nonisolated enum RemoteImageURLPolicy {
     /// a private/loopback/link-local/unspecified literal IP, or a local hostname.
     static func isDisallowedHost(_ host: String) -> Bool {
         // `URL.host` does not lowercase or strip IPv6 brackets in all cases; normalize defensively.
-        let normalized =
-            host
-            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            .lowercased()
+        // Strip absolute-FQDN trailing dots so localhost./*.local./127.0.0.1. are checked
+        // against the same local-hostname and literal-IP rules as their unrooted forms.
+        var normalized = host.lowercased()
+        while normalized.hasSuffix(".") {
+            normalized.removeLast()
+        }
+        normalized = normalized.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        while normalized.hasSuffix(".") {
+            normalized.removeLast()
+        }
 
         if normalized.isEmpty { return true }
 
