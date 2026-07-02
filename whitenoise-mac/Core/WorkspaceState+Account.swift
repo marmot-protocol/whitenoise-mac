@@ -393,7 +393,7 @@ extension WorkspaceState {
         do {
             let rows = try await runOffMain { try client.accountUnreadSummary() }
             accountUnreadByIdHex = Dictionary(
-                rows.map { ($0.accountIdHex, Int($0.unreadCount)) },
+                rows.map { ($0.accountIdHex, Int(clamping: $0.unreadCount)) },
                 uniquingKeysWith: { lhs, _ in lhs }
             )
         } catch {
