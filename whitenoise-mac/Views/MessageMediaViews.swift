@@ -739,6 +739,7 @@ struct MessageAudioAttachmentPlayer: View {
     @State private var playbackProgress: CGFloat = 0
     @State private var metadata: MediaWaveformAnalyzer.Metadata?
     @State private var metadataPayloadID: String?
+    @State private var waveformBars = ComposerAudioWaveformPresentation.fallbackPlaybackBars
     @State private var playbackMonitor: Task<Void, Never>?
     @State private var audioPlayerDelegate = MessageAudioPlayerDelegate()
 
@@ -769,7 +770,7 @@ struct MessageAudioAttachmentPlayer: View {
 
                 HStack(spacing: 8) {
                     ComposerAudioWaveformView(
-                        samples: visibleMetadata?.samples ?? MediaWaveformAnalyzer.fallback(),
+                        bars: visibleWaveformBars,
                         progress: playbackProgress,
                         barColor: isOutgoing ? Color.white.opacity(0.42) : Color.secondary.opacity(0.55),
                         playedColor: isOutgoing ? Color.white.opacity(0.9) : Color.accentColor
@@ -799,16 +800,30 @@ struct MessageAudioAttachmentPlayer: View {
             let payloadID = download.payload.id
             if metadataPayloadID != payloadID {
                 metadata = nil
+                waveformBars = ComposerAudioWaveformPresentation.fallbackPlaybackBars
             }
             let loaded = await MessageAudioMetadataCache.shared.metadata(for: download)
+            let loadedWaveformBars = ComposerAudioWaveformPresentation.bars(
+                for: loaded.samples,
+                mode: .playback
+            )
             guard !Task.isCancelled else { return }
             metadata = loaded
             metadataPayloadID = payloadID
+            waveformBars = loadedWaveformBars
         }
     }
 
     private var visibleMetadata: MediaWaveformAnalyzer.Metadata? {
         metadataPayloadID == download.payload.id ? metadata : nil
+    }
+
+    private var visibleWaveformBars: [ComposerAudioWaveformBar] {
+        ComposerAudioWaveformPresentation.visiblePlaybackBars(
+            loadedBars: waveformBars,
+            metadataPayloadID: metadataPayloadID,
+            currentPayloadID: download.payload.id
+        )
     }
 
     private var durationLabel: String {

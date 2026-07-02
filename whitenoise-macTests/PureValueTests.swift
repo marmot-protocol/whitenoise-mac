@@ -32,6 +32,52 @@ struct PureValueTests {
         #expect(DisappearingMessageOption.custom(oversizedSeconds).label == "9223372036854775808 seconds")
     }
 
+    @Test func composerAudioWaveformUsesPrecomputedFallbackBars() async throws {
+        // Regression for whitenoise-mac#292: fallback waveform samples/bars are used
+        // while metadata loads, including during playback-progress repaint ticks. Keep
+        // the default fallback and its display bars as precomputed values so progress
+        // updates can recolor an already-prepared waveform instead of regenerating it.
+        #expect(MediaWaveformAnalyzer.fallbackSamples == MediaWaveformAnalyzer.fallback())
+        #expect(
+            ComposerAudioWaveformPresentation.fallbackPlaybackBars
+                == ComposerAudioWaveformPresentation.bars(
+                    for: MediaWaveformAnalyzer.fallbackSamples,
+                    mode: .playback
+                )
+        )
+    }
+
+    @Test func composerAudioWaveformSelectsLoadedBarsForMatchingPayload() async throws {
+        // The metadata-loaded path stores bars once, then playback progress should only
+        // recolor those loaded bars. Stale or missing metadata keeps showing fallback.
+        let loadedBars = ComposerAudioWaveformPresentation.bars(
+            for: [0.15, 0.35, 0.65, 1.0],
+            mode: .playback
+        )
+
+        #expect(
+            ComposerAudioWaveformPresentation.visiblePlaybackBars(
+                loadedBars: loadedBars,
+                metadataPayloadID: "payload-a",
+                currentPayloadID: "payload-a"
+            ) == loadedBars
+        )
+        #expect(
+            ComposerAudioWaveformPresentation.visiblePlaybackBars(
+                loadedBars: loadedBars,
+                metadataPayloadID: nil,
+                currentPayloadID: "payload-a"
+            ) == ComposerAudioWaveformPresentation.fallbackPlaybackBars
+        )
+        #expect(
+            ComposerAudioWaveformPresentation.visiblePlaybackBars(
+                loadedBars: loadedBars,
+                metadataPayloadID: "payload-a",
+                currentPayloadID: "payload-b"
+            ) == ComposerAudioWaveformPresentation.fallbackPlaybackBars
+        )
+    }
+
     @Test func mediaDurationLabelClampsNonFiniteAndOversizedDurations() async throws {
         // Regression for whitenoise-mac#253: the audio duration is peer-derived
         // (MediaWaveformAnalyzer -> AVAudioFile.length / sampleRate), so it may be

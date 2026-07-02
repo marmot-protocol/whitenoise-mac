@@ -952,6 +952,7 @@ nonisolated enum MediaWaveformAnalyzer {
     }
 
     static let sampleCount = 36
+    static let fallbackSamples: [CGFloat] = fallback()
     static let chunkFrameCapacityCeiling: AVAudioFrameCount = 65_536
     static let maxChunkBytes: Int = 4 * 1024 * 1024
     static let maxChannelCount: AVAudioChannelCount = 32
