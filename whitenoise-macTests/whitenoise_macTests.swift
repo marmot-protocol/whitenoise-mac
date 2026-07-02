@@ -2141,6 +2141,105 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func booleanMediaJSONStringFieldsDoNotFabricateAttachmentReference() async throws {
+        // Regression for whitenoise-mac#246: JSON booleans bridge back from
+        // JSONSerialization as CFBoolean-backed NSNumber values. Required string fields
+        // must reject them instead of accepting NSNumber.stringValue ("1"/"0").
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "boolean-media-json-fields",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJSONString(fromJSONObject: [
+                        "ciphertext_sha256": true,
+                        "plaintext_sha256": true,
+                        "nonce": true,
+                        "file_name": true,
+                        "media_type": true,
+                        "version": true,
+                        "locators": [
+                            ["kind": "blossom", "value": "https://blob.example/bool"]
+                        ],
+                    ])
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+
+        #expect(message.mediaAttachments.isEmpty)
+    }
+
+    @MainActor
+    @Test func booleanMediaJSONStringAliasValuesFallThroughAndBadLocatorsAreDropped() async throws {
+        // `string(_:keys:)` searches aliases in order. A boolean at an earlier alias
+        // should be treated as malformed for that key, not as "1" and not as a reason
+        // to reject a later valid alias.
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "boolean-media-json-aliases",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJSONString(fromJSONObject: [
+                        "ciphertext_sha256": true,
+                        "ciphertextSha256": reference.ciphertextSha256,
+                        "plaintext_sha256": true,
+                        "plaintextSha256": reference.plaintextSha256,
+                        "nonce_hex": true,
+                        "nonceHex": true,
+                        "nonce": reference.nonceHex,
+                        "file_name": true,
+                        "fileName": true,
+                        "filename": reference.fileName,
+                        "media_type": true,
+                        "mediaType": true,
+                        "m": reference.mediaType,
+                        "version": true,
+                        "v": reference.version,
+                        "dim": true,
+                        "thumbhash": true,
+                        "locators": [
+                            ["kind": true, "value": "https://blob.example/bad-kind"],
+                            ["kind": "blossom", "value": true],
+                            ["kind": "blossom", "value": "https://blob.example/valid"],
+                        ],
+                    ])
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+        let attachment = try #require(message.mediaAttachments.first)
+        let locator = try #require(attachment.reference.locators.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(attachment.reference.ciphertextSha256 == reference.ciphertextSha256)
+        #expect(attachment.reference.plaintextSha256 == reference.plaintextSha256)
+        #expect(attachment.reference.nonceHex == reference.nonceHex)
+        #expect(attachment.reference.fileName == reference.fileName)
+        #expect(attachment.reference.mediaType == reference.mediaType)
+        #expect(attachment.reference.version == reference.version)
+        #expect(attachment.reference.dim == nil)
+        #expect(attachment.reference.thumbhash == nil)
+        #expect(attachment.reference.locators.count == 1)
+        #expect(locator.kind == "blossom")
+        #expect(locator.value == "https://blob.example/valid")
+    }
+
+    @MainActor
     @Test func mediaJSONObjectWithIMetaAndFlatKeysMapsSingleAttachment() async throws {
         // Regression for whitenoise-mac#185: a single peer-controlled object carrying
         // both an `imeta` array and the flat direct-reference keys must not emit both the
