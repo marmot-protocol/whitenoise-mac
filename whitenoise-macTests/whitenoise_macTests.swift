@@ -5477,6 +5477,87 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func sendDraftClearsOnlyTheSendingChatWhenSelectionChangesDuringSend() async throws {
+        // Issue #239: sendDraft() captures the composer draft key on entry, then awaits the FFI
+        // send. The post-send clears (draftText/replyDraftContext) must target that captured key,
+        // not the *live* selection — otherwise switching chats while the send is in flight wipes
+        // the newly selected conversation's composer state instead of the one we sent from.
+        // Repro: draft + reply in chat A, hold its send in-flight at the FFI gate, switch to chat
+        // B and draft/reply there, release the gate. Only chat A's composer state must be cleared.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        guard let chatA = state.activeChats.first(where: { $0.id == "group" }),
+            let chatB = state.activeChats.first(where: { $0.id == "direct-group" })
+        else {
+            Issue.record("Expected both test chats")
+            return
+        }
+
+        // Compose a draft + reply context in chat A, then send it.
+        state.selectChat(chatA)
+        guard let chatAKey = state.selectedComposerDraftKey else {
+            Issue.record("Expected a composer draft key for chat A")
+            return
+        }
+        state.draftText = "from chat A"
+        state.replyDraftContext = MessageReplyContext(
+            targetMessageId: "parent-a",
+            senderName: "Alice",
+            body: "original A"
+        )
+
+        // Arm the gate so the send suspends inside the reply FFI call; start it concurrently.
+        runtime.messageActionGateEnabled = true
+        async let send: Void = state.sendDraft()
+        while !(state.isSending && runtime.didReachMessageActionGate) {
+            await Task.yield()
+        }
+
+        // The user switches to chat B while the send is in flight and composes there.
+        state.selectChat(chatB)
+        guard let chatBKey = state.selectedComposerDraftKey else {
+            Issue.record("Expected a composer draft key for chat B")
+            return
+        }
+        state.draftText = "from chat B"
+        state.replyDraftContext = MessageReplyContext(
+            targetMessageId: "parent-b",
+            senderName: "Bob",
+            body: "original B"
+        )
+
+        // Release the gate and let the send finish while chat B is selected.
+        runtime.releaseMessageActionGate()
+        await send
+
+        // Chat A carried a reply context, so the send routed through replyToMessage.
+        #expect(runtime.replyToMessageCallCount == 1)
+        #expect(
+            runtime.repliedMessage
+                == SentReply(groupIdHex: "group", targetMessageId: "parent-a", text: "from chat A")
+        )
+
+        // Chat A (the sending chat) is cleared; chat B (the live selection) is untouched.
+        #expect(state.draftTextByConversation[chatAKey] == nil)
+        #expect(state.replyDraftContextByConversation[chatAKey] == nil)
+        #expect(state.draftTextByConversation[chatBKey] == "from chat B")
+        #expect(state.replyDraftContextByConversation[chatBKey]?.targetMessageId == "parent-b")
+        // And, from chat B's perspective, its composer still reads back its own draft/reply.
+        #expect(state.draftText == "from chat B")
+        #expect(state.replyDraftContext?.targetMessageId == "parent-b")
+    }
+
+    @MainActor
     @Test func reactDropsOverlappingDuplicateButAllowsDifferentEmoji() async throws {
         // Issue #78: react(to:emoji:) must drop a duplicate of the *same* in-flight reaction
         // (same target + emoji) while still allowing a different emoji on the same message.
