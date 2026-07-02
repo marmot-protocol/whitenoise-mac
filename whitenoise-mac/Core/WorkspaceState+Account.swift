@@ -418,6 +418,8 @@ extension WorkspaceState {
         defer { resumeAllMediaDiskStores() }
         defer { isDeletingAllData = false }
 
+        let selectedGroupId = selectedChat?.id
+
         do {
             stopNotificationListener()
             cancelChatListReload()
@@ -439,7 +441,19 @@ extension WorkspaceState {
             storageRootPath = runtime.storageRootPath
             try await configureObservabilityRuntime()
         } catch {
-            lastError = error.localizedDescription
+            let errorMessage = error.localizedDescription
+            await recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: selectedGroupId)
+            lastError = errorMessage
+        }
+    }
+
+    func recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: String?) async {
+        guard client != nil, activeAccount != nil, case .ready = phase else { return }
+
+        startNotificationListener()
+        await reloadChats(forceFreshSnapshot: true)
+        if let selectedGroupId, selectedChat?.id == selectedGroupId {
+            await loadMessages(groupIdHex: selectedGroupId)
         }
     }
 
