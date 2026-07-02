@@ -2721,6 +2721,182 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func workspaceLoadsCachedMediaWhileDiskStoresAreSuppressed() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let plaintext = Data([0x50, 0x51, 0x52, 0x53])
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "suppressed-cached.png",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let mediaDiskCache = messageMediaDiskCache(root: root)
+        let cacheKey = MessageMediaDiskCacheKey(
+            accountId: AccountItem(summary: account).id,
+            groupIdHex: "group",
+            reference: reference
+        )
+        await mediaDiskCache.store(
+            MessageMediaDownload(
+                data: plaintext,
+                fileName: "suppressed-cached.png",
+                mediaType: "image/png",
+                sizeBytes: UInt64(plaintext.count),
+                payloadId: "suppressed-cached"
+            ),
+            for: cacheKey
+        )
+
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(
+            mediaDiskCache: mediaDiskCache,
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+        state.selectChat(chat)
+        let message = MessageItem(
+            id: "suppressed-cached-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "suppressed-cached-message#0#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+
+        state.suppressAllMediaDiskStores()
+        await state.loadMediaAttachment(attachment, for: message)
+        state.resumeAllMediaDiskStores()
+
+        guard case .loaded(let loaded) = state.mediaDownloadState(for: message, attachment: attachment) else {
+            Issue.record("Expected cached media to display even while disk writes are suppressed")
+            return
+        }
+        #expect(loaded.data == plaintext)
+        #expect(runtime.listMediaCallCount == 0)
+        #expect(runtime.downloadMediaCallCount == 0)
+    }
+
+    @MainActor
+    @Test func workspaceDisplaysLateMediaDownloadAfterFailedDeleteAllData() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let plaintext = Data([0x60, 0x61, 0x62, 0x63])
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "late-after-failed-delete.png",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let download = MediaDownloadResultFfi(
+            plaintext: plaintext,
+            fileName: "late-after-failed-delete.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count)
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "late-after-failed-delete-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: reference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: download
+        )
+        runtime.deleteAllLocalDataError = FakeMarmotRuntimeError.unused
+        let mediaDiskCache = messageMediaDiskCache(root: root)
+        let state = WorkspaceState(
+            mediaDiskCache: mediaDiskCache,
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+        state.selectChat(chat)
+        let message = MessageItem(
+            id: "late-after-failed-delete-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "late-after-failed-delete-message#0#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+        let stateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
+        let cacheKey = MessageMediaDiskCacheKey(
+            accountId: AccountItem(summary: account).id,
+            groupIdHex: "group",
+            reference: reference
+        )
+
+        runtime.mediaDownloadGateEnabled = true
+        async let load: Void = state.loadMediaAttachment(attachment, for: message)
+        while !runtime.didReachMediaDownloadGate {
+            await Task.yield()
+        }
+
+        await state.deleteAllData()
+        runtime.releaseMediaDownloadGate()
+        await load
+        for _ in 0..<20 where !state.mediaDiskStoreTasks.isEmpty {
+            await Task.yield()
+        }
+
+        guard case .loaded(let loaded) = stateStore.state else {
+            Issue.record("Expected late media download to display after a failed deleteAllData()")
+            return
+        }
+        #expect(loaded.data == plaintext)
+        #expect(state.mediaDiskStoreTasks.isEmpty)
+        #expect(await mediaDiskCache.cachedDownload(for: cacheKey) == nil)
+    }
+
+    @MainActor
     @Test func mediaDownloadFinishingAfterDeleteAllDataDoesNotRecreateDiskCache() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
@@ -10821,6 +10997,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var telemetryInstallIdCallCount = 0
     private(set) var removedAccountRefs: [String] = []
     private(set) var didDeleteAllLocalData = false
+    var deleteAllLocalDataError: Error?
     /// Optional hook fired inside `removeAccount` after the ref is recorded but before the
     /// account is actually dropped, used to simulate a racing UI action (e.g. the user
     /// selecting the account currently being removed) mid-await.
@@ -11193,6 +11370,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func deleteAllLocalData() async throws {
         didDeleteAllLocalData = true
+        if let deleteAllLocalDataError {
+            throw deleteAllLocalDataError
+        }
         storedAccounts = []
         groups = []
         messagesByGroupId = [:]
