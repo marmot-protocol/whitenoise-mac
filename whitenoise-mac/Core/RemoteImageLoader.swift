@@ -905,8 +905,11 @@ private final class CappedImageDownloadDelegate: NSObject, URLSessionDataDelegat
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        redirectHopCount += 1
-        if redirectHopCount > 5 {
+        let hopCount = lock.withLock {
+            redirectHopCount += 1
+            return redirectHopCount
+        }
+        if hopCount > 5 {
             completionHandler(nil)
             task.cancel()
             finish(with: nil)
