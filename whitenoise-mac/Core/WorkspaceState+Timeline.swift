@@ -443,8 +443,12 @@ extension WorkspaceState {
                     text: text
                 )
             }
-            draftText = ""
-            replyDraftContext = nil
+            // Clear via the captured `draftKey`, not the `draftText`/`replyDraftContext`
+            // setters — those resolve their key from the *live* selection, so if the user
+            // switched chats during the `await` above they would wipe the newly selected
+            // conversation's composer state instead of the one we just sent from.
+            draftTextByConversation[draftKey] = nil
+            replyDraftContextByConversation[draftKey] = nil
             pendingMediaAttachmentsByConversation[draftKey] = nil
             // One authoritative re-window so the user sees their just-sent message
             // immediately, even if the live projection for it is momentarily in flight.
