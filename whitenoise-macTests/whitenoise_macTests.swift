@@ -1082,6 +1082,44 @@ struct whitenoise_macTests {
         #expect(try Data(contentsOf: second) == Data("second".utf8))
     }
 
+    @Test func mediaPlaybackTempStoreBoundsLongPeerFileName() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        // An attacker-controlled attachment name of ~500 characters would otherwise push the
+        // "<stem>-<uuid>-<sanitized>" path component past APFS' 255-byte limit and make the
+        // write throw, silently breaking the open/playback.
+        let longName = String(repeating: "a", count: 500) + ".mp4"
+        let url = try MediaPlaybackTempStore.materialize(
+            data: Data("secret".utf8),
+            id: "attachment-id",
+            fileName: longName,
+            fallbackExtension: "bin",
+            directory: directory,
+            uniqueID: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+        )
+
+        #expect(fileManager.fileExists(atPath: url.path))
+        // The full scratch-file component stays comfortably below APFS' 255-byte limit.
+        #expect(url.lastPathComponent.utf8.count <= MediaPlaybackTempStore.maxScratchFileComponentBytes)
+        // The original extension survives truncation of the stem.
+        #expect(url.lastPathComponent.hasSuffix(".mp4"))
+        #expect(try Data(contentsOf: url) == Data("secret".utf8))
+    }
+
+    @Test func mediaPlaybackTempStoreBoundsFileNameKeepsMultiByteExtension() throws {
+        // A multi-byte scalar must never be split when truncating to the byte budget.
+        let longStem = String(repeating: "é", count: 400)
+        let byteLimit = 128
+        let bounded = MediaPlaybackTempStore.boundedFileName("\(longStem).pdf", byteLimit: byteLimit)
+        let expectedStemCount = (byteLimit - ".pdf".utf8.count) / "é".utf8.count
+
+        #expect(bounded.utf8.count <= byteLimit)
+        #expect(bounded == String(repeating: "é", count: expectedStemCount) + ".pdf")
+    }
+
     @Test func mediaPlaybackTempStoreExcludesScratchDirectoryFromBackups() throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
