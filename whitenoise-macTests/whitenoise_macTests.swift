@@ -10707,6 +10707,138 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleProfileSaveDoesNotClobberSwitchedAccount() async throws {
+        // Issue #287: `saveProfile` captures `accountRef` for the publish but writes `profileDraft` /
+        // the `accounts[]` entry via the live active account afterward. On an A→B switch while the
+        // publish is in flight, account A's just-published name must not be misattributed to B.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox.example"]
+        )
+        runtime.installProfile(
+            accountIdHex: accountB.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "backup",
+                displayName: "Backup Original",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        // Arm the gate so account A's publish suspends in-flight.
+        runtime.publishUserProfileGateEnabled = true
+        state.profileDraft.displayName = "Desktop Renamed"
+        async let staleSave: Void = state.saveProfile()
+        while !runtime.didReachPublishUserProfileGate {
+            await Task.yield()
+        }
+
+        // Switch to account B and load its settings to completion.
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        await state.loadSettingsData()
+        #expect(state.profileDraft.displayName == "Backup Original")
+
+        // Release account A's stale publish; its post-await write must not touch account B's state.
+        runtime.releasePublishUserProfileGate()
+        _ = await staleSave
+
+        #expect(state.profileDraft.displayName == "Backup Original")
+        let backupEntry = try #require(state.accounts.first { $0.id == "Backup Account" })
+        #expect(backupEntry.displayName == "Backup Original")
+    }
+
+    @MainActor
+    @Test func staleRelaySaveDoesNotClobberSwitchedAccount() async throws {
+        // Issue #287: `saveRelaySettings` writes `relaySettings` / `relayDraft` via the live active
+        // account after its FFI await. On an A→B switch while the save is in flight, account A's
+        // just-saved relays must not be misattributed to B.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox-a.example"]
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        // Arm the gate so account A's relay save suspends in-flight.
+        runtime.setAccountRelaysGateEnabled = true
+        state.selectRelaySection(.inbox)
+        state.relayDraft = ["wss://saved-by-a.example"]
+        async let staleSave: Void = state.saveRelaySettings()
+        while !runtime.didReachSetAccountRelaysGate {
+            await Task.yield()
+        }
+
+        // Switch to account B and load its (distinct) inbox to completion.
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox-b.example"]
+        )
+        await state.loadSettingsData()
+        state.selectRelaySection(.inbox)
+        #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
+
+        // Release account A's stale save; its post-await write must not touch account B's state.
+        runtime.releaseSetAccountRelaysGate()
+        _ = await staleSave
+
+        #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
+        #expect(state.relayDraft == ["wss://inbox-b.example"])
+    }
+
+    @MainActor
     @Test func accountSwitchResetsSearchAndSelectsFirstChatForAccount() async throws {
         let state = WorkspaceState.preview()
         state.searchText = "relay"
@@ -10960,6 +11092,19 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachSetLocalNotificationsGate: Bool {
         setLocalNotificationsGate.didReach
     }
+    /// Issue #287 stale-account-test support: when armed, the first `publishUserProfile` FFI call
+    /// suspends until `releasePublishUserProfileGate()` is invoked, holding `saveProfile()` in-flight
+    /// so a test can switch the active account before the publish resolves and assert the just-saved
+    /// profile is not misattributed to the switched-to account.
+    var publishUserProfileGateEnabled = false
+    private(set) var didReachPublishUserProfileGate = false
+    private var publishUserProfileGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #287 equivalent gate for the `setAccountNip65Relays` / `setAccountInboxRelays` FFI
+    /// writes: when armed, the first relay-save call suspends until `releaseSetAccountRelaysGate()`,
+    /// holding `saveRelaySettings()` in-flight across an account switch.
+    var setAccountRelaysGateEnabled = false
+    private(set) var didReachSetAccountRelaysGate = false
+    private var setAccountRelaysGateContinuation: CheckedContinuation<Void, Never>?
     /// Per-account key packages keyed by `accountRef`. Falls back to the default `keyPackages`
     /// fixture when an account has no explicit install, so existing single-account tests are
     /// unaffected.
@@ -11232,7 +11377,23 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         lastPublishedProfileDefaultRelays = defaultRelays
         lastPublishedProfileBootstrapRelays = bootstrapRelays
         self.profile = profile
+        await passPublishUserProfileGateIfArmed()
         return profile
+    }
+
+    private func passPublishUserProfileGateIfArmed() async {
+        guard publishUserProfileGateEnabled, publishUserProfileGateContinuation == nil,
+            !didReachPublishUserProfileGate
+        else { return }
+        didReachPublishUserProfileGate = true
+        await withCheckedContinuation { continuation in
+            publishUserProfileGateContinuation = continuation
+        }
+    }
+
+    func releasePublishUserProfileGate() {
+        publishUserProfileGateContinuation?.resume()
+        publishUserProfileGateContinuation = nil
     }
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
@@ -11714,7 +11875,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     {
         lastSetInboxBootstrapRelays = bootstrapRelays
         relayLists.inbox = RelayListFfi(kind: relayLists.inbox.kind, relays: relays)
-        return relayLists
+        // Snapshot before the gate so a held older save returns its account's lists.
+        let result = relayLists
+        await passSetAccountRelaysGateIfArmed()
+        return result
     }
 
     func setAccountNip65Relays(accountRef: String, relays: [String], bootstrapRelays: [String]) async throws
@@ -11722,7 +11886,24 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     {
         lastSetNip65BootstrapRelays = bootstrapRelays
         relayLists.nip65 = RelayListFfi(kind: relayLists.nip65.kind, relays: relays)
-        return relayLists
+        let result = relayLists
+        await passSetAccountRelaysGateIfArmed()
+        return result
+    }
+
+    private func passSetAccountRelaysGateIfArmed() async {
+        guard setAccountRelaysGateEnabled, setAccountRelaysGateContinuation == nil,
+            !didReachSetAccountRelaysGate
+        else { return }
+        didReachSetAccountRelaysGate = true
+        await withCheckedContinuation { continuation in
+            setAccountRelaysGateContinuation = continuation
+        }
+    }
+
+    func releaseSetAccountRelaysGate() {
+        setAccountRelaysGateContinuation?.resume()
+        setAccountRelaysGateContinuation = nil
     }
 
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
