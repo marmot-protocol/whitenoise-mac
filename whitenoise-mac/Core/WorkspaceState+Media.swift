@@ -62,6 +62,17 @@ extension WorkspaceState {
             && accounts.contains(where: { $0.id == accountId })
     }
 
+    func isMediaDisplayAllowed(forAccountId accountId: String, groupIdHex: String) -> Bool {
+        guard activeAccountId == accountId,
+            accounts.contains(where: { $0.id == accountId })
+        else { return false }
+
+        if case .chat(let selectedGroupId) = selection {
+            return selectedGroupId == groupIdHex
+        }
+        return true
+    }
+
     func suppressMediaDiskStores(forAccountId accountId: String) {
         mediaDiskStoreAccountGenerations[accountId, default: 0] &+= 1
         mediaDiskStoreSuppressedAccountIds.insert(accountId)
@@ -175,7 +186,10 @@ extension WorkspaceState {
         )
 
         if let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) {
-            guard isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) else { return }
+            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+                stateStore.update(.idle)
+                return
+            }
             stateStore.update(.loaded(cachedDownload))
             return
         }
@@ -192,7 +206,10 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 reference: reference
             )
-            guard isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) else { return }
+            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+                stateStore.update(.idle)
+                return
+            }
             let mediaDownload = MessageMediaDownload(
                 payload: DownloadedMediaPayload(
                     id: "\(key)|\(UUID().uuidString)",
@@ -210,7 +227,10 @@ extension WorkspaceState {
                 storeGuard: storeGuard
             )
         } catch {
-            guard activeAccountId == accountId else { return }
+            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+                stateStore.update(.idle)
+                return
+            }
             stateStore.update(.failed(error.localizedDescription))
         }
     }
