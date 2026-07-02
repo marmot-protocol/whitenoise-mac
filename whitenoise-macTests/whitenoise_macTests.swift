@@ -690,6 +690,32 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func accountUnreadSummaryClampsOversizedUnreadCount() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        runtime.accountUnreadSummaryRows = [
+            AccountUnreadFfi(
+                accountIdHex: primary.accountIdHex,
+                unreadCount: UInt64(Int.max) + 1,
+                unreadConversations: 1,
+                hasUnread: true
+            )
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.refreshAccountUnreadSummary()
+
+        #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == Int.max)
+    }
+
+    @MainActor
     @Test func resetActiveAccountUIStateClearsReadMarkersAndDeliveredNotificationKeys() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
