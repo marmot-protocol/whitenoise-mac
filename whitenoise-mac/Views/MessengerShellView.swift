@@ -386,6 +386,7 @@ private struct ConversationView: View {
                     pendingAppendAnchorId = nil
                     isPinnedToBottom = true
                     activeSelectionMessageID = nil
+                    imageGallery = nil
                 }
                 .onChange(of: messageIDs.last) { _, newMessageId in
                     switch timelineNewestMessageScrollAction(
