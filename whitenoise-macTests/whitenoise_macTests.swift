@@ -4304,6 +4304,77 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func bootstrapEnrichesNonSelectedDirectChatWithBlockingListener() async throws {
+        // Issue #281: the full-snapshot enrichment started by `applyChatRows` during
+        // bootstrap/reload must survive listener startup. The listener reuses the snapshot's
+        // subscription, so `nextUpdate()` blocks forever (no forced reconnect to run its own
+        // snapshot/enrichment). A non-selected direct chat must still resolve to its peer
+        // display name / avatar / isDirect instead of staying on its raw group-id fallback.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // A more-recent message group is auto-selected on bootstrap, leaving the direct chat
+        // non-selected so its enrichment is driven only by the full-snapshot pass.
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "group-latest",
+                    groupIdHex: "group",
+                    sender: aliceId,
+                    plaintext: "Most recent group message.",
+                    kind: 9,
+                    recordedAt: 1_700_000_900
+                )
+            ], groupIdHex: "group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        let didEnrichDirectChat = await waitFor(attempts: 300) {
+            state.activeChats.first { $0.id == "direct-group" }?.title == "Alice Actual"
+        }
+
+        let directChat = state.activeChats.first { $0.id == "direct-group" }
+        if !didEnrichDirectChat {
+            Issue.record(
+                """
+                Expected non-selected direct chat to be enriched by the full-snapshot pass. \
+                title=\(directChat?.title ?? "nil") isDirect=\(directChat?.isDirect ?? false) \
+                pictureURL=\(directChat?.pictureURL ?? "nil") selection=\(String(describing: state.selection))
+                """
+            )
+        }
+        #expect(didEnrichDirectChat)
+        #expect(directChat?.isDirect == true)
+        #expect(directChat?.pictureURL == "https://example.com/alice.png")
+        // The listener reuses the snapshot's subscription; no forced reconnect masks the bug.
+        #expect(runtime.chatListSubscriptionCount == 1)
+        // The direct chat must not have been auto-selected (older than the group chat).
+        #expect(state.selection == .chat("group"))
+    }
+
+    @MainActor
     @Test func concurrentReloadChatsForSameAccountCoalesces() async throws {
         // Issue #210: reloadChats() is reachable from independently-spawned Tasks. Two overlapping
         // same-account reloads must share one in-flight subscription/snapshot pass instead of
@@ -11478,6 +11549,43 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         otherProfile: UserProfileMetadataFfi
     ) {
         groups = [group]
+        registerDirectGroupDetails(
+            group,
+            selfAccountIdHex: selfAccountIdHex,
+            otherAccountIdHex: otherAccountIdHex,
+            otherDisplayName: otherDisplayName,
+            otherProfile: otherProfile
+        )
+    }
+
+    /// Install a direct group *alongside* the supplied companion groups (which stay raw group
+    /// chats) instead of replacing the whole group set. Lets a test keep the direct chat
+    /// non-selected while another, more-recent chat is auto-selected on bootstrap.
+    func installDirectGroup(
+        _ group: AppGroupRecordFfi,
+        alongside companions: [AppGroupRecordFfi],
+        selfAccountIdHex: String,
+        otherAccountIdHex: String,
+        otherDisplayName: String,
+        otherProfile: UserProfileMetadataFfi
+    ) {
+        installGroups(companions + [group])
+        registerDirectGroupDetails(
+            group,
+            selfAccountIdHex: selfAccountIdHex,
+            otherAccountIdHex: otherAccountIdHex,
+            otherDisplayName: otherDisplayName,
+            otherProfile: otherProfile
+        )
+    }
+
+    private func registerDirectGroupDetails(
+        _ group: AppGroupRecordFfi,
+        selfAccountIdHex: String,
+        otherAccountIdHex: String,
+        otherDisplayName: String,
+        otherProfile: UserProfileMetadataFfi
+    ) {
         profilesByAccountId[otherAccountIdHex] = otherProfile
         let details = GroupDetailsFfi(
             group: group,

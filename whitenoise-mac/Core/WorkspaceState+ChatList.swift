@@ -75,9 +75,14 @@ extension WorkspaceState {
 
             let rows = try await runOffMain { subscription.snapshot() }
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
-            await applyChatRows(rows, account: activeAccount)
-            guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
+            // Start the listener before applying the snapshot rows. `startChatListListener`
+            // tears down the previous listener (which cancels any in-flight enrichment), so it
+            // must run before `applyChatRows` starts the fresh full-snapshot enrichment task —
+            // otherwise the listener-start teardown cancels that enrichment before its body ever
+            // runs on the main actor, leaving non-selected direct chats on their raw fallback.
             startChatListListener(account: activeAccount, subscription: subscription)
+            guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
+            await applyChatRows(rows, account: activeAccount)
 
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             await selectMostRecentChatIfNeeded()
