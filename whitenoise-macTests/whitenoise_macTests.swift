@@ -974,6 +974,40 @@ struct whitenoise_macTests {
         #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
     }
 
+    @Test func mediaPlaybackTempStoreVoiceRecordingsLiveInsideAppContainerNotSharedTemp() {
+        let base = URL(fileURLWithPath: "/Container", isDirectory: true)
+        let directory = MediaPlaybackTempStore.voiceRecordingsDirectoryURL(baseURL: base)
+
+        #expect(
+            directory.path == "/Container/White Noise/WhiteNoiseVoiceRecordings"
+        )
+        #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
+    }
+
+    @Test func mediaPlaybackTempStorePreparesVoiceRecordingFile() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-voice-recording-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let uniqueID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+        let url = try MediaPlaybackTempStore.prepareVoiceRecordingFile(
+            in: directory,
+            uniqueID: uniqueID,
+            fileManager: fileManager
+        )
+
+        #expect(fileManager.fileExists(atPath: url.path))
+        let fileAttributes = try fileManager.attributesOfItem(atPath: url.path)
+        if let protection = fileAttributes[.protectionKey] as? FileProtectionType {
+            #expect(protection == .complete || protection == .completeUntilFirstUserAuthentication)
+        }
+        #expect(url.lastPathComponent == "voice-\(uniqueID.uuidString).m4a")
+        #expect(url.deletingLastPathComponent().path == directory.path)
+        let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(values.isExcludedFromBackup == true)
+    }
+
     @Test func mediaPlaybackTempStoreMaterializesIndependentConsumerFiles() throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
@@ -1125,6 +1159,36 @@ struct whitenoise_macTests {
         MediaPlaybackTempStore.purge(directory: directory, legacyDirectory: legacyDirectory)
         #expect(!fileManager.fileExists(atPath: directory.path))
         #expect(!fileManager.fileExists(atPath: legacyDirectory.path))
+    }
+
+    @Test func mediaPlaybackTempStorePurgesVoiceRecordingDirectories() throws {
+        let fileManager = FileManager.default
+        let sandbox = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-purge-tests-\(UUID().uuidString)", isDirectory: true)
+        let appSupport = sandbox.appendingPathComponent("ApplicationSupport", isDirectory: true)
+        let legacyPlayback = sandbox.appendingPathComponent("LegacyPlayback", isDirectory: true)
+        let legacyVoiceRecordings = sandbox.appendingPathComponent("LegacyVoiceRecordings", isDirectory: true)
+        defer { try? fileManager.removeItem(at: sandbox) }
+
+        let playback = MediaPlaybackTempStore.directoryURL(baseURL: appSupport)
+        let voiceRecordings = MediaPlaybackTempStore.voiceRecordingsDirectoryURL(baseURL: appSupport)
+        for directory in [playback, voiceRecordings, legacyPlayback, legacyVoiceRecordings] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("plaintext".utf8).write(to: directory.appendingPathComponent("left-behind.bin"))
+            #expect(fileManager.fileExists(atPath: directory.path))
+        }
+
+        MediaPlaybackTempStore.purge(
+            fileManager: fileManager,
+            applicationSupportDirectory: { _ in appSupport },
+            legacyPlaybackDirectory: { _ in legacyPlayback },
+            legacyVoiceRecordingsDirectory: { _ in legacyVoiceRecordings }
+        )
+
+        #expect(!fileManager.fileExists(atPath: playback.path))
+        #expect(!fileManager.fileExists(atPath: voiceRecordings.path))
+        #expect(!fileManager.fileExists(atPath: legacyPlayback.path))
+        #expect(!fileManager.fileExists(atPath: legacyVoiceRecordings.path))
     }
 
     @Test func messageMediaDiskCacheRoundTripsEncryptedPayload() async throws {
