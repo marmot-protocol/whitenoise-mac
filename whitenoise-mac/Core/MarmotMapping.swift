@@ -58,8 +58,8 @@ extension ChatItem {
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
             pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
-            unreadCount: Int(row.unreadCount),
-            unreadMentionCount: Int(row.unreadMentionCount),
+            unreadCount: Int(clamping: row.unreadCount),
+            unreadMentionCount: Int(clamping: row.unreadMentionCount),
             isDirect: directPeer != nil,
             pendingConfirmation: row.pendingConfirmation
         )

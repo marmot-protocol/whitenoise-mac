@@ -55,6 +55,34 @@ struct PureValueTests {
         #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
     }
 
+    @Test func chatListRowClampsOversizedUnreadCounts() async throws {
+        // Regression for whitenoise-mac#242: unread counts cross the FFI boundary as
+        // UInt64, and Int(value) traps above Int.max while mapping the chat list.
+        let row = ChatListRowFfi(
+            groupIdHex: "group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Planning",
+            groupName: "Planning",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: nil,
+            unreadCount: UInt64(Int.max) + 1,
+            hasUnread: true,
+            unreadMentionCount: UInt64.max,
+            unreadMention: true,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 0
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: nil)
+
+        #expect(chat.unreadCount == Int.max)
+        #expect(chat.unreadMentionCount == Int.max)
+    }
+
     @Test func messageItemTimelineFallbackClampsPreEpochAndNonFiniteDates() async throws {
         // Regression for whitenoise-mac#247: the timelineAt fallback derives from
         // sentAt via UInt64(_:), which traps on negative (pre-1970) or non-finite
