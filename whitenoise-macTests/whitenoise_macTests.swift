@@ -6028,11 +6028,12 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func incrementalChatRowUpdateEnrichesDirectChatTitle() async throws {
-        // Regression for #40: single-row chat-list deltas go through the incremental
-        // enrichment path (startChatListEnrichment(replacingCurrent: false)). After the fix
-        // these tasks are tracked and coalesced per group, but the happy path must still
-        // enrich the row — verify a `.row` delta for a direct chat resolves the peer profile.
+    @Test func newLastMessageChatRowPreservesDirectChatMetadataWithoutReenrichment() async throws {
+        // Regression for #40/#251: a `.newLastMessage` single-row delta is metadata-invariant,
+        // so it takes the `shouldEnrich: false` fast path (no per-row FFI fan-out). The
+        // already-resolved direct-chat metadata (title/avatar/isDirect) must be preserved while
+        // the fresh last-message preview is applied — verify the row still shows the resolved
+        // peer profile without re-querying group details.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -6070,28 +6071,49 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
-        let didEnrichIncrementally = await waitFor(attempts: 300) {
+        let didPreserveMetadata = await waitFor(attempts: 300) {
             state.activeChats.first?.title == "Alice Actual"
                 && state.activeChats.first?.preview == "See you soon."
         }
 
-        if !didEnrichIncrementally {
+        if !didPreserveMetadata {
             let chat = state.activeChats.first
             Issue.record(
                 """
-                Expected incremental direct-chat enrichment. \
+                Expected direct-chat metadata preservation. \
                 title=\(chat?.title ?? "nil") preview=\(chat?.preview ?? "nil") \
                 pictureURL=\(chat?.pictureURL ?? "nil") \
                 detailsCalls=\(runtime.groupDetailsCallCounts["direct-group"] ?? 0)
                 """
             )
         }
-        #expect(didEnrichIncrementally)
+        #expect(didPreserveMetadata)
         #expect(state.activeChats.first?.isDirect == true)
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
         // The incremental row reuses the initial membership lookup for non-membership triggers;
         // it must not re-query group details just to refresh the last-message preview (#9).
         #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) == 1)
+    }
+
+    @MainActor
+    @Test func chatListTriggerEnrichmentGatingMatchesMetadataInvariance() {
+        // The enrichment gate must skip exactly the metadata-invariant triggers and enrich the
+        // rest, so read-state-only deltas never pay for the per-row FFI fan-out (#251).
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+
+        let metadataInvariant: [ChatListUpdateTriggerFfi] = [
+            .newLastMessage, .lastMessageDeleted, .pendingConfirmationChanged, .unreadChanged,
+        ]
+        for trigger in metadataInvariant {
+            #expect(!state.chatListTriggerRequiresEnrichment(trigger))
+        }
+
+        let metadataChanging: [ChatListUpdateTriggerFfi] = [
+            .newGroup, .archiveChanged, .membershipChanged, .snapshotRefresh, .removed,
+        ]
+        for trigger in metadataChanging {
+            #expect(state.chatListTriggerRequiresEnrichment(trigger))
+        }
     }
 
     @Test func chatListOrderingUpdatesSingleRowWithoutResortingWholeList() {
