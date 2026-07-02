@@ -170,6 +170,9 @@ struct PureValueTests {
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://127.0.0.1:8080/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[::1]/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost./x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://printer.local./x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://127.0.0.1./x.png") == nil)
         // whitenoise-mac#243: broadcast / multicast / reserved / CGNAT are non-public too,
         // including an obfuscated (decimal) broadcast literal to exercise the parser path.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://255.255.255.255/x.png") == nil)
@@ -505,11 +508,14 @@ struct PureValueTests {
             "http://192.168.0.1/admin/reboot",
             "https://[::1]:9000/",
             "http://127.0.0.1:8080/",
+            "http://127.0.0.1.:8080/",
             "https://10.0.0.5/x",
             "http://169.254.169.254/latest/meta-data",
             "https://[fe80::1]/",
             "http://localhost/admin",
+            "http://localhost./admin",
             "https://printer.local/status",
+            "https://printer.local./status",
             // Obfuscated loopback literal (decimal form of 127.0.0.1).
             "http://2130706433/",
         ] {
