@@ -106,7 +106,12 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     }
 }
 
-struct ChatPeerProfile: Hashable {
+// `Sendable` so the timeline window/projection mapping can capture the resolved
+// sender-profile map in the off-main `MessageItem.timeline(...)` closure
+// (whitenoise-mac#285). All stored properties are value types, so the conformance is
+// checked; `nonisolated` opts the value type out of the module's default main-actor
+// isolation (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`), a prerequisite for `Sendable`.
+nonisolated struct ChatPeerProfile: Hashable, Sendable {
     let accountIdHex: String
     let displayName: String?
     let pictureURL: String?
@@ -175,7 +180,7 @@ enum GroupDetailsHeaderAvatar {
     }
 }
 
-struct MessageReaction: Identifiable, Hashable {
+nonisolated struct MessageReaction: Identifiable, Hashable {
     let emoji: String
     let count: Int
     let isOwn: Bool
@@ -199,7 +204,7 @@ struct MessageReaction: Identifiable, Hashable {
     }
 }
 
-struct MessageReplyContext: Hashable {
+nonisolated struct MessageReplyContext: Hashable {
     let targetMessageId: String
     let senderName: String
     let body: String
@@ -225,7 +230,7 @@ nonisolated enum MessageMediaKind: Hashable, Sendable {
     }
 }
 
-struct MessageMediaAttachment: Identifiable, Hashable {
+nonisolated struct MessageMediaAttachment: Identifiable, Hashable {
     let id: String
     let reference: MediaAttachmentReferenceFfi
 
@@ -1261,7 +1266,7 @@ nonisolated private enum TemporaryOutgoingMediaFile {
     }
 }
 
-enum MessagePresentation: Hashable {
+nonisolated enum MessagePresentation: Hashable {
     case chat
     case agentStreamStart
     case agentActivity
@@ -1340,7 +1345,10 @@ struct MessageItem: Identifiable, Hashable {
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
 
-    init(
+    // `nonisolated` so the timeline record → view-model mapping (`MessageItem.timeline`)
+    // can build items in the off-main window/projection closure (whitenoise-mac#285)
+    // without inheriting the module's default main-actor isolation.
+    nonisolated init(
         id: String,
         groupIdHex: String = "",
         senderAccountIdHex: String? = nil,
@@ -1418,7 +1426,7 @@ struct MessageItem: Identifiable, Hashable {
         self.metadataLabel = statusLabel.map { "\(timeLabel)  \($0)" } ?? timeLabel
     }
 
-    private static func partitionMediaAttachments(_ attachments: [MessageMediaAttachment]) -> (
+    nonisolated private static func partitionMediaAttachments(_ attachments: [MessageMediaAttachment]) -> (
         visual: [MessageMediaAttachment], nonvisual: [MessageMediaAttachment]
     ) {
         var visual: [MessageMediaAttachment] = []

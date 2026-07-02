@@ -822,6 +822,27 @@ final class WorkspaceState {
         attributes: .concurrent
     )
 
+    /// Runs the pure timeline record → view-model transformation off the main actor.
+    /// This uses the same queue as blocking FFI work because `WorkspaceState` is
+    /// `@MainActor` while Markdown/attributed-string/media-JSON mapping can be expensive.
+    nonisolated static func mapTimelineOffMain(
+        page: TimelinePageFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) async -> [MessageItem] {
+        await withCheckedContinuation { (continuation: CheckedContinuation<[MessageItem], Never>) in
+            Self.ffiQueue.async {
+                continuation.resume(
+                    returning: MessageItem.timeline(
+                        from: page,
+                        activeAccountIdHex: activeAccountIdHex,
+                        senderProfiles: senderProfiles
+                    )
+                )
+            }
+        }
+    }
+
     /// Cached raw output of the per-sender profile FFI lookups.
     struct ResolvedPeerFFI: Sendable {
         var profileDisplayName: String?
