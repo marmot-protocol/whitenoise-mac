@@ -541,6 +541,63 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func signOutActiveAccountClearsDecodedImageCache() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        RemoteImageLoader.shared.clearCache()
+        defer { RemoteImageLoader.shared.clearCache() }
+        let cacheKey = "signed-out-active-account-avatar"
+        let imageData = try Self.testPNGData(width: 64, height: 64)
+        let decoded = try #require(
+            await RemoteImageLoader.shared.image(
+                for: imageData,
+                cacheKey: cacheKey,
+                maxPixelSize: 32
+            )
+        )
+        let cachedBeforeSignOut = try #require(
+            await RemoteImageLoader.shared.image(
+                for: Data([0x00]),
+                cacheKey: cacheKey,
+                maxPixelSize: 32
+            )
+        )
+        #expect(cachedBeforeSignOut.nsImage === decoded.nsImage)
+
+        let desktopAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+        await state.signOutAccount(desktopAccount)
+
+        #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
+        #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(
+            await RemoteImageLoader.shared.image(
+                for: Data([0x00]),
+                cacheKey: cacheKey,
+                maxPixelSize: 32
+            ) == nil
+        )
+    }
+
+    @MainActor
     @Test func removingBackgroundAccountSelectedMidFlightRecoversActiveAccount() async throws {
         // Regression for the account-switch/remove race: if the user selects the
         // background account that is currently being removed while removal is in flight,
@@ -11815,6 +11872,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {
         signOutCallCount += 1
         signedOutAccountRefs.append(accountRef)
+        if let index = storedAccounts.firstIndex(where: { $0.label == accountRef }) {
+            storedAccounts[index].signedOut = true
+            storedAccounts[index].running = false
+        }
         return SignOutOutcomeFfi(
             keyPackagesDeleted: 0,
             keyPackageFailures: [],
