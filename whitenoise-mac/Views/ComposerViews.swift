@@ -311,6 +311,14 @@ nonisolated enum ComposerAudioWaveformPresentation {
     static let amplitudeCurveExponent: Double = 0.45
     static let fallbackPlaybackBars = bars(for: MediaWaveformAnalyzer.fallbackSamples, mode: .playback)
 
+    static func visiblePlaybackBars(
+        loadedBars: [ComposerAudioWaveformBar],
+        metadataPayloadID: String?,
+        currentPayloadID: String
+    ) -> [ComposerAudioWaveformBar] {
+        metadataPayloadID == currentPayloadID ? loadedBars : fallbackPlaybackBars
+    }
+
     static func bars(
         for samples: [CGFloat],
         mode: ComposerAudioWaveformMode,
@@ -324,6 +332,8 @@ nonisolated enum ComposerAudioWaveformPresentation {
                 .map(displayAmplitude)
                 .map { ComposerAudioWaveformBar(amplitude: $0) }
         case .liveRecording:
+            // Live recordings grow while the user speaks, so this path intentionally
+            // recomputes from the current samples instead of caching a stale snapshot.
             let visibleSamples = samples.suffix(targetCount)
                 .map(displayAmplitude)
                 .map { ComposerAudioWaveformBar(amplitude: $0) }
@@ -344,6 +354,8 @@ struct ComposerAudioWaveformView: View {
     let barColor: Color
     let playedColor: Color
 
+    // Convenience path for one-shot previews and live recording. Playback rows pass
+    // precomputed bars so progress ticks only recolor already-prepared amplitudes.
     init(
         samples: [CGFloat],
         progress: CGFloat,

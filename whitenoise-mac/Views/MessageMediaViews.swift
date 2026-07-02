@@ -795,9 +795,11 @@ struct MessageAudioAttachmentPlayer: View {
     }
 
     private var visibleWaveformBars: [ComposerAudioWaveformBar] {
-        metadataPayloadID == download.payload.id
-            ? waveformBars
-            : ComposerAudioWaveformPresentation.fallbackPlaybackBars
+        ComposerAudioWaveformPresentation.visiblePlaybackBars(
+            loadedBars: waveformBars,
+            metadataPayloadID: metadataPayloadID,
+            currentPayloadID: download.payload.id
+        )
     }
 
     private var durationLabel: String {

@@ -47,6 +47,37 @@ struct PureValueTests {
         )
     }
 
+    @Test func composerAudioWaveformSelectsLoadedBarsForMatchingPayload() async throws {
+        // The metadata-loaded path stores bars once, then playback progress should only
+        // recolor those loaded bars. Stale or missing metadata keeps showing fallback.
+        let loadedBars = ComposerAudioWaveformPresentation.bars(
+            for: [0.15, 0.35, 0.65, 1.0],
+            mode: .playback
+        )
+
+        #expect(
+            ComposerAudioWaveformPresentation.visiblePlaybackBars(
+                loadedBars: loadedBars,
+                metadataPayloadID: "payload-a",
+                currentPayloadID: "payload-a"
+            ) == loadedBars
+        )
+        #expect(
+            ComposerAudioWaveformPresentation.visiblePlaybackBars(
+                loadedBars: loadedBars,
+                metadataPayloadID: nil,
+                currentPayloadID: "payload-a"
+            ) == ComposerAudioWaveformPresentation.fallbackPlaybackBars
+        )
+        #expect(
+            ComposerAudioWaveformPresentation.visiblePlaybackBars(
+                loadedBars: loadedBars,
+                metadataPayloadID: "payload-a",
+                currentPayloadID: "payload-b"
+            ) == ComposerAudioWaveformPresentation.fallbackPlaybackBars
+        )
+    }
+
     @Test func mediaDurationLabelClampsNonFiniteAndOversizedDurations() async throws {
         // Regression for whitenoise-mac#253: the audio duration is peer-derived
         // (MediaWaveformAnalyzer -> AVAudioFile.length / sampleRate), so it may be
