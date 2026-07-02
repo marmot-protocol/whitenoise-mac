@@ -476,6 +476,10 @@ struct PublicIdentityQRCodeSheet: View {
     }
 }
 
+private nonisolated struct RenderedQRCodeImage: @unchecked Sendable {
+    let nsImage: NSImage
+}
+
 struct QRCodeImageView: View {
     let payload: String
 
@@ -499,16 +503,16 @@ struct QRCodeImageView: View {
             }
         }
         .task(id: payload) {
-            let image = await Task.detached(priority: .userInitiated) {
+            let image = await Task.detached(priority: .utility) {
                 Self.image(for: payload)
             }.value
             guard !Task.isCancelled else { return }
-            renderedImage = image
+            renderedImage = image?.nsImage
             renderedPayload = payload
         }
     }
 
-    nonisolated private static func image(for payload: String) -> NSImage? {
+    nonisolated private static func image(for payload: String) -> RenderedQRCodeImage? {
         guard !payload.isEmpty,
             let filter = CIFilter(name: "CIQRCodeGenerator")
         else { return nil }
@@ -521,7 +525,7 @@ struct QRCodeImageView: View {
         let representation = NSCIImageRep(ciImage: scaledImage)
         let image = NSImage(size: representation.size)
         image.addRepresentation(representation)
-        return image
+        return RenderedQRCodeImage(nsImage: image)
     }
 }
 
