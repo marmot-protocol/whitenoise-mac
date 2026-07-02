@@ -309,6 +309,15 @@ nonisolated struct ComposerAudioWaveformBar: Equatable {
 
 nonisolated enum ComposerAudioWaveformPresentation {
     static let amplitudeCurveExponent: Double = 0.45
+    static let fallbackPlaybackBars = bars(for: MediaWaveformAnalyzer.fallbackSamples, mode: .playback)
+
+    static func visiblePlaybackBars(
+        loadedBars: [ComposerAudioWaveformBar],
+        metadataPayloadID: String?,
+        currentPayloadID: String
+    ) -> [ComposerAudioWaveformBar] {
+        metadataPayloadID == currentPayloadID ? loadedBars : fallbackPlaybackBars
+    }
 
     static func bars(
         for samples: [CGFloat],
@@ -323,6 +332,8 @@ nonisolated enum ComposerAudioWaveformPresentation {
                 .map(displayAmplitude)
                 .map { ComposerAudioWaveformBar(amplitude: $0) }
         case .liveRecording:
+            // Live recordings grow while the user speaks, so this path intentionally
+            // recomputes from the current samples instead of caching a stale snapshot.
             let visibleSamples = samples.suffix(targetCount)
                 .map(displayAmplitude)
                 .map { ComposerAudioWaveformBar(amplitude: $0) }
@@ -338,15 +349,42 @@ nonisolated enum ComposerAudioWaveformPresentation {
 }
 
 struct ComposerAudioWaveformView: View {
-    let samples: [CGFloat]
+    let bars: [ComposerAudioWaveformBar]
     let progress: CGFloat
     let barColor: Color
     let playedColor: Color
-    var mode: ComposerAudioWaveformMode = .playback
+
+    // Convenience path for one-shot previews and live recording. Playback rows pass
+    // precomputed bars so progress ticks only recolor already-prepared amplitudes.
+    init(
+        samples: [CGFloat],
+        progress: CGFloat,
+        barColor: Color,
+        playedColor: Color,
+        mode: ComposerAudioWaveformMode = .playback
+    ) {
+        self.init(
+            bars: ComposerAudioWaveformPresentation.bars(for: samples, mode: mode),
+            progress: progress,
+            barColor: barColor,
+            playedColor: playedColor
+        )
+    }
+
+    init(
+        bars: [ComposerAudioWaveformBar],
+        progress: CGFloat,
+        barColor: Color,
+        playedColor: Color
+    ) {
+        self.bars = bars
+        self.progress = progress
+        self.barColor = barColor
+        self.playedColor = playedColor
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            let bars = ComposerAudioWaveformPresentation.bars(for: samples, mode: mode)
             let spacing: CGFloat = 2
             let barCount = max(1, bars.count)
             let availableWidth = geometry.size.width - spacing * CGFloat(max(0, barCount - 1))
