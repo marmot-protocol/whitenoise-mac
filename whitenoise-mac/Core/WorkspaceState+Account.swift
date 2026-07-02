@@ -256,14 +256,14 @@ extension WorkspaceState {
                 || !accounts.contains(where: { $0.id == activeAccountId })
             let needsActiveReset = wasActive || activeAccountInvalid
 
-            // Decoded peer/group avatars derive from account contacts' attacker-controlled
-            // `picture` URLs. The decoded-image cache is process-lifetime and global rather than
-            // account-partitioned, so evict it after every successful account removal, including
-            // removing a non-active identity from Settings. See #177.
-            RemoteImageLoader.shared.clearCache()
-
             if needsActiveReset {
                 resetActiveAccountUIState()
+            } else {
+                // Decoded peer/group avatars derive from account contacts' attacker-controlled
+                // `picture` URLs. The decoded-image cache is process-lifetime and global rather than
+                // account-partitioned, so evict it after every successful background-account removal.
+                // Active-account removal clears it through `resetActiveAccountUIState()`. See #177.
+                RemoteImageLoader.shared.clearCache()
             }
 
             if accounts.isEmpty {
@@ -307,6 +307,9 @@ extension WorkspaceState {
         mediaDownloads.removeAll()
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
+        // Active-account teardown must evict decoded peer/group avatars held in the
+        // process-lifetime image cache; profile metadata alone is not enough. See #177/#288.
+        RemoteImageLoader.shared.clearCache()
         timelinePagingByChat.removeAll()
         accountUnreadByIdHex.removeAll()
         // Read markers are keyed by groupIdHex; leaving them behind both retains a
