@@ -10,6 +10,10 @@
 import AppKit
 import SwiftUI
 
+private func unreadBadgeLabel(for count: Int) -> String {
+    count > 99 ? "99+" : "\(count)"
+}
+
 struct AccountRailView: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -127,7 +131,7 @@ private struct AccountRailAvatar: View {
                 .foregroundStyle(.secondary)
                 .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
         } else if unread > 0 {
-            Text(unread > 99 ? "99+" : "\(unread)")
+            Text(unreadBadgeLabel(for: unread))
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5)
@@ -372,7 +376,7 @@ struct ChatRowContent: View {
                             .background(Circle().fill(Color.accentColor))
                             .help(L10n.string("You were mentioned"))
                     }
-                    Text("\(chat.unreadCount)")
+                    Text(unreadBadgeLabel(for: chat.unreadCount))
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.white)
                         .frame(minWidth: 18, minHeight: 18)
