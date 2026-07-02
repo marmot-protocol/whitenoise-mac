@@ -2706,6 +2706,356 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func workspaceCachesSourceEpochZeroMediaReferenceMissesUntilInvalidated() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let accountItem = AccountItem(summary: account)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        let timelineReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "missing-then-present.png",
+            ciphertextSha256: String(repeating: "c", count: 64),
+            plaintextSha256: String(repeating: "d", count: 64)
+        )
+
+        let firstMiss = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(firstMiss.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        let secondMiss = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(secondMiss.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        let fullReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "missing-then-present.png",
+            ciphertextSha256: timelineReference.ciphertextSha256,
+            plaintextSha256: timelineReference.plaintextSha256
+        )
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: fullReference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: MediaDownloadResultFfi(
+                plaintext: Data([0x01, 0x02, 0x03, 0x04]),
+                fileName: "missing-then-present.png",
+                mediaType: "image/png",
+                sizeBytes: 4
+            )
+        )
+
+        let cachedMiss = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(cachedMiss.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        state.clearMediaReferenceResolutionCache(forAccountId: accountItem.id, groupIdHex: "group")
+        let refreshed = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+
+        #expect(refreshed.sourceEpoch == fullReference.sourceEpoch)
+        #expect(runtime.listMediaCallCount == 2)
+    }
+
+    @MainActor
+    @Test func timelineMediaProjectionInvalidatesMediaReferenceMissCache() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountItem = AccountItem(summary: account)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let chat = ChatItem(
+            id: "group",
+            title: "Test Group",
+            subtitle: "Group message",
+            preview: "Attachment",
+            updatedAt: nil,
+            avatarSeed: "group",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let state = WorkspaceState(
+            accounts: [accountItem],
+            chatsByAccount: [accountItem.id: [chat]],
+            messagesByChat: ["group": []],
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = accountItem.id
+        state.selection = .chat("group")
+        let timelineReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "inbound.png",
+            ciphertextSha256: String(repeating: "e", count: 64),
+            plaintextSha256: String(repeating: "f", count: 64)
+        )
+        let initial = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(initial.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        let fullReference = mediaAttachmentReference(
+            sourceEpoch: 11,
+            mediaType: "image/png",
+            fileName: "inbound.png",
+            ciphertextSha256: timelineReference.ciphertextSha256,
+            plaintextSha256: timelineReference.plaintextSha256
+        )
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "inbound-media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: fullReference,
+                caption: nil,
+                recordedAt: 1_700_000_001,
+                receivedAt: 1_700_000_001
+            ),
+            download: MediaDownloadResultFfi(
+                plaintext: Data([0x05, 0x06, 0x07, 0x08]),
+                fileName: "inbound.png",
+                mediaType: "image/png",
+                sizeBytes: 4
+            )
+        )
+        let stillCachedMiss = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(stillCachedMiss.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        await state.applyTimelineProjection(
+            TimelineProjectionUpdateFfi(
+                groupIdHex: "group",
+                messages: [],
+                changes: [
+                    .upsert(
+                        trigger: .newMessage,
+                        message: timelineMessage(
+                            id: "inbound-media-message",
+                            groupIdHex: "group",
+                            sender: "alice",
+                            plaintext: "",
+                            recordedAt: 1_700_000_001,
+                            mediaJson: mediaJson(for: timelineReference)
+                        ))
+                ],
+                chatListRow: nil,
+                chatListTrigger: .newLastMessage
+            ),
+            groupIdHex: "group",
+            account: accountItem,
+            client: runtime
+        )
+
+        let refreshed = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(refreshed.sourceEpoch == fullReference.sourceEpoch)
+        #expect(runtime.listMediaCallCount == 2)
+    }
+
+    @MainActor
+    @Test func workspaceCoalescesAndCachesSourceEpochZeroMediaReferenceResolution() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+
+        var fixtures: [MediaResolutionFixture] = []
+        for index in 0..<4 {
+            let plaintextSHA = String(repeating: String(index + 1), count: 64)
+            let ciphertextSHA = String(repeating: String(index + 5), count: 64)
+            let timelineReference = mediaAttachmentReference(
+                sourceEpoch: 0,
+                mediaType: "image/png",
+                fileName: "coalesced-\(index).png",
+                ciphertextSha256: ciphertextSHA,
+                plaintextSha256: plaintextSHA
+            )
+            let fullReference = mediaAttachmentReference(
+                sourceEpoch: UInt64(index + 10),
+                mediaType: "image/png",
+                fileName: "coalesced-\(index).png",
+                ciphertextSha256: ciphertextSHA,
+                plaintextSha256: plaintextSHA
+            )
+            let plaintext = Data([UInt8(index + 1), 0xaa, 0xbb, 0xcc])
+            runtime.installMediaRecord(
+                MediaRecordFfi(
+                    messageIdHex: "coalesced-media-message-\(index)",
+                    attachmentIndex: 0,
+                    direction: "inbound",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    reference: fullReference,
+                    caption: nil,
+                    recordedAt: UInt64(1_700_000_000 + index),
+                    receivedAt: UInt64(1_700_000_000 + index)
+                ),
+                download: MediaDownloadResultFfi(
+                    plaintext: plaintext,
+                    fileName: "coalesced-\(index).png",
+                    mediaType: "image/png",
+                    sizeBytes: UInt64(plaintext.count)
+                )
+            )
+            let attachment = MessageMediaAttachment(
+                id: "coalesced-media-message-\(index)#0#\(timelineReference.plaintextSha256)",
+                reference: timelineReference
+            )
+            let message = MessageItem(
+                id: "coalesced-media-message-\(index)",
+                groupIdHex: "group",
+                senderName: "Alice",
+                body: "",
+                sentAt: Date(timeIntervalSince1970: TimeInterval(1_700_000_000 + index)),
+                isOutgoing: false,
+                mediaAttachments: [attachment]
+            )
+            fixtures.append(
+                MediaResolutionFixture(
+                    message: message,
+                    attachment: attachment,
+                    plaintext: plaintext,
+                    expectedSourceEpoch: fullReference.sourceEpoch
+                )
+            )
+        }
+
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        runtime.listMediaGateEnabled = true
+        async let firstLoad: Void = state.loadMediaAttachment(fixtures[0].attachment, for: fixtures[0].message)
+        while !runtime.didReachListMediaGate {
+            await Task.yield()
+        }
+
+        async let secondLoad: Void = state.loadMediaAttachment(fixtures[1].attachment, for: fixtures[1].message)
+        async let thirdLoad: Void = state.loadMediaAttachment(fixtures[2].attachment, for: fixtures[2].message)
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+        #expect(runtime.listMediaCallCount == 1)
+
+        runtime.releaseListMediaGate()
+        await firstLoad
+        await secondLoad
+        await thirdLoad
+
+        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.downloadMediaCallCount == 3)
+        let firstDownloadEpochsByPlaintext = runtime.downloadedMediaReferences.reduce(
+            into: [String: UInt64]()
+        ) { result, reference in
+            result[reference.plaintextSha256] = reference.sourceEpoch
+        }
+        for fixture in fixtures.prefix(3) {
+            guard
+                case .loaded(let loaded) = state.mediaDownloadState(
+                    for: fixture.message,
+                    attachment: fixture.attachment
+                )
+            else {
+                Issue.record("Expected coalesced media download to load")
+                return
+            }
+            #expect(loaded.data == fixture.plaintext)
+            #expect(
+                firstDownloadEpochsByPlaintext[fixture.attachment.reference.plaintextSha256]
+                    == fixture.expectedSourceEpoch)
+        }
+
+        await state.loadMediaAttachment(fixtures[3].attachment, for: fixtures[3].message)
+
+        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.downloadMediaCallCount == 4)
+        let allDownloadEpochsByPlaintext = runtime.downloadedMediaReferences.reduce(
+            into: [String: UInt64]()
+        ) { result, reference in
+            result[reference.plaintextSha256] = reference.sourceEpoch
+        }
+        #expect(
+            allDownloadEpochsByPlaintext[fixtures[3].attachment.reference.plaintextSha256]
+                == fixtures[3].expectedSourceEpoch)
+        guard
+            case .loaded(let loaded) = state.mediaDownloadState(
+                for: fixtures[3].message,
+                attachment: fixtures[3].attachment
+            )
+        else {
+            Issue.record("Expected cached-index media download to load")
+            return
+        }
+        #expect(loaded.data == fixtures[3].plaintext)
+    }
+
+    @MainActor
     @Test func workspaceLoadsMediaAttachmentFromDurableCacheWithoutRuntimeDownload() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -11030,6 +11380,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var uploadMediaCallCount = 0
     private(set) var listMediaCallCount = 0
     private(set) var downloadMediaCallCount = 0
+    private(set) var downloadedMediaReferences: [MediaAttachmentReferenceFfi] = []
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
     private(set) var updateGroupAvatarUrlCallCount = 0
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
@@ -11101,6 +11452,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
     private var mediaDownloadGateContinuation: CheckedContinuation<Void, Never>?
     private var mediaDownloadGateReleased = false
+    /// Issue #286 reference-resolution cache-test support: when armed, the first synchronous
+    /// `listMedia` call blocks on the FFI queue so overlapping attachment loads can join it.
+    private let listMediaGate = BlockingFfiGate()
+    var listMediaGateEnabled: Bool {
+        get { listMediaGate.isEnabled }
+        set { listMediaGate.isEnabled = newValue }
+    }
+    var didReachListMediaGate: Bool {
+        listMediaGate.didReach
+    }
     /// Issue #134 reentrancy-test support: when armed, the first group-avatar update FFI call
     /// suspends until `releaseGroupAvatarUpdateGate()` is invoked, holding the first invocation
     /// in-flight so a test can issue an overlapping clear/set action and assert the guard dropped it.
@@ -12107,15 +12468,21 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi] {
         listMediaCallCount += 1
+        listMediaGate.passIfArmed()
         let records = mediaRecordsByGroupId[groupIdHex] ?? []
         guard let limit else { return records }
         return Array(records.prefix(Int(limit)))
+    }
+
+    func releaseListMediaGate() {
+        listMediaGate.release()
     }
 
     func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
         -> MediaDownloadResultFfi
     {
         downloadMediaCallCount += 1
+        downloadedMediaReferences.append(reference)
         guard let download = mediaDownloadsByPlaintextSha256[reference.plaintextSha256] else {
             throw FakeMarmotRuntimeError.unused
         }
@@ -12395,6 +12762,13 @@ private struct SentText: Equatable {
 private struct UploadedMedia: Equatable {
     let groupIdHex: String
     let request: MediaUploadRequestFfi
+}
+
+private struct MediaResolutionFixture {
+    let message: MessageItem
+    let attachment: MessageMediaAttachment
+    let plaintext: Data
+    let expectedSourceEpoch: UInt64
 }
 
 private struct SentReaction: Equatable {
