@@ -267,6 +267,47 @@ private extension View {
             self
         }
     }
+
+    func autoDownloadMediaAttachment(
+        _ downloadState: MediaDownloadStateStore,
+        attachment: MessageMediaAttachment,
+        message: MessageItem
+    ) -> some View {
+        modifier(
+            AutomaticMediaDownloadModifier(
+                downloadState: downloadState,
+                attachment: attachment,
+                message: message
+            )
+        )
+    }
+}
+
+private struct AutomaticMediaDownloadModifier: ViewModifier {
+    @Environment(WorkspaceState.self) private var workspace
+    let downloadState: MediaDownloadStateStore
+    let attachment: MessageMediaAttachment
+    let message: MessageItem
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                startAutomaticDownloadIfNeeded()
+            }
+            .onChange(of: attachment.id) { _, _ in
+                startAutomaticDownloadIfNeeded()
+            }
+            .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
+                if shouldStart {
+                    startAutomaticDownloadIfNeeded()
+                }
+            }
+    }
+
+    private func startAutomaticDownloadIfNeeded() {
+        guard downloadState.shouldStartAutomaticDownload else { return }
+        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+    }
 }
 
 /// The chat-bubble shape: a rounded rectangle with the trailing/leading bottom corner
@@ -390,7 +431,6 @@ struct MessageVisualMediaGrid: View {
 }
 
 struct MessageVisualMediaTile: View {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.displayScale) private var displayScale
     let downloadState: MediaDownloadStateStore
     let message: MessageItem
@@ -414,14 +454,11 @@ struct MessageVisualMediaTile: View {
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
         .clipped()
-        .onAppear {
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-            if shouldStart {
-                startAutomaticDownloadIfNeeded()
-            }
-        }
+        .autoDownloadMediaAttachment(
+            downloadState,
+            attachment: attachment,
+            message: message
+        )
         .onTapGesture {
             if attachment.kind == .image,
                 let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment)
@@ -430,11 +467,6 @@ struct MessageVisualMediaTile: View {
             }
         }
         .accessibilityIdentifier("message.media.visualTile.\(attachment.id)")
-    }
-
-    private func startAutomaticDownloadIfNeeded() {
-        guard downloadState.shouldStartAutomaticDownload else { return }
-        Task { await workspace.loadMediaAttachment(attachment, for: message) }
     }
 
     @ViewBuilder
@@ -521,20 +553,12 @@ struct MessageMediaAttachmentView: View {
                 }
             }
         }
-        .onAppear {
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-            if shouldStart {
-                startAutomaticDownloadIfNeeded()
-            }
-        }
+        .autoDownloadMediaAttachment(
+            downloadState,
+            attachment: attachment,
+            message: message
+        )
         .accessibilityIdentifier("message.media.attachment.\(attachment.id)")
-    }
-
-    private func startAutomaticDownloadIfNeeded() {
-        guard downloadState.shouldStartAutomaticDownload else { return }
-        Task { await workspace.loadMediaAttachment(attachment, for: message) }
     }
 
     @ViewBuilder
@@ -1218,22 +1242,11 @@ struct MessageImageGalleryContent: View {
                 DownsampledMessageGalleryImage(download: download, attachment: attachment)
             }
         }
-        .onAppear {
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: attachment.id) { _, _ in
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-            if shouldStart {
-                startAutomaticDownloadIfNeeded()
-            }
-        }
-    }
-
-    private func startAutomaticDownloadIfNeeded() {
-        guard downloadState.shouldStartAutomaticDownload else { return }
-        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+        .autoDownloadMediaAttachment(
+            downloadState,
+            attachment: attachment,
+            message: message
+        )
     }
 }
 
