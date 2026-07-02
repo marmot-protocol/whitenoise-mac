@@ -588,9 +588,10 @@ private struct ConversationView: View {
             }
         }
         .animation(.smooth(duration: 0.24), value: workspace.isGroupDetailsPresented)
-        // Switching conversations must not leave the previous chat's info panel
-        // open over a different transcript.
+        // Switching conversations must not leave the previous chat's body-level
+        // overlays open over a different transcript.
         .onChange(of: chat.id) { _, _ in
+            imageGallery = nil
             if workspace.isGroupDetailsPresented {
                 workspace.closeGroupDetails()
             }
