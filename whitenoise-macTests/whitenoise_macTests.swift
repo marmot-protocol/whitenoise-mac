@@ -8588,6 +8588,89 @@ struct whitenoise_macTests {
         #expect(state.draftText == "half-written message")
     }
 
+    /// Puts `state` into an in-progress voice-recording state (mic "hot", metering task running,
+    /// plaintext temp file on disk) without needing real mic hardware, mirroring what
+    /// `startVoiceRecording()` sets up. Returns the temp file URL so tests can assert the
+    /// recording was torn down and the plaintext audio purged. See #311.
+    @MainActor
+    private func armInProgressVoiceRecording(on state: WorkspaceState) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-recording-teardown-\(UUID().uuidString).m4a")
+        try Data("plaintext audio".utf8).write(to: url)
+
+        state.voiceRecordingURL = url
+        state.isRecordingVoiceMessage = true
+        state.voiceRecordingSamples = [0.4, 0.6]
+        state.voiceRecordingDurationSeconds = 1.5
+        state.startVoiceRecordingMetering()
+        #expect(state.voiceRecordingMeterTask != nil)
+        return url
+    }
+
+    @MainActor
+    @Test func showSettingsStopsInProgressVoiceRecording() throws {
+        // #311: navigating to Settings removes the composer (its Stop/Cancel buttons) from the
+        // hierarchy; it must also stop the recorder so the mic is not left hot with no control.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.showSettings(.profile)
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecorder == nil)
+        #expect(state.voiceRecordingURL == nil)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(state.voiceRecordingSamples.isEmpty)
+        #expect(state.voiceRecordingDurationSeconds == 0)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func showNewChatStopsInProgressVoiceRecording() throws {
+        // #311: opening the new-chat composer also swaps out the conversation composer, so the
+        // recorder must be torn down on this path too.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.showNewChat()
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func selectChatStopsInProgressVoiceRecording() throws {
+        // Regression guard for the existing `selectChat` cancellation now routed through the
+        // shared `leaveActiveConversation()` teardown (#311).
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+        guard let otherChat = state.activeChats.first(where: { $0.id != state.selectedChat?.id }) else {
+            Issue.record("Expected a second chat to switch to")
+            return
+        }
+
+        state.selectChat(otherChat)
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func resetToNewInstallStateStopsInProgressVoiceRecording() throws {
+        // #311: the full local-data teardown must also release the recorder so a wipe cannot
+        // leave the microphone active or plaintext audio writes running in the old state.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
     @MainActor
     @Test func startingNewChatCreatesAndSelectsConversation() async throws {
         let account = AccountSummaryFfi(
