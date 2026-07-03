@@ -80,6 +80,7 @@ extension WorkspaceState {
         preservingMessageCacheFor groupIdHex: String?
     ) {
         cancelVoiceRecording()
+        cancelGroupTranscriptExport()
         stopTimelineListener()
         cancelChatListReload()
         stopChatListListener()
@@ -496,6 +497,7 @@ extension WorkspaceState {
     }
 
     func resetToNewInstallState(storageRootPath: String) {
+        cancelGroupTranscriptExport()
         accounts = []
         resetChats()
         cachedMessageChatIds = []
@@ -570,6 +572,7 @@ extension WorkspaceState {
         isArchivingGroup = false
         isLeavingGroup = false
         isExportingGroupTranscript = false
+        groupTranscriptExportTask = nil
         groupTranscriptExportStatus = nil
         mutatingGroupMemberId = nil
         self.storageRootPath = storageRootPath

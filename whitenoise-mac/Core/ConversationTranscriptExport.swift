@@ -83,14 +83,15 @@ nonisolated enum ConversationTranscriptExport {
     static func fetchAllMessages(
         client: any MarmotRuntime,
         accountRef: String,
-        groupIdHex: String
+        groupIdHex: String,
+        checkCancellation: @Sendable () throws -> Void = { try Task.checkCancellation() }
     ) throws -> [TimelineMessageRecordFfi] {
         var collectedById: [String: TimelineMessageRecordFfi] = [:]
         var before: UInt64?
         var beforeMessageId: String?
 
         while true {
-            try Task.checkCancellation()
+            try checkCancellation()
             let page = try client.timelineMessages(
                 accountRef: accountRef,
                 query: TimelineMessageQueryFfi(
@@ -103,7 +104,7 @@ nonisolated enum ConversationTranscriptExport {
                     limit: pageLimit
                 )
             )
-            try Task.checkCancellation()
+            try checkCancellation()
             for message in page.messages {
                 collectedById[message.messageIdHex] = message
             }

@@ -21,6 +21,26 @@ struct TimelinePagingState: Equatable {
     )
 }
 
+private nonisolated final class OffMainCancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    func check() throws {
+        lock.lock()
+        let isCancelled = cancelled
+        lock.unlock()
+        if isCancelled {
+            throw CancellationError()
+        }
+    }
+}
+
 /// Tracks ownership of incremental, per-row chat-list enrichment tasks (issue #40).
 ///
 /// Single-row chat-list updates spawn one enrichment `Task` per group. Exactly one such task
@@ -600,6 +620,7 @@ final class WorkspaceState {
     var isSecureDeletingExpired = false
     var isDeletingGroupLocally = false
     var isExportingGroupTranscript = false
+    var groupTranscriptExportTask: Task<Void, Never>?
     var groupTranscriptExportStatus: String?
     var mutatingGroupMemberId: String?
     var storageRootPath = MarmotClient.defaultStorageRootPath()
@@ -906,6 +927,34 @@ final class WorkspaceState {
             Self.ffiQueue.async {
                 continuation.resume(with: Result { try work() })
             }
+        }
+    }
+
+    /// Runs blocking FFI off the main thread while exposing cancellation to the GCD closure.
+    /// `Task.checkCancellation()` is only task-local; inside `ffiQueue.async` there is no current
+    /// Swift task, so long synchronous loops must call the supplied checker instead.
+    nonisolated func runOffMainCancellable<T>(
+        _ work: @escaping @Sendable (_ checkCancellation: @escaping @Sendable () throws -> Void) throws -> T
+    ) async throws -> T {
+        let cancellation = OffMainCancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+                Self.ffiQueue.async {
+                    let checkCancellation: @Sendable () throws -> Void = {
+                        try cancellation.check()
+                    }
+                    continuation.resume(
+                        with: Result {
+                            try checkCancellation()
+                            let value = try work(checkCancellation)
+                            try checkCancellation()
+                            return value
+                        }
+                    )
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
     static var notificationPermissionGuidance: String {

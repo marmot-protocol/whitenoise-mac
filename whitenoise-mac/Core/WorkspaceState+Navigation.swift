@@ -18,6 +18,7 @@ import UserNotifications
 extension WorkspaceState {
     func selectChat(_ chat: ChatItem) {
         cancelVoiceRecording()
+        cancelGroupTranscriptExport()
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .chat(chat.id)
@@ -39,6 +40,7 @@ extension WorkspaceState {
     }
 
     func showSettings(_ page: SettingsPage = .profile) {
+        cancelGroupTranscriptExport()
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .settings(page)

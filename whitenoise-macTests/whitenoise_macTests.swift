@@ -7892,6 +7892,71 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupDetailsTranscriptExportCancelsTrackedTaskBeforeNextPage() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+
+        let firstId = String(repeating: "1", count: 64)
+        let firstPageGate = BlockingFfiGate()
+        firstPageGate.isEnabled = true
+        runtime.timelineMessagesHandler = { query in
+            if query.before == nil {
+                firstPageGate.passIfArmed()
+                return TimelinePageFfi(
+                    messages: [
+                        timelineMessage(
+                            id: firstId,
+                            groupIdHex: "group",
+                            sender: account.accountIdHex,
+                            plaintext: "newest",
+                            recordedAt: 10
+                        )
+                    ],
+                    hasMoreBefore: true,
+                    hasMoreAfter: false
+                )
+            }
+            return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        var copiedText = ""
+        let state = WorkspaceState(
+            copyTextHandler: { text, _ in copiedText = text },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        runtime.clearTimelineMessageQueries()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.showGroupDetails(for: groupChat)
+        state.startCopySelectedGroupTranscriptJSON()
+        let exportTask = try #require(state.groupTranscriptExportTask)
+        let deadline = Date().addingTimeInterval(2)
+        while !firstPageGate.didReach && Date() < deadline {
+            await Task.yield()
+        }
+        if !firstPageGate.didReach {
+            firstPageGate.isEnabled = false
+        }
+        #expect(firstPageGate.didReach)
+
+        state.closeGroupDetails()
+        firstPageGate.release()
+        await exportTask.value
+
+        #expect(runtime.timelineMessageQueries.count == 1)
+        #expect(copiedText.isEmpty)
+        #expect(state.lastError == nil)
+        #expect(!state.isExportingGroupTranscript)
+        #expect(state.groupTranscriptExportTask == nil)
+    }
+
+    @MainActor
     @Test func settingsSelectionUsesDetailPaneWithoutChangingAccount() async throws {
         let state = WorkspaceState.preview()
         let accountId = state.activeAccountId
