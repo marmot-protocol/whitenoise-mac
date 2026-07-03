@@ -692,10 +692,30 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
 
     static func kind(mediaType: String, fileName: String? = nil) -> MessageMediaKind {
         let canonical = canonicalMediaType(mediaType)
+        if let kind = kind(canonicalMediaType: canonical) { return kind }
+        // Only generic/unknown media types should defer to the filename. Concrete
+        // document types like `application/pdf` must remain authoritative even if a
+        // mismatched extension is supplied.
+        if shouldInferKindFromFileName(canonicalMediaType: canonical),
+            let fileName,
+            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            let resolved = mediaType(forFileExtension: fileExtension),
+            let kind = kind(canonicalMediaType: canonicalMediaType(resolved))
+        {
+            return kind
+        }
+        return .file
+    }
+
+    private static func kind(canonicalMediaType canonical: String) -> MessageMediaKind? {
         if isDecodableImageMediaType(canonical) { return .image }
         if canonical.hasPrefix("video/") { return .video }
         if canonical.hasPrefix("audio/") { return .audio }
-        return .file
+        return nil
+    }
+
+    private static func shouldInferKindFromFileName(canonicalMediaType canonical: String) -> Bool {
+        canonical.isEmpty || canonical == "application/octet-stream"
     }
 }
 
