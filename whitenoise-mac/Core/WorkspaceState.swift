@@ -7,6 +7,22 @@ import Observation
 import SwiftUI
 import UserNotifications
 
+private func uniquedLastWins<Value, Key: Hashable>(
+    _ values: [Value],
+    by key: (Value) -> Key
+) -> [Value] {
+    var seenKeys = Set<Key>()
+    var result: [Value] = []
+    result.reserveCapacity(values.count)
+
+    for value in values.reversed() {
+        guard seenKeys.insert(key(value)).inserted else { continue }
+        result.append(value)
+    }
+
+    return Array(result.reversed())
+}
+
 struct TimelinePagingState: Equatable {
     var hasMoreBefore: Bool
     var hasMoreAfter: Bool
@@ -225,6 +241,7 @@ final class MessageTimelineStore {
     private(set) var isLoaded: Bool
 
     init(messages: [MessageItem] = [], isLoaded: Bool = false) {
+        let messages = Self.deduplicatedMessages(messages)
         self.messages = messages
         self.messageIDs = messages.map(\.id)
         self.lookup = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
@@ -233,6 +250,10 @@ final class MessageTimelineStore {
             uniquingKeysWith: { _, new in new }
         )
         self.isLoaded = isLoaded
+    }
+
+    private static func deduplicatedMessages(_ messages: [MessageItem]) -> [MessageItem] {
+        uniquedLastWins(messages, by: \.id)
     }
 
     static func loaded(with messages: [MessageItem]) -> MessageTimelineStore {
@@ -311,6 +332,7 @@ final class MessageTimelineStore {
     }
 
     private func rebuildIndexes() {
+        messages = Self.deduplicatedMessages(messages)
         messageIDs = messages.map(\.id)
         lookup = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         indexById = Dictionary(
@@ -936,7 +958,7 @@ final class WorkspaceState {
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
-        self.chatsByAccount = chatsByAccount
+        self.chatsByAccount = chatsByAccount.mapValues { Self.deduplicatedChats($0) }
         self.messageTimelineStores = messagesByChat.mapValues { MessageTimelineStore.loaded(with: $0) }
         self.cachedMessageChatIds = Set(messagesByChat.keys)
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
@@ -1000,6 +1022,10 @@ final class WorkspaceState {
         return state
     }
 
+    private static func deduplicatedChats(_ chats: [ChatItem]) -> [ChatItem] {
+        uniquedLastWins(chats, by: \.id)
+    }
+
     var activeAccount: AccountItem? {
         guard let activeAccountId else { return nil }
         return accounts.first { $0.id == activeAccountId }
@@ -1046,7 +1072,7 @@ final class WorkspaceState {
     }
 
     func setChats(_ chats: [ChatItem], forAccountId accountId: String) {
-        chatsByAccount[accountId] = chats
+        chatsByAccount[accountId] = Self.deduplicatedChats(chats)
         rebuildChatIndexes(forAccountId: accountId)
     }
 
@@ -1113,13 +1139,16 @@ final class WorkspaceState {
     func rebuildChatIndexes() {
         chatLookupByAccount = [:]
         chatIndexByAccount = [:]
-        for accountId in chatsByAccount.keys {
+        for accountId in Array(chatsByAccount.keys) {
             rebuildChatIndexes(forAccountId: accountId)
         }
     }
 
     func rebuildChatIndexes(forAccountId accountId: String) {
-        let chats = chatsByAccount[accountId] ?? []
+        let chats = Self.deduplicatedChats(chatsByAccount[accountId] ?? [])
+        if chatsByAccount[accountId] != nil {
+            chatsByAccount[accountId] = chats
+        }
         chatLookupByAccount[accountId] = Dictionary(
             chats.map { ($0.id, $0) },
             uniquingKeysWith: { _, new in new }

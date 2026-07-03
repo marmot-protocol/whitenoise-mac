@@ -181,21 +181,34 @@ struct PureValueTests {
 
         let duplicates = [message(id: "dup", body: "first"), message(id: "dup", body: "second")]
 
-        // init path does not trap and resolves the later item.
+        // init path does not trap, resolves the later item, and keeps observed arrays unique.
         let store = MessageTimelineStore.loaded(with: duplicates)
+        #expect(store.messages.map(\.body) == ["second"])
+        #expect(store.messageIDs == ["dup"])
         #expect(store.lookup["dup"]?.body == "second")
 
         // replace() (rebuildIndexes) path behaves identically.
         let replaced = MessageTimelineStore()
         replaced.replace(with: duplicates)
+        #expect(replaced.messages.map(\.body) == ["second"])
+        #expect(replaced.messageIDs == ["dup"])
         #expect(replaced.lookup["dup"]?.body == "second")
+
+        // Later incremental upserts update the single retained row instead of leaving a stale twin.
+        _ = replaced.applyProjection(
+            upserts: [message(id: "dup", body: "third")],
+            removals: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(replaced.messages.map(\.body) == ["third"])
     }
 
     @MainActor
-    @Test func workspaceChatIndexRebuildToleratesDuplicateChatIds() async throws {
-        // Regression for whitenoise-mac#309: rebuildChatIndexes(forAccountId:) keys the chat
-        // lookup and position index on ChatItem.id, which can collide across FFI updates. The
-        // rebuild must not trap and should resolve the later item (last-wins).
+    @Test func workspaceChatSnapshotsDeduplicateDuplicateChatIds() async throws {
+        // Regression for whitenoise-mac#309: full-list chat snapshots must not leave duplicate
+        // ChatItem.id values in the observed arrays that feed SwiftUI ForEach and later
+        // incremental upsert/remove paths. The snapshot boundary resolves duplicates last-wins.
         func chat(id: String, title: String) -> ChatItem {
             ChatItem(
                 id: id,
@@ -218,11 +231,17 @@ struct PureValueTests {
             conversationWindowVisibilityProvider: { false }
         )
 
-        state.rebuildChatIndexes(forAccountId: accountId)
-
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["second"])
         #expect(state.chatLookupByAccount[accountId]?["dup"]?.title == "second")
-        // The position index maps the id to the later element's offset.
-        #expect(state.chatIndexByAccount[accountId]?["dup"] == 1)
+        #expect(state.chatIndexByAccount[accountId]?["dup"] == 0)
+
+        state.setChats(duplicates, forAccountId: accountId)
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["second"])
+        #expect(state.chatLookupByAccount[accountId]?["dup"]?.title == "second")
+        #expect(state.chatIndexByAccount[accountId]?["dup"] == 0)
+
+        state.upsertChat(chat(id: "dup", title: "third"), forAccountId: accountId)
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["third"])
     }
 
     @MainActor
