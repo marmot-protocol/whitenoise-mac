@@ -227,8 +227,11 @@ final class MessageTimelineStore {
     init(messages: [MessageItem] = [], isLoaded: Bool = false) {
         self.messages = messages
         self.messageIDs = messages.map(\.id)
-        self.lookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
-        self.indexById = Dictionary(uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) })
+        self.lookup = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        self.indexById = Dictionary(
+            messages.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { _, new in new }
+        )
         self.isLoaded = isLoaded
     }
 
@@ -309,8 +312,11 @@ final class MessageTimelineStore {
 
     private func rebuildIndexes() {
         messageIDs = messages.map(\.id)
-        lookup = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
-        indexById = Dictionary(uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) })
+        lookup = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        indexById = Dictionary(
+            messages.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { _, new in new }
+        )
     }
 
     private func insertMessage(_ item: MessageItem, at index: Int) {
@@ -1114,11 +1120,14 @@ final class WorkspaceState {
 
     func rebuildChatIndexes(forAccountId accountId: String) {
         let chats = chatsByAccount[accountId] ?? []
-        chatLookupByAccount[accountId] = Dictionary(uniqueKeysWithValues: chats.map { ($0.id, $0) })
+        chatLookupByAccount[accountId] = Dictionary(
+            chats.map { ($0.id, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
         chatIndexByAccount[accountId] = Dictionary(
-            uniqueKeysWithValues: chats.enumerated().map {
-                ($0.element.id, $0.offset)
-            })
+            chats.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { _, new in new }
+        )
         bumpChatListGeneration(forAccountId: accountId)
     }
 
@@ -1274,7 +1283,8 @@ final class WorkspaceState {
         managementState: GroupManagementStateFfi
     ) -> GroupDetailsSnapshot {
         let actionByMemberId = Dictionary(
-            uniqueKeysWithValues: managementState.memberActions.map { ($0.memberIdHex, $0) }
+            managementState.memberActions.map { ($0.memberIdHex, $0) },
+            uniquingKeysWith: { _, new in new }
         )
         let members = details.members
             .map { member in
