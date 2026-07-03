@@ -117,6 +117,9 @@ struct PureValueTests {
         #expect(
             OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "voice.m4a") == .audio
         )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "photo.png") == .image
+        )
 
         // A concrete media type is authoritative and wins over a mismatched extension.
         #expect(

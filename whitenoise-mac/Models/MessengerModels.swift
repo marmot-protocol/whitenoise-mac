@@ -699,7 +699,7 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         if shouldInferKindFromFileName(canonicalMediaType: canonical),
             let fileName,
             let fileExtension = fileName.split(separator: ".").last.map(String.init),
-            let resolved = mediaType(forFileExtension: fileExtension),
+            let resolved = Self.mediaType(forFileExtension: fileExtension),
             let kind = kind(canonicalMediaType: canonicalMediaType(resolved))
         {
             return kind
