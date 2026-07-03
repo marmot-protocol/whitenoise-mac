@@ -6405,6 +6405,55 @@ struct whitenoise_macTests {
         #expect(messages.isEmpty)
     }
 
+    @Test func conversationTranscriptExportCancelsBeforeFetchingNextPage() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let firstId = String(repeating: "1", count: 64)
+        let firstPageEntered = DispatchSemaphore(value: 0)
+        let releaseFirstPage = DispatchSemaphore(value: 0)
+        runtime.timelineMessagesHandler = { query in
+            if query.before == nil {
+                firstPageEntered.signal()
+                _ = releaseFirstPage.wait(timeout: .now() + 5)
+                return TimelinePageFfi(
+                    messages: [
+                        timelineMessage(
+                            id: firstId,
+                            groupIdHex: "group",
+                            sender: String(repeating: "a", count: 64),
+                            plaintext: "newest",
+                            recordedAt: 10
+                        )
+                    ],
+                    hasMoreBefore: true,
+                    hasMoreAfter: false
+                )
+            }
+            return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        let exportTask = Task.detached { () throws -> Void in
+            _ = try ConversationTranscriptExport.fetchAllMessages(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group"
+            )
+        }
+        #expect(firstPageEntered.wait(timeout: .now() + 2) == .success)
+
+        exportTask.cancel()
+        releaseFirstPage.signal()
+
+        do {
+            try await exportTask.value
+            Issue.record("Expected transcript export to throw CancellationError after cancellation")
+        } catch is CancellationError {
+            // Expected: cancellation should stop the pagination walk before the next FFI page.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        #expect(runtime.timelineMessageQueries.count == 1)
+    }
+
     @MainActor
     @Test func directChatUsesOtherMemberProfileForTitleAndAvatar() async throws {
         let account = AccountSummaryFfi(

@@ -90,6 +90,7 @@ nonisolated enum ConversationTranscriptExport {
         var beforeMessageId: String?
 
         while true {
+            try Task.checkCancellation()
             let page = try client.timelineMessages(
                 accountRef: accountRef,
                 query: TimelineMessageQueryFfi(
@@ -102,6 +103,7 @@ nonisolated enum ConversationTranscriptExport {
                     limit: pageLimit
                 )
             )
+            try Task.checkCancellation()
             for message in page.messages {
                 collectedById[message.messageIdHex] = message
             }
