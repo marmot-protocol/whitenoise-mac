@@ -164,6 +164,171 @@ struct PureValueTests {
         #expect(explicit.timelineAt == 42)
     }
 
+    @MainActor
+    @Test func messageTimelineStoreToleratesDuplicateMessageIds() async throws {
+        // Regression for whitenoise-mac#309: full-list index rebuilds keyed on FFI-derived
+        // MessageItem.id must not trap on a duplicate id from runtime/relay/FFI. The store
+        // resolves duplicates last-wins, mirroring applyProjection/upsert semantics.
+        func message(id: String, body: String) -> MessageItem {
+            MessageItem(
+                id: id,
+                senderName: "sender",
+                body: body,
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false
+            )
+        }
+
+        let duplicates = [message(id: "dup", body: "first"), message(id: "dup", body: "second")]
+
+        // init path does not trap, resolves the later item, and keeps observed arrays unique.
+        let store = MessageTimelineStore.loaded(with: duplicates)
+        #expect(store.messages.map(\.body) == ["second"])
+        #expect(store.messageIDs == ["dup"])
+        #expect(store.lookup["dup"]?.body == "second")
+
+        // replace() (rebuildIndexes) path behaves identically.
+        let replaced = MessageTimelineStore()
+        replaced.replace(with: duplicates)
+        #expect(replaced.messages.map(\.body) == ["second"])
+        #expect(replaced.messageIDs == ["dup"])
+        #expect(replaced.lookup["dup"]?.body == "second")
+
+        // Later incremental upserts update the single retained row instead of leaving a stale twin.
+        _ = replaced.applyProjection(
+            upserts: [message(id: "dup", body: "third")],
+            removals: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(replaced.messages.map(\.body) == ["third"])
+    }
+
+    @MainActor
+    @Test func workspaceChatSnapshotsDeduplicateDuplicateChatIds() async throws {
+        // Regression for whitenoise-mac#309: full-list chat snapshots must not leave duplicate
+        // ChatItem.id values in the observed arrays that feed SwiftUI ForEach and later
+        // incremental upsert/remove paths. The snapshot boundary resolves duplicates last-wins.
+        func chat(id: String, title: String) -> ChatItem {
+            ChatItem(
+                id: id,
+                title: title,
+                subtitle: "",
+                preview: "",
+                updatedAt: nil,
+                avatarSeed: id,
+                pictureURL: nil,
+                unreadCount: 0
+            )
+        }
+
+        let accountId = "account"
+        let duplicates = [chat(id: "dup", title: "first"), chat(id: "dup", title: "second")]
+        let state = WorkspaceState(
+            chatsByAccount: [accountId: duplicates],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["second"])
+        #expect(state.chatLookupByAccount[accountId]?["dup"]?.title == "second")
+        #expect(state.chatIndexByAccount[accountId]?["dup"] == 0)
+
+        state.setChats(duplicates, forAccountId: accountId)
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["second"])
+        #expect(state.chatLookupByAccount[accountId]?["dup"]?.title == "second")
+        #expect(state.chatIndexByAccount[accountId]?["dup"] == 0)
+
+        state.upsertChat(chat(id: "dup", title: "third"), forAccountId: accountId)
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["third"])
+    }
+
+    @MainActor
+    @Test func groupDetailsSnapshotToleratesDuplicateMemberActionIds() async throws {
+        // Regression for whitenoise-mac#309: groupDetailsSnapshot builds actionByMemberId from
+        // FFI GroupMemberActionStateFfi.memberIdHex, which can repeat. The rebuild must not trap
+        // and should apply the later action (last-wins).
+        let memberIdHex = "member1234567890member1234567890member1234567890member1234"
+        let group = AppGroupRecordFfi(
+            groupIdHex: "group",
+            endpoint: "",
+            name: "Test Group",
+            description: "",
+            admins: [memberIdHex],
+            relays: [],
+            nostrGroupIdHex: "",
+            avatarUrl: nil,
+            avatarDim: nil,
+            avatarThumbhash: nil,
+            encryptedMedia: AppGroupEncryptedMediaComponentFfi(
+                componentId: 0,
+                component: "",
+                required: false,
+                mediaFormat: "",
+                allowedLocatorKinds: [],
+                defaultBlobEndpoints: []
+            ),
+            disappearingMessageSecs: 0,
+            archived: false,
+            pendingConfirmation: false,
+            welcomerAccountIdHex: nil,
+            viaWelcomeMessageIdHex: nil
+        )
+        let details = GroupDetailsFfi(
+            group: group,
+            members: [
+                GroupMemberDetailsFfi(
+                    memberIdHex: memberIdHex,
+                    account: "Member",
+                    local: false,
+                    isAdmin: true,
+                    isSelf: false,
+                    npub: "npub1member",
+                    displayName: "Member"
+                )
+            ]
+        )
+        let managementState = GroupManagementStateFfi(
+            myAccountIdHex: memberIdHex,
+            isSelfAdmin: true,
+            isLastAdmin: false,
+            canInvite: true,
+            canLeave: true,
+            requiresSelfDemoteBeforeLeave: false,
+            memberActions: [
+                GroupMemberActionStateFfi(
+                    memberIdHex: memberIdHex,
+                    isSelf: false,
+                    isAdmin: true,
+                    canRemove: false,
+                    canPromote: false,
+                    canDemote: false
+                ),
+                GroupMemberActionStateFfi(
+                    memberIdHex: memberIdHex,
+                    isSelf: false,
+                    isAdmin: true,
+                    canRemove: true,
+                    canPromote: true,
+                    canDemote: true
+                ),
+            ]
+        )
+
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        let snapshot = state.groupDetailsSnapshot(from: details, managementState: managementState)
+
+        let member = try #require(snapshot.members.first { $0.id == memberIdHex })
+        #expect(member.canRemove)
+        #expect(member.canPromote)
+        #expect(member.canDemote)
+    }
+
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
         // The string entry point used by the UI must also reject internal destinations.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
@@ -634,4 +799,19 @@ struct PureValueTests {
             disappearingMessageSecs: 0
         )
     }
+}
+
+@MainActor
+private final class NoopLocalNotificationCenter: LocalNotificationCenter {
+    func authorizationStatus() async -> LocalNotificationAuthorizationStatus {
+        .notDetermined
+    }
+
+    func requestAuthorization() async throws -> LocalNotificationAuthorizationStatus {
+        .notDetermined
+    }
+
+    func post(_ notification: LocalNotificationRequest) async throws {}
+
+    func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {}
 }
