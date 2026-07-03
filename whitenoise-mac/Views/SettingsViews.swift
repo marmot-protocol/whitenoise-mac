@@ -159,6 +159,51 @@ struct SettingsScaffold<Content: View>: View {
     }
 }
 
+private let removeAccountConfirmationMessage: LocalizedStringKey =
+    "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
+
+private func removeAccountConfirmationTitle(for account: AccountItem?) -> String {
+    guard let account else { return L10n.string("Remove account?") }
+    return String(format: L10n.string("Remove %@?"), account.displayName)
+}
+
+private struct RemoveAccountConfirmationModifier: ViewModifier {
+    let account: AccountItem?
+    @Binding var isPresented: Bool
+    let onRemove: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            removeAccountConfirmationTitle(for: account),
+            isPresented: $isPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Account", role: .destructive) {
+                onRemove()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(removeAccountConfirmationMessage)
+        }
+    }
+}
+
+private extension View {
+    func removeAccountConfirmation(
+        account: AccountItem?,
+        isPresented: Binding<Bool>,
+        onRemove: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            RemoveAccountConfirmationModifier(
+                account: account,
+                isPresented: isPresented,
+                onRemove: onRemove
+            )
+        )
+    }
+}
+
 struct AccountsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var accountPendingRemoval: AccountItem?
@@ -243,23 +288,10 @@ struct AccountsSettingsView: View {
             }
 
         }
-        .confirmationDialog(
-            removeAccountTitle,
-            isPresented: removeConfirmationBinding,
-            titleVisibility: .visible,
-            presenting: accountPendingRemoval
-        ) { account in
-            Button("Remove Account", role: .destructive) {
-                accountPendingRemoval = nil
-                Task { await workspace.removeAccount(account) }
-            }
-            Button("Cancel", role: .cancel) {
-                accountPendingRemoval = nil
-            }
-        } message: { _ in
-            Text(
-                "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
-            )
+        .removeAccountConfirmation(account: accountPendingRemoval, isPresented: removeConfirmationBinding) {
+            guard let account = accountPendingRemoval else { return }
+            accountPendingRemoval = nil
+            Task { await workspace.removeAccount(account) }
         }
     }
 
@@ -270,13 +302,6 @@ struct AccountsSettingsView: View {
                 if !isPresented { accountPendingRemoval = nil }
             }
         )
-    }
-
-    private var removeAccountTitle: String {
-        if let account = accountPendingRemoval {
-            return String(format: L10n.string("Remove %@?"), account.displayName)
-        }
-        return L10n.string("Remove account?")
     }
 }
 
@@ -729,28 +754,15 @@ struct IdentityKeysSettingsView: View {
             }
 
         }
-        .confirmationDialog(
-            removeAccountTitle,
-            isPresented: $showRemoveAccountConfirmation,
-            titleVisibility: .visible
+        .removeAccountConfirmation(
+            account: workspace.activeAccount,
+            isPresented: $showRemoveAccountConfirmation
         ) {
-            Button("Remove Account", role: .destructive) {
-                Task { await workspace.removeActiveAccount() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes the selected account from this Mac.")
+            Task { await workspace.removeActiveAccount() }
         }
         .sheet(isPresented: $showKeyBackup) {
             PrivateKeyBackupSheet()
         }
-    }
-
-    private var removeAccountTitle: String {
-        if let account = workspace.activeAccount {
-            return String(format: L10n.string("Remove %@?"), account.displayName)
-        }
-        return L10n.string("Remove account?")
     }
 }
 
