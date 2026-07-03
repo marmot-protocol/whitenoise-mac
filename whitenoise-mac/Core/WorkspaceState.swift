@@ -1647,6 +1647,15 @@ struct GroupImageSearchResult: Identifiable, Hashable, Sendable {
         return "\(width)x\(height)"
     }
 
+    /// The URL used to render the search-result thumbnail. Only the
+    /// Openverse-proxied `thumbnailURL` is used; the arbitrary origin
+    /// `imageURL` is never fetched for previews (whitenoise-mac#315), so a
+    /// result without a usable thumbnail renders the placeholder instead.
+    var previewURL: URL? {
+        guard let thumbnailURL = thumbnailURL?.nilIfBlank else { return nil }
+        return URL(string: thumbnailURL)
+    }
+
     var creditLine: String {
         let creatorText = creator?.trimmingCharacters(in: .whitespacesAndNewlines)
         let licenseText = license?.trimmingCharacters(in: .whitespacesAndNewlines)
