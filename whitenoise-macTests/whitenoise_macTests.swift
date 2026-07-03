@@ -1322,6 +1322,41 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func messageMediaDiskCacheReadsEntryWhenDeclaredSizeDiffersFromPlaintext() async throws {
+        // #313: `sizeBytes` is the FFI-reported/declared size and is not guaranteed to equal
+        // the decrypted plaintext length. A valid, cryptographically authenticated entry must
+        // survive repeated reads even when the two diverge, rather than self-deleting.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("bytes whose declared size lies".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let declaredSize = UInt64(plaintext.count) + 999
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: declaredSize,
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+        let entryDirectory = try #require(cache.entryDirectory(for: key))
+
+        let firstRead = try #require(await cache.cachedDownload(for: key))
+        #expect(firstRead.data == plaintext)
+        #expect(firstRead.sizeBytes == declaredSize)
+        #expect(fileManager.fileExists(atPath: entryDirectory.path))
+
+        let secondRead = try #require(await cache.cachedDownload(for: key))
+        #expect(secondRead.data == plaintext)
+        #expect(fileManager.fileExists(atPath: entryDirectory.path))
+    }
+
     @Test func messageMediaDiskCacheEvictsCorruptEntries() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
