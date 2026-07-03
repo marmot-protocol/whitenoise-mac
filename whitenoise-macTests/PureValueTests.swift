@@ -571,6 +571,36 @@ struct PureValueTests {
         #expect(links(in: attributed).map(\.absoluteString) == ["nostr:\(bech32)"])
     }
 
+    @Test func groupImagePreviewURLUsesOpenverseThumbnailOnly() async throws {
+        // Regression for whitenoise-mac#315: search-result tiles must connect only to
+        // the Openverse-proxied thumbnail, never to the arbitrary origin `imageURL`.
+        // Any result without a usable thumbnail renders the placeholder (nil preview).
+        let origin = "https://origin.example/photo.jpg"
+
+        #expect(
+            groupImageResult(imageURL: origin, thumbnailURL: "https://api.openverse.org/thumb.jpg").previewURL
+                == URL(string: "https://api.openverse.org/thumb.jpg")
+        )
+        #expect(groupImageResult(imageURL: origin, thumbnailURL: nil).previewURL == nil)
+        #expect(groupImageResult(imageURL: origin, thumbnailURL: "").previewURL == nil)
+        #expect(groupImageResult(imageURL: origin, thumbnailURL: "   ").previewURL == nil)
+    }
+
+    private func groupImageResult(imageURL: String, thumbnailURL: String?) -> GroupImageSearchResult {
+        GroupImageSearchResult(
+            id: "image-1",
+            title: "Aurora",
+            imageURL: imageURL,
+            thumbnailURL: thumbnailURL,
+            creator: nil,
+            license: nil,
+            attribution: nil,
+            sourceURL: nil,
+            width: nil,
+            height: nil
+        )
+    }
+
     private func links(in attributed: AttributedString) -> [URL] {
         var result: [URL] = []
         for run in attributed.runs {
