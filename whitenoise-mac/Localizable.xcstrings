@@ -23968,9 +23968,6 @@
     "This removes %@ from the group." : {
 
     },
-    "This removes the selected account from this Mac." : {
-
-    },
     "Token fingerprint" : {
       "extractionState" : "manual",
       "localizations" : {
