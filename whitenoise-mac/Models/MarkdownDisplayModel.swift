@@ -254,7 +254,17 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         _ entity: MarkdownNostrEntityFfi,
         intent: InlinePresentationIntent
     ) -> AttributedString {
-        var attributed = AttributedString("@\(shortBech32(entity.bech32))")
+        let shortReference = shortBech32(entity.bech32)
+        let displayText: String
+        switch entity.hrp {
+        case .npub, .nprofile:
+            displayText = "@\(shortReference)"
+        case .note, .nevent, .naddr, .nrelay:
+            displayText = shortReference
+        @unknown default:
+            displayText = shortReference
+        }
+        var attributed = AttributedString(displayText)
         attributed.foregroundColor = .accentColor
         if !intent.isEmpty {
             attributed.inlinePresentationIntent = intent
