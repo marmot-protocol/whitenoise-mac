@@ -2735,6 +2735,33 @@ struct whitenoise_macTests {
         #expect(!attachmentOnly.canCopyText)
     }
 
+    @MainActor
+    @Test func incomingNonDecodableImageAttachmentIsClassifiedAsFileNotVisualMedia() async throws {
+        let svg = MessageMediaAttachment(
+            id: "svg",
+            reference: mediaAttachmentReference(mediaType: "image/svg+xml", fileName: "diagram.svg")
+        )
+        let png = MessageMediaAttachment(
+            id: "png",
+            reference: mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        )
+
+        #expect(svg.kind == .file)
+        #expect(png.kind == .image)
+
+        let message = MessageItem(
+            id: "svg-media",
+            senderName: "Bob",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_002),
+            isOutgoing: false,
+            mediaAttachments: [svg, png]
+        )
+
+        #expect(message.visualMediaAttachments.map(\.id) == ["png"])
+        #expect(message.nonvisualMediaAttachments.map(\.id) == ["svg"])
+    }
+
     @Test func pendingMediaAttachmentDurationLabelFormatsSubhourHourBoundaryAndClampsNegative() {
         let longAttachment = PendingMediaAttachment(
             fileName: "long.m4a",
