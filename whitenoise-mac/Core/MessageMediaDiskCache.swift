@@ -150,6 +150,21 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     typealias KeyProvider = @Sendable () throws -> SymmetricKey
     typealias KeyDeleter = @Sendable () -> Void
 
+    struct EvictionPolicy: Sendable {
+        static let standard = EvictionPolicy(
+            maxEntryCount: 2_048,
+            maxTotalBytes: 512 * 1024 * 1024
+        )
+
+        let maxEntryCount: Int
+        let maxTotalBytes: UInt64
+
+        init(maxEntryCount: Int, maxTotalBytes: UInt64) {
+            self.maxEntryCount = Swift.max(0, maxEntryCount)
+            self.maxTotalBytes = maxTotalBytes
+        }
+    }
+
     static let shared = MessageMediaDiskCache()
 
     private static let directoryName = "WhiteNoiseMediaCache"
@@ -160,6 +175,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private let directoryResolver: DirectoryResolver
     private let keyProvider: KeyProvider
     private let keyDeleter: KeyDeleter
+    private let evictionPolicy: EvictionPolicy
     private let lock = NSLock()
     // Serializes the filesystem create/remove/move work of commits and purges so a slow
     // commit never blocks generation reads or purge bookkeeping (which stay on `lock`).
@@ -176,11 +192,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     init(
         directoryResolver: @escaping DirectoryResolver = MessageMediaDiskCache.defaultDirectoryURL,
         keyProvider: @escaping KeyProvider = MessageMediaDiskCacheKeychain.symmetricKey,
-        keyDeleter: @escaping KeyDeleter = MessageMediaDiskCacheKeychain.deleteKey
+        keyDeleter: @escaping KeyDeleter = MessageMediaDiskCacheKeychain.deleteKey,
+        evictionPolicy: EvictionPolicy = .standard
     ) {
         self.directoryResolver = directoryResolver
         self.keyProvider = keyProvider
         self.keyDeleter = keyDeleter
+        self.evictionPolicy = evictionPolicy
     }
 
     static func defaultDirectoryURL() throws -> URL {
@@ -257,7 +275,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             Self.discardPreparedEntry(prepared)
             return
         }
-        commitPreparedEntry(prepared, startGeneration: start.generation)
+        commitPreparedEntry(prepared, startGeneration: start.generation, symmetricKey: symmetricKey)
     }
 
     func purgeAll(removeEncryptionKey: Bool = false) async {
@@ -355,7 +373,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func commitPreparedEntry(_ prepared: PreparedEntry, startGeneration: Int) {
+    private func commitPreparedEntry(
+        _ prepared: PreparedEntry,
+        startGeneration: Int,
+        symmetricKey: SymmetricKey
+    ) {
         // Hold only the narrow filesystem-mutation lock across the slow create/remove/move
         // so generation reads and purge bookkeeping (on `lock`) never block on this commit.
         // The generation re-check happens under `fileMutationLock`: a purge bumps the
@@ -376,6 +398,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             )
             try? FileManager.default.removeItem(at: prepared.finalDirectory)
             try FileManager.default.moveItem(at: prepared.stagingDirectory, to: prepared.finalDirectory)
+            Self.enforceEvictionPolicy(evictionPolicy, root: prepared.root, symmetricKey: symmetricKey)
         } catch {
             try? FileManager.default.removeItem(at: prepared.stagingDirectory)
         }
@@ -405,6 +428,12 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private struct PurgeHandle {
         let task: Task<Void, Never>
         let generation: Int
+    }
+
+    private struct CacheEntry {
+        let directory: URL
+        let cachedAtUnixSeconds: TimeInterval
+        let byteCount: UInt64
     }
 
     private static func readDownload(
@@ -583,6 +612,119 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    private static func enforceEvictionPolicy(
+        _ policy: EvictionPolicy,
+        root: URL,
+        symmetricKey: SymmetricKey
+    ) {
+        var entries = cacheEntries(root: root, symmetricKey: symmetricKey)
+        var totalBytes = entries.reduce(UInt64(0)) { total, entry in
+            addingWithSaturation(total, entry.byteCount)
+        }
+        var remainingCount = entries.count
+
+        guard remainingCount > policy.maxEntryCount || totalBytes > policy.maxTotalBytes else {
+            return
+        }
+
+        entries.sort {
+            if $0.cachedAtUnixSeconds == $1.cachedAtUnixSeconds {
+                return $0.directory.path < $1.directory.path
+            }
+            return $0.cachedAtUnixSeconds < $1.cachedAtUnixSeconds
+        }
+
+        for entry in entries {
+            guard remainingCount > policy.maxEntryCount || totalBytes > policy.maxTotalBytes else {
+                break
+            }
+
+            do {
+                try FileManager.default.removeItem(at: entry.directory)
+                remainingCount -= 1
+                totalBytes = totalBytes > entry.byteCount ? totalBytes - entry.byteCount : 0
+                removeEmptyDirectory(entry.directory.deletingLastPathComponent())
+            } catch {
+                continue
+            }
+        }
+        removeEmptyDirectory(root)
+    }
+
+    private static func cacheEntries(root: URL, symmetricKey: SymmetricKey) -> [CacheEntry] {
+        guard
+            let shardDirectories = try? FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return [] }
+
+        var entries: [CacheEntry] = []
+        for shardDirectory in shardDirectories where shardDirectory.lastPathComponent != "staging" {
+            guard isDirectory(shardDirectory),
+                let entryDirectories = try? FileManager.default.contentsOfDirectory(
+                    at: shardDirectory,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                )
+            else { continue }
+
+            for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
+                let cacheID = entryDirectory.lastPathComponent
+                let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
+                let payloadURL = entryDirectory.appendingPathComponent(payloadFileName)
+                guard let metadataData = try? Data(contentsOf: metadataURL),
+                    let metadataPlaintext = try? open(
+                        metadataData,
+                        using: symmetricKey,
+                        authenticatedBy: metadataAAD(for: cacheID)
+                    ),
+                    let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext),
+                    metadata.version == 1
+                else {
+                    try? FileManager.default.removeItem(at: entryDirectory)
+                    removeEmptyDirectory(shardDirectory)
+                    continue
+                }
+
+                entries.append(
+                    CacheEntry(
+                        directory: entryDirectory,
+                        cachedAtUnixSeconds: metadata.cachedAtUnixSeconds,
+                        byteCount: addingWithSaturation(
+                            fileByteCount(at: metadataURL),
+                            fileByteCount(at: payloadURL)
+                        )
+                    )
+                )
+            }
+        }
+        return entries
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private static func fileByteCount(at url: URL) -> UInt64 {
+        guard
+            let values = try? url.resourceValues(forKeys: [
+                .totalFileAllocatedSizeKey,
+                .fileAllocatedSizeKey,
+                .fileSizeKey,
+            ])
+        else { return 0 }
+
+        let byteCount = values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? values.fileSize ?? 0
+        return UInt64(Swift.max(0, byteCount))
+    }
+
+    private static func addingWithSaturation(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? .max : sum
     }
 
     private static func prepareDirectory(_ root: URL) throws {
