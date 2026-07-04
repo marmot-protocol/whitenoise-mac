@@ -9216,6 +9216,9 @@ struct whitenoise_macTests {
         // writes directly, so pin the privacy invariant that prevents them for the default loader.
         #expect(urlCache.memoryCapacity > 0)
         #expect(urlCache.diskCapacity == 0)
+        #expect(config.timeoutIntervalForRequest == RemoteImageURLPolicy.downloadStallTimeout)
+        #expect(config.timeoutIntervalForResource == RemoteImageURLPolicy.downloadResourceTimeout)
+        #expect(config.timeoutIntervalForResource > config.timeoutIntervalForRequest)
         #expect(config.requestCachePolicy == .useProtocolCachePolicy)
     }
 
