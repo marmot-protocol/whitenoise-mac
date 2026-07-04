@@ -168,6 +168,45 @@ struct PureValueTests {
         #expect(chat.unreadMentionCount == Int.max)
     }
 
+    @Test func chatListRowFallsBackToUpdatedAtWhenPreviewTimelineIsUnknown() async throws {
+        // Regression for whitenoise-mac#330: a last-message preview with timelineAt == 0
+        // means the preview timestamp is unknown, so the chat row must keep using
+        // updatedAt for sidebar ordering and timestamp display.
+        let fallbackUpdatedAt: UInt64 = 1_800_000_000
+        let row = ChatListRowFfi(
+            groupIdHex: "group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Planning",
+            groupName: "Planning",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "message-1",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                senderDisplayName: "Alice",
+                plaintext: "Queued locally",
+                contentTokens: MarkdownDocumentFfi(blocks: [], truncated: false),
+                kind: 9,
+                timelineAt: 0,
+                deleted: false
+            ),
+            unreadCount: 0,
+            hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: fallbackUpdatedAt,
+            selfMembership: .member
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        #expect(chat.updatedAt == Date(timeIntervalSince1970: TimeInterval(fallbackUpdatedAt)))
+    }
+
     @Test func messageItemTimelineFallbackClampsPreEpochAndNonFiniteDates() async throws {
         // Regression for whitenoise-mac#247: the timelineAt fallback derives from
         // sentAt via UInt64(_:), which traps on negative (pre-1970) or non-finite
