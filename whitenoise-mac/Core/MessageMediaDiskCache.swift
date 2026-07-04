@@ -687,9 +687,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 using: symmetricKey,
                 authenticatedBy: metadataAAD(for: cacheID)
             ),
-            let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext),
-            metadata.version == 1
+            let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext)
         else { return .corrupt }
+        guard metadata.version == 1 else {
+            // A decryptable, decodable record with a different version may belong to a
+            // newer cache format. Skip it instead of reclaiming it account-agnostically.
+            return .unavailable
+        }
         return .readable(metadata)
     }
 

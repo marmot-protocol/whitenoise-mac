@@ -1846,6 +1846,77 @@ struct whitenoise_macTests {
         #expect(fileManager.fileExists(atPath: unavailablePayloadURL.path))
     }
 
+    @Test func messageMediaDiskCacheAccountPurgePreservesFutureMetadataVersions() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyData = Data(repeating: 0x42, count: 32)
+        let cache = messageMediaDiskCache(root: root, keyData: keyData)
+        let purgedPlaintext = Data("purged account media".utf8)
+        let futurePlaintext = Data("other account media with future metadata".utf8)
+        let purgedKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: purgedPlaintext, ciphertextByte: 0xaa)
+        )
+        let futureKey = MessageMediaDiskCacheKey(
+            accountId: "account-b",
+            groupIdHex: "group-b",
+            reference: mediaDiskCacheReference(plaintext: futurePlaintext, ciphertextByte: 0xbe)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: purgedPlaintext,
+                fileName: "purged.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(purgedPlaintext.count),
+                payloadId: "purged"
+            ),
+            for: purgedKey
+        )
+        await cache.store(
+            MessageMediaDownload(
+                data: futurePlaintext,
+                fileName: "future.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(futurePlaintext.count),
+                payloadId: "future"
+            ),
+            for: futureKey
+        )
+
+        let purgedEntryDirectory = try #require(cache.entryDirectory(for: purgedKey))
+        let futureEntryDirectory = try #require(cache.entryDirectory(for: futureKey))
+        let futureMetadataURL = futureEntryDirectory.appendingPathComponent("metadata.bin")
+        let futurePayloadURL = futureEntryDirectory.appendingPathComponent("payload.bin")
+        let futureMetadataPlaintext = try JSONSerialization.data(withJSONObject: [
+            "version": 2,
+            "accountDigest": futureKey.accountDigest,
+            "ciphertextSha256": futureKey.ciphertextSha256,
+            "plaintextSha256": futureKey.plaintextSha256,
+            "fileName": "future.jpg",
+            "mediaType": "image/jpeg",
+            "sizeBytes": UInt64(futurePlaintext.count),
+            "cachedAtUnixSeconds": 1_234,
+        ])
+        let futureMetadataBox = try AES.GCM.seal(
+            futureMetadataPlaintext,
+            using: SymmetricKey(data: keyData),
+            authenticating: Data("white-noise-media-cache-metadata-v1|\(futureKey.cacheID)".utf8)
+        )
+        let futureMetadataData = try #require(futureMetadataBox.combined)
+        try futureMetadataData.write(to: futureMetadataURL)
+
+        await cache.purgeAccount("account-a")
+
+        #expect(!fileManager.fileExists(atPath: purgedEntryDirectory.path))
+        #expect(fileManager.fileExists(atPath: futureMetadataURL.path))
+        #expect(fileManager.fileExists(atPath: futurePayloadURL.path))
+    }
+
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
