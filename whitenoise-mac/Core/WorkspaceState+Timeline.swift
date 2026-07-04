@@ -17,6 +17,32 @@ import UserNotifications
 @MainActor
 extension WorkspaceState {
     func loadMessages(groupIdHex: String) async {
+        if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {
+            finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            return
+        }
+
+        if let existing = timelineLoadTask, timelineLoadGroupId == groupIdHex {
+            await existing.value
+            return
+        }
+
+        timelineLoadTask?.cancel()
+        let task = Task<Void, Never> { [weak self] in
+            await self?.performTimelineLoad(groupIdHex: groupIdHex)
+        }
+        timelineLoadTask = task
+        timelineLoadGroupId = groupIdHex
+
+        await task.value
+
+        if timelineLoadTask == task {
+            timelineLoadTask = nil
+            timelineLoadGroupId = nil
+        }
+    }
+
+    func performTimelineLoad(groupIdHex: String) async {
         guard let client, let activeAccount else {
             finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return
@@ -77,6 +103,8 @@ extension WorkspaceState {
             guard timelineTaskGroupId == groupIdHex else { return }
             activeTimelineSubscription = subscription
             activeTimelineGroupId = groupIdHex
+        } catch is CancellationError {
+            return
         } catch {
             lastError = error.localizedDescription
         }

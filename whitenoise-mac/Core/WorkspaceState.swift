@@ -737,6 +737,12 @@ final class WorkspaceState {
     var notificationSettingsGeneration: UInt64 = 0
     var timelineTask: Task<Void, Never>?
     var timelineTaskGroupId: String?
+    /// Single-owner coalescing for initial timeline loads (issue #332). `loadMessages` can be
+    /// reached from overlapping unstructured navigation tasks; concurrent requests for the same
+    /// group should await the in-flight subscription/snapshot pass instead of opening a duplicate
+    /// live subscription and immediately orphaning the first listener handle.
+    var timelineLoadTask: Task<Void, Never>?
+    var timelineLoadGroupId: String?
     /// The live timeline subscription for the open conversation. It owns the
     /// authoritative, bounded, materialized window; scroll-back/forward pagination and
     /// live updates all flow through it (`paginateBackwards` / `paginateForwards` / `next`).

@@ -5401,6 +5401,70 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func concurrentSameChatTimelineLoadsShareInFlightSubscription() async throws {
+        let accountSummary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let account = AccountItem(
+            id: accountSummary.label,
+            accountRef: accountSummary.label,
+            displayName: accountSummary.label,
+            accountIdHex: accountSummary.accountIdHex
+        )
+        let chat = ChatItem(
+            row: chatListRow(
+                groupIdHex: "group",
+                title: "General",
+                preview: "Initial message",
+                sender: accountSummary.accountIdHex,
+                timelineAt: 1_700_000_000
+            ),
+            activeAccountIdHex: accountSummary.accountIdHex
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountSummary])
+        runtime.installGroup(messageGroup())
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "message",
+                    groupIdHex: "group",
+                    sender: accountSummary.accountIdHex,
+                    plaintext: "Initial message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "group"
+        )
+        runtime.timelineSubscriptionDelayNanoseconds = 50_000_000
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [chat]],
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(chat.id)
+        state.client = runtime
+
+        async let firstLoad: Void = state.loadMessages(groupIdHex: chat.id)
+        let didStartFirstLoad = await waitFor {
+            runtime.timelineSubscriptionCount == 1
+        }
+        #expect(didStartFirstLoad)
+        async let duplicateLoad: Void = state.loadMessages(groupIdHex: chat.id)
+
+        _ = await (firstLoad, duplicateLoad)
+
+        #expect(runtime.timelineSubscriptionCount == 1)
+        #expect(state.messagesByChat[chat.id]?.map(\.id) == ["message"])
+        #expect(!state.selectedTimelineIsLoadingInitialPage)
+    }
+
+    @MainActor
     @Test func initialTimelineLoadClearsWhenRuntimeIsUnavailable() async throws {
         let account = AccountItem(
             id: "Desktop Account",
