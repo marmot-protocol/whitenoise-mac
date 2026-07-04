@@ -686,6 +686,55 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func failedDeleteAllDataRestartsReadySessionListenersAndReloadsSelectedChat() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didStartNotifications = await waitFor {
+            runtime.notificationSubscriptionCount == 1
+        }
+        #expect(didStartNotifications)
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(chat)
+        let didStartTimeline = await waitFor {
+            runtime.timelineSubscriptionCount == 1
+        }
+        #expect(didStartTimeline)
+
+        let notificationSubscriptionBaseline = runtime.notificationSubscriptionCount
+        let chatListSubscriptionBaseline = runtime.chatListSubscriptionCount
+        let timelineSubscriptionBaseline = runtime.timelineSubscriptionCount
+        runtime.deleteAllLocalDataError = FakeMarmotRuntimeError.unused
+
+        await state.deleteAllData()
+        let didRestartNotifications = await waitFor {
+            runtime.notificationSubscriptionCount >= notificationSubscriptionBaseline + 1
+        }
+
+        #expect(didRestartNotifications)
+        #expect(runtime.didDeleteAllLocalData)
+        #expect(state.phase == .ready)
+        #expect(state.selection == .chat("group"))
+        #expect(state.activeChats.contains { $0.id == "group" })
+        #expect(runtime.chatListSubscriptionCount >= chatListSubscriptionBaseline + 1)
+        #expect(runtime.timelineSubscriptionCount >= timelineSubscriptionBaseline + 1)
+        #expect(state.lastError == "Unused fake runtime error.")
+    }
+
+    @MainActor
     @Test func deleteAllDataClearsAccountUnreadBadges() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
