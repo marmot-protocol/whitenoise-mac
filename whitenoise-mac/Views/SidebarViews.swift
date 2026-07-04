@@ -28,8 +28,8 @@ struct AccountRailView: View {
                 workspace.toggleChatList()
             } label: {
                 Image(systemName: workspace.isChatListVisible ? "sidebar.leading" : "sidebar.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 36, height: 36)
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
                     .background {
                         MessagesCircleControlBackground(isSelected: workspace.isChatListVisible)
                     }
@@ -52,8 +52,8 @@ struct AccountRailView: View {
                 workspace.showSettings()
             } label: {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 36, height: 36)
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
                     .background {
                         MessagesCircleControlBackground(isSelected: isSettingsSelected)
                     }
@@ -62,8 +62,9 @@ struct AccountRailView: View {
             .foregroundStyle(isSettingsSelected ? Color.primary : Color.secondary)
             .help("Settings")
         }
-        .padding(.vertical, 14)
-        .frame(width: 62)
+        .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+        .padding(.bottom, 14)
+        .frame(width: MessagesLayout.accountRailWidth)
         .background {
             MessagesSidebarBackground(level: .rail)
         }
@@ -92,10 +93,10 @@ private struct AccountRailAvatar: View {
                 seed: account.accountIdHex,
                 initials: account.initials,
                 sanitizedPictureURL: account.sanitizedPictureURL,
-                size: 42,
+                size: MessagesLayout.accountRailAvatarSize,
                 isSelected: isActive
             )
-            .frame(width: 54, height: 54)
+            .frame(width: MessagesLayout.accountRailAvatarFrameSize, height: MessagesLayout.accountRailAvatarFrameSize)
             .contentShape(Circle())
             .opacity(account.signedOut ? 0.4 : 1)
             .overlay(alignment: .topTrailing) {
@@ -182,7 +183,7 @@ struct ChatListDrawerView: View {
                     MessagesSearchField(text: $workspace.searchText, accessibilityIdentifier: "chat.search")
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, 14)
+                .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
                 .padding(.bottom, 12)
 
                 GlassSeparator(axis: .horizontal)
@@ -231,7 +232,7 @@ struct SettingsListDrawerView: View {
                 activeAccountSummary
             }
             .padding(.horizontal, 14)
-            .padding(.top, 18)
+            .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
             .padding(.bottom, 12)
 
             GlassSeparator(axis: .horizontal)

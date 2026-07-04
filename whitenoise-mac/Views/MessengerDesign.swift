@@ -90,6 +90,14 @@ enum MessagesPalette {
     static let sentBubble = Color(nsColor: .systemBlue)
 }
 
+enum MessagesLayout {
+    static let accountRailWidth: CGFloat = 80
+    static let accountRailControlSize: CGFloat = 44
+    static let accountRailAvatarSize: CGFloat = 46
+    static let accountRailAvatarFrameSize: CGFloat = 58
+    static let sidebarTitlebarTopPadding: CGFloat = 42
+}
+
 struct MessagesSearchField: View {
     @Binding var text: String
     var accessibilityIdentifier: String?
@@ -222,17 +230,21 @@ struct GlassFill: View {
 }
 
 struct MessagesWindowBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        GlassFill(darkOpacity: 0.52, lightOpacity: 0.2)
-            .nativeBackgroundExtensionEffect()
+        Rectangle()
+            .fill(colorScheme == .dark ? Color(red: 0.055, green: 0.055, blue: 0.058) : Color(red: 0.975, green: 0.975, blue: 0.965))
             .ignoresSafeArea()
     }
 }
 
 struct MessagesTranscriptBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        GlassFill(darkOpacity: 0.72, lightOpacity: 0.52, lightTint: .textBackgroundColor)
-            .nativeBackgroundExtensionEffect()
+        Rectangle()
+            .fill(colorScheme == .dark ? Color(red: 0.055, green: 0.055, blue: 0.058) : Color(nsColor: .textBackgroundColor))
             .ignoresSafeArea()
     }
 }
@@ -244,33 +256,39 @@ struct MessagesSidebarBackground: View {
     }
 
     let level: Level
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        GlassFill(darkOpacity: darkOpacity, lightOpacity: lightOpacity)
-            .nativeBackgroundExtensionEffect()
+        Rectangle()
+            .fill(backgroundColor)
             .ignoresSafeArea()
     }
 
-    private var darkOpacity: Double {
-        switch level {
-        case .rail: 0.5
-        case .drawer: 0.44
-        }
-    }
-
-    private var lightOpacity: Double {
-        switch level {
-        case .rail: 0.16
-        case .drawer: 0.1
+    private var backgroundColor: Color {
+        if colorScheme == .dark {
+            switch level {
+            case .rail:
+                return Color(red: 0.18, green: 0.18, blue: 0.18)
+            case .drawer:
+                return Color(red: 0.145, green: 0.145, blue: 0.145)
+            }
+        } else {
+            switch level {
+            case .rail:
+                return Color(red: 0.84, green: 0.84, blue: 0.82)
+            case .drawer:
+                return Color(red: 0.90, green: 0.90, blue: 0.88)
+            }
         }
     }
 }
 
 struct MessagesHeaderBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        GlassFill(material: .ultraThinMaterial, darkOpacity: 0.34, lightOpacity: 0.18)
-            .nativeBackgroundExtensionEffect()
-            .ignoresSafeArea()
+        Rectangle()
+            .fill(colorScheme == .dark ? Color(red: 0.055, green: 0.055, blue: 0.058) : Color(nsColor: .textBackgroundColor))
     }
 }
 

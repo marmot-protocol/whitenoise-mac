@@ -37,6 +37,17 @@ private final class MutableFlag: @unchecked Sendable {
     }
 }
 
+private func waitForSemaphore(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) async -> DispatchTimeoutResult {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+            continuation.resume(returning: semaphore.wait(timeout: timeout))
+        }
+    }
+}
+
 private final class BlockingFfiGate: @unchecked Sendable {
     private let lock = NSLock()
     private var enabled = false
@@ -1935,7 +1946,7 @@ struct whitenoise_macTests {
         let purge = Task {
             await cache.purgeAll(removeEncryptionKey: true)
         }
-        #expect(deleterEntered.wait(timeout: .now() + 2) == .success)
+        #expect(await waitForSemaphore(deleterEntered, timeout: .now() + 2) == .success)
 
         await cache.store(download, for: key)
         #expect(keyProviderCalls.value == 0)
@@ -3711,13 +3722,16 @@ struct whitenoise_macTests {
         await state.bootstrap()
 
         runtime.listMediaGateEnabled = true
-        async let firstLoad: Void = state.loadMediaAttachment(fixtures[0].attachment, for: fixtures[0].message)
+        let firstFixture = fixtures[0]
+        let secondFixture = fixtures[1]
+        let thirdFixture = fixtures[2]
+        async let firstLoad: Void = state.loadMediaAttachment(firstFixture.attachment, for: firstFixture.message)
         while !runtime.didReachListMediaGate {
             await Task.yield()
         }
 
-        async let secondLoad: Void = state.loadMediaAttachment(fixtures[1].attachment, for: fixtures[1].message)
-        async let thirdLoad: Void = state.loadMediaAttachment(fixtures[2].attachment, for: fixtures[2].message)
+        async let secondLoad: Void = state.loadMediaAttachment(secondFixture.attachment, for: secondFixture.message)
+        async let thirdLoad: Void = state.loadMediaAttachment(thirdFixture.attachment, for: thirdFixture.message)
         for _ in 0..<20 {
             await Task.yield()
         }
@@ -7557,7 +7571,7 @@ struct whitenoise_macTests {
                 groupIdHex: "group"
             )
         }
-        #expect(firstPageEntered.wait(timeout: .now() + 2) == .success)
+        #expect(await waitForSemaphore(firstPageEntered, timeout: .now() + 2) == .success)
 
         exportTask.cancel()
         releaseFirstPage.signal()

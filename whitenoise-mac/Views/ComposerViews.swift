@@ -540,7 +540,7 @@ struct NewChatColumnView: View {
                 .help("Close")
             }
             .padding(.horizontal, 14)
-            .padding(.top, 18)
+            .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
             .padding(.bottom, 12)
 
             Divider()
