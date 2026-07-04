@@ -915,6 +915,44 @@ struct PureValueTests {
         #expect(groupImageResult(imageURL: origin, thumbnailURL: "   ").previewURL == nil)
     }
 
+    @Test func markdownInlineBuilderOnlyUsesMentionSigilForProfileNostrEntities() async throws {
+        let npub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzqujme"
+        let nprofile = "nprofile1qqsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8uzqt"
+        let note = "note1zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsglnzgl"
+
+        let cases: [(inline: MarkdownInlineFfi, displayText: String, reference: String)] = [
+            (
+                .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub)),
+                "@npub1qqqqq...ujme",
+                npub
+            ),
+            (
+                .nostrUri(entity: MarkdownNostrEntityFfi(hrp: .nprofile, bech32: nprofile)),
+                "@nprofile1q...uzqt",
+                nprofile
+            ),
+            (
+                .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .note, bech32: note)),
+                "note1zyg3z...nzgl",
+                note
+            ),
+            (
+                .nostrUri(entity: MarkdownNostrEntityFfi(hrp: .note, bech32: note)),
+                "note1zyg3z...nzgl",
+                note
+            ),
+        ]
+
+        for testCase in cases {
+            let attributed = MarkdownDisplayInlineBuilder.attributedString(
+                from: [testCase.inline],
+                remainingDepth: 32
+            )
+            #expect(String(attributed.characters) == testCase.displayText)
+            #expect(links(in: attributed).map(\.absoluteString) == ["nostr:\(testCase.reference)"])
+        }
+    }
+
     private func groupImageResult(imageURL: String, thumbnailURL: String?) -> GroupImageSearchResult {
         GroupImageSearchResult(
             id: "image-1",
