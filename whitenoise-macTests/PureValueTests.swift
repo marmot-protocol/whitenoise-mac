@@ -331,6 +331,65 @@ struct PureValueTests {
         #expect(member.canDemote)
     }
 
+    @MainActor
+    @Test func groupDetailsSnapshotMapsSelfMembershipVariants() async throws {
+        let variants: [(SelfMembershipFfi, ChatSelfMembership)] = [
+            (.member, .member),
+            (.left, .left),
+            (.removed, .removed),
+        ]
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+
+        for (ffiMembership, expected) in variants {
+            let group = AppGroupRecordFfi(
+                groupIdHex: "group",
+                endpoint: "",
+                name: "Test Group",
+                description: "",
+                admins: [],
+                relays: [],
+                nostrGroupIdHex: "",
+                avatarUrl: nil,
+                avatarDim: nil,
+                avatarThumbhash: nil,
+                encryptedMedia: AppGroupEncryptedMediaComponentFfi(
+                    componentId: 0,
+                    component: "",
+                    required: false,
+                    mediaFormat: "",
+                    allowedLocatorKinds: [],
+                    defaultBlobEndpoints: []
+                ),
+                disappearingMessageSecs: 0,
+                archived: false,
+                pendingConfirmation: false,
+                selfMembership: ffiMembership,
+                welcomerAccountIdHex: nil,
+                viaWelcomeMessageIdHex: nil
+            )
+            let managementState = GroupManagementStateFfi(
+                myAccountIdHex: "self",
+                isSelfAdmin: false,
+                isLastAdmin: false,
+                canInvite: false,
+                canLeave: false,
+                requiresSelfDemoteBeforeLeave: false,
+                memberActions: []
+            )
+
+            let snapshot = state.groupDetailsSnapshot(
+                from: GroupDetailsFfi(group: group, members: []),
+                managementState: managementState
+            )
+
+            #expect(snapshot.selfMembership == expected)
+        }
+    }
+
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
         // The string entry point used by the UI must also reject internal destinations.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
@@ -857,6 +916,7 @@ struct PureValueTests {
             adminIds: [],
             archived: false,
             pendingConfirmation: false,
+            selfMembership: .member,
             members: [],
             isSelfAdmin: false,
             isLastAdmin: false,
