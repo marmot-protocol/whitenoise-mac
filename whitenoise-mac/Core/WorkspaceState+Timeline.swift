@@ -434,6 +434,9 @@ extension WorkspaceState {
         guard let client,
             let activeAccount,
             let selectedChat,
+            // Mirrors `canSend`: the core rejects sends to a group the local
+            // account left or was removed from (`invalid_transition`).
+            !selectedChat.isNoLongerMember,
             let draftKey = selectedComposerDraftKey,
             !text.isEmpty || !mediaAttachments.isEmpty,
             !isSending

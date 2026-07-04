@@ -37,6 +37,26 @@ struct TimelinePagingState: Equatable {
     )
 }
 
+private nonisolated final class OffMainCancellationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    func check() throws {
+        lock.lock()
+        let isCancelled = cancelled
+        lock.unlock()
+        if isCancelled {
+            throw CancellationError()
+        }
+    }
+}
+
 /// Tracks ownership of incremental, per-row chat-list enrichment tasks (issue #40).
 ///
 /// Single-row chat-list updates spawn one enrichment `Task` per group. Exactly one such task
@@ -155,7 +175,8 @@ nonisolated struct ChatListOrdering {
             unreadCount: chat.unreadCount,
             unreadMentionCount: chat.unreadMentionCount,
             isDirect: current.isDirect,
-            pendingConfirmation: chat.pendingConfirmation
+            pendingConfirmation: chat.pendingConfirmation,
+            selfMembership: chat.selfMembership
         )
     }
 
@@ -636,6 +657,7 @@ final class WorkspaceState {
     var isSecureDeletingExpired = false
     var isDeletingGroupLocally = false
     var isExportingGroupTranscript = false
+    var groupTranscriptExportTask: Task<Void, Never>?
     var groupTranscriptExportStatus: String?
     var mutatingGroupMemberId: String?
     var storageRootPath = MarmotClient.defaultStorageRootPath()
@@ -1007,6 +1029,34 @@ final class WorkspaceState {
     ) async throws -> T {
         try await Self.runFFI(work)
     }
+
+    /// Runs blocking FFI off the main thread while exposing cancellation to the GCD closure.
+    /// `Task.checkCancellation()` is only task-local; inside `ffiQueue.async` there is no current
+    /// Swift task, so long synchronous loops must call the supplied checker instead.
+    nonisolated func runOffMainCancellable<T>(
+        _ work: @escaping @Sendable (_ checkCancellation: @escaping @Sendable () throws -> Void) throws -> T
+    ) async throws -> T {
+        let cancellation = OffMainCancellationFlag()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+                Self.ffiQueue.async {
+                    let checkCancellation: @Sendable () throws -> Void = {
+                        try cancellation.check()
+                    }
+                    continuation.resume(
+                        with: Result {
+                            try checkCancellation()
+                            let value = try work(checkCancellation)
+                            try checkCancellation()
+                            return value
+                        }
+                    )
+                }
+            }
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
     static var notificationPermissionGuidance: String {
         L10n.string("Open System Settings > Notifications and allow White Noise notifications, then try again.")
     }
@@ -1335,8 +1385,11 @@ final class WorkspaceState {
     }
 
     var canSend: Bool {
+        // The core rejects sends to a group the local account left or was removed
+        // from (`invalid_transition`), so an ended membership disables sending
+        // even though the chat stays selectable for reading history.
         client != nil
-            && selectedChat != nil
+            && selectedChat?.isNoLongerMember == false
             && (!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !pendingMediaAttachments.isEmpty)
             && !isSending
@@ -1423,6 +1476,7 @@ final class WorkspaceState {
             adminIds: details.group.admins,
             archived: details.group.archived,
             pendingConfirmation: details.group.pendingConfirmation,
+            selfMembership: ChatSelfMembership(details.group.selfMembership),
             members: members,
             isSelfAdmin: managementState.isSelfAdmin,
             isLastAdmin: managementState.isLastAdmin,

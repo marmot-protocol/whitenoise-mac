@@ -370,7 +370,11 @@ extension WorkspaceState {
     }
 
     func canBeginMediaAttachmentSelection() -> Bool {
-        guard client != nil, selectedChat != nil else { return false }
+        // An ended membership must also refuse new attachments/recordings: the drop
+        // target and file importer stay reachable even while the composer is replaced
+        // by the membership-ended notice, and anything collected here could otherwise
+        // accumulate invisibly (the pending-media strip is hidden) and never be sent.
+        guard client != nil, selectedChat?.isNoLongerMember == false else { return false }
         guard remainingMediaAttachmentSlots > 0 else {
             presentMaxMediaAttachmentWarning()
             return false

@@ -17,6 +17,7 @@ import UserNotifications
 @MainActor
 extension WorkspaceState {
     func showGroupDetails(for chat: ChatItem) async {
+        cancelGroupTranscriptExport()
         lastError = nil
         groupDetailsSnapshot = nil
         groupInviteMemberQuery = ""
@@ -26,6 +27,7 @@ extension WorkspaceState {
     }
 
     func closeGroupDetails() {
+        cancelGroupTranscriptExport()
         isGroupDetailsPresented = false
         groupDetailsSnapshot = nil
         groupProfileDraftName = ""
@@ -45,17 +47,35 @@ extension WorkspaceState {
         mutatingGroupMemberId = nil
     }
 
+    func startCopySelectedGroupTranscriptJSON() {
+        guard groupTranscriptExportTask == nil, !isExportingGroupTranscript else { return }
+        groupTranscriptExportTask = Task { [weak self] in
+            await self?.copySelectedGroupTranscriptJSON()
+            await MainActor.run {
+                self?.groupTranscriptExportTask = nil
+            }
+        }
+    }
+
+    func cancelGroupTranscriptExport() {
+        groupTranscriptExportTask?.cancel()
+    }
+
     func copySelectedGroupTranscriptJSON() async {
         guard !isExportingGroupTranscript,
             let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot
         else { return }
+        guard !Task.isCancelled else { return }
 
         lastError = nil
         groupTranscriptExportStatus = nil
         isExportingGroupTranscript = true
-        defer { isExportingGroupTranscript = false }
+        defer {
+            isExportingGroupTranscript = false
+            groupTranscriptExportTask = nil
+        }
 
         do {
             let accountRef = activeAccount.accountRef
@@ -63,11 +83,12 @@ extension WorkspaceState {
             let groupName = snapshot.name
             // Paginates the whole transcript via blocking FFI and JSON-encodes it; keep it
             // off the main thread so a large export does not freeze the UI.
-            let export = try await runOffMain { () -> (json: String, eventCount: Int) in
+            let export = try await runOffMainCancellable { checkCancellation -> (json: String, eventCount: Int) in
                 let messages = try ConversationTranscriptExport.fetchAllMessages(
                     client: client,
                     accountRef: accountRef,
-                    groupIdHex: groupIdHex
+                    groupIdHex: groupIdHex,
+                    checkCancellation: checkCancellation
                 )
                 let document = ConversationTranscriptExport.makeDocument(
                     groupIdHex: groupIdHex,
@@ -81,6 +102,9 @@ extension WorkspaceState {
                 format: L10n.string("Copied transcript JSON for %d events."),
                 export.eventCount
             )
+        } catch is CancellationError {
+            // User navigated away, switched accounts, or closed details. Treat as an intentional
+            // abort rather than surfacing a transient cancellation error in the UI.
         } catch {
             lastError = error.localizedDescription
         }

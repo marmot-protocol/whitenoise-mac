@@ -114,6 +114,25 @@ struct GroupDetailsSheet: View {
                         }
                     }
 
+                    if let endedDescription = snapshot.selfMembership.endedDescription {
+                        Section("Membership") {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(endedDescription)
+                                        .font(.callout.weight(.semibold))
+
+                                    Text(ChatSelfMembership.endedHistoryExplanation)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            } icon: {
+                                Image(systemName: snapshot.selfMembership.endedSymbolName ?? "")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
                     Section("Profile") {
                         TextField("Group name", text: $workspace.groupProfileDraftName)
                             .textFieldStyle(.roundedBorder)
@@ -148,6 +167,9 @@ struct GroupDetailsSheet: View {
                             .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
                         }
                     }
+                    // Profile edits publish a group commit, which the core rejects for a
+                    // non-member the same way it rejects sends (`invalid_transition`).
+                    .disabled(snapshot.selfMembership != .member)
 
                     Section("Members") {
                         if snapshot.members.isEmpty {
@@ -181,7 +203,11 @@ struct GroupDetailsSheet: View {
                         } label: {
                             Label("Auto-delete after", systemImage: "timer")
                         }
-                        .disabled(workspace.isUpdatingDisappearingMessages)
+                        // Retention changes are group commits — rejected for non-members.
+                        // "Delete expired now" below stays enabled: it is a local prune.
+                        .disabled(
+                            workspace.isUpdatingDisappearingMessages || snapshot.selfMembership != .member
+                        )
 
                         if snapshot.disappearingMessagesEnabled {
                             Button {
@@ -194,7 +220,7 @@ struct GroupDetailsSheet: View {
                         }
                     }
 
-                    if snapshot.canInvite {
+                    if snapshot.canInvite && snapshot.selfMembership == .member {
                         Section("Invite") {
                             HStack(spacing: 10) {
                                 TextField(
@@ -281,7 +307,7 @@ struct GroupDetailsSheet: View {
                         Section("Developer") {
                             HStack(spacing: 10) {
                                 Button {
-                                    Task { await workspace.copySelectedGroupTranscriptJSON() }
+                                    workspace.startCopySelectedGroupTranscriptJSON()
                                 } label: {
                                     Label(
                                         workspace.isExportingGroupTranscript
@@ -323,6 +349,10 @@ struct GroupDetailsSheet: View {
                             GroupDiagnosticsValueRow(
                                 title: "Pending confirmation",
                                 value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Self membership",
+                                value: snapshot.selfMembership.sidebarBadgeLabel ?? L10n.string("Member"),
                                 copyable: false)
                         }
                     }

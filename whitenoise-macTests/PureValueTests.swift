@@ -101,6 +101,44 @@ struct PureValueTests {
         #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
     }
 
+    @Test func outgoingMediaKindFallsBackToFileExtensionForGenericMediaTypes() async throws {
+        // Regression for whitenoise-mac#317: the media type still drives classification,
+        // but a generic/unknown type must consult the file extension instead of ignoring
+        // it. A `clip.mp4` carried under `application/octet-stream` should partition as a
+        // video, not a document.
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "video/mp4") == .video)
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "audio/mpeg") == .audio)
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "image/png") == .image)
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "application/pdf") == .file)
+
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "clip.mp4") == .video
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "voice.m4a") == .audio
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "photo.png") == .image
+        )
+
+        // A concrete media type is authoritative and wins over a mismatched extension.
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "video/mp4", fileName: "report.pdf") == .video
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/pdf", fileName: "clip.mp4") == .file
+        )
+
+        // A document extension (or a name without a media-bearing extension) still
+        // resolves to a file.
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "notes.txt") == .file
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "archive.pdf") == .file
+        )
+    }
+
     @Test func chatListRowClampsOversizedUnreadCounts() async throws {
         // Regression for whitenoise-mac#242: unread counts cross the FFI boundary as
         // UInt64, and Int(value) traps above Int.max while mapping the chat list.
@@ -329,6 +367,65 @@ struct PureValueTests {
         #expect(member.canRemove)
         #expect(member.canPromote)
         #expect(member.canDemote)
+    }
+
+    @MainActor
+    @Test func groupDetailsSnapshotMapsSelfMembershipVariants() async throws {
+        let variants: [(SelfMembershipFfi, ChatSelfMembership)] = [
+            (.member, .member),
+            (.left, .left),
+            (.removed, .removed),
+        ]
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+
+        for (ffiMembership, expected) in variants {
+            let group = AppGroupRecordFfi(
+                groupIdHex: "group",
+                endpoint: "",
+                name: "Test Group",
+                description: "",
+                admins: [],
+                relays: [],
+                nostrGroupIdHex: "",
+                avatarUrl: nil,
+                avatarDim: nil,
+                avatarThumbhash: nil,
+                encryptedMedia: AppGroupEncryptedMediaComponentFfi(
+                    componentId: 0,
+                    component: "",
+                    required: false,
+                    mediaFormat: "",
+                    allowedLocatorKinds: [],
+                    defaultBlobEndpoints: []
+                ),
+                disappearingMessageSecs: 0,
+                archived: false,
+                pendingConfirmation: false,
+                selfMembership: ffiMembership,
+                welcomerAccountIdHex: nil,
+                viaWelcomeMessageIdHex: nil
+            )
+            let managementState = GroupManagementStateFfi(
+                myAccountIdHex: "self",
+                isSelfAdmin: false,
+                isLastAdmin: false,
+                canInvite: false,
+                canLeave: false,
+                requiresSelfDemoteBeforeLeave: false,
+                memberActions: []
+            )
+
+            let snapshot = state.groupDetailsSnapshot(
+                from: GroupDetailsFfi(group: group, members: []),
+                managementState: managementState
+            )
+
+            #expect(snapshot.selfMembership == expected)
+        }
     }
 
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
@@ -857,6 +954,7 @@ struct PureValueTests {
             adminIds: [],
             archived: false,
             pendingConfirmation: false,
+            selfMembership: .member,
             members: [],
             isSelfAdmin: false,
             isLastAdmin: false,
