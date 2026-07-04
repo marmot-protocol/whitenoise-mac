@@ -1717,7 +1717,7 @@ struct whitenoise_macTests {
         #expect(!cacheFiles.contains { $0.hasSuffix("payload.bin") })
     }
 
-    @Test func messageMediaDiskCacheAccountPurgeSkipsUnreadableEntries() async throws {
+    @Test func messageMediaDiskCacheAccountPurgeCleansUnreadableEntriesAfterAccountPass() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
@@ -1726,6 +1726,7 @@ struct whitenoise_macTests {
         let cache = messageMediaDiskCache(root: root)
         let purgedPlaintext = Data("purged account media".utf8)
         let unreadablePlaintext = Data("other account media with unreadable metadata".utf8)
+        let preservedPlaintext = Data("other account readable media".utf8)
         let purgedKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
@@ -1735,6 +1736,11 @@ struct whitenoise_macTests {
             accountId: "account-b",
             groupIdHex: "group-b",
             reference: mediaDiskCacheReference(plaintext: unreadablePlaintext, ciphertextByte: 0xbb)
+        )
+        let preservedKey = MessageMediaDiskCacheKey(
+            accountId: "account-b",
+            groupIdHex: "group-b",
+            reference: mediaDiskCacheReference(plaintext: preservedPlaintext, ciphertextByte: 0xbc)
         )
 
         await cache.store(
@@ -1757,6 +1763,16 @@ struct whitenoise_macTests {
             ),
             for: unreadableKey
         )
+        await cache.store(
+            MessageMediaDownload(
+                data: preservedPlaintext,
+                fileName: "preserved.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(preservedPlaintext.count),
+                payloadId: "preserved"
+            ),
+            for: preservedKey
+        )
 
         let purgedEntryDirectory = try #require(cache.entryDirectory(for: purgedKey))
         let unreadableEntryDirectory = try #require(cache.entryDirectory(for: unreadableKey))
@@ -1767,9 +1783,10 @@ struct whitenoise_macTests {
         await cache.purgeAccount("account-a")
 
         #expect(!fileManager.fileExists(atPath: purgedEntryDirectory.path))
-        // Do not assert via cachedDownload(for:): reading this intentionally
-        // unreadable entry would trigger corrupt-entry read repair and delete it.
-        #expect(fileManager.fileExists(atPath: unreadableEntryDirectory.path))
+        // The corrupt-entry cleanup is account-agnostic: readable entries for other
+        // accounts survive, while entries whose metadata no account can decode are removed.
+        #expect(!fileManager.fileExists(atPath: unreadableEntryDirectory.path))
+        #expect(try #require(await cache.cachedDownload(for: preservedKey)).data == preservedPlaintext)
     }
 
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {

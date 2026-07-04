@@ -322,6 +322,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 root: root,
                 symmetricKey: symmetricKey
             )
+            // Keep account matching separate from corrupt-entry reclamation. The first
+            // pass only removes entries it can attribute to the target account; this
+            // second pass is account-agnostic and deletes entries no account can read.
+            Self.removeUnreadableEntries(root: root, symmetricKey: symmetricKey)
         }
         await task.task.value
         finishPurge(task)
@@ -449,6 +453,12 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private struct CacheFootprint {
         let entryCount: Int
         let byteCount: UInt64
+    }
+
+    private enum MetadataStatus {
+        case readable(Metadata)
+        case corrupt
+        case unavailable
     }
 
     private static func readDownload(
@@ -607,27 +617,80 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 )
             else { continue }
 
-            for entryDirectory in entryDirectories {
-                let cacheID = entryDirectory.lastPathComponent
-                let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
-                guard let metadataData = try? Data(contentsOf: metadataURL),
-                    let metadataPlaintext = try? open(
-                        metadataData,
-                        using: symmetricKey,
-                        authenticatedBy: metadataAAD(for: cacheID)
-                    ),
-                    let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext)
+            for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
+                guard
+                    case .readable(let metadata) = metadataStatus(
+                        in: entryDirectory,
+                        symmetricKey: symmetricKey
+                    )
                 else {
                     // A per-account purge cannot prove an unreadable entry belongs to the
-                    // target account. Skip it instead of deleting unrelated account caches
-                    // because of a transient read/decrypt failure.
+                    // target account. Skip it here; the account-agnostic cleanup pass owns
+                    // corrupt-entry reclamation.
                     continue
                 }
                 if metadata.accountDigest == accountDigest {
                     try? FileManager.default.removeItem(at: entryDirectory)
+                    removeEmptyDirectory(shardDirectory)
                 }
             }
         }
+    }
+
+    private static func removeUnreadableEntries(root: URL, symmetricKey: SymmetricKey) {
+        guard
+            let shardDirectories = try? FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
+
+        for shardDirectory in shardDirectories where shardDirectory.lastPathComponent != "staging" {
+            guard isDirectory(shardDirectory),
+                let entryDirectories = try? FileManager.default.contentsOfDirectory(
+                    at: shardDirectory,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                )
+            else { continue }
+
+            for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
+                guard case .corrupt = metadataStatus(in: entryDirectory, symmetricKey: symmetricKey) else {
+                    continue
+                }
+                try? FileManager.default.removeItem(at: entryDirectory)
+                removeEmptyDirectory(shardDirectory)
+            }
+        }
+        removeEmptyDirectory(root)
+    }
+
+    private static func metadataStatus(in entryDirectory: URL, symmetricKey: SymmetricKey) -> MetadataStatus {
+        let cacheID = entryDirectory.lastPathComponent
+        let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
+        guard FileManager.default.fileExists(atPath: metadataURL.path) else { return .corrupt }
+
+        let metadataData: Data
+        do {
+            metadataData = try Data(contentsOf: metadataURL)
+        } catch {
+            // Do not reclaim entries whose metadata could not be read at all; a transient
+            // filesystem read failure is exactly what the per-account purge must not turn
+            // into collateral deletion.
+            return .unavailable
+        }
+
+        guard
+            let metadataPlaintext = try? open(
+                metadataData,
+                using: symmetricKey,
+                authenticatedBy: metadataAAD(for: cacheID)
+            ),
+            let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext),
+            metadata.version == 1
+        else { return .corrupt }
+        return .readable(metadata)
     }
 
     private static func enforceEvictionPolicy(
@@ -728,20 +791,17 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             else { continue }
 
             for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
-                let cacheID = entryDirectory.lastPathComponent
                 let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
                 let payloadURL = entryDirectory.appendingPathComponent(payloadFileName)
-                guard let metadataData = try? Data(contentsOf: metadataURL),
-                    let metadataPlaintext = try? open(
-                        metadataData,
-                        using: symmetricKey,
-                        authenticatedBy: metadataAAD(for: cacheID)
-                    ),
-                    let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext),
-                    metadata.version == 1
-                else {
+                let metadata: Metadata
+                switch metadataStatus(in: entryDirectory, symmetricKey: symmetricKey) {
+                case .readable(let decodedMetadata):
+                    metadata = decodedMetadata
+                case .corrupt:
                     try? FileManager.default.removeItem(at: entryDirectory)
                     removeEmptyDirectory(shardDirectory)
+                    continue
+                case .unavailable:
                     continue
                 }
 
