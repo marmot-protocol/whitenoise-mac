@@ -116,7 +116,7 @@ extension WorkspaceState {
     }
 
     func saveGroupProfile() async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isSavingGroupProfile else { return }
         let trimmedName = groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDescription = groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
@@ -143,7 +143,7 @@ extension WorkspaceState {
     }
 
     func inviteMemberToSelectedGroup() async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isInvitingGroupMember else { return }
         let query = groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard looksLikeMemberRef(query) else {
             lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
@@ -203,14 +203,19 @@ extension WorkspaceState {
     }
 
     func selfDemoteSelectedGroupAdmin() async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot,
+            mutatingGroupMemberId == nil
+        else { return }
         guard snapshot.isSelfAdmin, !snapshot.isLastAdmin else {
             lastError = L10n.string("Make another member an admin before stepping down.")
             return
         }
 
         lastError = nil
-        mutatingGroupMemberId = snapshot.members.first(where: \.isSelf)?.id
+        let selfMemberId = snapshot.members.first(where: \.isSelf)?.id ?? activeAccount.accountIdHex
+        mutatingGroupMemberId = selfMemberId
         defer { mutatingGroupMemberId = nil }
 
         do {
@@ -226,7 +231,7 @@ extension WorkspaceState {
     }
 
     func setSelectedGroupArchived(_ archived: Bool) async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isArchivingGroup else { return }
         lastError = nil
         isArchivingGroup = true
         defer { isArchivingGroup = false }
@@ -250,7 +255,7 @@ extension WorkspaceState {
     }
 
     func leaveSelectedGroup() async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isLeavingGroup else { return }
         guard snapshot.canLeave, !snapshot.requiresSelfDemoteBeforeLeave else {
             lastError = L10n.string("Demote yourself from admin before leaving this group.")
             return
@@ -509,7 +514,11 @@ extension WorkspaceState {
     }
 
     func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot else { return }
+        guard let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot,
+            mutatingGroupMemberId == nil
+        else { return }
         lastError = nil
         mutatingGroupMemberId = member.id
         defer { mutatingGroupMemberId = nil }
