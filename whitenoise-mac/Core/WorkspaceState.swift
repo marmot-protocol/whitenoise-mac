@@ -951,7 +951,7 @@ final class WorkspaceState {
         var groupIdHex: String
     }
 
-    struct MediaReferenceIndex: Sendable {
+    nonisolated struct MediaReferenceIndex: Sendable {
         private struct Entry: Sendable {
             var order: Int
             var reference: MediaAttachmentReferenceFfi

@@ -127,14 +127,14 @@ extension WorkspaceState {
         let mediaDiskCache = mediaDiskCache
         let task = Task { [weak self, mediaDiskCache, download, cacheKey, accountId, storeGuard, cacheID, token] in
             guard !Task.isCancelled,
-                await self?.isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) == true
+                self?.isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard) == true
             else {
-                await self?.finishMediaDiskCacheStore(cacheID: cacheID, token: token)
+                self?.finishMediaDiskCacheStore(cacheID: cacheID, token: token)
                 return
             }
 
             await mediaDiskCache.store(download, for: cacheKey)
-            await self?.finishMediaDiskCacheStore(cacheID: cacheID, token: token)
+            self?.finishMediaDiskCacheStore(cacheID: cacheID, token: token)
         }
         mediaDiskStoreTasks[cacheID] = MediaDiskStoreTask(
             accountId: accountId,

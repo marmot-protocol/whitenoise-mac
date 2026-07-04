@@ -21,6 +21,7 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct PureValueTests {
+    @MainActor
     @Test func disappearingMessageCustomLabelFormatsCoreUInt64Value() async throws {
         // Regression for whitenoise-mac#212: values can originate from the core as
         // UInt64, and Int(value) traps above Int.max while `%d` truncates large
@@ -207,6 +208,7 @@ struct PureValueTests {
         #expect(chat.updatedAt == Date(timeIntervalSince1970: TimeInterval(fallbackUpdatedAt)))
     }
 
+    @MainActor
     @Test func messageItemTimelineFallbackClampsPreEpochAndNonFiniteDates() async throws {
         // Regression for whitenoise-mac#247: the timelineAt fallback derives from
         // sentAt via UInt64(_:), which traps on negative (pre-1970) or non-finite
@@ -591,6 +593,7 @@ struct PureValueTests {
         #expect(sanitized?.absoluteString == "https://cdn.example/p.png")
     }
 
+    @MainActor
     @Test func avatarModelsPrecomputeSanitizedPictureURLs() async throws {
         let account = AccountItem(
             id: "account",
@@ -634,6 +637,7 @@ struct PureValueTests {
         #expect(snapshot.sanitizedAvatarURL?.absoluteString == "https://cdn.example/group.png")
     }
 
+    @MainActor
     @Test func groupDetailsHeaderAvatarFallsBackToChatAvatarWhenSnapshotHasNone() async throws {
         let chat = ChatItem(
             id: "chat",
@@ -662,6 +666,7 @@ struct PureValueTests {
                 == "https://cdn.example/group.png")
     }
 
+    @MainActor
     @Test func profileDraftCachesSanitizedPictureURL() async throws {
         var draft = ProfileDraft(picture: "  https://cdn.example/profile.png  ")
         #expect(draft.sanitizedPictureURL?.absoluteString == "https://cdn.example/profile.png")
@@ -1022,6 +1027,7 @@ struct PureValueTests {
         #expect(links(in: attributed).map(\.absoluteString) == ["nostr:\(bech32)"])
     }
 
+    @MainActor
     @Test func groupImagePreviewURLUsesOpenverseThumbnailOnly() async throws {
         // Regression for whitenoise-mac#315: search-result tiles must connect only to
         // the Openverse-proxied thumbnail, never to the arbitrary origin `imageURL`.

@@ -362,7 +362,7 @@ nonisolated enum OutgoingMediaMetadataTempStore {
     }
 }
 
-private enum MediaProtectedTempDirectory {
+nonisolated private enum MediaProtectedTempDirectory {
     static func directoryURL(
         directoryName: String,
         fileManager: FileManager,

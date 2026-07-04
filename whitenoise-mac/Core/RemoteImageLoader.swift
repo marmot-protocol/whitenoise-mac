@@ -623,8 +623,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
 
         let generation = currentCacheGeneration()
         let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
-        let task = inFlight.task(for: taskKey) { [self] in
-            Task { [self] in
+        let task = inFlight.task(for: taskKey) {
+            Task {
                 await load(key, generation)
             }
         }

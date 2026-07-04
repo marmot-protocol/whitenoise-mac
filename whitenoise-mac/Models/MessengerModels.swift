@@ -1416,7 +1416,7 @@ nonisolated enum MessagePresentation: Hashable {
     }
 }
 
-struct MessageItem: Identifiable, Hashable {
+nonisolated struct MessageItem: Identifiable, Hashable {
     let id: String
     let groupIdHex: String
     let senderAccountIdHex: String
@@ -1610,7 +1610,7 @@ extension MessageItem {
     // directly displayed by the row. The rest of the stored properties (`trimmedBody`, the
     // media partitions, `hasBubbleContent`) are pure functions of these, so comparing them
     // too would be redundant.
-    static func == (lhs: MessageItem, rhs: MessageItem) -> Bool {
+    nonisolated static func == (lhs: MessageItem, rhs: MessageItem) -> Bool {
         lhs.id == rhs.id
             && lhs.groupIdHex == rhs.groupIdHex
             && lhs.senderAccountIdHex == rhs.senderAccountIdHex
@@ -1635,7 +1635,7 @@ extension MessageItem {
     // Hashes a cheap, well-distributed subset of the equality fields. Hashing only a
     // subset is valid — equal values still hash equally — and keeps the message id (which
     // is unique per message) doing the bulk of the distribution work.
-    func hash(into hasher: inout Hasher) {
+    nonisolated func hash(into hasher: inout Hasher) {
         hasher.combine(id)
         hasher.combine(timelineAt)
         hasher.combine(body)

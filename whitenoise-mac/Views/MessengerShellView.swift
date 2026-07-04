@@ -12,6 +12,8 @@ struct MessengerShellView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
+        let ignoredEdges: Edge.Set = workspace.showsMessengerChrome ? .top : []
+
         Group {
             if workspace.showsMessengerChrome {
                 HStack(spacing: 0) {
@@ -45,6 +47,7 @@ struct MessengerShellView: View {
         .background {
             MessagesWindowBackground()
         }
+        .ignoresSafeArea(.container, edges: ignoredEdges)
         .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
     }
 }
