@@ -386,6 +386,99 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func addingSecondAccountViaLoginWhenRuntimeStartFailsKeepsPriorActiveAccount() async throws {
+        // Regression for #333: the Settings → Add Account login path used to commit the
+        // active-account switch (activeAccountId, UserDefaults, cleared selection) *before*
+        // bringing the runtime online. If start() then threw, the app was left pointed at the
+        // new, offline account with no rollback. The switch must not be committed until the
+        // runtime is online.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == "Primary Account")
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Primary Account")
+
+        // Simulate the user sitting on a Settings page for the current account.
+        state.selection = .settings(.accounts)
+
+        // Add a second account, but make the runtime fail to come online.
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        runtime.createdAccount = secondary
+        runtime.startError = FakeMarmotRuntimeError.unused
+        state.showLogin()
+        state.loginIdentity = "nsec1backup"
+        await state.login()
+
+        // The switch must have been rolled forward *only* on success: because start() threw,
+        // the active account, its persisted value, and the settings selection stay on Primary.
+        #expect(state.lastError != nil)
+        #expect(runtime.startCallCount == 2)
+        #expect(state.activeAccountId == "Primary Account")
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Primary Account")
+        #expect(state.selection == .settings(.accounts))
+        #expect(state.phase == .ready)
+    }
+
+    @MainActor
+    @Test func addingSecondAccountViaSignUpWhenRuntimeStartFailsKeepsPriorActiveAccount() async throws {
+        // Companion to the login case: the Create Identity add-account path must also defer the
+        // active-account switch until the runtime is online. See #333.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == "Primary Account")
+        state.selection = .settings(.accounts)
+
+        let secondary = AccountSummaryFfi(
+            label: "Second Identity",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        runtime.createdAccount = secondary
+        runtime.startError = FakeMarmotRuntimeError.unused
+        await state.signUp()
+
+        #expect(state.lastError != nil)
+        #expect(runtime.startCallCount == 2)
+        #expect(state.activeAccountId == "Primary Account")
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Primary Account")
+        #expect(state.selection == .settings(.accounts))
+        #expect(state.phase == .ready)
+    }
+
+    @MainActor
     @Test func failedLoginScrubsEnteredNsecFromMemory() async throws {
         // No createdAccount => FakeMarmotRuntime.login throws, exercising the failure path.
         let runtime = FakeMarmotRuntime(accounts: [])
@@ -12186,6 +12279,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var createdAccount: AccountSummaryFfi?
     private(set) var startCallCount = 0
     var didStart: Bool { startCallCount > 0 }
+    /// When set, `start()` throws it instead of bringing accounts online, modelling
+    /// the runtime failing to come online (e.g. shutting down). Used to exercise the
+    /// add-account failure path that must not commit the active-account switch (#333).
+    var startError: Error?
     let storageRootPath = "/tmp/whitenoise-mac-tests"
     private var profile = UserProfileMetadataFfi(
         name: "desktop",
@@ -12471,6 +12568,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func start() async throws {
         startCallCount += 1
+        if let startError {
+            throw startError
+        }
         storedAccounts = storedAccounts.map { account in
             var runningAccount = account
             runningAccount.running = true
