@@ -456,7 +456,9 @@ struct PublicIdentityQRCodeSheet: View {
 
             ZStack {
                 Color.white
-                QRCodeImageView(payload: npub)
+                // Encode the marmot:// profile link form so scanners can route the
+                // scheme; the visible text and Copy button keep the bare npub.
+                QRCodeImageView(payload: MarmotProfileLink.qrPayload(npub: npub))
                     .padding(22)
             }
             .frame(width: 320, height: 320)

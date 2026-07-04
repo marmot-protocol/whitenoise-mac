@@ -24,14 +24,27 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>DarkmatterAuditLogBearerToken</key>
-	<string>$(DARKMATTER_AUDIT_LOG_BEARER_TOKEN)</string>
-	<key>DarkmatterTelemetryBearerToken</key>
-	<string>$(DARKMATTER_OTLP_BEARER_TOKEN)</string>
-	<key>DarkmatterTelemetryEnvironment</key>
-	<string>$(DARKMATTER_TELEMETRY_ENVIRONMENT)</string>
-	<key>DarkmatterTelemetryOTLPEndpoint</key>
-	<string>$(DARKMATTER_OTLP_ENDPOINT)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>dev.ipf.whitenoise.mac.marmot</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>marmot</string>
+			</array>
+		</dict>
+	</array>
+	<key>WhiteNoiseAuditLogBearerToken</key>
+	<string>$(WN_AUDIT_LOG_BEARER_TOKEN)</string>
+	<key>WhiteNoiseTelemetryBearerToken</key>
+	<string>$(WN_OTLP_BEARER_TOKEN)</string>
+	<key>WhiteNoiseTelemetryEnvironment</key>
+	<string>$(WN_TELEMETRY_ENVIRONMENT)</string>
+	<key>WhiteNoiseTelemetryOTLPEndpoint</key>
+	<string>$(WN_OTLP_ENDPOINT)</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.social-networking</string>
 	<key>LSMinimumSystemVersion</key>

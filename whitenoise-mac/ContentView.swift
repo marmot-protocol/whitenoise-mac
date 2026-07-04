@@ -25,6 +25,9 @@ struct ContentView: View {
             )
             .tint(Color(nsColor: .systemBlue))
             .nativeWindowGlassBackground()
+            .onOpenURL { url in
+                workspace.handleDeepLinkURL(url)
+            }
             .onAppear {
                 applyAppearance(workspace.appearancePreference)
             }
