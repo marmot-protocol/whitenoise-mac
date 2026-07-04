@@ -738,6 +738,64 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func signingOutActiveAccountSelectedMidFlightKeepsRacedSelection() async throws {
+        // Regression for the sign-out/account-switch race (whitenoise-mac#329): if the user
+        // selects another account while the active account's sign-out is in flight,
+        // `activeAccountId` now points at the newly-selected account. The pre-await
+        // `wasActive` snapshot is true, so naive code would still reset the active-account UI
+        // state (tearing down the just-loaded session) and reselect
+        // `accounts.first(where: { !$0.signedOut })`, discarding the user's explicit choice.
+        // Sign-out must recompute against post-await state and leave a valid raced selection
+        // untouched.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        // Ordered before "Backup Account" so the old `accounts.first(where:)` recovery would
+        // pick this account rather than the one the user raced to.
+        let other = AccountSummaryFfi(
+            label: "Other Account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, other, backup])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+
+        // Simulate the racing UI selection of another account, mid-await.
+        runtime.onSignOutAccountMidFlight = { _ in
+            await MainActor.run {
+                state.selectAccountFromSettings(backupAccount)
+            }
+        }
+
+        let desktopAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+        await state.signOutAccount(desktopAccount)
+
+        #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
+        #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
+        // The user's explicit mid-flight selection must survive: sign-out must not reselect
+        // the first signed-in account ("Other Account") over the raced-to "Backup Account".
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(UserDefaults.standard.string(forKey: "whitenoise.mac.activeAccountId") == "Backup Account")
+    }
+
+    @MainActor
     @Test func deleteAllDataResetsToNewInstallState() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
@@ -12791,6 +12849,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// account is actually dropped, used to simulate a racing UI action (e.g. the user
     /// selecting the account currently being removed) mid-await.
     var onRemoveAccountMidFlight: (@Sendable (String) async -> Void)?
+    /// Optional hook fired inside `signOut` after the ref is recorded and the stored account is
+    /// marked signed out, but before the call returns, used to simulate a racing UI action (e.g.
+    /// the user selecting another account while sign-out is in flight) mid-await.
+    var onSignOutAccountMidFlight: (@Sendable (String) async -> Void)?
     /// Optional hook fired inside `userProfile`, on the off-main FFI batch thread. A test can
     /// use it to advance an injected clock and model a slow batch (whitenoise-mac#181).
     var onUserProfileLookup: (@Sendable (String) -> Void)?
@@ -13948,6 +14010,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         if let index = storedAccounts.firstIndex(where: { $0.label == accountRef }) {
             storedAccounts[index].signedOut = true
             storedAccounts[index].running = false
+        }
+        if let onSignOutAccountMidFlight {
+            await onSignOutAccountMidFlight(accountRef)
         }
         return SignOutOutcomeFfi(
             keyPackagesDeleted: 0,

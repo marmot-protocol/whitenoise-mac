@@ -360,7 +360,16 @@ extension WorkspaceState {
             removeChats(forAccountId: account.id)
             await refreshAccountUnreadSummary()
 
-            guard wasActive else { return }
+            // `activeAccountId` may have changed during the awaits above — e.g. the user
+            // selected another account while this sign-out was in flight (account switching
+            // is not gated by `isSigningOutAccount`). Decide recovery from post-await state,
+            // not the pre-await `wasActive` snapshot: if a still-signed-in account is active
+            // (an untouched background account, or the one the user just raced to), leave its
+            // freshly loaded session intact rather than tearing it down and reselecting.
+            let currentActiveAccount = activeAccountId.flatMap { id in
+                accounts.first { $0.id == id && !$0.signedOut }
+            }
+            guard currentActiveAccount == nil else { return }
 
             resetActiveAccountUIState()
             if let nextActive = accounts.first(where: { !$0.signedOut }) {
