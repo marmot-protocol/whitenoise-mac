@@ -31,6 +31,14 @@ nonisolated enum RemoteImageURLPolicy {
     /// otherwise serve an arbitrarily large response. 8 MiB is generous for an avatar/preview.
     static let maxResponseBytes: Int64 = 8 * 1024 * 1024
 
+    /// Maximum idle gap between received response chunks. `URLSession` resets this timer on
+    /// progress, so it bounds a stalled peer but is not a total download-duration ceiling.
+    static let downloadStallTimeout: TimeInterval = 15
+
+    /// Hard wall-clock ceiling for one remote image fetch, even if a peer keeps slow-dripping
+    /// bytes under the response-size cap and never trips the per-request stall timeout.
+    static let downloadResourceTimeout: TimeInterval = 60
+
     /// Returns true if `url` is safe to fetch: `https` scheme with a non-empty, public host.
     ///
     /// "Public host" means the host is not a literal private/loopback/link-local/unspecified
@@ -546,6 +554,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             diskCapacity: 0,
             diskPath: nil
         )
+        config.timeoutIntervalForRequest = RemoteImageURLPolicy.downloadStallTimeout
+        config.timeoutIntervalForResource = RemoteImageURLPolicy.downloadResourceTimeout
         config.requestCachePolicy = .useProtocolCachePolicy
         return config
     }
