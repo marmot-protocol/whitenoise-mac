@@ -486,6 +486,36 @@ struct ReplyComposerContextView: View {
     }
 }
 
+/// Replaces the composer for a group the local account left or was removed from:
+/// the transcript stays readable, but the core would reject any send
+/// (`invalid_transition`), so no input is offered.
+struct MembershipEndedComposerNotice: View {
+    let membership: ChatSelfMembership
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: membership.endedSymbolName ?? "")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(membership.endedDescription ?? "")
+                    .font(.callout.weight(.semibold))
+
+                Text("You can keep reading the history, but new messages can't be sent.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassCard()
+        .accessibilityIdentifier("composer.membershipEnded")
+    }
+}
+
 struct NewChatColumnView: View {
     @Environment(WorkspaceState.self) private var workspace
     @FocusState private var isSearchFocused: Bool
@@ -821,7 +851,9 @@ struct ConversationHeader: View {
                 .help("Decline invite")
             }
 
-            if !chat.isDirect {
+            // Changing the group image is a send (commit) under the hood, which the
+            // core rejects once the local account is no longer a member.
+            if !chat.isDirect && !chat.isNoLongerMember {
                 Button {
                     workspace.showGroupImagePicker(for: chat)
                 } label: {

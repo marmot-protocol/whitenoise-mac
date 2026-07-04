@@ -114,6 +114,25 @@ struct GroupDetailsSheet: View {
                         }
                     }
 
+                    if let endedDescription = snapshot.selfMembership.endedDescription {
+                        Section("Membership") {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(endedDescription)
+                                        .font(.callout.weight(.semibold))
+
+                                    Text("You can keep reading the history, but new messages can't be sent.")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            } icon: {
+                                Image(systemName: snapshot.selfMembership.endedSymbolName ?? "")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
                     Section("Profile") {
                         TextField("Group name", text: $workspace.groupProfileDraftName)
                             .textFieldStyle(.roundedBorder)
@@ -323,6 +342,10 @@ struct GroupDetailsSheet: View {
                             GroupDiagnosticsValueRow(
                                 title: "Pending confirmation",
                                 value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Self membership",
+                                value: snapshot.selfMembership.sidebarBadgeLabel ?? L10n.string("Member"),
                                 copyable: false)
                         }
                     }

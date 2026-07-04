@@ -350,6 +350,9 @@ struct ChatRowContent: View {
                     if chat.pendingConfirmation {
                         PendingInviteBadge()
                     }
+                    if chat.isNoLongerMember {
+                        MembershipEndedBadge(membership: chat.selfMembership)
+                    }
                     Spacer(minLength: 8)
                     Text(chat.timestampLabel)
                         .font(.caption)
@@ -403,5 +406,25 @@ struct PendingInviteBadge: View {
             .foregroundStyle(.secondary)
             .background(.quaternary, in: Capsule())
             .help(L10n.string("Group invite pending"))
+    }
+}
+
+/// "Left" / "Removed" capsule on rows for groups the local account is no longer a
+/// member of; the chat stays listed so the history remains readable.
+struct MembershipEndedBadge: View {
+    let membership: ChatSelfMembership
+
+    var body: some View {
+        Label(
+            membership.sidebarBadgeLabel ?? "",
+            systemImage: membership.endedSymbolName ?? ""
+        )
+        .font(.caption2.weight(.semibold))
+        .labelStyle(.titleAndIcon)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .foregroundStyle(.secondary)
+        .background(.quaternary, in: Capsule())
+        .help(membership.endedDescription ?? "")
     }
 }

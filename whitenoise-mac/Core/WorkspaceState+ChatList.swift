@@ -208,8 +208,18 @@ extension WorkspaceState {
         clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
         setChats(sortedChatItems(chatItems), forAccountId: account.id)
         dismissGroupImagePickerIfSelectedChatUnavailable()
+        cancelVoiceRecordingIfSelectedMembershipEnded()
         ensureSelectedMessageTimelineStore()
         startChatListEnrichment(rows: rows, account: account)
+    }
+
+    /// A membership flip to left/removed swaps the selected chat's composer (its recording
+    /// Stop/Cancel controls included) for the membership-ended notice, so any chat-list
+    /// update that can carry that flip must also tear down an in-progress recorder — the
+    /// microphone must never stay hot with no visible way to stop it (#311).
+    func cancelVoiceRecordingIfSelectedMembershipEnded() {
+        guard isRecordingVoiceMessage, selectedChat?.isNoLongerMember == true else { return }
+        cancelVoiceRecording()
     }
 
     func applyChatListSubscriptionUpdate(
@@ -275,6 +285,7 @@ extension WorkspaceState {
         let needsInitialMetadata = !shouldEnrich && readStateRowNeedsMetadataEnrichment(row, current: current)
 
         upsertChat(chat, forAccountId: account.id)
+        cancelVoiceRecordingIfSelectedMembershipEnded()
         ensureSelectedMessageTimelineStore()
         if shouldEnrich {
             startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
@@ -418,7 +429,8 @@ extension WorkspaceState {
                 unreadCount: current.unreadCount,
                 unreadMentionCount: current.unreadMentionCount,
                 isDirect: enrichedItem.isDirect,
-                pendingConfirmation: current.pendingConfirmation
+                pendingConfirmation: current.pendingConfirmation,
+                selfMembership: current.selfMembership
             )
             guard next != current else { continue }
             if incremental {

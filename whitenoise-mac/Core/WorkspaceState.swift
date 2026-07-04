@@ -155,7 +155,8 @@ nonisolated struct ChatListOrdering {
             unreadCount: chat.unreadCount,
             unreadMentionCount: chat.unreadMentionCount,
             isDirect: current.isDirect,
-            pendingConfirmation: chat.pendingConfirmation
+            pendingConfirmation: chat.pendingConfirmation,
+            selfMembership: chat.selfMembership
         )
     }
 
@@ -1269,8 +1270,11 @@ final class WorkspaceState {
     }
 
     var canSend: Bool {
+        // The core rejects sends to a group the local account left or was removed
+        // from (`invalid_transition`), so an ended membership disables sending
+        // even though the chat stays selectable for reading history.
         client != nil
-            && selectedChat != nil
+            && selectedChat?.isNoLongerMember == false
             && (!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !pendingMediaAttachments.isEmpty)
             && !isSending
@@ -1357,6 +1361,7 @@ final class WorkspaceState {
             adminIds: details.group.admins,
             archived: details.group.archived,
             pendingConfirmation: details.group.pendingConfirmation,
+            selfMembership: ChatSelfMembership(details.group.selfMembership),
             members: members,
             isSelfAdmin: managementState.isSelfAdmin,
             isLastAdmin: managementState.isLastAdmin,

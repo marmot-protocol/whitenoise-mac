@@ -447,83 +447,13 @@ private struct ConversationView: View {
             GlassSeparator(axis: .horizontal)
 
             VStack(spacing: 8) {
-                if let replyDraftContext = workspace.replyDraftContext {
-                    ReplyComposerContextView(context: replyDraftContext) {
-                        workspace.cancelReply()
-                    }
-                }
-
-                if !workspace.pendingMediaAttachments.isEmpty {
-                    PendingMediaDraftStrip(
-                        attachments: workspace.pendingMediaAttachments,
-                        onRemove: workspace.removePendingMediaAttachment
-                    )
-                }
-
-                if workspace.isRecordingVoiceMessage {
-                    VoiceRecordingComposerView(
-                        samples: workspace.voiceRecordingSamples,
-                        durationSeconds: workspace.voiceRecordingDurationSeconds,
-                        onCancel: workspace.cancelVoiceRecording,
-                        onStop: {
-                            Task { await workspace.finishVoiceRecording() }
-                        }
-                    )
+                // The core rejects sends to a group the local account left or was
+                // removed from (`invalid_transition`), so the whole composer —
+                // reply/media drafts included — gives way to an explanatory notice.
+                if chat.isNoLongerMember {
+                    MembershipEndedComposerNotice(membership: chat.selfMembership)
                 } else {
-                    HStack(alignment: .bottom, spacing: 8) {
-                        Button {
-                            isFileImporterPresented = true
-                        } label: {
-                            Image(systemName: "paperclip")
-                                .font(.system(size: 18, weight: .medium))
-                                .frame(width: 30, height: 30)
-                                .background {
-                                    MessagesCircleControlBackground()
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(workspace.isSending)
-                        .help("Attach files")
-
-                        TextField("Message", text: $workspace.draftText, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .lineLimit(1...5)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background {
-                                MessagesComposerFieldBackground()
-                            }
-                            .accessibilityIdentifier("composer.message")
-
-                        Button {
-                            Task { await workspace.toggleVoiceRecording() }
-                        } label: {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .background {
-                                    MessagesCircleControlBackground()
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(workspace.isSending)
-                        .help("Voice message")
-
-                        Button {
-                            Task { await workspace.sendDraft() }
-                        } label: {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .background {
-                                    MessagesSendButtonBackground(isEnabled: workspace.canSend)
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(!workspace.canSend)
-                        .help("Send")
-                    }
+                    composerControls
                 }
             }
             .padding(.horizontal, 16)
@@ -594,6 +524,90 @@ private struct ConversationView: View {
             imageGallery = nil
             if workspace.isGroupDetailsPresented {
                 workspace.closeGroupDetails()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var composerControls: some View {
+        @Bindable var workspace = workspace
+
+        if let replyDraftContext = workspace.replyDraftContext {
+            ReplyComposerContextView(context: replyDraftContext) {
+                workspace.cancelReply()
+            }
+        }
+
+        if !workspace.pendingMediaAttachments.isEmpty {
+            PendingMediaDraftStrip(
+                attachments: workspace.pendingMediaAttachments,
+                onRemove: workspace.removePendingMediaAttachment
+            )
+        }
+
+        if workspace.isRecordingVoiceMessage {
+            VoiceRecordingComposerView(
+                samples: workspace.voiceRecordingSamples,
+                durationSeconds: workspace.voiceRecordingDurationSeconds,
+                onCancel: workspace.cancelVoiceRecording,
+                onStop: {
+                    Task { await workspace.finishVoiceRecording() }
+                }
+            )
+        } else {
+            HStack(alignment: .bottom, spacing: 8) {
+                Button {
+                    isFileImporterPresented = true
+                } label: {
+                    Image(systemName: "paperclip")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: 30, height: 30)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(workspace.isSending)
+                .help("Attach files")
+
+                TextField("Message", text: $workspace.draftText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...5)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background {
+                        MessagesComposerFieldBackground()
+                    }
+                    .accessibilityIdentifier("composer.message")
+
+                Button {
+                    Task { await workspace.toggleVoiceRecording() }
+                } label: {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(workspace.isSending)
+                .help("Voice message")
+
+                Button {
+                    Task { await workspace.sendDraft() }
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                        .background {
+                            MessagesSendButtonBackground(isEnabled: workspace.canSend)
+                        }
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!workspace.canSend)
+                .help("Send")
             }
         }
     }

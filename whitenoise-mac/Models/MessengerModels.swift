@@ -49,6 +49,53 @@ struct AccountItem: Identifiable, Hashable {
     }
 }
 
+/// Whether the local account is still a member of a group, and if not, whether it
+/// left voluntarily or was removed. Mirrors the FFI's `SelfMembershipFfi`: ended
+/// chats stay in the list so the history remains readable, but the core rejects
+/// sends to them (`invalid_transition`), so the composer must not offer to send.
+nonisolated enum ChatSelfMembership: Hashable {
+    case member
+    case left
+    case removed
+
+    /// Short badge label for sidebar rows, `nil` while still a member.
+    var sidebarBadgeLabel: String? {
+        switch self {
+        case .member:
+            return nil
+        case .left:
+            return L10n.string("Left")
+        case .removed:
+            return L10n.string("Removed")
+        }
+    }
+
+    /// One-line explanation of the ended membership, used by the sidebar badge
+    /// tooltip and the composer notice. `nil` while still a member.
+    var endedDescription: String? {
+        switch self {
+        case .member:
+            return nil
+        case .left:
+            return L10n.string("You left this group")
+        case .removed:
+            return L10n.string("You were removed from this group")
+        }
+    }
+
+    /// SF Symbol shown alongside the ended state, `nil` while still a member.
+    var endedSymbolName: String? {
+        switch self {
+        case .member:
+            return nil
+        case .left:
+            return "rectangle.portrait.and.arrow.right"
+        case .removed:
+            return "person.fill.xmark"
+        }
+    }
+}
+
 nonisolated struct ChatItem: Identifiable, Hashable {
     let id: String
     let title: String
@@ -64,12 +111,16 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let unreadMentionCount: Int
     let isDirect: Bool
     let pendingConfirmation: Bool
+    let selfMembership: ChatSelfMembership
     /// Precomputed once from `updatedAt` (which is immutable for a given value) to
     /// avoid re-formatting the date on every chat-row render.
     let timestampLabel: String
 
     /// Whether this chat has at least one unread @-mention of the active account.
     var hasMention: Bool { unreadMentionCount > 0 }
+
+    /// True when the local account left or was removed from this group.
+    var isNoLongerMember: Bool { selfMembership != .member }
 
     init(
         id: String,
@@ -83,7 +134,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         unreadCount: Int,
         unreadMentionCount: Int = 0,
         isDirect: Bool = false,
-        pendingConfirmation: Bool = false
+        pendingConfirmation: Bool = false,
+        selfMembership: ChatSelfMembership = .member
     ) {
         self.id = id
         self.title = title
@@ -98,6 +150,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.unreadMentionCount = unreadMentionCount
         self.isDirect = isDirect
         self.pendingConfirmation = pendingConfirmation
+        self.selfMembership = selfMembership
         if let updatedAt {
             self.timestampLabel = DisplayText.relativeTimestamp(for: updatedAt)
         } else {
@@ -158,6 +211,7 @@ struct GroupDetailsSnapshot: Hashable {
     let adminIds: [String]
     let archived: Bool
     let pendingConfirmation: Bool
+    let selfMembership: ChatSelfMembership
     let members: [GroupMemberItem]
     let isSelfAdmin: Bool
     let isLastAdmin: Bool
