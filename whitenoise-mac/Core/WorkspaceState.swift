@@ -305,7 +305,6 @@ final class MessageTimelineStore {
         anchoredToNewest: Bool,
         windowLimit: Int
     ) -> ProjectionApplyResult {
-        let newestKey = messages.last.map(TimelineSortKey.init)
         var didChange = false
 
         if !removalIds.isEmpty {
@@ -316,6 +315,11 @@ final class MessageTimelineStore {
                 rebuildIndexes()
             }
         }
+
+        // Recompute the head *after* removals: a delta that drops the current newest row lowers
+        // the detached window's real head, and an upsert newer than that post-removal head must
+        // not grow a new head into a scrolled-back window.
+        let newestKey = messages.last.map(TimelineSortKey.init)
 
         for item in upserts {
             if let existingIndex = indexById[item.id] {
