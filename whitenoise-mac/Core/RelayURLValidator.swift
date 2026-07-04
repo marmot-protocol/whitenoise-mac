@@ -100,9 +100,14 @@ nonisolated enum RelayURLValidator {
     }
 
     private static func isLoopbackHost(_ host: String) -> Bool {
-        let normalized = host.lowercased()
+        var normalized = host.lowercased()
             // URLComponents.host strips brackets from IPv6 literals, but be defensive.
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        // Treat absolute-FQDN spellings of loopback hosts the same as their
+        // unrooted forms (`localhost.` -> `localhost`, `127.0.0.1.` -> `127.0.0.1`).
+        while normalized.hasSuffix(".") {
+            normalized.removeLast()
+        }
 
         if normalized == "localhost" {
             return true
