@@ -573,7 +573,9 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                     ),
                     let metadata = try? JSONDecoder().decode(Metadata.self, from: metadataPlaintext)
                 else {
-                    try? FileManager.default.removeItem(at: entryDirectory)
+                    // A per-account purge cannot prove an unreadable entry belongs to the
+                    // target account. Skip it instead of deleting unrelated account caches
+                    // because of a transient read/decrypt failure.
                     continue
                 }
                 if metadata.accountDigest == accountDigest {
