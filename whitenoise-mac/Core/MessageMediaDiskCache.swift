@@ -149,6 +149,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     typealias DirectoryResolver = @Sendable () throws -> URL
     typealias KeyProvider = @Sendable () throws -> SymmetricKey
     typealias KeyDeleter = @Sendable () -> Void
+    typealias TimestampProvider = @Sendable () -> TimeInterval
 
     struct EvictionPolicy: Sendable {
         static let standard = EvictionPolicy(
@@ -157,9 +158,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         )
 
         let maxEntryCount: Int
+        // Filesystem footprint cap for encrypted cache records. Uses allocated bytes when
+        // available so sparse/block-rounded files count the way they affect Application Support.
         let maxTotalBytes: UInt64
 
         init(maxEntryCount: Int, maxTotalBytes: UInt64) {
+            // Keep the policy total: a zero entry cap is meaningful for tests and callers that
+            // want every stored record evicted immediately.
             self.maxEntryCount = Swift.max(0, maxEntryCount)
             self.maxTotalBytes = maxTotalBytes
         }
@@ -175,6 +180,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private let directoryResolver: DirectoryResolver
     private let keyProvider: KeyProvider
     private let keyDeleter: KeyDeleter
+    private let timestampProvider: TimestampProvider
     private let evictionPolicy: EvictionPolicy
     private let lock = NSLock()
     // Serializes the filesystem create/remove/move work of commits and purges so a slow
@@ -193,11 +199,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         directoryResolver: @escaping DirectoryResolver = MessageMediaDiskCache.defaultDirectoryURL,
         keyProvider: @escaping KeyProvider = MessageMediaDiskCacheKeychain.symmetricKey,
         keyDeleter: @escaping KeyDeleter = MessageMediaDiskCacheKeychain.deleteKey,
+        timestampProvider: @escaping TimestampProvider = { Date().timeIntervalSince1970 },
         evictionPolicy: EvictionPolicy = .standard
     ) {
         self.directoryResolver = directoryResolver
         self.keyProvider = keyProvider
         self.keyDeleter = keyDeleter
+        self.timestampProvider = timestampProvider
         self.evictionPolicy = evictionPolicy
     }
 
@@ -260,13 +268,15 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         guard !Task.isCancelled, currentGeneration() == start.generation else { return }
 
         let plaintext = download.payload.data
+        let cachedAtUnixSeconds = timestampProvider()
         let prepared = await Task.detached(priority: .utility) {
             Self.prepareStagedEntry(
                 download: download,
                 plaintext: plaintext,
                 for: key,
                 root: root,
-                symmetricKey: symmetricKey
+                symmetricKey: symmetricKey,
+                cachedAtUnixSeconds: cachedAtUnixSeconds
             )
         }.value
 
@@ -436,6 +446,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let byteCount: UInt64
     }
 
+    private struct CacheFootprint {
+        let entryCount: Int
+        let byteCount: UInt64
+    }
+
     private static func readDownload(
         for key: MessageMediaDiskCacheKey,
         root: URL,
@@ -494,7 +509,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         plaintext: Data,
         for key: MessageMediaDiskCacheKey,
         root: URL,
-        symmetricKey: SymmetricKey
+        symmetricKey: SymmetricKey,
+        cachedAtUnixSeconds: TimeInterval
     ) -> PreparedEntry? {
         guard hexSHA256(plaintext) == key.plaintextSha256 else { return nil }
 
@@ -511,7 +527,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             fileName: download.fileName,
             mediaType: download.mediaType,
             sizeBytes: download.sizeBytes,
-            cachedAtUnixSeconds: Date().timeIntervalSince1970
+            cachedAtUnixSeconds: cachedAtUnixSeconds
         )
 
         do {
@@ -619,6 +635,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         root: URL,
         symmetricKey: SymmetricKey
     ) {
+        let footprint = cacheFootprint(root: root)
+        guard footprint.entryCount > policy.maxEntryCount || footprint.byteCount > policy.maxTotalBytes else {
+            return
+        }
+
         var entries = cacheEntries(root: root, symmetricKey: symmetricKey)
         var totalBytes = entries.reduce(UInt64(0)) { total, entry in
             addingWithSaturation(total, entry.byteCount)
@@ -651,6 +672,40 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             }
         }
         removeEmptyDirectory(root)
+    }
+
+    private static func cacheFootprint(root: URL) -> CacheFootprint {
+        guard
+            let shardDirectories = try? FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return CacheFootprint(entryCount: 0, byteCount: 0) }
+
+        var entryCount = 0
+        var byteCount: UInt64 = 0
+        for shardDirectory in shardDirectories where shardDirectory.lastPathComponent != "staging" {
+            guard isDirectory(shardDirectory),
+                let entryDirectories = try? FileManager.default.contentsOfDirectory(
+                    at: shardDirectory,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                )
+            else { continue }
+
+            for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
+                entryCount += 1
+                byteCount = addingWithSaturation(
+                    byteCount,
+                    addingWithSaturation(
+                        fileByteCount(at: entryDirectory.appendingPathComponent(metadataFileName)),
+                        fileByteCount(at: entryDirectory.appendingPathComponent(payloadFileName))
+                    )
+                )
+            }
+        }
+        return CacheFootprint(entryCount: entryCount, byteCount: byteCount)
     }
 
     private static func cacheEntries(root: URL, symmetricKey: SymmetricKey) -> [CacheEntry] {

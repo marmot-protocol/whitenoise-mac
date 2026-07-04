@@ -1620,9 +1620,11 @@ struct whitenoise_macTests {
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        let cachedAtCounter = AtomicCounter()
         let cache = messageMediaDiskCache(
             root: root,
-            evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max)
+            evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
+            timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
         )
         let firstPlaintext = Data("first cached media".utf8)
         let secondPlaintext = Data("second cached media".utf8)
@@ -1653,7 +1655,6 @@ struct whitenoise_macTests {
             ),
             for: firstKey
         )
-        usleep(1_000)
         await cache.store(
             MessageMediaDownload(
                 data: secondPlaintext,
@@ -1664,7 +1665,6 @@ struct whitenoise_macTests {
             ),
             for: secondKey
         )
-        usleep(1_000)
         await cache.store(
             MessageMediaDownload(
                 data: thirdPlaintext,
@@ -15485,12 +15485,14 @@ private func messageMediaDiskCache(
     root: URL,
     keyData: Data = Data(repeating: 0x42, count: 32),
     evictionPolicy: MessageMediaDiskCache.EvictionPolicy = .standard,
+    timestampProvider: @escaping MessageMediaDiskCache.TimestampProvider = { Date().timeIntervalSince1970 },
     keyDeleter: @escaping @Sendable () -> Void = {}
 ) -> MessageMediaDiskCache {
     MessageMediaDiskCache(
         directoryResolver: { root },
         keyProvider: { SymmetricKey(data: keyData) },
         keyDeleter: keyDeleter,
+        timestampProvider: timestampProvider,
         evictionPolicy: evictionPolicy
     )
 }
