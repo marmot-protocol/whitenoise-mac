@@ -48,34 +48,34 @@ struct TelemetryBuildConfig: Equatable {
 
         return TelemetryBuildConfig(
             otlpEndpoint: stringValue(
-                for: "DarkmatterTelemetryOTLPEndpoint",
+                for: "WhiteNoiseTelemetryOTLPEndpoint",
                 in: info,
-                environmentKeys: ["DARKMATTER_OTLP_ENDPOINT"],
+                environmentKeys: ["WN_OTLP_ENDPOINT"],
                 environment: environment
             ) ?? defaultOtlpEndpoint,
             bearerToken: stringValue(
-                for: "DarkmatterTelemetryBearerToken",
+                for: "WhiteNoiseTelemetryBearerToken",
                 in: info,
                 environmentKeys: [
-                    "DARKMATTER_OTLP_BEARER_TOKEN",
-                    "OTLP_TOKEN_DARKMATTER_MAC",
+                    "WN_OTLP_BEARER_TOKEN",
+                    "OTLP_TOKEN_WN_MAC",
                 ],
                 environment: environment
             ),
             auditLogBearerToken: stringValue(
-                for: "DarkmatterAuditLogBearerToken",
+                for: "WhiteNoiseAuditLogBearerToken",
                 in: info,
                 environmentKeys: [
-                    "DARKMATTER_AUDIT_LOG_BEARER_TOKEN",
-                    "AUDIT_LOG_TOKEN_DARKMATTER_MAC",
+                    "WN_AUDIT_LOG_BEARER_TOKEN",
+                    "AUDIT_LOG_TOKEN_WN_MAC",
                 ],
                 environment: environment
             ),
             deploymentEnvironment: deploymentEnvironment(
                 from: stringValue(
-                    for: "DarkmatterTelemetryEnvironment",
+                    for: "WhiteNoiseTelemetryEnvironment",
                     in: info,
-                    environmentKeys: ["DARKMATTER_TELEMETRY_ENVIRONMENT"],
+                    environmentKeys: ["WN_TELEMETRY_ENVIRONMENT"],
                     environment: environment
                 )
             ),
