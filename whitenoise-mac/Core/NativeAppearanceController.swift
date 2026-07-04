@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 @MainActor
 enum NativeAppearanceController {
@@ -12,25 +11,6 @@ enum NativeAppearanceController {
             window.contentView?.appearance = appearance
             window.displayIfNeeded()
         }
-    }
-
-    static func preferredColorScheme(for preference: AppearancePreference) -> ColorScheme {
-        switch preference {
-        case .system:
-            systemColorScheme
-        case .light:
-            .light
-        case .dark:
-            .dark
-        }
-    }
-
-    private static var systemColorScheme: ColorScheme {
-        let appearance =
-            NSApp.keyWindow?.effectiveAppearance
-            ?? NSApp.mainWindow?.effectiveAppearance
-            ?? NSApp.effectiveAppearance
-        return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
     }
 
     private static func nsAppearance(for preference: AppearancePreference) -> NSAppearance? {
