@@ -1664,6 +1664,8 @@ struct whitenoise_macTests {
         await cache.purgeAccount("account-a")
 
         #expect(!fileManager.fileExists(atPath: purgedEntryDirectory.path))
+        // Do not assert via cachedDownload(for:): reading this intentionally
+        // unreadable entry would trigger corrupt-entry read repair and delete it.
         #expect(fileManager.fileExists(atPath: unreadableEntryDirectory.path))
     }
 
