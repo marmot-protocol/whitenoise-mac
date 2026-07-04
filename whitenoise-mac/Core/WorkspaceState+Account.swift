@@ -575,6 +575,7 @@ extension WorkspaceState {
         isArchivingGroup = false
         isLeavingGroup = false
         isExportingGroupTranscript = false
+        groupTranscriptExportTask = nil
         groupTranscriptExportStatus = nil
         mutatingGroupMemberId = nil
         self.storageRootPath = storageRootPath

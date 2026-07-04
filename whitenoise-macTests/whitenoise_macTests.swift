@@ -6530,6 +6530,55 @@ struct whitenoise_macTests {
         #expect(messages.isEmpty)
     }
 
+    @Test func conversationTranscriptExportCancelsBeforeFetchingNextPage() async {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let firstId = String(repeating: "1", count: 64)
+        let firstPageEntered = DispatchSemaphore(value: 0)
+        let releaseFirstPage = DispatchSemaphore(value: 0)
+        runtime.timelineMessagesHandler = { query in
+            if query.before == nil {
+                firstPageEntered.signal()
+                _ = releaseFirstPage.wait(timeout: .now() + 5)
+                return TimelinePageFfi(
+                    messages: [
+                        timelineMessage(
+                            id: firstId,
+                            groupIdHex: "group",
+                            sender: String(repeating: "a", count: 64),
+                            plaintext: "newest",
+                            recordedAt: 10
+                        )
+                    ],
+                    hasMoreBefore: true,
+                    hasMoreAfter: false
+                )
+            }
+            return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        let exportTask = Task.detached { () throws -> Void in
+            _ = try ConversationTranscriptExport.fetchAllMessages(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group"
+            )
+        }
+        #expect(firstPageEntered.wait(timeout: .now() + 2) == .success)
+
+        exportTask.cancel()
+        releaseFirstPage.signal()
+
+        do {
+            try await exportTask.value
+            Issue.record("Expected transcript export to throw CancellationError after cancellation")
+        } catch is CancellationError {
+            // Expected: cancellation should stop the pagination walk before the next FFI page.
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+        #expect(runtime.timelineMessageQueries.count == 1)
+    }
+
     @MainActor
     @Test func directChatUsesOtherMemberProfileForTitleAndAvatar() async throws {
         let account = AccountSummaryFfi(
@@ -7970,6 +8019,71 @@ struct whitenoise_macTests {
         #expect(runtime.timelineMessageQueries.first?.limit == ConversationTranscriptExport.pageLimit)
         #expect(runtime.timelineMessageQueries.dropFirst().first?.before != nil)
         #expect(state.groupTranscriptExportStatus == "Copied transcript JSON for 205 events.")
+    }
+
+    @MainActor
+    @Test func groupDetailsTranscriptExportCancelsTrackedTaskBeforeNextPage() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+
+        let firstId = String(repeating: "1", count: 64)
+        let firstPageGate = BlockingFfiGate()
+        firstPageGate.isEnabled = true
+        runtime.timelineMessagesHandler = { query in
+            if query.before == nil {
+                firstPageGate.passIfArmed()
+                return TimelinePageFfi(
+                    messages: [
+                        timelineMessage(
+                            id: firstId,
+                            groupIdHex: "group",
+                            sender: account.accountIdHex,
+                            plaintext: "newest",
+                            recordedAt: 10
+                        )
+                    ],
+                    hasMoreBefore: true,
+                    hasMoreAfter: false
+                )
+            }
+            return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        var copiedText = ""
+        let state = WorkspaceState(
+            copyTextHandler: { text, _ in copiedText = text },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        runtime.clearTimelineMessageQueries()
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.showGroupDetails(for: groupChat)
+        state.startCopySelectedGroupTranscriptJSON()
+        let exportTask = try #require(state.groupTranscriptExportTask)
+        let deadline = Date().addingTimeInterval(2)
+        while !firstPageGate.didReach && Date() < deadline {
+            await Task.yield()
+        }
+        if !firstPageGate.didReach {
+            firstPageGate.isEnabled = false
+        }
+        #expect(firstPageGate.didReach)
+
+        state.closeGroupDetails()
+        firstPageGate.release()
+        await exportTask.value
+
+        #expect(runtime.timelineMessageQueries.count == 1)
+        #expect(copiedText.isEmpty)
+        #expect(state.lastError == nil)
+        #expect(!state.isExportingGroupTranscript)
+        #expect(state.groupTranscriptExportTask == nil)
     }
 
     @MainActor
