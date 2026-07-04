@@ -16,6 +16,19 @@ extension AccountItem {
     }
 }
 
+extension ChatSelfMembership {
+    nonisolated init(_ membership: SelfMembershipFfi) {
+        switch membership {
+        case .member:
+            self = .member
+        case .left:
+            self = .left
+        case .removed:
+            self = .removed
+        }
+    }
+}
+
 extension ChatItem {
     init(
         row: ChatListRowFfi,
@@ -61,7 +74,8 @@ extension ChatItem {
             unreadCount: Int(clamping: row.unreadCount),
             unreadMentionCount: Int(clamping: row.unreadMentionCount),
             isDirect: directPeer != nil,
-            pendingConfirmation: row.pendingConfirmation
+            pendingConfirmation: row.pendingConfirmation,
+            selfMembership: ChatSelfMembership(row.selfMembership)
         )
     }
 

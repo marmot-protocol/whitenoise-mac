@@ -1741,6 +1741,43 @@ struct whitenoise_macTests {
         #expect(chat.pendingConfirmation)
         #expect(chat.subtitle == "Planning")
         #expect(chat.preview == "Alice: Welcome in")
+        #expect(chat.selfMembership == .member)
+        #expect(!chat.isNoLongerMember)
+    }
+
+    @MainActor
+    @Test func chatRowMapsSelfMembershipVariantsIntoChatItem() async throws {
+        let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let variants: [(SelfMembershipFfi, ChatSelfMembership)] = [
+            (.member, .member),
+            (.left, .left),
+            (.removed, .removed),
+        ]
+
+        for (ffiMembership, expected) in variants {
+            let row = chatListRow(
+                groupIdHex: "group",
+                title: "Planning",
+                preview: "hello",
+                sender: sender,
+                timelineAt: 1_700_000_000,
+                selfMembership: ffiMembership
+            )
+            let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+            #expect(chat.selfMembership == expected)
+            #expect(chat.isNoLongerMember == (expected != .member))
+        }
+    }
+
+    @MainActor
+    @Test func selfMembershipPresentationLabelsDescribeEndedStates() async throws {
+        #expect(ChatSelfMembership.member.sidebarBadgeLabel == nil)
+        #expect(ChatSelfMembership.member.endedDescription == nil)
+        #expect(ChatSelfMembership.left.sidebarBadgeLabel == "Left")
+        #expect(ChatSelfMembership.left.endedDescription == "You left this group")
+        #expect(ChatSelfMembership.removed.sidebarBadgeLabel == "Removed")
+        #expect(ChatSelfMembership.removed.endedDescription == "You were removed from this group")
     }
 
     @MainActor
@@ -5772,6 +5809,55 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func endedMembershipDisablesSendingWhileChatStaysListed() async throws {
+        // A group the local account was removed from stays in the chat list so the
+        // history remains readable, but the core rejects sends to it
+        // (`invalid_transition`), so both `canSend` and `sendDraft` must gate on it.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var removedGroup = messageGroup()
+        removedGroup.selfMembership = .removed
+        runtime.installGroups([removedGroup])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        let chat = try #require(state.selectedChat)
+        #expect(chat.id == "group")
+        #expect(chat.selfMembership == .removed)
+        #expect(chat.isNoLongerMember)
+
+        state.draftText = "still there?"
+        #expect(!state.canSend)
+
+        await state.sendDraft()
+
+        #expect(runtime.sendTextCallCount == 0)
+        #expect(state.draftText == "still there?")
+
+        // Attachments arriving via drag-and-drop / file import bypass the hidden
+        // composer, so the state-level gate must refuse them too — otherwise they
+        // accumulate invisibly behind the membership-ended notice.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let attachmentURL = directory.appendingPathComponent("notes.txt")
+        try Data("dropped file".utf8).write(to: attachmentURL)
+
+        await state.addMediaAttachments(from: [attachmentURL])
+
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(!state.canSend)
+    }
+
+    @MainActor
     @Test func preparedMediaAttachmentIsDiscardedWhenSelectionChangesDuringPrep() async throws {
         // Issue #245: media/voice prep captures the composer draft key before an async prep
         // step. If the user switches chats while prep is in flight, the finished attachment
@@ -6738,7 +6824,8 @@ struct whitenoise_macTests {
             pictureURL: nil,
             unreadCount: 0,
             isDirect: false,
-            pendingConfirmation: true
+            pendingConfirmation: true,
+            selfMembership: .removed
         )
 
         let merged = ChatListOrdering.preservingResolvedMetadata(in: readState, from: current)
@@ -6752,6 +6839,9 @@ struct whitenoise_macTests {
         #expect(merged.updatedAt == Date(timeIntervalSince1970: 200))
         #expect(merged.unreadCount == 0)
         #expect(merged.pendingConfirmation)
+        // Membership state rides the incoming row, like pendingConfirmation — it
+        // is not part of the enrichment-resolved metadata being preserved.
+        #expect(merged.selfMembership == .removed)
     }
 
     @MainActor
@@ -8706,6 +8796,64 @@ struct whitenoise_macTests {
 
         state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
 
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func endedMembershipRowUpdateStopsInProgressVoiceRecording() async throws {
+        // A removal can land while the user is recording in that very chat. The
+        // membership-ended notice then replaces the composer (and its Stop/Cancel
+        // controls), so the chat-list row update must also tear down the recorder —
+        // the mic must never stay hot with no visible way to stop it (#311).
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let selectedChatId = try #require(state.selectedChat?.id)
+        let url = try armInProgressVoiceRecording(on: state)
+
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: selectedChatId,
+                title: "Marmot Design",
+                preview: "you were removed",
+                sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                timelineAt: 1_700_000_000,
+                selfMembership: .removed
+            ),
+            account: account
+        )
+
+        #expect(state.selectedChat?.selfMembership == .removed)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func endedMembershipBulkRowsUpdateStopsInProgressVoiceRecording() async throws {
+        // Sibling of the single-row test above for the bulk snapshot/reconnect path
+        // (`applyChatRows`), which also carries membership flips (#311).
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let selectedChatId = try #require(state.selectedChat?.id)
+        let url = try armInProgressVoiceRecording(on: state)
+
+        await state.applyChatRows(
+            [
+                chatListRow(
+                    groupIdHex: selectedChatId,
+                    title: "Marmot Design",
+                    preview: "you were removed",
+                    sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    timelineAt: 1_700_000_000,
+                    selfMembership: .removed
+                )
+            ],
+            account: account
+        )
+
+        #expect(state.selectedChat?.selfMembership == .removed)
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecordingMeterTask == nil)
         #expect(!FileManager.default.fileExists(atPath: url.path))
@@ -12882,7 +13030,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: latest?.timelineAt,
             updatedAt: latest?.timelineAt ?? 0,
-            selfMembership: .member
+            selfMembership: group.selfMembership
         )
     }
 }
@@ -13514,7 +13662,8 @@ private func chatListRow(
     preview: String,
     sender: String,
     timelineAt: UInt64,
-    kind: UInt64 = 9
+    kind: UInt64 = 9,
+    selfMembership: SelfMembershipFfi = .member
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
@@ -13542,7 +13691,7 @@ private func chatListRow(
         lastReadMessageIdHex: nil,
         lastReadTimelineAt: nil,
         updatedAt: timelineAt,
-        selfMembership: .member
+        selfMembership: selfMembership
     )
 }
 
