@@ -377,10 +377,6 @@ struct MessageVisualMediaGrid: View {
         MessageMediaGridPresentation.columnCount(totalCount: attachments.count)
     }
 
-    private var rowCount: Int {
-        MessageMediaGridPresentation.rowCount(totalCount: attachments.count)
-    }
-
     private var tileSide: CGFloat {
         MessageMediaGridPresentation.tileSide(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
     }
@@ -389,16 +385,30 @@ struct MessageVisualMediaGrid: View {
         MessageMediaGridPresentation.gridHeight(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
     }
 
-    private var rowStarts: [Int] {
-        rowCount == 1 ? [0] : [0, columnCount]
+    /// The visible attachments laid out row-major into `columnCount`-wide rows. Iterating
+    /// this (keyed by `attachment.id`) instead of `ForEach(0..<columnCount)` over grid
+    /// positions ties each tile's SwiftUI identity to its attachment, so a slot that comes
+    /// to hold a different attachment gets a fresh tile/player rather than reusing the
+    /// previous attachment's `@State` (and its decrypted scratch file). See #339.
+    private var rows: [[MessageMediaAttachment]] {
+        guard columnCount > 1 else { return visibleAttachments.map { [$0] } }
+        return stride(from: 0, to: visibleAttachments.count, by: columnCount).map { start in
+            Array(visibleAttachments[start..<min(start + columnCount, visibleAttachments.count)])
+        }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {
-            ForEach(rowStarts, id: \.self) { rowStart in
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: spacing) {
-                    ForEach(0..<columnCount, id: \.self) { column in
-                        tile(at: rowStart + column)
+                    ForEach(row) { attachment in
+                        tile(for: attachment)
+                    }
+                    // Pad a short trailing row (e.g. 3 attachments in a 2×2 grid) so tiles
+                    // keep their square width instead of stretching to fill the row.
+                    if row.count < columnCount {
+                        Color.clear
+                            .frame(width: tileSide, height: tileSide)
                     }
                 }
             }
@@ -411,22 +421,17 @@ struct MessageVisualMediaGrid: View {
         }
     }
 
-    @ViewBuilder
-    private func tile(at index: Int) -> some View {
-        if index < visibleAttachments.count {
-            MessageVisualMediaTile(
-                downloadState: workspace.mediaDownloadStateStore(for: message, attachment: visibleAttachments[index]),
-                message: message,
-                attachment: visibleAttachments[index],
-                isOutgoing: isOutgoing,
-                sideLength: tileSide,
-                hiddenCount: index == MessageMediaGridPresentation.maxVisibleItems - 1 ? hiddenCount : 0,
-                onOpenImageGallery: onOpenImageGallery
-            )
-        } else {
-            Color.clear
-                .frame(width: tileSide, height: tileSide)
-        }
+    private func tile(for attachment: MessageMediaAttachment) -> some View {
+        let isLastVisible = attachment.id == visibleAttachments.last?.id
+        return MessageVisualMediaTile(
+            downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
+            message: message,
+            attachment: attachment,
+            isOutgoing: isOutgoing,
+            sideLength: tileSide,
+            hiddenCount: isLastVisible ? hiddenCount : 0,
+            onOpenImageGallery: onOpenImageGallery
+        )
     }
 }
 
@@ -796,6 +801,14 @@ struct MessageAudioAttachmentPlayer: View {
         .onDisappear {
             stopPlayback()
         }
+        // The prepared `AVAudioPlayer` is built from a specific payload's bytes; if this
+        // view's identity outlives a change of `download.payload.id` (e.g. an edited or
+        // progressively updated attachment), drop the stale player so `startPlayback`
+        // rebuilds it for the new payload instead of replaying the previous one. See #339.
+        .onChange(of: download.payload.id) { _, _ in
+            stopPlayback()
+            player = nil
+        }
         .task(id: download.payload.id) {
             let payloadID = download.payload.id
             if metadataPayloadID != payloadID {
@@ -978,7 +991,24 @@ struct MessageVideoAttachmentPlayer: View {
             playbackTask = nil
             stopPlayback()
         }
+        // If this view's identity outlives a change of the attachment it renders (e.g. a
+        // media grid slot flips to a different attachment, or the download's decrypted
+        // payload changes), tear the player down so playback and the scratch-file cleanup
+        // can never target the previous attachment's `playbackURL`. See #339.
+        .onChange(of: attachment.id) { _, _ in
+            resetForAttachmentChange()
+        }
+        .onChange(of: download.payload.id) { _, _ in
+            resetForAttachmentChange()
+        }
         .accessibilityLabel("Video attachment")
+    }
+
+    private func resetForAttachmentChange() {
+        playbackTask?.cancel()
+        playbackTask = nil
+        didFail = false
+        stopPlayback()
     }
 
     @MainActor
