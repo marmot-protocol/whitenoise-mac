@@ -19,9 +19,12 @@ extension WorkspaceState {
     func bootstrap() async {
         guard client == nil, case .bootstrapping = phase else { return }
         lastError = nil
-        // Wipe any decrypted attachment plaintext left in the playback scratch directory by
-        // a prior session before the UI can surface new media.
-        try? await runOffMain { MediaPlaybackTempStore.purge() }
+        // Wipe any decrypted/plaintext media scratch left by a prior session before the
+        // UI can surface new media or prepare outgoing attachments.
+        try? await runOffMain {
+            MediaPlaybackTempStore.purge()
+            OutgoingMediaMetadataTempStore.purge()
+        }
         do {
             let runtime = try clientFactory()
             client = runtime
@@ -423,6 +426,8 @@ extension WorkspaceState {
         defer { resumeAllMediaDiskStores() }
         defer { isDeletingAllData = false }
 
+        let selectedGroupId = selectedChat?.id
+
         do {
             // Stop any in-progress voice recording before the wipe so the mic is not left hot
             // (and no plaintext audio keeps being written) while local data is deleted (#311).
@@ -432,10 +437,13 @@ extension WorkspaceState {
             stopChatListListener()
             stopTimelineListener()
 
-            // Marmot only owns its storage root; the decrypted-attachment playback scratch
-            // directory and encrypted media cache live outside it, so purge them before the
+            // Marmot only owns its storage root; plaintext media scratch directories and
+            // the encrypted media cache live outside it, so purge them before the
             // potentially throwing Marmot deletion call when wiping local data.
-            try? await runOffMain { MediaPlaybackTempStore.purge() }
+            try? await runOffMain {
+                MediaPlaybackTempStore.purge()
+                OutgoingMediaMetadataTempStore.purge()
+            }
             await mediaDiskCache.purgeAll(removeEncryptionKey: true)
             try await client.deleteAllLocalData()
             self.client = nil
@@ -447,7 +455,19 @@ extension WorkspaceState {
             storageRootPath = runtime.storageRootPath
             try await configureObservabilityRuntime()
         } catch {
-            lastError = error.localizedDescription
+            let errorMessage = error.localizedDescription
+            await recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: selectedGroupId)
+            lastError = errorMessage
+        }
+    }
+
+    func recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: String?) async {
+        guard client != nil, activeAccount != nil, case .ready = phase else { return }
+
+        startNotificationListener()
+        await reloadChats(forceFreshSnapshot: true)
+        if let selectedGroupId, selectedChat?.id == selectedGroupId {
+            await loadMessages(groupIdHex: selectedGroupId)
         }
     }
 
