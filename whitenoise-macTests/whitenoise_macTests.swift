@@ -1322,6 +1322,41 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func messageMediaDiskCacheReadsEntryWhenDeclaredSizeDiffersFromPlaintext() async throws {
+        // #313: `sizeBytes` is the FFI-reported/declared size and is not guaranteed to equal
+        // the decrypted plaintext length. A valid, cryptographically authenticated entry must
+        // survive repeated reads even when the two diverge, rather than self-deleting.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("bytes whose declared size lies".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let declaredSize = UInt64(plaintext.count) + 999
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: declaredSize,
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+        let entryDirectory = try #require(cache.entryDirectory(for: key))
+
+        let firstRead = try #require(await cache.cachedDownload(for: key))
+        #expect(firstRead.data == plaintext)
+        #expect(firstRead.sizeBytes == declaredSize)
+        #expect(fileManager.fileExists(atPath: entryDirectory.path))
+
+        let secondRead = try #require(await cache.cachedDownload(for: key))
+        #expect(secondRead.data == plaintext)
+        #expect(fileManager.fileExists(atPath: entryDirectory.path))
+    }
+
     @Test func messageMediaDiskCacheEvictsCorruptEntries() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1661,7 +1696,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: projectionRefreshedAt
+            updatedAt: projectionRefreshedAt,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: "self")
@@ -1696,7 +1732,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: "self")
@@ -2163,7 +2200,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
@@ -2194,7 +2232,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
@@ -4654,6 +4693,77 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func bootstrapEnrichesNonSelectedDirectChatWithBlockingListener() async throws {
+        // Issue #281: the full-snapshot enrichment started by `applyChatRows` during
+        // bootstrap/reload must survive listener startup. The listener reuses the snapshot's
+        // subscription, so `nextUpdate()` blocks forever (no forced reconnect to run its own
+        // snapshot/enrichment). A non-selected direct chat must still resolve to its peer
+        // display name / avatar / isDirect instead of staying on its raw group-id fallback.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // A more-recent message group is auto-selected on bootstrap, leaving the direct chat
+        // non-selected so its enrichment is driven only by the full-snapshot pass.
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "group-latest",
+                    groupIdHex: "group",
+                    sender: aliceId,
+                    plaintext: "Most recent group message.",
+                    kind: 9,
+                    recordedAt: 1_700_000_900
+                )
+            ], groupIdHex: "group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        let didEnrichDirectChat = await waitFor(attempts: 300) {
+            state.activeChats.first { $0.id == "direct-group" }?.title == "Alice Actual"
+        }
+
+        let directChat = state.activeChats.first { $0.id == "direct-group" }
+        if !didEnrichDirectChat {
+            Issue.record(
+                """
+                Expected non-selected direct chat to be enriched by the full-snapshot pass. \
+                title=\(directChat?.title ?? "nil") isDirect=\(directChat?.isDirect ?? false) \
+                pictureURL=\(directChat?.pictureURL ?? "nil") selection=\(String(describing: state.selection))
+                """
+            )
+        }
+        #expect(didEnrichDirectChat)
+        #expect(directChat?.isDirect == true)
+        #expect(directChat?.pictureURL == "https://example.com/alice.png")
+        // The listener reuses the snapshot's subscription; no forced reconnect masks the bug.
+        #expect(runtime.chatListSubscriptionCount == 1)
+        // The direct chat must not have been auto-selected (older than the group chat).
+        #expect(state.selection == .chat("group"))
+    }
+
+    @MainActor
     @Test func concurrentReloadChatsForSameAccountCoalesces() async throws {
         // Issue #210: reloadChats() is reachable from independently-spawned Tasks. Two overlapping
         // same-account reloads must share one in-flight subscription/snapshot pass instead of
@@ -6709,6 +6819,7 @@ struct whitenoise_macTests {
             disappearingMessageSecs: 0,
             archived: false,
             pendingConfirmation: false,
+            selfMembership: .member,
             welcomerAccountIdHex: nil,
             viaWelcomeMessageIdHex: nil
         )
@@ -8214,6 +8325,7 @@ struct whitenoise_macTests {
         // IPv4 loopback / private / link-local / "this host".
         let blockedV4 = [
             "https://127.0.0.1/x.png",
+            "https://127.0.0.1./x.png",
             "https://127.1.2.3/x.png",
             "https://10.0.0.5/x.png",
             "https://10.255.255.255/x.png",
@@ -8271,8 +8383,10 @@ struct whitenoise_macTests {
 
         // Local hostnames.
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://localhost/x.png")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://localhost./x.png")!))
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://LOCALHOST/x.png")!))
         #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://printer.local/x.png")!))
+        #expect(!RemoteImageURLPolicy.isAllowed(URL(string: "https://printer.local./x.png")!))
 
         // Allowed: genuine public hosts and public IP literals are not affected.
         let allowed = [
@@ -8864,6 +8978,89 @@ struct whitenoise_macTests {
         #expect(state.draftText == "half-written message")
     }
 
+    /// Puts `state` into an in-progress voice-recording state (mic "hot", metering task running,
+    /// plaintext temp file on disk) without needing real mic hardware, mirroring what
+    /// `startVoiceRecording()` sets up. Returns the temp file URL so tests can assert the
+    /// recording was torn down and the plaintext audio purged. See #311.
+    @MainActor
+    private func armInProgressVoiceRecording(on state: WorkspaceState) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-recording-teardown-\(UUID().uuidString).m4a")
+        try Data("plaintext audio".utf8).write(to: url)
+
+        state.voiceRecordingURL = url
+        state.isRecordingVoiceMessage = true
+        state.voiceRecordingSamples = [0.4, 0.6]
+        state.voiceRecordingDurationSeconds = 1.5
+        state.startVoiceRecordingMetering()
+        #expect(state.voiceRecordingMeterTask != nil)
+        return url
+    }
+
+    @MainActor
+    @Test func showSettingsStopsInProgressVoiceRecording() throws {
+        // #311: navigating to Settings removes the composer (its Stop/Cancel buttons) from the
+        // hierarchy; it must also stop the recorder so the mic is not left hot with no control.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.showSettings(.profile)
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecorder == nil)
+        #expect(state.voiceRecordingURL == nil)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(state.voiceRecordingSamples.isEmpty)
+        #expect(state.voiceRecordingDurationSeconds == 0)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func showNewChatStopsInProgressVoiceRecording() throws {
+        // #311: opening the new-chat composer also swaps out the conversation composer, so the
+        // recorder must be torn down on this path too.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.showNewChat()
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func selectChatStopsInProgressVoiceRecording() throws {
+        // Regression guard for the existing `selectChat` cancellation now routed through the
+        // shared `leaveActiveConversation()` teardown (#311).
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+        guard let otherChat = state.activeChats.first(where: { $0.id != state.selectedChat?.id }) else {
+            Issue.record("Expected a second chat to switch to")
+            return
+        }
+
+        state.selectChat(otherChat)
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func resetToNewInstallStateStopsInProgressVoiceRecording() throws {
+        // #311: the full local-data teardown must also release the recorder so a wipe cannot
+        // leave the microphone active or plaintext audio writes running in the old state.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
     @MainActor
     @Test func startingNewChatCreatesAndSelectsConversation() async throws {
         let account = AccountSummaryFfi(
@@ -9033,6 +9230,114 @@ struct whitenoise_macTests {
         #expect(state.newChatName.isEmpty)
         #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
         #expect(state.resolvedNewChatRecipient?.title == "Alice Link")
+    }
+
+    @MainActor
+    @Test func openingMarmotProfileAutolinkShowsNewChatComposerAndResolvesRecipient() async throws {
+        // Kit-emitted marmot://profile/... autolinks in message text route through the same
+        // in-app profile flow as nostr: links (mdk#725 / #340); the FFI receives the
+        // extracted reference in nostr: form.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:nprofile1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        _ = state.handleMessageLinkOpen(URL(string: "marmot://profile/nprofile1alice")!)
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkWhenReadyOpensComposerAndResolvesRecipient() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:npub1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.pendingDeepLinkProfileReference == nil)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkBeforeBootstrapIsQueuedAndFlushedWhenReady() async throws {
+        // Cold start: .onOpenURL fires before bootstrap() finishes, so the reference must be
+        // queued and flushed by activateReadyState().
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:npub1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        #expect(state.pendingDeepLinkProfileReference == "npub1alice")
+        #expect(state.resolvedNewChatRecipient == nil)
+
+        await state.bootstrap()
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.pendingDeepLinkProfileReference == nil)
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkWithUnsupportedFormSetsStatusAndQueuesNothing() async throws {
+        // The scheme is not exclusive to this app; anything but the strict profile form is
+        // untrusted input and must be dropped without touching the composer or the queue.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.handleDeepLinkURL(URL(string: "marmot://group/abc")!)
+
+        #expect(state.backgroundStatus == "This link type is not supported.")
+        #expect(state.pendingDeepLinkProfileReference == nil)
+        #expect(!state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient == nil)
+    }
+
+    @MainActor
+    @Test func pastedMarmotProfileLinkResolvesThroughNormalizeMemberRef() async throws {
+        // The raw pasted marmot://profile/... string reaches the FFI verbatim; the vendored
+        // bindings parse it since the mdk#725 bump (clean break: darkmatter:// is dead).
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let pasted = "marmot://profile/npub1alice?from=qr"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: pasted, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.looksLikeMemberRef(pasted))
+        #expect(!state.looksLikeMemberRef("darkmatter://profile/npub1alice"))
+
+        state.showNewChat()
+        state.newChatQuery = pasted
+        await state.resolveNewChatQuery()
+
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
     }
 
     @MainActor
@@ -9770,10 +10075,10 @@ struct whitenoise_macTests {
     @Test func telemetryBuildConfigUsesSeparateMacBuildSettings() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
-                "DarkmatterTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
-                "DarkmatterTelemetryBearerToken": "otlp-token",
-                "DarkmatterAuditLogBearerToken": "audit-token",
-                "DarkmatterTelemetryEnvironment": "production",
+                "WhiteNoiseTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
+                "WhiteNoiseTelemetryBearerToken": "otlp-token",
+                "WhiteNoiseAuditLogBearerToken": "audit-token",
+                "WhiteNoiseTelemetryEnvironment": "production",
                 "CFBundleShortVersionString": "2026.6",
                 "CFBundleVersion": "12",
             ],
@@ -9811,18 +10116,18 @@ struct whitenoise_macTests {
     @Test func telemetryBuildConfigIgnoresUnresolvedBuildSettingsAndUsesEnvironmentFallbacks() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
-                "DarkmatterTelemetryOTLPEndpoint": "$(DARKMATTER_OTLP_ENDPOINT)",
-                "DarkmatterTelemetryBearerToken": "$(DARKMATTER_OTLP_BEARER_TOKEN)",
-                "DarkmatterAuditLogBearerToken": "$(DARKMATTER_AUDIT_LOG_BEARER_TOKEN)",
-                "DarkmatterTelemetryEnvironment": "$(DARKMATTER_TELEMETRY_ENVIRONMENT)",
+                "WhiteNoiseTelemetryOTLPEndpoint": "$(WN_OTLP_ENDPOINT)",
+                "WhiteNoiseTelemetryBearerToken": "$(WN_OTLP_BEARER_TOKEN)",
+                "WhiteNoiseAuditLogBearerToken": "$(WN_AUDIT_LOG_BEARER_TOKEN)",
+                "WhiteNoiseTelemetryEnvironment": "$(WN_TELEMETRY_ENVIRONMENT)",
                 "CFBundleShortVersionString": "1.2.3",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
             ],
             environment: [
-                "DARKMATTER_OTLP_ENDPOINT": "https://env.example/v1/metrics",
-                "OTLP_TOKEN_DARKMATTER_MAC": "env-otlp-token",
-                "AUDIT_LOG_TOKEN_DARKMATTER_MAC": "env-audit-token",
-                "DARKMATTER_TELEMETRY_ENVIRONMENT": "staging",
+                "WN_OTLP_ENDPOINT": "https://env.example/v1/metrics",
+                "OTLP_TOKEN_WN_MAC": "env-otlp-token",
+                "AUDIT_LOG_TOKEN_WN_MAC": "env-audit-token",
+                "WN_TELEMETRY_ENVIRONMENT": "staging",
             ],
             osVersion: "Version 26.0",
             deviceModelIdentifier: nil
@@ -11246,6 +11551,147 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleSettingsProfileLoadDoesNotClobberSwitchedAccount() async throws {
+        // Issue #283: `performSettingsLoad` reads `userProfile` over the non-cancellation-aware FFI
+        // boundary, then writes `profileDraft` and — via the live `activeAccountId` —
+        // `updateActiveAccountProfile`. On an A→B switch while account A's read is in flight, A's
+        // profile must not overwrite B's freshly-loaded `profileDraft` or B's `accounts[]` entry.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox.example"]
+        )
+        runtime.installProfile(
+            accountIdHex: accountA.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "desktop",
+                displayName: "Desktop Original",
+                about: nil,
+                picture: "https://example.com/desktop.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: accountB.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "backup",
+                displayName: "Backup Original",
+                about: nil,
+                picture: "https://example.com/backup.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        // Arm the gate so account A's profile read suspends in-flight.
+        runtime.userProfileGateEnabled = true
+        async let staleLoad: Void = state.loadSettingsData()
+        while !runtime.didReachUserProfileGate {
+            await Task.yield()
+        }
+
+        // Switch to account B and load its settings to completion.
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        await state.loadSettingsData()
+        #expect(state.profileDraft.displayName == "Backup Original")
+
+        // Release account A's stale read; its post-await writes must not touch account B's state.
+        runtime.releaseUserProfileGate()
+        _ = await staleLoad
+
+        #expect(state.profileDraft.displayName == "Backup Original")
+        #expect(state.profileDraft.picture == "https://example.com/backup.png")
+        let backupEntry = try #require(state.accounts.first { $0.id == "Backup Account" })
+        #expect(backupEntry.displayName == "Backup Original")
+        #expect(backupEntry.pictureURL == "https://example.com/backup.png")
+    }
+
+    @MainActor
+    @Test func staleSettingsRelayLoadDoesNotClobberSwitchedAccount() async throws {
+        // Issue #283: `performSettingsLoad` reads `accountRelayLists` over the non-cancellation-aware
+        // FFI boundary, then writes `relaySettings` / `relayDraft`. On an A→B switch while account A's
+        // read is in flight, A's relays must not overwrite B's freshly-loaded relay state.
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox-a.example"]
+        )
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+
+        // Arm the gate so account A's relay read suspends in-flight.
+        runtime.accountRelayListsGateEnabled = true
+        async let staleLoad: Void = state.loadSettingsData()
+        while !runtime.didReachAccountRelayListsGate {
+            await Task.yield()
+        }
+
+        // Switch to account B and load its (distinct) inbox to completion.
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.selectAccountFromSettings(backupAccount)
+        #expect(state.activeAccountId == "Backup Account")
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox-b.example"]
+        )
+        await state.loadSettingsData()
+        state.selectRelaySection(.inbox)
+        #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
+
+        // Release account A's stale read; its post-await writes must not touch account B's state.
+        runtime.releaseAccountRelayListsGate()
+        _ = await staleLoad
+
+        #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
+        #expect(state.relayDraft == ["wss://inbox-b.example"])
+    }
+
+    @MainActor
     @Test func accountSwitchResetsSearchAndSelectsFirstChatForAccount() async throws {
         let state = WorkspaceState.preview()
         state.searchText = "relay"
@@ -11510,6 +11956,28 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachSetLocalNotificationsGate: Bool {
         setLocalNotificationsGate.didReach
     }
+    /// Issue #283 stale-account-test support: when armed, the first synchronous `userProfile` FFI
+    /// read blocks on the off-main FFI batch until released, holding `performSettingsLoad`'s profile
+    /// fetch in-flight so a test can switch the active account and assert account A's stale profile
+    /// is not written onto account B's `profileDraft` / `accounts[]` entry.
+    private let userProfileGate = BlockingFfiGate()
+    var userProfileGateEnabled: Bool {
+        get { userProfileGate.isEnabled }
+        set { userProfileGate.isEnabled = newValue }
+    }
+    var didReachUserProfileGate: Bool {
+        userProfileGate.didReach
+    }
+    /// Issue #283 equivalent gate for the synchronous `accountRelayLists` FFI read, holding
+    /// `performSettingsLoad`'s relay fetch in-flight across an account switch.
+    private let accountRelayListsGate = BlockingFfiGate()
+    var accountRelayListsGateEnabled: Bool {
+        get { accountRelayListsGate.isEnabled }
+        set { accountRelayListsGate.isEnabled = newValue }
+    }
+    var didReachAccountRelayListsGate: Bool {
+        accountRelayListsGate.didReach
+    }
     /// Issue #287 stale-account-test support: when armed, the first `publishUserProfile` FFI call
     /// suspends until `releasePublishUserProfileGate()` is invoked, holding `saveProfile()` in-flight
     /// so a test can switch the active account before the publish resolves and assert the just-saved
@@ -11626,8 +12094,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         // simulate a slow batch advancing the wall clock so the post-FFI cache stamp can
         // be distinguished from a pre-FFI one (whitenoise-mac#181).
         onUserProfileLookup?(accountIdHex)
-        guard !accountIdsMissingProfiles.contains(accountIdHex) else { return nil }
-        return profilesByAccountId[accountIdHex] ?? profile
+        // Snapshot the result *before* the gate so a held older load returns its account's profile
+        // and a later switch/reinstall cannot retroactively change them (issue #283).
+        let result: UserProfileMetadataFfi? =
+            accountIdsMissingProfiles.contains(accountIdHex) ? nil : (profilesByAccountId[accountIdHex] ?? profile)
+        userProfileGate.passIfArmed()
+        return result
+    }
+
+    func releaseUserProfileGate() {
+        userProfileGate.release()
     }
 
     func normalizeMemberRef(memberRef: String) throws -> MemberRefFfi {
@@ -11665,6 +12141,43 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         otherProfile: UserProfileMetadataFfi
     ) {
         groups = [group]
+        registerDirectGroupDetails(
+            group,
+            selfAccountIdHex: selfAccountIdHex,
+            otherAccountIdHex: otherAccountIdHex,
+            otherDisplayName: otherDisplayName,
+            otherProfile: otherProfile
+        )
+    }
+
+    /// Install a direct group *alongside* the supplied companion groups (which stay raw group
+    /// chats) instead of replacing the whole group set. Lets a test keep the direct chat
+    /// non-selected while another, more-recent chat is auto-selected on bootstrap.
+    func installDirectGroup(
+        _ group: AppGroupRecordFfi,
+        alongside companions: [AppGroupRecordFfi],
+        selfAccountIdHex: String,
+        otherAccountIdHex: String,
+        otherDisplayName: String,
+        otherProfile: UserProfileMetadataFfi
+    ) {
+        installGroups(companions + [group])
+        registerDirectGroupDetails(
+            group,
+            selfAccountIdHex: selfAccountIdHex,
+            otherAccountIdHex: otherAccountIdHex,
+            otherDisplayName: otherDisplayName,
+            otherProfile: otherProfile
+        )
+    }
+
+    private func registerDirectGroupDetails(
+        _ group: AppGroupRecordFfi,
+        selfAccountIdHex: String,
+        otherAccountIdHex: String,
+        otherDisplayName: String,
+        otherProfile: UserProfileMetadataFfi
+    ) {
         profilesByAccountId[otherAccountIdHex] = otherProfile
         let details = GroupDetailsFfi(
             group: group,
@@ -11817,7 +12330,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
         accountRelayListsCallCount += 1
         recordSyncCall("accountRelayLists")
-        return relayLists
+        // Snapshot the result *before* the gate so a held older load returns its account's relays
+        // and a later switch/reinstall cannot retroactively change them (issue #283).
+        let result = relayLists
+        accountRelayListsGate.passIfArmed()
+        return result
+    }
+
+    func releaseAccountRelayListsGate() {
+        accountRelayListsGate.release()
     }
 
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi] {
@@ -12024,6 +12545,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                 disappearingMessageSecs: 0,
                 archived: false,
                 pendingConfirmation: false,
+                selfMembership: .member,
                 welcomerAccountIdHex: nil,
                 viaWelcomeMessageIdHex: nil
             )
@@ -12726,7 +13248,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: latest?.timelineAt,
-            updatedAt: latest?.timelineAt ?? 0
+            updatedAt: latest?.timelineAt ?? 0,
+            selfMembership: .member
         )
     }
 }
@@ -13392,7 +13915,8 @@ private func chatListRow(
         firstUnreadMessageIdHex: nil,
         lastReadMessageIdHex: nil,
         lastReadTimelineAt: nil,
-        updatedAt: timelineAt
+        updatedAt: timelineAt,
+        selfMembership: .member
     )
 }
 
@@ -13786,6 +14310,7 @@ private func directGroup() -> AppGroupRecordFfi {
         disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
+        selfMembership: .member,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )
@@ -13807,6 +14332,7 @@ private func messageGroup() -> AppGroupRecordFfi {
         disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
+        selfMembership: .member,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )

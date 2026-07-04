@@ -2,7 +2,7 @@
 
 A native macOS client for **Marmot Protocol** — MLS-based end-to-end encrypted
 group messaging over Nostr. White Noise is a SwiftUI app that wraps the
-[darkmatter](https://github.com/marmot-protocol/darkmatter) Rust core (the MLS/CGKA
+[mdk](https://github.com/marmot-protocol/mdk) Rust core (the MLS/CGKA
 engine) through a vendored `MarmotKit` framework, giving you sovereign, private
 communications in a single-window Mac experience.
 
@@ -22,7 +22,7 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
   mode against the Swift 6 tools)
 - Apple Silicon Mac — the vendored `MarmotKit.xcframework` ships
   `aarch64-apple-darwin` artifacts only
-- A checkout of the [darkmatter](https://github.com/marmot-protocol/darkmatter) Rust
+- A checkout of the [mdk](https://github.com/marmot-protocol/mdk) Rust
   workspace *only if you need to regenerate the MarmotKit bindings* (see below)
 
 ## Repository structure
@@ -35,7 +35,7 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 │   ├── AppSecrets.xcconfig.example  Template for local-only secrets (gitignored copy)
 │   └── Info.plist              App bundle metadata + telemetry keys
 ├── scripts/
-│   └── sync-bindings.sh        Rebuilds & re-vendors MarmotKit from darkmatter
+│   └── sync-bindings.sh        Rebuilds & re-vendors MarmotKit from mdk
 ├── Vendored/
 │   └── MarmotKit/              SwiftPM binary target wrapping the Rust core
 │       ├── Package.swift        Kept in git; the rest is generated/gitignored
@@ -82,7 +82,7 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 
    The vendored `MarmotKit.xcframework` is committed-as-generated and resolved
    through the local SwiftPM package in `Vendored/MarmotKit`, so a fresh clone
-   builds without a darkmatter checkout in the common case.
+   builds without an mdk checkout in the common case.
 
 2. **(Optional) configure local secrets.** Telemetry/audit-log tokens are
    build-time secrets. Copy the example and fill in values if you have them —
@@ -104,17 +104,17 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 
 The contents of `Vendored/MarmotKit/` (the `.xcframework`, the generated Swift
 bindings, and `MARMOT_VERSION`) are produced from the `marmot-uniffi` crate in
-the darkmatter Rust workspace. To rebuild them after a core change:
+the mdk Rust workspace. To rebuild them after a core change:
 
 ```sh
-# Assumes darkmatter is checked out at ~/code/darkmatter; override with DARKMATTER_DIR.
-DARKMATTER_DIR=/path/to/darkmatter ./scripts/sync-bindings.sh
+# Assumes mdk is checked out at ~/code/mdk; override with MDK_DIR.
+MDK_DIR=/path/to/mdk ./scripts/sync-bindings.sh
 ```
 
 The script builds the Rust crate in release mode, generates the UniFFI Swift
 bindings, assembles the `MarmotKit.xcframework`, and stamps `MARMOT_VERSION`
-with the darkmatter commit SHA, branch, and build time. A `-dirty` suffix in
-`MARMOT_VERSION` means the darkmatter working tree had uncommitted changes at
+with the mdk commit SHA, branch, and build time. A `-dirty` suffix in
+`MARMOT_VERSION` means the mdk working tree had uncommitted changes at
 build time. Requires the Rust toolchain (`cargo`) and Xcode command-line tools.
 
 ## Testing

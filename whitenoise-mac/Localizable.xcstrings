@@ -2991,65 +2991,6 @@
         }
       }
     },
-    "Choose whether Dark Matter follows your device appearance or always uses a light or dark theme." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wähle, ob Dark Matter dem Erscheinungsbild deines Geräts folgt oder immer ein helles oder dunkles Design verwendet."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elige si Dark Matter sigue la apariencia de tu dispositivo o usa siempre un tema claro u oscuro."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choisissez si Dark Matter suit l’apparence de votre appareil ou utilise toujours un thème clair ou sombre."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scegli se Dark Matter segue l’aspetto del dispositivo o usa sempre un tema chiaro o scuro."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Escolha se o Dark Matter segue a aparência do dispositivo ou sempre usa um tema claro ou escuro."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Выберите, будет ли Dark Matter следовать оформлению устройства или всегда использовать светлую либо тёмную тему."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter’ın cihaz görünümünü mü izleyeceğini yoksa her zaman açık ya da koyu tema mı kullanacağını seçin."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择 Dark Matter 是跟随设备外观，还是始终使用浅色或深色主题。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選擇 Dark Matter 要跟隨裝置外觀，還是永遠使用淺色或深色主題。"
-          }
-        }
-      }
-    },
     "Clear" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4884,124 +4825,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "深色"
-          }
-        }
-      }
-    },
-    "Dark Matter" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark Matter"
-          }
-        }
-      }
-    },
-    "Darkmatter" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Darkmatter"
           }
         }
       }
@@ -15722,65 +15545,6 @@
         }
       }
     },
-    "Open Darkmatter to view the invite" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffnen Sie Darkmatter, um die Einladung anzuzeigen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Abra Darkmatter para ver la invitación."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ouvrez Darkmatter pour afficher l'invitation"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apri Darkmatter per visualizzare l'invito"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Abra Darkmatter para visualizar o convite"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Откройте Darkmatter, чтобы просмотреть приглашение."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daveti görüntülemek için Darkmatter'yu açın"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开 Darkmatter 查看邀请"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開啟 Darkmatter 看邀請"
-          }
-        }
-      }
-    },
     "Open Diagnostics" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16368,65 +16132,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "圖片網址"
-          }
-        }
-      }
-    },
-    "Point the camera at a Dark Matter profile QR" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Richten Sie die Kamera auf ein Dark Matter-Profil QR"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apunte la cámara a un perfil Dark Matter QR"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pointez la caméra vers un profil Dark Matter QR"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Punta la fotocamera su un profilo Dark Matter QR"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aponte a câmera para um perfil Dark Matter QR"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Наведите камеру на профиль Dark Matter QR."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kamerayı bir Dark Matter profili QR'ya doğrultun"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将相机对准 Dark Matter 配置文件 QR"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "將相機對準 Dark Matter 設定檔 QR"
           }
         }
       }
@@ -23243,65 +22948,6 @@
         }
       }
     },
-    "System follows your device language. Other choices update Dark Matter immediately." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "System folgt der Sprache deines Geräts. Andere Optionen aktualisieren Dark Matter sofort."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sistema sigue el idioma de tu dispositivo. Las demás opciones actualizan Dark Matter de inmediato."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Système suit la langue de votre appareil. Les autres choix mettent Dark Matter à jour immédiatement."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sistema segue la lingua del dispositivo. Le altre opzioni aggiornano Dark Matter immediatamente."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sistema segue o idioma do dispositivo. Outras opções atualizam o Dark Matter imediatamente."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Системный вариант следует языку устройства. Другие варианты сразу обновляют Dark Matter."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sistem, cihaz dilinizi izler. Diğer seçimler Dark Matter’ı hemen günceller."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“系统”会跟随设备语言。其他选项会立即更新 Dark Matter。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「系統」會跟隨裝置語言。其他選項會立即更新 Dark Matter。"
-          }
-        }
-      }
-    },
     "System follows your Mac language. Other choices update White Noise immediately." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -23537,65 +23183,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "該成員不是管理員。"
-          }
-        }
-      }
-    },
-    "That QR code isn't a Dark Matter profile." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dieser QR-Code ist kein Dark Matter-Profil."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ese código QR no es un perfil Dark Matter."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ce code QR n'est pas un profil Dark Matter."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quel codice QR non è un profilo Dark Matter."
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Esse código QR não é um perfil Dark Matter."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Этот код QR не является профилем Dark Matter."
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bu QR kodu bir Dark Matter profili değil."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "该 QR 代码不是 Dark Matter 配置文件。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "此 QR 程式碼不是 Dark Matter 設定檔。"
           }
         }
       }
@@ -23966,9 +23553,6 @@
 
     },
     "This removes %@ from the group." : {
-
-    },
-    "This removes the selected account from this Mac." : {
 
     },
     "Token fingerprint" : {
