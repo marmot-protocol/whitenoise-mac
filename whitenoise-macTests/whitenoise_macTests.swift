@@ -1322,6 +1322,41 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func messageMediaDiskCacheReadsEntryWhenDeclaredSizeDiffersFromPlaintext() async throws {
+        // #313: `sizeBytes` is the FFI-reported/declared size and is not guaranteed to equal
+        // the decrypted plaintext length. A valid, cryptographically authenticated entry must
+        // survive repeated reads even when the two diverge, rather than self-deleting.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("bytes whose declared size lies".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let declaredSize = UInt64(plaintext.count) + 999
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: declaredSize,
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+        let entryDirectory = try #require(cache.entryDirectory(for: key))
+
+        let firstRead = try #require(await cache.cachedDownload(for: key))
+        #expect(firstRead.data == plaintext)
+        #expect(firstRead.sizeBytes == declaredSize)
+        #expect(fileManager.fileExists(atPath: entryDirectory.path))
+
+        let secondRead = try #require(await cache.cachedDownload(for: key))
+        #expect(secondRead.data == plaintext)
+        #expect(fileManager.fileExists(atPath: entryDirectory.path))
+    }
+
     @Test func messageMediaDiskCacheEvictsCorruptEntries() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1661,7 +1696,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: projectionRefreshedAt
+            updatedAt: projectionRefreshedAt,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: "self")
@@ -1696,7 +1732,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: "self")
@@ -2163,7 +2200,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
@@ -2194,7 +2232,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
@@ -6479,6 +6518,7 @@ struct whitenoise_macTests {
             disappearingMessageSecs: 0,
             archived: false,
             pendingConfirmation: false,
+            selfMembership: .member,
             welcomerAccountIdHex: nil,
             viaWelcomeMessageIdHex: nil
         )
@@ -8702,6 +8742,89 @@ struct whitenoise_macTests {
         #expect(state.draftText == "half-written message")
     }
 
+    /// Puts `state` into an in-progress voice-recording state (mic "hot", metering task running,
+    /// plaintext temp file on disk) without needing real mic hardware, mirroring what
+    /// `startVoiceRecording()` sets up. Returns the temp file URL so tests can assert the
+    /// recording was torn down and the plaintext audio purged. See #311.
+    @MainActor
+    private func armInProgressVoiceRecording(on state: WorkspaceState) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-recording-teardown-\(UUID().uuidString).m4a")
+        try Data("plaintext audio".utf8).write(to: url)
+
+        state.voiceRecordingURL = url
+        state.isRecordingVoiceMessage = true
+        state.voiceRecordingSamples = [0.4, 0.6]
+        state.voiceRecordingDurationSeconds = 1.5
+        state.startVoiceRecordingMetering()
+        #expect(state.voiceRecordingMeterTask != nil)
+        return url
+    }
+
+    @MainActor
+    @Test func showSettingsStopsInProgressVoiceRecording() throws {
+        // #311: navigating to Settings removes the composer (its Stop/Cancel buttons) from the
+        // hierarchy; it must also stop the recorder so the mic is not left hot with no control.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.showSettings(.profile)
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecorder == nil)
+        #expect(state.voiceRecordingURL == nil)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(state.voiceRecordingSamples.isEmpty)
+        #expect(state.voiceRecordingDurationSeconds == 0)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func showNewChatStopsInProgressVoiceRecording() throws {
+        // #311: opening the new-chat composer also swaps out the conversation composer, so the
+        // recorder must be torn down on this path too.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.showNewChat()
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func selectChatStopsInProgressVoiceRecording() throws {
+        // Regression guard for the existing `selectChat` cancellation now routed through the
+        // shared `leaveActiveConversation()` teardown (#311).
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+        guard let otherChat = state.activeChats.first(where: { $0.id != state.selectedChat?.id }) else {
+            Issue.record("Expected a second chat to switch to")
+            return
+        }
+
+        state.selectChat(otherChat)
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func resetToNewInstallStateStopsInProgressVoiceRecording() throws {
+        // #311: the full local-data teardown must also release the recorder so a wipe cannot
+        // leave the microphone active or plaintext audio writes running in the old state.
+        let state = WorkspaceState.preview()
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
     @MainActor
     @Test func startingNewChatCreatesAndSelectsConversation() async throws {
         let account = AccountSummaryFfi(
@@ -8871,6 +8994,114 @@ struct whitenoise_macTests {
         #expect(state.newChatName.isEmpty)
         #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
         #expect(state.resolvedNewChatRecipient?.title == "Alice Link")
+    }
+
+    @MainActor
+    @Test func openingMarmotProfileAutolinkShowsNewChatComposerAndResolvesRecipient() async throws {
+        // Kit-emitted marmot://profile/... autolinks in message text route through the same
+        // in-app profile flow as nostr: links (mdk#725 / #340); the FFI receives the
+        // extracted reference in nostr: form.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:nprofile1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        _ = state.handleMessageLinkOpen(URL(string: "marmot://profile/nprofile1alice")!)
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkWhenReadyOpensComposerAndResolvesRecipient() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:npub1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.pendingDeepLinkProfileReference == nil)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkBeforeBootstrapIsQueuedAndFlushedWhenReady() async throws {
+        // Cold start: .onOpenURL fires before bootstrap() finishes, so the reference must be
+        // queued and flushed by activateReadyState().
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:npub1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        #expect(state.pendingDeepLinkProfileReference == "npub1alice")
+        #expect(state.resolvedNewChatRecipient == nil)
+
+        await state.bootstrap()
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.pendingDeepLinkProfileReference == nil)
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkWithUnsupportedFormSetsStatusAndQueuesNothing() async throws {
+        // The scheme is not exclusive to this app; anything but the strict profile form is
+        // untrusted input and must be dropped without touching the composer or the queue.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.handleDeepLinkURL(URL(string: "marmot://group/abc")!)
+
+        #expect(state.backgroundStatus == "This link type is not supported.")
+        #expect(state.pendingDeepLinkProfileReference == nil)
+        #expect(!state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient == nil)
+    }
+
+    @MainActor
+    @Test func pastedMarmotProfileLinkResolvesThroughNormalizeMemberRef() async throws {
+        // The raw pasted marmot://profile/... string reaches the FFI verbatim; the vendored
+        // bindings parse it since the mdk#725 bump (clean break: darkmatter:// is dead).
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let pasted = "marmot://profile/npub1alice?from=qr"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: pasted, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.looksLikeMemberRef(pasted))
+        #expect(!state.looksLikeMemberRef("darkmatter://profile/npub1alice"))
+
+        state.showNewChat()
+        state.newChatQuery = pasted
+        await state.resolveNewChatQuery()
+
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
     }
 
     @MainActor
@@ -9608,10 +9839,10 @@ struct whitenoise_macTests {
     @Test func telemetryBuildConfigUsesSeparateMacBuildSettings() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
-                "DarkmatterTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
-                "DarkmatterTelemetryBearerToken": "otlp-token",
-                "DarkmatterAuditLogBearerToken": "audit-token",
-                "DarkmatterTelemetryEnvironment": "production",
+                "WhiteNoiseTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
+                "WhiteNoiseTelemetryBearerToken": "otlp-token",
+                "WhiteNoiseAuditLogBearerToken": "audit-token",
+                "WhiteNoiseTelemetryEnvironment": "production",
                 "CFBundleShortVersionString": "2026.6",
                 "CFBundleVersion": "12",
             ],
@@ -9649,18 +9880,18 @@ struct whitenoise_macTests {
     @Test func telemetryBuildConfigIgnoresUnresolvedBuildSettingsAndUsesEnvironmentFallbacks() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
-                "DarkmatterTelemetryOTLPEndpoint": "$(DARKMATTER_OTLP_ENDPOINT)",
-                "DarkmatterTelemetryBearerToken": "$(DARKMATTER_OTLP_BEARER_TOKEN)",
-                "DarkmatterAuditLogBearerToken": "$(DARKMATTER_AUDIT_LOG_BEARER_TOKEN)",
-                "DarkmatterTelemetryEnvironment": "$(DARKMATTER_TELEMETRY_ENVIRONMENT)",
+                "WhiteNoiseTelemetryOTLPEndpoint": "$(WN_OTLP_ENDPOINT)",
+                "WhiteNoiseTelemetryBearerToken": "$(WN_OTLP_BEARER_TOKEN)",
+                "WhiteNoiseAuditLogBearerToken": "$(WN_AUDIT_LOG_BEARER_TOKEN)",
+                "WhiteNoiseTelemetryEnvironment": "$(WN_TELEMETRY_ENVIRONMENT)",
                 "CFBundleShortVersionString": "1.2.3",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
             ],
             environment: [
-                "DARKMATTER_OTLP_ENDPOINT": "https://env.example/v1/metrics",
-                "OTLP_TOKEN_DARKMATTER_MAC": "env-otlp-token",
-                "AUDIT_LOG_TOKEN_DARKMATTER_MAC": "env-audit-token",
-                "DARKMATTER_TELEMETRY_ENVIRONMENT": "staging",
+                "WN_OTLP_ENDPOINT": "https://env.example/v1/metrics",
+                "OTLP_TOKEN_WN_MAC": "env-otlp-token",
+                "AUDIT_LOG_TOKEN_WN_MAC": "env-audit-token",
+                "WN_TELEMETRY_ENVIRONMENT": "staging",
             ],
             osVersion: "Version 26.0",
             deviceModelIdentifier: nil
@@ -12067,6 +12298,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                 disappearingMessageSecs: 0,
                 archived: false,
                 pendingConfirmation: false,
+                selfMembership: .member,
                 welcomerAccountIdHex: nil,
                 viaWelcomeMessageIdHex: nil
             )
@@ -12763,7 +12995,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: latest?.timelineAt,
-            updatedAt: latest?.timelineAt ?? 0
+            updatedAt: latest?.timelineAt ?? 0,
+            selfMembership: .member
         )
     }
 }
@@ -13422,7 +13655,8 @@ private func chatListRow(
         firstUnreadMessageIdHex: nil,
         lastReadMessageIdHex: nil,
         lastReadTimelineAt: nil,
-        updatedAt: timelineAt
+        updatedAt: timelineAt,
+        selfMembership: .member
     )
 }
 
@@ -13816,6 +14050,7 @@ private func directGroup() -> AppGroupRecordFfi {
         disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
+        selfMembership: .member,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )
@@ -13837,6 +14072,7 @@ private func messageGroup() -> AppGroupRecordFfi {
         disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
+        selfMembership: .member,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )

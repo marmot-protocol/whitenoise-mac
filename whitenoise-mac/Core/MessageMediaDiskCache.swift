@@ -423,13 +423,12 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 using: symmetricKey,
                 authenticatedBy: payloadAAD(for: key.cacheID)
             )
-            // AES-GCM `open` above already authenticates the payload against its key
-            // and AAD, so a full SHA-256 re-hash of the plaintext on every read would
-            // be redundant tamper detection. Keep only the cheap length sanity check.
-            guard UInt64(plaintext.count) == metadata.sizeBytes else {
-                try? FileManager.default.removeItem(at: entryDirectory)
-                return nil
-            }
+            // AES-GCM `open` above already authenticates the payload against its key and
+            // AAD, and the store path verifies the plaintext SHA-256 before writing, so the
+            // bytes on disk are cryptographically bound to this entry. `metadata.sizeBytes`
+            // is the FFI-reported size, which is not guaranteed to equal the decrypted
+            // length (e.g. a declared imeta size); comparing them here would self-delete a
+            // valid entry on every read whenever they diverge (#313), so we don't.
 
             return MessageMediaDownload(
                 payload: DownloadedMediaPayload(id: key.payloadID, data: plaintext),

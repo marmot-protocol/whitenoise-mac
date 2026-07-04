@@ -79,8 +79,7 @@ extension WorkspaceState {
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
-        cancelVoiceRecording()
-        cancelGroupTranscriptExport()
+        leaveActiveConversation()
         stopTimelineListener()
         cancelChatListReload()
         stopChatListListener()
@@ -107,6 +106,7 @@ extension WorkspaceState {
         await loadPrivacySecuritySettings()
         await reloadChats()
         startNotificationListener()
+        flushPendingDeepLinkIfReady()
     }
 
     func showLogin() {
@@ -420,6 +420,9 @@ extension WorkspaceState {
         defer { isDeletingAllData = false }
 
         do {
+            // Stop any in-progress voice recording before the wipe so the mic is not left hot
+            // (and no plaintext audio keeps being written) while local data is deleted (#311).
+            leaveActiveConversation()
             stopNotificationListener()
             cancelChatListReload()
             stopChatListListener()
@@ -497,7 +500,7 @@ extension WorkspaceState {
     }
 
     func resetToNewInstallState(storageRootPath: String) {
-        cancelGroupTranscriptExport()
+        leaveActiveConversation()
         accounts = []
         resetChats()
         cachedMessageChatIds = []

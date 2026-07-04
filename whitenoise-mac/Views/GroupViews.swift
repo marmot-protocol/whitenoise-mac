@@ -724,15 +724,6 @@ struct GroupImageResultTile: View {
     }
 }
 
-private extension GroupImageSearchResult {
-    var previewURL: URL? {
-        if let thumbnailURL, let url = URL(string: thumbnailURL) {
-            return url
-        }
-        return URL(string: imageURL)
-    }
-}
-
 /// Selectable disappearing-message timer presets for a group. `custom` carries a
 /// non-preset value returned by the core so the picker can still display it.
 enum DisappearingMessageOption: Hashable, Identifiable {

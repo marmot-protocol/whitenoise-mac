@@ -16,9 +16,20 @@ import UserNotifications
 
 @MainActor
 extension WorkspaceState {
-    func selectChat(_ chat: ChatItem) {
+    /// Releases live, conversation-scoped resources whose only stop/cancel UI lives in the
+    /// conversation composer or the group-details sheet. Any navigation path that removes
+    /// those from the hierarchy (selecting another chat, opening Settings/new-chat, switching
+    /// accounts, wiping data) must run this so the microphone can never stay hot with no
+    /// visible way to stop it (#311) and a transcript export cannot keep paginating FFI
+    /// calls for a conversation the user has left (#316).
+    /// Centralizing the teardown keeps the cancellation from being silently omitted on new paths.
+    func leaveActiveConversation() {
         cancelVoiceRecording()
         cancelGroupTranscriptExport()
+    }
+
+    func selectChat(_ chat: ChatItem) {
+        leaveActiveConversation()
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .chat(chat.id)
@@ -29,6 +40,7 @@ extension WorkspaceState {
     }
 
     func showNewChat() {
+        leaveActiveConversation()
         isNewChatComposerVisible = true
         lastError = nil
         resetNewChatComposer()
@@ -40,7 +52,7 @@ extension WorkspaceState {
     }
 
     func showSettings(_ page: SettingsPage = .profile) {
-        cancelGroupTranscriptExport()
+        leaveActiveConversation()
         stopTimelineListener()
         clearEnteredLoginIdentity()
         selection = .settings(page)
