@@ -244,6 +244,44 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func detachedWindowSuppressesUpsertNewerThanPostRemovalHead() async throws {
+        // Regression for whitenoise-mac#331: applyProjection must recompute the window head
+        // *after* removals. In a detached (scrolled-back) window, a delta that removes the
+        // current newest row and upserts a row newer than the post-removal head must suppress
+        // that upsert — a detached window must not grow a new head — matching the runtime's
+        // apply_projection_to_window.
+        func message(id: String, timelineAt: UInt64) -> MessageItem {
+            MessageItem(
+                id: id,
+                senderName: "sender",
+                body: id,
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                timelineAt: timelineAt,
+                isOutgoing: false
+            )
+        }
+
+        // Window (oldest→newest): L(95), M(100). We are scrolled back, so anchoredToNewest == false.
+        let store = MessageTimelineStore.loaded(with: [
+            message(id: "L", timelineAt: 95),
+            message(id: "M", timelineAt: 100),
+        ])
+
+        // The delta removes the current newest row M and upserts N(98). After M is gone the true
+        // head is L(95); N(98) is strictly newer and must not become a new head.
+        let result = store.applyProjection(
+            upserts: [message(id: "N", timelineAt: 98)],
+            removals: ["M"],
+            anchoredToNewest: false,
+            windowLimit: 10
+        )
+
+        #expect(store.messages.map(\.id) == ["L"])
+        #expect(!store.containsMessage(id: "N"))
+        #expect(result.didChange)
+    }
+
+    @MainActor
     @Test func workspaceChatSnapshotsDeduplicateDuplicateChatIds() async throws {
         // Regression for whitenoise-mac#309: full-list chat snapshots must not leave duplicate
         // ChatItem.id values in the observed arrays that feed SwiftUI ForEach and later
