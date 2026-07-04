@@ -107,20 +107,28 @@ extension WorkspaceState {
         let fallbackName = activeAccount.displayName
         let pictureURL = activeAccount.pictureURL
 
+        // `runOffMain` is not cancellation-aware, so an A→B switch during any of the FFI awaits below
+        // leaves account A's load resuming and writing `profileDraft` / `relaySettings` — and, via the
+        // live `activeAccountId`, clobbering account B's `accounts[]` entry. Re-check after every await
+        // before writing (mirroring `loadKeyPackages` / `saveProfile`) so a stale load can't leak
+        // account A's metadata onto B.
         do {
             let profile = try await runOffMain {
                 try client.userProfile(accountIdHex: accountIdHex)
             }
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             profileDraft = ProfileDraft(profile: profile, fallbackName: fallbackName)
             let displayName = profileDraft.primaryDisplayName(fallback: fallbackName)
             updateActiveAccountProfile(displayName: displayName, pictureURL: profileDraft.picture)
         } catch {
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             lastError = error.localizedDescription
             profileDraft = ProfileDraft(fallbackName: fallbackName)
             let displayName =
                 (try? await runOffMain {
                     client.displayName(accountIdHex: accountIdHex)
                 }) ?? nil
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             if let displayName = displayName?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                 !displayName.isEmpty
@@ -133,9 +141,11 @@ extension WorkspaceState {
             let lists = try await runOffMain {
                 try client.accountRelayLists(accountRef: accountRef)
             }
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             relaySettings = RelaySettingsSnapshot(lists: lists)
             relayDraft = relaySettings.relays(for: selectedRelaySection)
         } catch {
+            guard !Task.isCancelled, activeAccountId == accountId else { return }
             lastError = error.localizedDescription
             relaySettings = .defaults
             relayDraft = relaySettings.relays(for: selectedRelaySection)
@@ -358,6 +368,10 @@ extension WorkspaceState {
             return
         }
 
+        // The relay write targets the captured `accountRef`, but on return we write `relaySettings` /
+        // `relayDraft` via the live active account. Capture the account id so an A→B switch during the
+        // save can't misattribute A's relays to B (mirroring `performSettingsLoad` / `loadKeyPackages`).
+        let accountId = activeAccount.id
         lastError = nil
         isSavingRelays = true
         defer { isSavingRelays = false }
@@ -379,15 +393,21 @@ extension WorkspaceState {
                     bootstrapRelays: bootstrapRelays
                 )
             }
+            guard activeAccountId == accountId else { return }
             relaySettings = RelaySettingsSnapshot(lists: lists)
             relayDraft = relaySettings.relays(for: selectedRelaySection)
         } catch {
+            guard activeAccountId == accountId else { return }
             lastError = error.localizedDescription
         }
     }
 
     func saveProfile() async {
         guard let client, let activeAccount, !isSavingProfile else { return }
+        // `publishUserProfile` targets the captured `accountRef`, but on return we write UI state via
+        // the live `activeAccountId`. Capture the account id so an A→B switch during the publish
+        // can't misattribute A's profile to B (mirroring `performSettingsLoad` / `loadKeyPackages`).
+        let accountId = activeAccount.id
         lastError = nil
         isSavingProfile = true
         defer { isSavingProfile = false }
@@ -399,10 +419,12 @@ extension WorkspaceState {
                 defaultRelays: relaySettings.publishRelays,
                 bootstrapRelays: relaySettings.networkBootstrapRelays
             )
+            guard activeAccountId == accountId else { return }
             profileDraft = ProfileDraft(profile: published, fallbackName: activeAccount.displayName)
             let displayName = profileDraft.primaryDisplayName(fallback: activeAccount.displayName)
             updateActiveAccountProfile(displayName: displayName, pictureURL: profileDraft.picture)
         } catch {
+            guard activeAccountId == accountId else { return }
             lastError = error.localizedDescription
         }
     }

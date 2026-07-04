@@ -267,6 +267,47 @@ private extension View {
             self
         }
     }
+
+    func autoDownloadMediaAttachment(
+        _ downloadState: MediaDownloadStateStore,
+        attachment: MessageMediaAttachment,
+        message: MessageItem
+    ) -> some View {
+        modifier(
+            AutomaticMediaDownloadModifier(
+                downloadState: downloadState,
+                attachment: attachment,
+                message: message
+            )
+        )
+    }
+}
+
+private struct AutomaticMediaDownloadModifier: ViewModifier {
+    @Environment(WorkspaceState.self) private var workspace
+    let downloadState: MediaDownloadStateStore
+    let attachment: MessageMediaAttachment
+    let message: MessageItem
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                startAutomaticDownloadIfNeeded()
+            }
+            .onChange(of: attachment.id) { _, _ in
+                startAutomaticDownloadIfNeeded()
+            }
+            .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
+                if shouldStart {
+                    startAutomaticDownloadIfNeeded()
+                }
+            }
+    }
+
+    private func startAutomaticDownloadIfNeeded() {
+        guard downloadState.shouldStartAutomaticDownload else { return }
+        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+    }
 }
 
 /// The chat-bubble shape: a rounded rectangle with the trailing/leading bottom corner
@@ -390,7 +431,6 @@ struct MessageVisualMediaGrid: View {
 }
 
 struct MessageVisualMediaTile: View {
-    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.displayScale) private var displayScale
     let downloadState: MediaDownloadStateStore
     let message: MessageItem
@@ -414,14 +454,11 @@ struct MessageVisualMediaTile: View {
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
         .clipped()
-        .onAppear {
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-            if shouldStart {
-                startAutomaticDownloadIfNeeded()
-            }
-        }
+        .autoDownloadMediaAttachment(
+            downloadState,
+            attachment: attachment,
+            message: message
+        )
         .onTapGesture {
             if attachment.kind == .image,
                 let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment)
@@ -430,11 +467,6 @@ struct MessageVisualMediaTile: View {
             }
         }
         .accessibilityIdentifier("message.media.visualTile.\(attachment.id)")
-    }
-
-    private func startAutomaticDownloadIfNeeded() {
-        guard downloadState.shouldStartAutomaticDownload else { return }
-        Task { await workspace.loadMediaAttachment(attachment, for: message) }
     }
 
     @ViewBuilder
@@ -521,20 +553,12 @@ struct MessageMediaAttachmentView: View {
                 }
             }
         }
-        .onAppear {
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-            if shouldStart {
-                startAutomaticDownloadIfNeeded()
-            }
-        }
+        .autoDownloadMediaAttachment(
+            downloadState,
+            attachment: attachment,
+            message: message
+        )
         .accessibilityIdentifier("message.media.attachment.\(attachment.id)")
-    }
-
-    private func startAutomaticDownloadIfNeeded() {
-        guard downloadState.shouldStartAutomaticDownload else { return }
-        Task { await workspace.loadMediaAttachment(attachment, for: message) }
     }
 
     @ViewBuilder
@@ -715,6 +739,7 @@ struct MessageAudioAttachmentPlayer: View {
     @State private var playbackProgress: CGFloat = 0
     @State private var metadata: MediaWaveformAnalyzer.Metadata?
     @State private var metadataPayloadID: String?
+    @State private var waveformBars = ComposerAudioWaveformPresentation.fallbackPlaybackBars
     @State private var playbackMonitor: Task<Void, Never>?
     @State private var audioPlayerDelegate = MessageAudioPlayerDelegate()
 
@@ -745,7 +770,7 @@ struct MessageAudioAttachmentPlayer: View {
 
                 HStack(spacing: 8) {
                     ComposerAudioWaveformView(
-                        samples: visibleMetadata?.samples ?? MediaWaveformAnalyzer.fallback(),
+                        bars: visibleWaveformBars,
                         progress: playbackProgress,
                         barColor: isOutgoing ? Color.white.opacity(0.42) : Color.secondary.opacity(0.55),
                         playedColor: isOutgoing ? Color.white.opacity(0.9) : Color.accentColor
@@ -775,16 +800,30 @@ struct MessageAudioAttachmentPlayer: View {
             let payloadID = download.payload.id
             if metadataPayloadID != payloadID {
                 metadata = nil
+                waveformBars = ComposerAudioWaveformPresentation.fallbackPlaybackBars
             }
             let loaded = await MessageAudioMetadataCache.shared.metadata(for: download)
+            let loadedWaveformBars = ComposerAudioWaveformPresentation.bars(
+                for: loaded.samples,
+                mode: .playback
+            )
             guard !Task.isCancelled else { return }
             metadata = loaded
             metadataPayloadID = payloadID
+            waveformBars = loadedWaveformBars
         }
     }
 
     private var visibleMetadata: MediaWaveformAnalyzer.Metadata? {
         metadataPayloadID == download.payload.id ? metadata : nil
+    }
+
+    private var visibleWaveformBars: [ComposerAudioWaveformBar] {
+        ComposerAudioWaveformPresentation.visiblePlaybackBars(
+            loadedBars: waveformBars,
+            metadataPayloadID: metadataPayloadID,
+            currentPayloadID: download.payload.id
+        )
     }
 
     private var durationLabel: String {
@@ -1218,22 +1257,11 @@ struct MessageImageGalleryContent: View {
                 DownsampledMessageGalleryImage(download: download, attachment: attachment)
             }
         }
-        .onAppear {
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: attachment.id) { _, _ in
-            startAutomaticDownloadIfNeeded()
-        }
-        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-            if shouldStart {
-                startAutomaticDownloadIfNeeded()
-            }
-        }
-    }
-
-    private func startAutomaticDownloadIfNeeded() {
-        guard downloadState.shouldStartAutomaticDownload else { return }
-        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+        .autoDownloadMediaAttachment(
+            downloadState,
+            attachment: attachment,
+            message: message
+        )
     }
 }
 

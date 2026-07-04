@@ -8,17 +8,18 @@ nonisolated enum ConversationTranscriptExport {
     static let pageLimit: UInt32 = 200
 
     enum ExportError: LocalizedError {
-        /// The FFI reported more history exists (`hasMoreBefore == true`) but returned an
-        /// empty page, so the `before` cursor cannot advance. Surfacing this prevents
-        /// silently truncating the transcript (issue #139).
+        /// The FFI reported more history exists (`hasMoreBefore == true`) but the `before`
+        /// cursor cannot advance — either the page was empty, or its oldest message matched
+        /// the current cursor. Surfacing this prevents silently truncating the transcript
+        /// (issue #139 and its non-empty sibling case).
         case emptyPageWithMoreHistory
 
         var errorDescription: String? {
             switch self {
             case .emptyPageWithMoreHistory:
                 return
-                    "Transcript export stopped early: the timeline reported more history but returned an empty page, "
-                    + "so older messages could not be loaded."
+                    "Transcript export stopped early: the timeline reported more history but the pagination "
+                    + "cursor could not advance, so older messages could not be loaded."
             }
         }
     }
@@ -114,7 +115,12 @@ nonisolated enum ConversationTranscriptExport {
             }
             let nextBefore = oldest.timelineAt
             let nextBeforeMessageId = oldest.messageIdHex
-            guard nextBefore != before || nextBeforeMessageId != beforeMessageId else { break }
+            guard nextBefore != before || nextBeforeMessageId != beforeMessageId else {
+                // `hasMoreBefore` is true but the oldest message matches the current cursor, so
+                // the `before` cursor cannot advance. Fail loudly like the empty-page branch
+                // above instead of silently truncating history (sibling case of #139).
+                throw ExportError.emptyPageWithMoreHistory
+            }
             before = nextBefore
             beforeMessageId = nextBeforeMessageId
         }

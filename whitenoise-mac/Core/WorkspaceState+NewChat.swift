@@ -271,11 +271,10 @@ extension WorkspaceState {
 
     func looksLikeMemberRef(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercased = trimmed.lowercased()
         if MarkdownLinkPolicy.isProfileReferenceInput(trimmed) {
             return true
         }
-        if lowercased.hasPrefix("darkmatter://profile/") {
+        if MarmotProfileLink.hasProfileLinkPrefix(trimmed) {
             return true
         }
         return trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit)
