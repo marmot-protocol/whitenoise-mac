@@ -307,17 +307,7 @@ nonisolated struct MessageMediaAttachment: Identifiable, Hashable {
     }
 
     var kind: MessageMediaKind {
-        let normalized = mediaType.lowercased()
-        if normalized.hasPrefix("image/") {
-            return .image
-        }
-        if normalized.hasPrefix("audio/") {
-            return .audio
-        }
-        if normalized.hasPrefix("video/") {
-            return .video
-        }
-        return .file
+        OutgoingMediaAttachmentPolicy.kind(mediaType: mediaType, fileName: fileName)
     }
 
     var previewLabel: String {
