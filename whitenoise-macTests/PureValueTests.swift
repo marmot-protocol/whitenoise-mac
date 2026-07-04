@@ -101,6 +101,44 @@ struct PureValueTests {
         #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
     }
 
+    @Test func outgoingMediaKindFallsBackToFileExtensionForGenericMediaTypes() async throws {
+        // Regression for whitenoise-mac#317: the media type still drives classification,
+        // but a generic/unknown type must consult the file extension instead of ignoring
+        // it. A `clip.mp4` carried under `application/octet-stream` should partition as a
+        // video, not a document.
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "video/mp4") == .video)
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "audio/mpeg") == .audio)
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "image/png") == .image)
+        #expect(OutgoingMediaAttachmentPolicy.kind(mediaType: "application/pdf") == .file)
+
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "clip.mp4") == .video
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "voice.m4a") == .audio
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "photo.png") == .image
+        )
+
+        // A concrete media type is authoritative and wins over a mismatched extension.
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "video/mp4", fileName: "report.pdf") == .video
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/pdf", fileName: "clip.mp4") == .file
+        )
+
+        // A document extension (or a name without a media-bearing extension) still
+        // resolves to a file.
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "notes.txt") == .file
+        )
+        #expect(
+            OutgoingMediaAttachmentPolicy.kind(mediaType: "application/octet-stream", fileName: "archive.pdf") == .file
+        )
+    }
+
     @Test func chatListRowClampsOversizedUnreadCounts() async throws {
         // Regression for whitenoise-mac#242: unread counts cross the FFI boundary as
         // UInt64, and Int(value) traps above Int.max while mapping the chat list.
