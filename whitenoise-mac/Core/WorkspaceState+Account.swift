@@ -144,7 +144,9 @@ extension WorkspaceState {
                 defaultRelays: MarmotClient.seedRelays,
                 bootstrapRelays: MarmotClient.seedRelays
             )
-            try await refreshAccounts(preferred: summary)
+            // `refreshAccounts(preferred:)` commits activeAccountId/UserDefaults
+            // and clears selection; wait until start succeeds so a failure keeps
+            // the previous ready account intact (#333).
             try await bringRuntimeOnline(client)
             try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
@@ -174,7 +176,9 @@ extension WorkspaceState {
                 defaultRelays: MarmotClient.seedRelays,
                 bootstrapRelays: MarmotClient.seedRelays
             )
-            try await refreshAccounts(preferred: summary)
+            // `refreshAccounts(preferred:)` commits activeAccountId/UserDefaults
+            // and clears selection; wait until start succeeds so a failure keeps
+            // the previous ready account intact (#333).
             try await bringRuntimeOnline(client)
             try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
