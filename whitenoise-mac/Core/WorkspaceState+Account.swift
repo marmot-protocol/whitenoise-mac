@@ -422,6 +422,8 @@ extension WorkspaceState {
         defer { resumeAllMediaDiskStores() }
         defer { isDeletingAllData = false }
 
+        let selectedGroupId = selectedChat?.id
+
         do {
             // Stop any in-progress voice recording before the wipe so the mic is not left hot
             // (and no plaintext audio keeps being written) while local data is deleted (#311).
@@ -449,7 +451,19 @@ extension WorkspaceState {
             storageRootPath = runtime.storageRootPath
             try await configureObservabilityRuntime()
         } catch {
-            lastError = error.localizedDescription
+            let errorMessage = error.localizedDescription
+            await recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: selectedGroupId)
+            lastError = errorMessage
+        }
+    }
+
+    func recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: String?) async {
+        guard client != nil, activeAccount != nil, case .ready = phase else { return }
+
+        startNotificationListener()
+        await reloadChats(forceFreshSnapshot: true)
+        if let selectedGroupId, selectedChat?.id == selectedGroupId {
+            await loadMessages(groupIdHex: selectedGroupId)
         }
     }
 
