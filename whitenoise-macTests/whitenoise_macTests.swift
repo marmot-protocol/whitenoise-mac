@@ -5465,6 +5465,101 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func switchedAccountTimelineLoadDoesNotJoinStaleSameGroupLoad() async throws {
+        // The load coalescing key must include account ownership. Two local identities can share
+        // the same MLS group id; after switching accounts, the new account must not await the
+        // old account's still-in-flight subscription and return without opening its own timeline.
+        let primarySummary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let backupSummary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let primaryAccount = AccountItem(
+            id: primarySummary.label,
+            accountRef: primarySummary.label,
+            displayName: primarySummary.label,
+            accountIdHex: primarySummary.accountIdHex
+        )
+        let backupAccount = AccountItem(
+            id: backupSummary.label,
+            accountRef: backupSummary.label,
+            displayName: backupSummary.label,
+            accountIdHex: backupSummary.accountIdHex
+        )
+        let sharedGroup = "group"
+        let primaryChat = ChatItem(
+            row: chatListRow(
+                groupIdHex: sharedGroup,
+                title: "Shared Group",
+                preview: "Primary message",
+                sender: primarySummary.accountIdHex,
+                timelineAt: 1_700_000_000
+            ),
+            activeAccountIdHex: primarySummary.accountIdHex
+        )
+        let backupChat = ChatItem(
+            row: chatListRow(
+                groupIdHex: sharedGroup,
+                title: "Shared Group",
+                preview: "Backup message",
+                sender: backupSummary.accountIdHex,
+                timelineAt: 1_700_000_010
+            ),
+            activeAccountIdHex: backupSummary.accountIdHex
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primarySummary, backupSummary])
+        runtime.installGroup(messageGroup())
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "backup-message",
+                    groupIdHex: sharedGroup,
+                    sender: backupSummary.accountIdHex,
+                    plaintext: "Backup account history",
+                    kind: 9,
+                    recordedAt: 1_700_000_010
+                )
+            ],
+            groupIdHex: sharedGroup
+        )
+        runtime.timelineSubscriptionDelayNanoseconds = 50_000_000
+        let state = WorkspaceState(
+            accounts: [primaryAccount, backupAccount],
+            chatsByAccount: [
+                primaryAccount.id: [primaryChat],
+                backupAccount.id: [backupChat],
+            ],
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = primaryAccount.id
+        state.selection = .chat(sharedGroup)
+        state.client = runtime
+
+        async let stalePrimaryLoad: Void = state.loadMessages(groupIdHex: sharedGroup)
+        let didStartPrimaryLoad = await waitFor {
+            runtime.timelineSubscriptionCount == 1
+        }
+        #expect(didStartPrimaryLoad)
+
+        state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
+        state.selection = .chat(sharedGroup)
+        await state.loadMessages(groupIdHex: sharedGroup)
+        _ = await stalePrimaryLoad
+
+        #expect(runtime.timelineSubscriptionAccountRefs == [primaryAccount.accountRef, backupAccount.accountRef])
+        #expect(state.messagesByChat[sharedGroup]?.map(\.id) == ["backup-message"])
+    }
+
+    @MainActor
     @Test func initialTimelineLoadClearsWhenRuntimeIsUnavailable() async throws {
         let account = AccountItem(
             id: "Desktop Account",
@@ -12682,6 +12777,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var chatListSubscriptionCount = 0
     private(set) var notificationSubscriptionCount = 0
     private(set) var timelineSubscriptionCount = 0
+    private(set) var timelineSubscriptionAccountRefs: [String] = []
     private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
     var chatListStreamEndsAfterUpdates = false
     /// Simulates async relay/runtime latency before a chat-list subscription is ready.
@@ -13812,6 +13908,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         -> TimelineMessagesSubscription
     {
         timelineSubscriptionCount += 1
+        timelineSubscriptionAccountRefs.append(accountRef)
         if timelineSubscriptionDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: timelineSubscriptionDelayNanoseconds)
         }
