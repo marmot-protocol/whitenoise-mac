@@ -1696,7 +1696,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: projectionRefreshedAt
+            updatedAt: projectionRefreshedAt,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: "self")
@@ -1731,7 +1732,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: "self")
@@ -2198,7 +2200,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
@@ -2229,7 +2232,8 @@ struct whitenoise_macTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 1_700_000_000
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
         )
 
         let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
@@ -6465,6 +6469,7 @@ struct whitenoise_macTests {
             disappearingMessageSecs: 0,
             archived: false,
             pendingConfirmation: false,
+            selfMembership: .member,
             welcomerAccountIdHex: nil,
             viaWelcomeMessageIdHex: nil
         )
@@ -8878,6 +8883,114 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func openingMarmotProfileAutolinkShowsNewChatComposerAndResolvesRecipient() async throws {
+        // Kit-emitted marmot://profile/... autolinks in message text route through the same
+        // in-app profile flow as nostr: links (mdk#725 / #340); the FFI receives the
+        // extracted reference in nostr: form.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:nprofile1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        _ = state.handleMessageLinkOpen(URL(string: "marmot://profile/nprofile1alice")!)
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkWhenReadyOpensComposerAndResolvesRecipient() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:npub1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.pendingDeepLinkProfileReference == nil)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkBeforeBootstrapIsQueuedAndFlushedWhenReady() async throws {
+        // Cold start: .onOpenURL fires before bootstrap() finishes, so the reference must be
+        // queued and flushed by activateReadyState().
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let routedQuery = "nostr:npub1alice"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        #expect(state.pendingDeepLinkProfileReference == "npub1alice")
+        #expect(state.resolvedNewChatRecipient == nil)
+
+        await state.bootstrap()
+        let resolved = await waitFor {
+            state.resolvedNewChatRecipient?.sourceQuery == routedQuery
+        }
+
+        #expect(resolved)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.pendingDeepLinkProfileReference == nil)
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkWithUnsupportedFormSetsStatusAndQueuesNothing() async throws {
+        // The scheme is not exclusive to this app; anything but the strict profile form is
+        // untrusted input and must be dropped without touching the composer or the queue.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.handleDeepLinkURL(URL(string: "marmot://group/abc")!)
+
+        #expect(state.backgroundStatus == "This link type is not supported.")
+        #expect(state.pendingDeepLinkProfileReference == nil)
+        #expect(!state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient == nil)
+    }
+
+    @MainActor
+    @Test func pastedMarmotProfileLinkResolvesThroughNormalizeMemberRef() async throws {
+        // The raw pasted marmot://profile/... string reaches the FFI verbatim; the vendored
+        // bindings parse it since the mdk#725 bump (clean break: darkmatter:// is dead).
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let pasted = "marmot://profile/npub1alice?from=qr"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: pasted, accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.looksLikeMemberRef(pasted))
+        #expect(!state.looksLikeMemberRef("darkmatter://profile/npub1alice"))
+
+        state.showNewChat()
+        state.newChatQuery = pasted
+        await state.resolveNewChatQuery()
+
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+    }
+
+    @MainActor
     @Test func staleNewChatRecipientLookupDoesNotReplaceCurrentResult() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -9612,10 +9725,10 @@ struct whitenoise_macTests {
     @Test func telemetryBuildConfigUsesSeparateMacBuildSettings() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
-                "DarkmatterTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
-                "DarkmatterTelemetryBearerToken": "otlp-token",
-                "DarkmatterAuditLogBearerToken": "audit-token",
-                "DarkmatterTelemetryEnvironment": "production",
+                "WhiteNoiseTelemetryOTLPEndpoint": "https://collector.example/v1/metrics",
+                "WhiteNoiseTelemetryBearerToken": "otlp-token",
+                "WhiteNoiseAuditLogBearerToken": "audit-token",
+                "WhiteNoiseTelemetryEnvironment": "production",
                 "CFBundleShortVersionString": "2026.6",
                 "CFBundleVersion": "12",
             ],
@@ -9653,18 +9766,18 @@ struct whitenoise_macTests {
     @Test func telemetryBuildConfigIgnoresUnresolvedBuildSettingsAndUsesEnvironmentFallbacks() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
-                "DarkmatterTelemetryOTLPEndpoint": "$(DARKMATTER_OTLP_ENDPOINT)",
-                "DarkmatterTelemetryBearerToken": "$(DARKMATTER_OTLP_BEARER_TOKEN)",
-                "DarkmatterAuditLogBearerToken": "$(DARKMATTER_AUDIT_LOG_BEARER_TOKEN)",
-                "DarkmatterTelemetryEnvironment": "$(DARKMATTER_TELEMETRY_ENVIRONMENT)",
+                "WhiteNoiseTelemetryOTLPEndpoint": "$(WN_OTLP_ENDPOINT)",
+                "WhiteNoiseTelemetryBearerToken": "$(WN_OTLP_BEARER_TOKEN)",
+                "WhiteNoiseAuditLogBearerToken": "$(WN_AUDIT_LOG_BEARER_TOKEN)",
+                "WhiteNoiseTelemetryEnvironment": "$(WN_TELEMETRY_ENVIRONMENT)",
                 "CFBundleShortVersionString": "1.2.3",
                 "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
             ],
             environment: [
-                "DARKMATTER_OTLP_ENDPOINT": "https://env.example/v1/metrics",
-                "OTLP_TOKEN_DARKMATTER_MAC": "env-otlp-token",
-                "AUDIT_LOG_TOKEN_DARKMATTER_MAC": "env-audit-token",
-                "DARKMATTER_TELEMETRY_ENVIRONMENT": "staging",
+                "WN_OTLP_ENDPOINT": "https://env.example/v1/metrics",
+                "OTLP_TOKEN_WN_MAC": "env-otlp-token",
+                "AUDIT_LOG_TOKEN_WN_MAC": "env-audit-token",
+                "WN_TELEMETRY_ENVIRONMENT": "staging",
             ],
             osVersion: "Version 26.0",
             deviceModelIdentifier: nil
@@ -12071,6 +12184,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                 disappearingMessageSecs: 0,
                 archived: false,
                 pendingConfirmation: false,
+                selfMembership: .member,
                 welcomerAccountIdHex: nil,
                 viaWelcomeMessageIdHex: nil
             )
@@ -12767,7 +12881,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: latest?.timelineAt,
-            updatedAt: latest?.timelineAt ?? 0
+            updatedAt: latest?.timelineAt ?? 0,
+            selfMembership: .member
         )
     }
 }
@@ -13426,7 +13541,8 @@ private func chatListRow(
         firstUnreadMessageIdHex: nil,
         lastReadMessageIdHex: nil,
         lastReadTimelineAt: nil,
-        updatedAt: timelineAt
+        updatedAt: timelineAt,
+        selfMembership: .member
     )
 }
 
@@ -13820,6 +13936,7 @@ private func directGroup() -> AppGroupRecordFfi {
         disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
+        selfMembership: .member,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )
@@ -13841,6 +13958,7 @@ private func messageGroup() -> AppGroupRecordFfi {
         disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
+        selfMembership: .member,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )

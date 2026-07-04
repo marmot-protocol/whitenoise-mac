@@ -477,6 +477,11 @@ final class WorkspaceState {
     /// per-screen error view, preventing misattribution and clobbering of `lastError`.
     var backgroundStatus: String?
 
+    /// Profile reference from a marmot:// deep link that arrived before the workspace
+    /// reached `.ready` (cold start or signed out). Never read by a view body; flushed
+    /// by `flushPendingDeepLinkIfReady()` from `activateReadyState()`.
+    @ObservationIgnored var pendingDeepLinkProfileReference: String?
+
     var activeAccountId: String?
     var selection: WorkspaceSelection? {
         didSet {
@@ -1238,7 +1243,7 @@ final class WorkspaceState {
     }
 
     var marmotBuildSummary: String {
-        "\(MarmotKitVersion.darkmatterSHA) / \(MarmotKitVersion.builtAt)"
+        "\(MarmotKitVersion.mdkSHA) / \(MarmotKitVersion.builtAt)"
     }
 
     var diagnosticsInfo: [DiagnosticsInfoItem] {

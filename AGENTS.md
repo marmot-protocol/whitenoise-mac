@@ -48,15 +48,15 @@ files under `whitenoise-mac/`, `whitenoise-macTests/`, and
 just write it under the right directory and it joins the target on the next
 build.
 
-## The MarmotKit / darkmatter FFI boundary
+## The MarmotKit / MDK FFI boundary
 
-- The Rust core lives in the [darkmatter](https://github.com/marmot-protocol/darkmatter)
-  workspace, expected at `~/code/darkmatter` (override with `DARKMATTER_DIR`). The
-  app consumes it through the vendored, generated `MarmotKit` Swift bindings in
-  `Vendored/MarmotKit/` (committed as generated).
-- To pull core changes: `git pull` in darkmatter, then
+- The Rust core lives in the [mdk](https://github.com/marmot-protocol/mdk)
+  workspace (formerly "darkmatter"), expected at `~/code/mdk` (override with
+  `MDK_DIR`). The app consumes it through the vendored, generated `MarmotKit`
+  Swift bindings in `Vendored/MarmotKit/` (committed as generated).
+- To pull core changes: `git pull` in mdk, then
   `./scripts/sync-bindings.sh` (release Rust build + UniFFI generation + xcframework
-  assembly; stamps `Vendored/MarmotKit/MARMOT_VERSION` with the darkmatter SHA).
+  assembly; stamps `Vendored/MarmotKit/MARMOT_VERSION` with the MDK SHA).
   This is a multi-minute Rust build; run it in the background.
 - `MarmotRuntime` (in `Core/MarmotClient.swift`) is the `nonisolated` protocol the
   app calls; the concrete `MarmotClient` forwards thinly to the generated `Marmot`

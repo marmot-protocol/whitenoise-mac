@@ -120,7 +120,8 @@ struct PureValueTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 0
+            updatedAt: 0,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: nil)
@@ -272,6 +273,7 @@ struct PureValueTests {
             disappearingMessageSecs: 0,
             archived: false,
             pendingConfirmation: false,
+            selfMembership: .member,
             welcomerAccountIdHex: nil,
             viaWelcomeMessageIdHex: nil
         )
@@ -663,6 +665,71 @@ struct PureValueTests {
                 "expected rejection for \(String(reflecting: raw))"
             )
         }
+    }
+
+    @Test func marmotProfileLinkAcceptsStrictProfileFormOnly() async throws {
+        // Accepted: strict marmot://profile/<npub|nprofile>, query ignored, case-insensitive
+        // scheme/host. These flow in from OS deep links and kit-emitted message autolinks.
+        for raw in [
+            "marmot://profile/npub1alice",
+            "marmot://profile/npub1alice?from=qr",
+            "marmot://profile/nprofile1alice",
+            "MARMOT://PROFILE/npub1alice",
+        ] {
+            let url = try #require(URL(string: raw))
+            #expect(
+                MarmotProfileLink.profileReference(from: url)?.lowercased().hasPrefix("n") == true,
+                "expected acceptance for \(String(reflecting: raw))"
+            )
+            #expect(MarkdownLinkPolicy.isInternalMarmotProfileURL(url))
+            #expect(
+                MarkdownLinkPolicy.sanitizedURL(from: raw) != nil,
+                "expected sanitizedURL acceptance for \(String(reflecting: raw))"
+            )
+        }
+        let plain = try #require(URL(string: "marmot://profile/npub1alice"))
+        #expect(MarmotProfileLink.profileReference(from: plain) == "npub1alice")
+        let withQuery = try #require(URL(string: "marmot://profile/npub1alice?from=qr"))
+        #expect(MarmotProfileLink.profileReference(from: withQuery) == "npub1alice")
+
+        // Rejected: every other marmot:// shape. The scheme is not exclusive to this app,
+        // so inbound URLs are untrusted; nothing here may reach LaunchServices either.
+        for raw in [
+            "marmot://group/abc",
+            "marmot://profile",
+            "marmot://profile/",
+            "marmot://profile/note1abc",
+            "marmot://profile/npub1x/extra",
+            "marmot://x-callback-url/run",
+            "marmot://profile/../npub1alice",
+        ] {
+            if let url = URL(string: raw) {
+                #expect(
+                    MarmotProfileLink.profileReference(from: url) == nil,
+                    "expected rejection for \(String(reflecting: raw))"
+                )
+                #expect(!MarkdownLinkPolicy.isInternalMarmotProfileURL(url))
+            }
+            #expect(
+                MarkdownLinkPolicy.sanitizedURL(from: raw) == nil,
+                "expected sanitizedURL rejection for \(String(reflecting: raw))"
+            )
+        }
+
+        // The retired darkmatter:// scheme is a clean break (mdk#725): no longer recognized.
+        #expect(MarkdownLinkPolicy.sanitizedURL(from: "darkmatter://profile/npub1alice") == nil)
+
+        // QR payload emits the canonical link form and round-trips through the parser.
+        let payload = MarmotProfileLink.qrPayload(npub: "npub1alice")
+        #expect(payload == "marmot://profile/npub1alice?from=qr")
+        let payloadURL = try #require(URL(string: payload))
+        #expect(MarmotProfileLink.profileReference(from: payloadURL) == "npub1alice")
+
+        // Paste pre-check prefix helper.
+        #expect(MarmotProfileLink.hasProfileLinkPrefix("  marmot://profile/npub1alice?from=qr "))
+        #expect(MarmotProfileLink.hasProfileLinkPrefix("MARMOT://PROFILE/npub1alice"))
+        #expect(!MarmotProfileLink.hasProfileLinkPrefix("darkmatter://profile/npub1alice"))
+        #expect(!MarmotProfileLink.hasProfileLinkPrefix("marmot://group/abc"))
     }
 
     @Test func markdownLinkPolicyRejectsPrivateAndLoopbackHosts() async throws {
