@@ -1789,6 +1789,63 @@ struct whitenoise_macTests {
         #expect(try #require(await cache.cachedDownload(for: preservedKey)).data == preservedPlaintext)
     }
 
+    @Test func messageMediaDiskCacheAccountPurgePreservesEntriesWhenMetadataCannotBeRead() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let purgedPlaintext = Data("purged account media".utf8)
+        let unavailablePlaintext = Data("other account media with unavailable metadata".utf8)
+        let purgedKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: purgedPlaintext, ciphertextByte: 0xaa)
+        )
+        let unavailableKey = MessageMediaDiskCacheKey(
+            accountId: "account-b",
+            groupIdHex: "group-b",
+            reference: mediaDiskCacheReference(plaintext: unavailablePlaintext, ciphertextByte: 0xbd)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: purgedPlaintext,
+                fileName: "purged.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(purgedPlaintext.count),
+                payloadId: "purged"
+            ),
+            for: purgedKey
+        )
+        await cache.store(
+            MessageMediaDownload(
+                data: unavailablePlaintext,
+                fileName: "unavailable.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(unavailablePlaintext.count),
+                payloadId: "unavailable"
+            ),
+            for: unavailableKey
+        )
+
+        let purgedEntryDirectory = try #require(cache.entryDirectory(for: purgedKey))
+        let unavailableEntryDirectory = try #require(cache.entryDirectory(for: unavailableKey))
+        let unavailableMetadataURL = unavailableEntryDirectory.appendingPathComponent("metadata.bin")
+        let unavailablePayloadURL = unavailableEntryDirectory.appendingPathComponent("payload.bin")
+        try fileManager.removeItem(at: unavailableMetadataURL)
+        try fileManager.createDirectory(at: unavailableMetadataURL, withIntermediateDirectories: false)
+
+        await cache.purgeAccount("account-a")
+
+        #expect(!fileManager.fileExists(atPath: purgedEntryDirectory.path))
+        var metadataIsDirectory = ObjCBool(false)
+        #expect(fileManager.fileExists(atPath: unavailableMetadataURL.path, isDirectory: &metadataIsDirectory))
+        #expect(metadataIsDirectory.boolValue)
+        #expect(fileManager.fileExists(atPath: unavailablePayloadURL.path))
+    }
+
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
