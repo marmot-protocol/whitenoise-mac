@@ -488,10 +488,15 @@ private struct ConversationView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
+            // Refuse drops once membership ended: the pending-media strip is hidden
+            // behind the membership-ended notice, so accepted files would accumulate
+            // invisibly and could never be sent. `addMediaAttachments` re-checks via
+            // `canBeginMediaAttachmentSelection()` as defense in depth.
+            guard !chat.isNoLongerMember else { return false }
             Task { await workspace.addMediaAttachments(from: urls) }
             return !urls.isEmpty
         } isTargeted: { isTargeted in
-            isFileDropTargeted = isTargeted
+            isFileDropTargeted = isTargeted && !chat.isNoLongerMember
         }
         .overlay {
             if isFileDropTargeted {

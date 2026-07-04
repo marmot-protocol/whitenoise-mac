@@ -121,7 +121,7 @@ struct GroupDetailsSheet: View {
                                     Text(endedDescription)
                                         .font(.callout.weight(.semibold))
 
-                                    Text("You can keep reading the history, but new messages can't be sent.")
+                                    Text(ChatSelfMembership.endedHistoryExplanation)
                                         .font(.callout)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -167,6 +167,9 @@ struct GroupDetailsSheet: View {
                             .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
                         }
                     }
+                    // Profile edits publish a group commit, which the core rejects for a
+                    // non-member the same way it rejects sends (`invalid_transition`).
+                    .disabled(snapshot.selfMembership != .member)
 
                     Section("Members") {
                         if snapshot.members.isEmpty {
@@ -200,7 +203,11 @@ struct GroupDetailsSheet: View {
                         } label: {
                             Label("Auto-delete after", systemImage: "timer")
                         }
-                        .disabled(workspace.isUpdatingDisappearingMessages)
+                        // Retention changes are group commits — rejected for non-members.
+                        // "Delete expired now" below stays enabled: it is a local prune.
+                        .disabled(
+                            workspace.isUpdatingDisappearingMessages || snapshot.selfMembership != .member
+                        )
 
                         if snapshot.disappearingMessagesEnabled {
                             Button {
@@ -213,7 +220,7 @@ struct GroupDetailsSheet: View {
                         }
                     }
 
-                    if snapshot.canInvite {
+                    if snapshot.canInvite && snapshot.selfMembership == .member {
                         Section("Invite") {
                             HStack(spacing: 10) {
                                 TextField(

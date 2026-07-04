@@ -94,6 +94,12 @@ nonisolated enum ChatSelfMembership: Hashable {
             return "person.fill.xmark"
         }
     }
+
+    /// Secondary line shown under `endedDescription` wherever the ended state is
+    /// explained (composer notice, group details).
+    static var endedHistoryExplanation: String {
+        L10n.string("You can keep reading the history, but new messages can't be sent.")
+    }
 }
 
 nonisolated struct ChatItem: Identifiable, Hashable {

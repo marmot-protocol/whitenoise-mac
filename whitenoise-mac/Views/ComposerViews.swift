@@ -502,7 +502,7 @@ struct MembershipEndedComposerNotice: View {
                 Text(membership.endedDescription ?? "")
                     .font(.callout.weight(.semibold))
 
-                Text("You can keep reading the history, but new messages can't be sent.")
+                Text(ChatSelfMembership.endedHistoryExplanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

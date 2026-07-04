@@ -5840,6 +5840,21 @@ struct whitenoise_macTests {
 
         #expect(runtime.sendTextCallCount == 0)
         #expect(state.draftText == "still there?")
+
+        // Attachments arriving via drag-and-drop / file import bypass the hidden
+        // composer, so the state-level gate must refuse them too — otherwise they
+        // accumulate invisibly behind the membership-ended notice.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let attachmentURL = directory.appendingPathComponent("notes.txt")
+        try Data("dropped file".utf8).write(to: attachmentURL)
+
+        await state.addMediaAttachments(from: [attachmentURL])
+
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(!state.canSend)
     }
 
     @MainActor
@@ -8806,6 +8821,35 @@ struct whitenoise_macTests {
                 timelineAt: 1_700_000_000,
                 selfMembership: .removed
             ),
+            account: account
+        )
+
+        #expect(state.selectedChat?.selfMembership == .removed)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func endedMembershipBulkRowsUpdateStopsInProgressVoiceRecording() async throws {
+        // Sibling of the single-row test above for the bulk snapshot/reconnect path
+        // (`applyChatRows`), which also carries membership flips (#311).
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let selectedChatId = try #require(state.selectedChat?.id)
+        let url = try armInProgressVoiceRecording(on: state)
+
+        await state.applyChatRows(
+            [
+                chatListRow(
+                    groupIdHex: selectedChatId,
+                    title: "Marmot Design",
+                    preview: "you were removed",
+                    sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    timelineAt: 1_700_000_000,
+                    selfMembership: .removed
+                )
+            ],
             account: account
         )
 

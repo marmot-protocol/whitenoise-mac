@@ -347,11 +347,13 @@ struct ChatRowContent: View {
                     Text(chat.title)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1)
-                    if chat.pendingConfirmation {
-                        PendingInviteBadge()
-                    }
+                    // An ended membership supersedes a pending invite: show a single
+                    // badge rather than a contradictory "Invite" + "Removed" pair if
+                    // the FFI ever delivers both flags together.
                     if chat.isNoLongerMember {
                         MembershipEndedBadge(membership: chat.selfMembership)
+                    } else if chat.pendingConfirmation {
+                        PendingInviteBadge()
                     }
                     Spacer(minLength: 8)
                     Text(chat.timestampLabel)
