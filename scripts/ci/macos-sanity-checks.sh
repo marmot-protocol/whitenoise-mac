@@ -82,7 +82,7 @@ assert_plist_equals "$INFO_PLIST" "CFBundlePackageType" "APPL"
 assert_plist_equals "$INFO_PLIST" "LSApplicationCategoryType" "public.app-category.social-networking"
 assert_plist_equals "$INFO_PLIST" "LSMinimumSystemVersion" "\$(MACOSX_DEPLOYMENT_TARGET)"
 assert_plist_nonempty "$INFO_PLIST" "NSMicrophoneUsageDescription"
-assert_plist_nonempty "$INFO_PLIST" "DarkmatterTelemetryOTLPEndpoint"
+assert_plist_nonempty "$INFO_PLIST" "WhiteNoiseTelemetryOTLPEndpoint"
 
 assert_entitlement_true "com.apple.security.app-sandbox"
 assert_entitlement_true "com.apple.security.network.client"

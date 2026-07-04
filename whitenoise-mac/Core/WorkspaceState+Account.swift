@@ -106,6 +106,7 @@ extension WorkspaceState {
         await loadPrivacySecuritySettings()
         await reloadChats()
         startNotificationListener()
+        flushPendingDeepLinkIfReady()
     }
 
     func showLogin() {
