@@ -645,6 +645,22 @@ struct PureValueTests {
         }
     }
 
+    @Test func relayValidatorAllowsRootedFQDNLoopbackSpellings() async throws {
+        for url in [
+            "ws://localhost.",
+            "ws://LOCALHOST.:7000",
+            "ws://localhost..",
+            "ws://127.0.0.1.",
+            "ws://127.0.0.1.:8080/relay",
+            "ws://127.0.0.1..",
+            "ws://127.1.2.3.",
+        ] {
+            #expect(RelayURLValidator.classify(url) == .insecureLoopback, "expected loopback for \(url)")
+            #expect(RelayURLValidator.isAcceptable(url), "expected acceptable for \(url)")
+            #expect(RelayURLValidator.isInsecure(url), "expected insecure flag for \(url)")
+        }
+    }
+
     @Test func relayValidatorAllowsNonCanonicalLoopbackSpellings() async throws {
         // Issue #112: loopback membership is decided by parsing the host as an
         // IP, so every equivalent spelling of the loopback address is accepted,
@@ -722,7 +738,9 @@ struct PureValueTests {
     @Test func relayValidatorRejectsSpoofedLoopbackHosts() async throws {
         // Hostnames that merely *contain* a loopback token must not be treated as loopback.
         #expect(RelayURLValidator.classify("ws://127.0.0.1.evil.com") == .insecureRejected)
+        #expect(RelayURLValidator.classify("ws://127.0.0.1.evil.com.") == .insecureRejected)
         #expect(RelayURLValidator.classify("ws://localhost.evil.com") == .insecureRejected)
+        #expect(RelayURLValidator.classify("ws://localhost.evil.com.") == .insecureRejected)
         #expect(RelayURLValidator.classify("ws://notlocalhost") == .insecureRejected)
         #expect(RelayURLValidator.classify("ws://127.0.0.256") == .insecureRejected)
     }
