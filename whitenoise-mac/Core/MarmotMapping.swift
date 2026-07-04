@@ -103,7 +103,14 @@ extension ChatItem {
     }
 }
 
-extension MessageItem {
+// The whole timeline record → view-model transformation is pure (it only reads the
+// `Sendable` FFI record and the resolved sender-profile map) and is deliberately run
+// off the main actor while mapping a window/projection so the attributed-string /
+// Markdown-AST build and media-JSON parse do not block the UI thread. `nonisolated`
+// opts these out of the module's default main-actor isolation
+// (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`) so they can be called from the
+// `@Sendable` off-main closure in `WorkspaceState+Timeline`. See whitenoise-mac#285.
+nonisolated extension MessageItem {
     private init(
         record: TimelineMessageRecordFfi,
         activeAccountIdHex: String?,
@@ -403,7 +410,7 @@ extension MessageItem {
     }
 }
 
-private enum MarmotTimelineKind {
+private nonisolated enum MarmotTimelineKind {
     static let chat: UInt64 = 9
     static let agentStreamStart: UInt64 = 1200
     static let agentActivity: UInt64 = 1201
@@ -695,7 +702,7 @@ private nonisolated enum MessageMediaParser {
     }
 }
 
-private struct TimelinePayload: Decodable {
+private nonisolated struct TimelinePayload: Decodable {
     let text: String?
     let status: String?
     let eventType: String?
@@ -726,7 +733,7 @@ private extension String {
     }
 }
 
-private extension MessageReaction {
+private nonisolated extension MessageReaction {
     static func summarize(_ summary: TimelineReactionSummaryFfi, activeAccountIdHex: String?) -> [MessageReaction] {
         summary.byEmoji
             .map { reaction in

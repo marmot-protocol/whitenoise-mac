@@ -165,18 +165,25 @@ extension WorkspaceState {
         }
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
 
-        let currentPaging = timelinePagingByChat[groupIdHex]
         // Maps every record in the window and builds each bubble's Markdown display model
-        // (attributed strings + block ids) eagerly — historically the dominant scroll-back cost.
-        let mappedMessages = TimelineSignpost.mapping.interval(
+        // (attributed strings + block ids) eagerly — historically the dominant scroll-back
+        // cost. Run off the main actor so this pure transformation does not block the UI
+        // thread during the window replace, then re-check the selection guard after the
+        // await before mutating timeline state (whitenoise-mac#285). Capture the plain
+        // `accountIdHex` value before hopping off-main to avoid capturing actor state.
+        let activeAccountIdHex = account.accountIdHex
+        let mappedMessages = await TimelineSignpost.mapping.asyncInterval(
             "mapWindow", count: page.messages.count
         ) {
-            MessageItem.timeline(
-                from: page,
-                activeAccountIdHex: account.accountIdHex,
+            await Self.mapTimelineOffMain(
+                page: page,
+                activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles
             )
         }
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+
+        let currentPaging = timelinePagingByChat[groupIdHex]
         TimelineSignpost.store.interval("replaceMessages", count: mappedMessages.count) {
             replaceMessages(
                 mappedMessages,
@@ -265,15 +272,22 @@ extension WorkspaceState {
             )
         }
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-        let mappedUpserts = TimelineSignpost.mapping.interval(
+        // Map only the changed records off the main actor (same pure transformation as the
+        // window path), then re-check the selection guard after the await before mutating
+        // the store (whitenoise-mac#285). Capture the plain `accountIdHex` before hopping
+        // off-main to avoid capturing actor state.
+        let activeAccountIdHex = account.accountIdHex
+        let upsertPage = TimelinePageFfi(messages: upsertRecords, hasMoreBefore: false, hasMoreAfter: false)
+        let mappedUpserts = await TimelineSignpost.mapping.asyncInterval(
             "mapProjection", count: upsertRecords.count
         ) {
-            MessageItem.timeline(
-                from: TimelinePageFfi(messages: upsertRecords, hasMoreBefore: false, hasMoreAfter: false),
-                activeAccountIdHex: account.accountIdHex,
+            await Self.mapTimelineOffMain(
+                page: upsertPage,
+                activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles
             )
         }
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
 
         let paging = timelinePagingByChat[groupIdHex] ?? .empty
         // The window is "anchored" to the live head while there is no newer history to

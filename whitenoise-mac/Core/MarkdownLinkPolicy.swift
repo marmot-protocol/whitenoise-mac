@@ -9,7 +9,8 @@ import Foundation
 
 /// Peer-controlled message text must never be allowed to hand arbitrary URL schemes to
 /// LaunchServices. `http`/`https` links may be handed to the system browser after the app-side
-/// `OpenURLAction` gate runs; `nostr:` links are handled internally by `WorkspaceState`.
+/// `OpenURLAction` gate runs; `nostr:` links and strict `marmot://profile/<npub|nprofile>`
+/// links are handled internally by `WorkspaceState` — every other `marmot://` form is dropped.
 nonisolated enum MarkdownLinkPolicy {
     private static let resolvableProfilePrefixes = ["npub1", "nprofile1"]
     private static let recognizedNostrReferencePrefixes =
@@ -29,7 +30,11 @@ nonisolated enum MarkdownLinkPolicy {
     }
 
     static func isAllowed(_ url: URL) -> Bool {
-        isAllowedExternalURL(url) || isInternalNostrURL(url)
+        isAllowedExternalURL(url) || isInternalNostrURL(url) || isInternalMarmotProfileURL(url)
+    }
+
+    static func isInternalMarmotProfileURL(_ url: URL) -> Bool {
+        MarmotProfileLink.profileReference(from: url) != nil
     }
 
     static func isAllowedExternalURL(_ url: URL) -> Bool {

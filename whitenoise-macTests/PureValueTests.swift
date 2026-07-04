@@ -120,7 +120,8 @@ struct PureValueTests {
             firstUnreadMessageIdHex: nil,
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: nil,
-            updatedAt: 0
+            updatedAt: 0,
+            selfMembership: .member
         )
 
         let chat = ChatItem(row: row, activeAccountIdHex: nil)
@@ -164,12 +165,181 @@ struct PureValueTests {
         #expect(explicit.timelineAt == 42)
     }
 
+    @MainActor
+    @Test func messageTimelineStoreToleratesDuplicateMessageIds() async throws {
+        // Regression for whitenoise-mac#309: full-list index rebuilds keyed on FFI-derived
+        // MessageItem.id must not trap on a duplicate id from runtime/relay/FFI. The store
+        // resolves duplicates last-wins, mirroring applyProjection/upsert semantics.
+        func message(id: String, body: String) -> MessageItem {
+            MessageItem(
+                id: id,
+                senderName: "sender",
+                body: body,
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false
+            )
+        }
+
+        let duplicates = [message(id: "dup", body: "first"), message(id: "dup", body: "second")]
+
+        // init path does not trap, resolves the later item, and keeps observed arrays unique.
+        let store = MessageTimelineStore.loaded(with: duplicates)
+        #expect(store.messages.map(\.body) == ["second"])
+        #expect(store.messageIDs == ["dup"])
+        #expect(store.lookup["dup"]?.body == "second")
+
+        // replace() (rebuildIndexes) path behaves identically.
+        let replaced = MessageTimelineStore()
+        replaced.replace(with: duplicates)
+        #expect(replaced.messages.map(\.body) == ["second"])
+        #expect(replaced.messageIDs == ["dup"])
+        #expect(replaced.lookup["dup"]?.body == "second")
+
+        // Later incremental upserts update the single retained row instead of leaving a stale twin.
+        _ = replaced.applyProjection(
+            upserts: [message(id: "dup", body: "third")],
+            removals: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(replaced.messages.map(\.body) == ["third"])
+    }
+
+    @MainActor
+    @Test func workspaceChatSnapshotsDeduplicateDuplicateChatIds() async throws {
+        // Regression for whitenoise-mac#309: full-list chat snapshots must not leave duplicate
+        // ChatItem.id values in the observed arrays that feed SwiftUI ForEach and later
+        // incremental upsert/remove paths. The snapshot boundary resolves duplicates last-wins.
+        func chat(id: String, title: String) -> ChatItem {
+            ChatItem(
+                id: id,
+                title: title,
+                subtitle: "",
+                preview: "",
+                updatedAt: nil,
+                avatarSeed: id,
+                pictureURL: nil,
+                unreadCount: 0
+            )
+        }
+
+        let accountId = "account"
+        let duplicates = [chat(id: "dup", title: "first"), chat(id: "dup", title: "second")]
+        let state = WorkspaceState(
+            chatsByAccount: [accountId: duplicates],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["second"])
+        #expect(state.chatLookupByAccount[accountId]?["dup"]?.title == "second")
+        #expect(state.chatIndexByAccount[accountId]?["dup"] == 0)
+
+        state.setChats(duplicates, forAccountId: accountId)
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["second"])
+        #expect(state.chatLookupByAccount[accountId]?["dup"]?.title == "second")
+        #expect(state.chatIndexByAccount[accountId]?["dup"] == 0)
+
+        state.upsertChat(chat(id: "dup", title: "third"), forAccountId: accountId)
+        #expect(state.chatsByAccount[accountId]?.map(\.title) == ["third"])
+    }
+
+    @MainActor
+    @Test func groupDetailsSnapshotToleratesDuplicateMemberActionIds() async throws {
+        // Regression for whitenoise-mac#309: groupDetailsSnapshot builds actionByMemberId from
+        // FFI GroupMemberActionStateFfi.memberIdHex, which can repeat. The rebuild must not trap
+        // and should apply the later action (last-wins).
+        let memberIdHex = "member1234567890member1234567890member1234567890member1234"
+        let group = AppGroupRecordFfi(
+            groupIdHex: "group",
+            endpoint: "",
+            name: "Test Group",
+            description: "",
+            admins: [memberIdHex],
+            relays: [],
+            nostrGroupIdHex: "",
+            avatarUrl: nil,
+            avatarDim: nil,
+            avatarThumbhash: nil,
+            encryptedMedia: AppGroupEncryptedMediaComponentFfi(
+                componentId: 0,
+                component: "",
+                required: false,
+                mediaFormat: "",
+                allowedLocatorKinds: [],
+                defaultBlobEndpoints: []
+            ),
+            disappearingMessageSecs: 0,
+            archived: false,
+            pendingConfirmation: false,
+            selfMembership: .member,
+            welcomerAccountIdHex: nil,
+            viaWelcomeMessageIdHex: nil
+        )
+        let details = GroupDetailsFfi(
+            group: group,
+            members: [
+                GroupMemberDetailsFfi(
+                    memberIdHex: memberIdHex,
+                    account: "Member",
+                    local: false,
+                    isAdmin: true,
+                    isSelf: false,
+                    npub: "npub1member",
+                    displayName: "Member"
+                )
+            ]
+        )
+        let managementState = GroupManagementStateFfi(
+            myAccountIdHex: memberIdHex,
+            isSelfAdmin: true,
+            isLastAdmin: false,
+            canInvite: true,
+            canLeave: true,
+            requiresSelfDemoteBeforeLeave: false,
+            memberActions: [
+                GroupMemberActionStateFfi(
+                    memberIdHex: memberIdHex,
+                    isSelf: false,
+                    isAdmin: true,
+                    canRemove: false,
+                    canPromote: false,
+                    canDemote: false
+                ),
+                GroupMemberActionStateFfi(
+                    memberIdHex: memberIdHex,
+                    isSelf: false,
+                    isAdmin: true,
+                    canRemove: true,
+                    canPromote: true,
+                    canDemote: true
+                ),
+            ]
+        )
+
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        let snapshot = state.groupDetailsSnapshot(from: details, managementState: managementState)
+
+        let member = try #require(snapshot.members.first { $0.id == memberIdHex })
+        #expect(member.canRemove)
+        #expect(member.canPromote)
+        #expect(member.canDemote)
+    }
+
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
         // The string entry point used by the UI must also reject internal destinations.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://127.0.0.1:8080/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[::1]/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost./x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://printer.local./x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://127.0.0.1./x.png") == nil)
         // whitenoise-mac#243: broadcast / multicast / reserved / CGNAT are non-public too,
         // including an obfuscated (decimal) broadcast literal to exercise the parser path.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://255.255.255.255/x.png") == nil)
@@ -497,6 +667,71 @@ struct PureValueTests {
         }
     }
 
+    @Test func marmotProfileLinkAcceptsStrictProfileFormOnly() async throws {
+        // Accepted: strict marmot://profile/<npub|nprofile>, query ignored, case-insensitive
+        // scheme/host. These flow in from OS deep links and kit-emitted message autolinks.
+        for raw in [
+            "marmot://profile/npub1alice",
+            "marmot://profile/npub1alice?from=qr",
+            "marmot://profile/nprofile1alice",
+            "MARMOT://PROFILE/npub1alice",
+        ] {
+            let url = try #require(URL(string: raw))
+            #expect(
+                MarmotProfileLink.profileReference(from: url)?.lowercased().hasPrefix("n") == true,
+                "expected acceptance for \(String(reflecting: raw))"
+            )
+            #expect(MarkdownLinkPolicy.isInternalMarmotProfileURL(url))
+            #expect(
+                MarkdownLinkPolicy.sanitizedURL(from: raw) != nil,
+                "expected sanitizedURL acceptance for \(String(reflecting: raw))"
+            )
+        }
+        let plain = try #require(URL(string: "marmot://profile/npub1alice"))
+        #expect(MarmotProfileLink.profileReference(from: plain) == "npub1alice")
+        let withQuery = try #require(URL(string: "marmot://profile/npub1alice?from=qr"))
+        #expect(MarmotProfileLink.profileReference(from: withQuery) == "npub1alice")
+
+        // Rejected: every other marmot:// shape. The scheme is not exclusive to this app,
+        // so inbound URLs are untrusted; nothing here may reach LaunchServices either.
+        for raw in [
+            "marmot://group/abc",
+            "marmot://profile",
+            "marmot://profile/",
+            "marmot://profile/note1abc",
+            "marmot://profile/npub1x/extra",
+            "marmot://x-callback-url/run",
+            "marmot://profile/../npub1alice",
+        ] {
+            if let url = URL(string: raw) {
+                #expect(
+                    MarmotProfileLink.profileReference(from: url) == nil,
+                    "expected rejection for \(String(reflecting: raw))"
+                )
+                #expect(!MarkdownLinkPolicy.isInternalMarmotProfileURL(url))
+            }
+            #expect(
+                MarkdownLinkPolicy.sanitizedURL(from: raw) == nil,
+                "expected sanitizedURL rejection for \(String(reflecting: raw))"
+            )
+        }
+
+        // The retired darkmatter:// scheme is a clean break (mdk#725): no longer recognized.
+        #expect(MarkdownLinkPolicy.sanitizedURL(from: "darkmatter://profile/npub1alice") == nil)
+
+        // QR payload emits the canonical link form and round-trips through the parser.
+        let payload = MarmotProfileLink.qrPayload(npub: "npub1alice")
+        #expect(payload == "marmot://profile/npub1alice?from=qr")
+        let payloadURL = try #require(URL(string: payload))
+        #expect(MarmotProfileLink.profileReference(from: payloadURL) == "npub1alice")
+
+        // Paste pre-check prefix helper.
+        #expect(MarmotProfileLink.hasProfileLinkPrefix("  marmot://profile/npub1alice?from=qr "))
+        #expect(MarmotProfileLink.hasProfileLinkPrefix("MARMOT://PROFILE/npub1alice"))
+        #expect(!MarmotProfileLink.hasProfileLinkPrefix("darkmatter://profile/npub1alice"))
+        #expect(!MarmotProfileLink.hasProfileLinkPrefix("marmot://group/abc"))
+    }
+
     @Test func markdownLinkPolicyRejectsPrivateAndLoopbackHosts() async throws {
         // whitenoise-mac#249: peer-controlled Markdown links to literal private/loopback/
         // link-local destinations must be suppressed symmetrically with avatar image URLs,
@@ -505,11 +740,14 @@ struct PureValueTests {
             "http://192.168.0.1/admin/reboot",
             "https://[::1]:9000/",
             "http://127.0.0.1:8080/",
+            "http://127.0.0.1.:8080/",
             "https://10.0.0.5/x",
             "http://169.254.169.254/latest/meta-data",
             "https://[fe80::1]/",
             "http://localhost/admin",
+            "http://localhost./admin",
             "https://printer.local/status",
+            "https://printer.local./status",
             // Obfuscated loopback literal (decimal form of 127.0.0.1).
             "http://2130706433/",
         ] {
@@ -565,6 +803,36 @@ struct PureValueTests {
         #expect(links(in: attributed).map(\.absoluteString) == ["nostr:\(bech32)"])
     }
 
+    @Test func groupImagePreviewURLUsesOpenverseThumbnailOnly() async throws {
+        // Regression for whitenoise-mac#315: search-result tiles must connect only to
+        // the Openverse-proxied thumbnail, never to the arbitrary origin `imageURL`.
+        // Any result without a usable thumbnail renders the placeholder (nil preview).
+        let origin = "https://origin.example/photo.jpg"
+
+        #expect(
+            groupImageResult(imageURL: origin, thumbnailURL: "https://api.openverse.org/thumb.jpg").previewURL
+                == URL(string: "https://api.openverse.org/thumb.jpg")
+        )
+        #expect(groupImageResult(imageURL: origin, thumbnailURL: nil).previewURL == nil)
+        #expect(groupImageResult(imageURL: origin, thumbnailURL: "").previewURL == nil)
+        #expect(groupImageResult(imageURL: origin, thumbnailURL: "   ").previewURL == nil)
+    }
+
+    private func groupImageResult(imageURL: String, thumbnailURL: String?) -> GroupImageSearchResult {
+        GroupImageSearchResult(
+            id: "image-1",
+            title: "Aurora",
+            imageURL: imageURL,
+            thumbnailURL: thumbnailURL,
+            creator: nil,
+            license: nil,
+            attribution: nil,
+            sourceURL: nil,
+            width: nil,
+            height: nil
+        )
+    }
+
     private func links(in attributed: AttributedString) -> [URL] {
         var result: [URL] = []
         for run in attributed.runs {
@@ -598,4 +866,19 @@ struct PureValueTests {
             disappearingMessageSecs: 0
         )
     }
+}
+
+@MainActor
+private final class NoopLocalNotificationCenter: LocalNotificationCenter {
+    func authorizationStatus() async -> LocalNotificationAuthorizationStatus {
+        .notDetermined
+    }
+
+    func requestAuthorization() async throws -> LocalNotificationAuthorizationStatus {
+        .notDetermined
+    }
+
+    func post(_ notification: LocalNotificationRequest) async throws {}
+
+    func setResponseHandler(_ handler: @escaping @MainActor ([String: String]) -> Void) {}
 }
