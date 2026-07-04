@@ -8432,6 +8432,182 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    private func openInstalledGroupDetails(runtime: FakeMarmotRuntime) async throws -> WorkspaceState {
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: groupChat)
+
+        return state
+    }
+
+    @MainActor
+    @Test func saveGroupProfileDropsOverlappingDuplicateInvocation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        state.groupProfileDraftName = "Renamed Group"
+        state.groupProfileDraftDescription = "Planning room"
+        runtime.groupMutationGateEnabled = true
+
+        async let firstSave: Void = state.saveGroupProfile()
+        while !(state.isSavingGroupProfile && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.saveGroupProfile()
+        #expect(runtime.updateGroupProfileCallCount == 1)
+
+        runtime.releaseGroupMutationGate()
+        await firstSave
+
+        #expect(runtime.updateGroupProfileCallCount == 1)
+        #expect(!state.isSavingGroupProfile)
+    }
+
+    @MainActor
+    @Test func inviteMemberDropsOverlappingDuplicateInvocation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1newmember",
+            accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
+            npub: "npub1newmember"
+        )
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        state.groupInviteMemberQuery = "npub1newmember"
+        runtime.groupMutationGateEnabled = true
+
+        async let firstInvite: Void = state.inviteMemberToSelectedGroup()
+        while !(state.isInvitingGroupMember && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.inviteMemberToSelectedGroup()
+        #expect(runtime.inviteMembersDetailedCallCount == 1)
+
+        runtime.releaseGroupMutationGate()
+        await firstInvite
+
+        #expect(runtime.inviteMembersDetailedCallCount == 1)
+        #expect(!state.isInvitingGroupMember)
+    }
+
+    @MainActor
+    @Test func selfDemoteAdminDropsOverlappingDuplicateInvocation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(
+                selfAccountIdHex: account.accountIdHex,
+                otherIsAdmin: true
+            ))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        runtime.groupMutationGateEnabled = true
+        async let firstDemote: Void = state.selfDemoteSelectedGroupAdmin()
+        while !(state.mutatingGroupMemberId != nil && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.selfDemoteSelectedGroupAdmin()
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 1)
+
+        runtime.releaseGroupMutationGate()
+        await firstDemote
+
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 1)
+        #expect(state.mutatingGroupMemberId == nil)
+    }
+
+    @MainActor
+    @Test func archiveGroupDropsOverlappingDuplicateInvocation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        runtime.groupMutationGateEnabled = true
+        async let firstArchive: Void = state.setSelectedGroupArchived(true)
+        while !(state.isArchivingGroup && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.setSelectedGroupArchived(true)
+        #expect(runtime.setGroupArchivedCallCount == 1)
+
+        runtime.releaseGroupMutationGate()
+        await firstArchive
+
+        #expect(runtime.setGroupArchivedCallCount == 1)
+        #expect(!state.isArchivingGroup)
+    }
+
+    @MainActor
+    @Test func leaveGroupDropsOverlappingDuplicateInvocation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
+        runtime.installGroupDetails(
+            details,
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: false,
+                isLastAdmin: false,
+                canInvite: false,
+                canLeave: true,
+                requiresSelfDemoteBeforeLeave: false,
+                memberActions: []
+            )
+        )
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        runtime.groupMutationGateEnabled = true
+        async let firstLeave: Void = state.leaveSelectedGroup()
+        while !(state.isLeavingGroup && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.leaveSelectedGroup()
+        #expect(runtime.leaveGroupCallCount == 1)
+
+        runtime.releaseGroupMutationGate()
+        await firstLeave
+
+        #expect(runtime.leaveGroupCallCount == 1)
+        #expect(!state.isLeavingGroup)
+    }
+
+    @MainActor
+    @Test func mutateGroupMemberDropsOverlappingDuplicateInvocation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
+
+        runtime.groupMutationGateEnabled = true
+        async let firstPromote: Void = state.promoteGroupMember(member)
+        while !(state.mutatingGroupMemberId == member.id && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.promoteGroupMember(member)
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+
+        runtime.releaseGroupMutationGate()
+        await firstPromote
+
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+        #expect(state.mutatingGroupMemberId == nil)
+    }
+
+    @MainActor
     @Test func secureDeleteExpiredMessagesDropsOverlappingDuplicateInvocation() async throws {
         // Issue #216: secure-delete is destructive, so overlapping invocations must be dropped
         // before they issue duplicate FFI calls.
@@ -12257,15 +12433,23 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
     private(set) var updateGroupAvatarUrlCallCount = 0
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
+    private(set) var updateGroupProfileCallCount = 0
     private(set) var archivedGroup: ArchivedGroup?
+    private(set) var setGroupArchivedCallCount = 0
     private(set) var leftGroupIdHex: String?
+    private(set) var leaveGroupCallCount = 0
     private(set) var acceptedInviteGroupIds: [String] = []
     private(set) var declinedInviteGroupIds: [String] = []
     private(set) var invitedMemberRefs: [String] = []
+    private(set) var inviteMembersDetailedCallCount = 0
     private(set) var promotedAdminRef: String?
+    private(set) var promoteAdminDetailedCallCount = 0
     private(set) var demotedAdminRef: String?
+    private(set) var demoteAdminDetailedCallCount = 0
     private(set) var selfDemotedGroupIdHex: String?
+    private(set) var selfDemoteAdminDetailedCallCount = 0
     private(set) var removedMemberRefs: [String] = []
+    private(set) var removeMembersDetailedCallCount = 0
     private(set) var lastPackageFetchBootstrapRelays: [String] = []
     private(set) var didPublishNewKeyPackage = false
     private(set) var didRepublishKeyPackage = false
@@ -12341,6 +12525,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var groupAvatarUpdateGateEnabled = false
     private(set) var didReachGroupAvatarUpdateGate = false
     private var groupAvatarUpdateGateContinuation: CheckedContinuation<Void, Never>?
+    /// Issue #310 reentrancy-test support: when armed, the first group mutation FFI call suspends
+    /// until `releaseGroupMutationGate()` is invoked, holding the first invocation in-flight so a
+    /// test can issue an overlapping duplicate and assert the WorkspaceState guard dropped it.
+    var groupMutationGateEnabled = false
+    private(set) var didReachGroupMutationGate = false
+    private var groupMutationGateContinuation: CheckedContinuation<Void, Never>?
     /// Issue #135 last-request-wins-test support: when armed, the first `groupDetails` FFI call
     /// suspends until `releaseGroupDetailsGate()` is invoked, holding the older `loadGroupDetails`
     /// in-flight so a test can run a newer overlapping load to completion and then assert the stale
@@ -13073,6 +13263,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
         -> GroupMutationResultFfi
     {
+        inviteMembersDetailedCallCount += 1
+        await passGroupMutationGateIfArmed()
         invitedMemberRefs = memberRefs
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -13102,6 +13294,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+        leaveGroupCallCount += 1
+        await passGroupMutationGateIfArmed()
         leftGroupIdHex = groupIdHex
         groups.removeAll { $0.groupIdHex == groupIdHex }
         groupDetailsById[groupIdHex] = nil
@@ -13112,6 +13306,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func promoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
         -> GroupMutationResultFfi
     {
+        promoteAdminDetailedCallCount += 1
+        await passGroupMutationGateIfArmed()
         promotedAdminRef = memberRef
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = true
@@ -13122,6 +13318,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws
         -> GroupMutationResultFfi
     {
+        demoteAdminDetailedCallCount += 1
+        await passGroupMutationGateIfArmed()
         demotedAdminRef = memberRef
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = false
@@ -13132,6 +13330,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func removeMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws
         -> GroupMutationResultFfi
     {
+        removeMembersDetailedCallCount += 1
+        await passGroupMutationGateIfArmed()
         removedMemberRefs = memberRefs
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -13145,6 +13345,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
+        selfDemoteAdminDetailedCallCount += 1
+        await passGroupMutationGateIfArmed()
         selfDemotedGroupIdHex = groupIdHex
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -13158,6 +13360,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi {
+        setGroupArchivedCallCount += 1
+        await passGroupMutationGateIfArmed()
         archivedGroup = ArchivedGroup(groupIdHex: groupIdHex, archived: archived)
         guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
             throw FakeMarmotRuntimeError.unused
@@ -13210,9 +13414,27 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         groupAvatarUpdateGateContinuation = nil
     }
 
+    private func passGroupMutationGateIfArmed() async {
+        guard groupMutationGateEnabled,
+            groupMutationGateContinuation == nil,
+            !didReachGroupMutationGate
+        else { return }
+        didReachGroupMutationGate = true
+        await withCheckedContinuation { continuation in
+            groupMutationGateContinuation = continuation
+        }
+    }
+
+    func releaseGroupMutationGate() {
+        groupMutationGateContinuation?.resume()
+        groupMutationGateContinuation = nil
+    }
+
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
         -> SendSummaryFfi
     {
+        updateGroupProfileCallCount += 1
+        await passGroupMutationGateIfArmed()
         updatedGroupProfile = UpdatedGroupProfile(groupIdHex: groupIdHex, name: name, description: description)
 
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
