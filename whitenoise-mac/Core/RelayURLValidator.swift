@@ -71,6 +71,15 @@ nonisolated enum RelayURLValidator {
             return .invalid
         }
 
+        // Reject any embedded userinfo. A relay's identity is its URL string,
+        // so `wss://relay.damus.io@evil-relay.example` parses with
+        // host == "evil-relay.example" but reads as the trusted host to a human
+        // scanning a relay list — a host-confusion attack. Relay URLs have no
+        // legitimate user/password component, so treat any as malformed.
+        guard components.user == nil, components.password == nil else {
+            return .invalid
+        }
+
         switch scheme {
         case "wss":
             return .secure
