@@ -783,6 +783,33 @@ struct PureValueTests {
         #expect(RelayURLValidator.classify("ws://127.0.0.256") == .insecureRejected)
     }
 
+    @Test func relayValidatorRejectsEmbeddedUserinfoHostConfusion() async throws {
+        // Issue #327: a relay's identity is its URL string. An entry like
+        // `wss://relay.damus.io@evil-relay.example` parses with
+        // host == "evil-relay.example" (user == "relay.damus.io"), so a human
+        // scanning a relay list reads the trusted leading host while the client
+        // connects to the attacker. Any userinfo makes the URL invalid before
+        // scheme classification, so it can never be accepted or flagged secure.
+        for url in [
+            // Deceptive trusted-host-as-userinfo cases (the core attack).
+            "wss://relay.damus.io@evil-relay.example",
+            "wss://trusted@evil",
+            "wss://relay.example.com@evil.com/relay",
+            // Loopback host smuggled behind userinfo must not become loopback.
+            "ws://localhost@evil.com",
+            "ws://127.0.0.1@evil.com",
+            // Explicit user:password userinfo variants.
+            "wss://user:pass@evil.com",
+            "wss://:pass@evil.com",
+            "wss://user@relay.example.com",
+        ] {
+            #expect(RelayURLValidator.classify(url) == .invalid, "expected invalid for \(url)")
+            #expect(!RelayURLValidator.isAcceptable(url), "expected not acceptable for \(url)")
+            #expect(!RelayURLValidator.isInsecure(url), "expected no insecure flag for \(url)")
+            #expect(!RelayURLValidator.isCleartext(url), "expected not cleartext for \(url)")
+        }
+    }
+
     @Test func markdownLinkPolicyAllowsOnlyWebAndNostrSchemes() async throws {
         let httpsURL = MarkdownLinkPolicy.sanitizedURL(from: "https://example.com/path")
         #expect(httpsURL?.absoluteString == "https://example.com/path")
