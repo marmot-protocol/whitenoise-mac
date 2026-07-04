@@ -50,7 +50,8 @@ extension ChatItem {
             title = DisplayText.short(directPeer?.accountIdHex ?? row.groupIdHex)
         }
         let preview = row.lastMessage.map { ChatItem.previewText(for: $0, activeAccountIdHex: activeAccountIdHex) }
-        let timestamp = row.lastMessage?.timelineAt ?? row.updatedAt
+        let previewTimestamp = row.lastMessage?.timelineAt ?? 0
+        let timestamp = previewTimestamp > 0 ? previewTimestamp : row.updatedAt
         let updatedAt = timestamp > 0 ? Date(timeIntervalSince1970: TimeInterval(timestamp)) : nil
         let subtitle: String
         if row.archived {
