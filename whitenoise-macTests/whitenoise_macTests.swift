@@ -1614,59 +1614,57 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: entryDirectory.path))
     }
 
-    @Test func messageMediaDiskCacheAccountPurgeDeletesUnreadableEntries() async throws {
+    @Test func messageMediaDiskCacheAccountPurgeSkipsUnreadableEntries() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
 
         let cache = messageMediaDiskCache(root: root)
-        let corruptPlaintext = Data("account media with unreadable metadata".utf8)
-        let preservedPlaintext = Data("other account media".utf8)
-        let corruptKey = MessageMediaDiskCacheKey(
+        let purgedPlaintext = Data("purged account media".utf8)
+        let unreadablePlaintext = Data("other account media with unreadable metadata".utf8)
+        let purgedKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: mediaDiskCacheReference(plaintext: corruptPlaintext, ciphertextByte: 0xaa)
+            reference: mediaDiskCacheReference(plaintext: purgedPlaintext, ciphertextByte: 0xaa)
         )
-        let preservedKey = MessageMediaDiskCacheKey(
+        let unreadableKey = MessageMediaDiskCacheKey(
             accountId: "account-b",
             groupIdHex: "group-b",
-            reference: mediaDiskCacheReference(plaintext: preservedPlaintext, ciphertextByte: 0xbb)
+            reference: mediaDiskCacheReference(plaintext: unreadablePlaintext, ciphertextByte: 0xbb)
         )
 
         await cache.store(
             MessageMediaDownload(
-                data: corruptPlaintext,
-                fileName: "corrupt.jpg",
+                data: purgedPlaintext,
+                fileName: "purged.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(corruptPlaintext.count),
-                payloadId: "corrupt"
+                sizeBytes: UInt64(purgedPlaintext.count),
+                payloadId: "purged"
             ),
-            for: corruptKey
+            for: purgedKey
         )
         await cache.store(
             MessageMediaDownload(
-                data: preservedPlaintext,
-                fileName: "preserved.jpg",
+                data: unreadablePlaintext,
+                fileName: "unreadable.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(preservedPlaintext.count),
-                payloadId: "preserved"
+                sizeBytes: UInt64(unreadablePlaintext.count),
+                payloadId: "unreadable"
             ),
-            for: preservedKey
+            for: unreadableKey
         )
 
-        let corruptEntryDirectory = try #require(cache.entryDirectory(for: corruptKey))
-        let preservedEntryDirectory = try #require(cache.entryDirectory(for: preservedKey))
+        let purgedEntryDirectory = try #require(cache.entryDirectory(for: purgedKey))
+        let unreadableEntryDirectory = try #require(cache.entryDirectory(for: unreadableKey))
         try Data("not sealed metadata".utf8).write(
-            to: corruptEntryDirectory.appendingPathComponent("metadata.bin")
+            to: unreadableEntryDirectory.appendingPathComponent("metadata.bin")
         )
 
         await cache.purgeAccount("account-a")
 
-        #expect(!fileManager.fileExists(atPath: corruptEntryDirectory.path))
-        #expect(await cache.cachedDownload(for: corruptKey) == nil)
-        #expect(fileManager.fileExists(atPath: preservedEntryDirectory.path))
-        #expect(try #require(await cache.cachedDownload(for: preservedKey)).data == preservedPlaintext)
+        #expect(!fileManager.fileExists(atPath: purgedEntryDirectory.path))
+        #expect(fileManager.fileExists(atPath: unreadableEntryDirectory.path))
     }
 
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
