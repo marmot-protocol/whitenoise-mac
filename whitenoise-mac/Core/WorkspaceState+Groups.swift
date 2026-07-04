@@ -214,7 +214,8 @@ extension WorkspaceState {
         }
 
         lastError = nil
-        mutatingGroupMemberId = snapshot.members.first(where: \.isSelf)?.id
+        let selfMemberId = snapshot.members.first(where: \.isSelf)?.id ?? activeAccount.accountIdHex
+        mutatingGroupMemberId = selfMemberId
         defer { mutatingGroupMemberId = nil }
 
         do {

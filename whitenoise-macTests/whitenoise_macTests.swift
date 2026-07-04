@@ -8526,6 +8526,50 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selfDemoteAdminUsesFallbackMutexWhenSelfMemberIsMissing() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var details = groupDetailsFixture(
+            selfAccountIdHex: account.accountIdHex,
+            otherIsAdmin: true
+        )
+        details.members.removeAll(where: \.isSelf)
+        runtime.installGroupDetails(
+            details,
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: true,
+                isLastAdmin: false,
+                canInvite: true,
+                canLeave: true,
+                requiresSelfDemoteBeforeLeave: true,
+                memberActions: []
+            ))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        runtime.groupMutationGateEnabled = true
+        async let firstDemote: Void = state.selfDemoteSelectedGroupAdmin()
+        for _ in 0..<100 {
+            if state.mutatingGroupMemberId == account.accountIdHex && runtime.didReachGroupMutationGate {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(state.mutatingGroupMemberId == account.accountIdHex)
+        #expect(runtime.didReachGroupMutationGate)
+
+        await state.selfDemoteSelectedGroupAdmin()
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 1)
+
+        runtime.releaseGroupMutationGate()
+        await firstDemote
+
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 1)
+        #expect(state.mutatingGroupMemberId == nil)
+    }
+
+    @MainActor
     @Test func archiveGroupDropsOverlappingDuplicateInvocation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
