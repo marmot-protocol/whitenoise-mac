@@ -161,6 +161,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private let keyProvider: KeyProvider
     private let keyDeleter: KeyDeleter
     private let lock = NSLock()
+    // Serializes the filesystem create/remove/move work of commits and purges so a slow
+    // commit never blocks generation reads or purge bookkeeping (which stay on `lock`).
+    // A commit holds this lock while it re-reads the generation and moves the final entry
+    // into place; a purge holds it while it deletes on disk. Because `beginPurge()` bumps
+    // the generation under `lock` before its filesystem work runs, a commit that observes
+    // an unchanged generation while holding this lock is guaranteed no purge deletion can
+    // interleave with its move, so an older store can never resurrect a purged entry.
+    private let fileMutationLock = NSLock()
     private var generation = 0
     private var purgeTask: Task<Void, Never>?
     private var purgeGeneration: Int?
@@ -326,7 +334,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         lock.lock()
         generation += 1
         let activeGeneration = generation
+        let fileMutationLock = self.fileMutationLock
         let task = Task.detached(priority: .utility) {
+            fileMutationLock.lock()
+            defer { fileMutationLock.unlock() }
             work()
         }
         purgeTask = task
@@ -345,10 +356,15 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private func commitPreparedEntry(_ prepared: PreparedEntry, startGeneration: Int) {
-        lock.lock()
-        defer { lock.unlock() }
+        // Hold only the narrow filesystem-mutation lock across the slow create/remove/move
+        // so generation reads and purge bookkeeping (on `lock`) never block on this commit.
+        // The generation re-check happens under `fileMutationLock`: a purge bumps the
+        // generation under `lock` before acquiring `fileMutationLock` for its deletion, so
+        // an unchanged generation observed here means no purge deletion can interleave.
+        fileMutationLock.lock()
+        defer { fileMutationLock.unlock() }
 
-        guard generation == startGeneration else {
+        guard currentGeneration() == startGeneration else {
             Self.discardPreparedEntry(prepared)
             return
         }
