@@ -307,7 +307,7 @@ struct GroupDetailsSheet: View {
                         Section("Developer") {
                             HStack(spacing: 10) {
                                 Button {
-                                    Task { await workspace.copySelectedGroupTranscriptJSON() }
+                                    workspace.startCopySelectedGroupTranscriptJSON()
                                 } label: {
                                     Label(
                                         workspace.isExportingGroupTranscript
