@@ -11214,6 +11214,41 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func telemetryBuildConfigDefaultsToMarketingOnlyOSVersion() async throws {
+        // The default osVersion must be the marketing "major.minor.patch"
+        // string, never the build-bearing operatingSystemVersionString (for
+        // example "Version 15.5 (Build 24F74)") which is a higher-entropy
+        // fingerprint exported to the remote OTLP endpoint.
+        let config = TelemetryBuildConfig.current(
+            infoDictionary: [
+                "CFBundleShortVersionString": "2026.6",
+                "CFBundleVersion": "12",
+            ],
+            environment: [:]
+        )
+
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        let expected = "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+        #expect(config.osVersion == expected)
+        #expect(config.osVersion != ProcessInfo.processInfo.operatingSystemVersionString)
+        #expect(!config.osVersion.contains("Build"))
+        #expect(!config.osVersion.contains("Version"))
+        #expect(config.osVersion.allSatisfy { $0.isNumber || $0 == "." })
+
+        let runtimeResource = config.runtimeConfig(installId: "install-id").resource
+        #expect(runtimeResource?.osVersion == expected)
+        #expect(runtimeResource?.osVersion != ProcessInfo.processInfo.operatingSystemVersionString)
+    }
+
+    @MainActor
+    @Test func telemetryBuildConfigFormatsMarketingOSVersionAsMajorMinorPatch() async throws {
+        let formatted = TelemetryBuildConfig.marketingOSVersion(
+            OperatingSystemVersion(majorVersion: 15, minorVersion: 5, patchVersion: 0)
+        )
+        #expect(formatted == "15.5.0")
+    }
+
+    @MainActor
     @Test func telemetryBuildConfigIgnoresUnresolvedBuildSettingsAndUsesEnvironmentFallbacks() async throws {
         let config = TelemetryBuildConfig.current(
             infoDictionary: [
@@ -11291,7 +11326,7 @@ struct whitenoise_macTests {
         #expect(telemetryResource?.deploymentEnvironment == "production")
         #expect(telemetryResource?.tenant == "whitenoise-mac")
         #expect(telemetryResource?.osType == "darwin")
-        #expect(telemetryResource?.osVersion == ProcessInfo.processInfo.operatingSystemVersionString)
+        #expect(telemetryResource?.osVersion == TelemetryBuildConfig.marketingOSVersion())
         #expect(telemetryResource?.deviceModelIdentifier == nil)
         #expect(runtime.auditLogTrackerConfig?.authorizationBearerToken == "audit-token")
         #expect(runtime.auditLogTrackerConfig?.source.deviceLabel == expectedDeviceModelIdentifier())
@@ -15288,7 +15323,7 @@ private func telemetryBuildConfig(
     auditToken: String? = "audit-token",
     environment: String = "production",
     serviceVersion: String = expectedTelemetryServiceVersion(),
-    osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString,
+    osVersion: String = TelemetryBuildConfig.marketingOSVersion(),
     deviceModelIdentifier: String? = expectedDeviceModelIdentifier()
 ) -> TelemetryBuildConfig {
     TelemetryBuildConfig(
