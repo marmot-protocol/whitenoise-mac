@@ -2813,6 +2813,48 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func directMediaJSONLocatorKeepsValidSiblingsWhenMalformedElementPresent() async throws {
+        // Regression for whitenoise-mac#364: a single malformed locator sibling must not
+        // make the direct-reference JSON parser drop every valid locator in the array.
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "mixed-locator-elements",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJSONString(fromJSONObject: [
+                        "ciphertext_sha256": reference.ciphertextSha256,
+                        "plaintext_sha256": reference.plaintextSha256,
+                        "nonce": reference.nonceHex,
+                        "file_name": reference.fileName,
+                        "media_type": reference.mediaType,
+                        "version": reference.version,
+                        "locators": [
+                            ["kind": "blossom", "value": "https://blob.example/valid"],
+                            0,
+                        ] as [Any],
+                    ])
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+        let attachment = try #require(message.mediaAttachments.first)
+        let locator = try #require(attachment.reference.locators.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(attachment.reference.locators.count == 1)
+        #expect(locator.kind == "blossom")
+        #expect(locator.value == "https://blob.example/valid")
+    }
+
+    @MainActor
     @Test func booleanMediaJSONStringAliasValuesFallThroughAndBadLocatorsAreDropped() async throws {
         // `string(_:keys:)` searches aliases in order. A boolean at an earlier alias
         // should be treated as malformed for that key, not as "1" and not as a reason
