@@ -654,9 +654,10 @@ private nonisolated enum MessageMediaParser {
     }
 
     private static func locators(fromJSONObject value: Any?) -> [MediaLocatorFfi] {
-        guard let locators = value as? [[String: Any]] else { return [] }
+        guard let locators = value as? [Any] else { return [] }
         return locators.compactMap { locator in
-            guard let kind = string(locator, keys: ["kind"]),
+            guard let locator = locator as? [String: Any],
+                let kind = string(locator, keys: ["kind"]),
                 let value = string(locator, keys: ["value"])
             else { return nil }
             return MediaLocatorFfi(kind: kind, value: value)
