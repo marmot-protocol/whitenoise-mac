@@ -618,6 +618,7 @@ final class WorkspaceState {
     var isSavingNotifications = false
     var isSavingPrivacySecurity = false
     var isLoadingAuditLogFiles = false
+    @ObservationIgnored var shouldReloadAuditLogFilesAfterCurrentLoad = false
     var isDeletingAuditLogFiles = false
     var isUploadingAuditLogFiles = false
     var isDeletingAllData = false
