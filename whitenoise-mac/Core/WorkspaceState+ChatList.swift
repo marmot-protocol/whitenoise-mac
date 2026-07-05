@@ -336,6 +336,7 @@ extension WorkspaceState {
             selectedGroupId == groupIdHex
         else { return }
 
+        leaveActiveConversation()
         closeGroupImagePicker()
         let nextChat = mostRecentChat(in: chats)
         selection = nextChat.map { .chat($0.id) }
