@@ -259,10 +259,6 @@ extension WorkspaceState {
         }
         guard !upsertRecords.isEmpty || !removalIds.isEmpty else { return }
 
-        if upsertRecords.contains(where: { timelineRecordMayContainMediaAttachment($0) }) {
-            clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
-        }
-
         // Resolve senders for just the changed records (the common case is an all-cached
         // lookup) and map only those records — not the entire window.
         let senderProfiles = await TimelineSignpost.mapping.asyncInterval(
@@ -301,6 +297,25 @@ extension WorkspaceState {
         // does. Existing rows still update in place (edits, reactions, delivery state).
         let anchored = !paging.hasMoreAfter
         let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
+
+        // Only invalidate the per-group media-reference resolution cache when a projection
+        // actually introduces new or changed media attachments. A single media send emits a
+        // burst of projection deltas (new row, delivery-state transitions, relay echo,
+        // per-relay acks) that re-carry the same media fields; clearing on every one of those
+        // re-runs full media resolution for visible `sourceEpoch == 0` tiles. Comparing the
+        // mapped `MessageItem.mediaAttachments` against the current store entry (still
+        // pre-mutation here — `applyProjection` mutates it below) skips the clear for those
+        // pure delivery-state/projection ticks. Read against `timelineStore.lookup` because it
+        // holds the current pre-mutation entry for any message already in the rendered window.
+        let introducesMediaChange = mappedUpserts.contains { upsert in
+            let currentAttachments = timelineStore.lookup[upsert.id]?.mediaAttachments ?? []
+            guard !currentAttachments.isEmpty || !upsert.mediaAttachments.isEmpty else { return false }
+            return currentAttachments != upsert.mediaAttachments
+        }
+        if introducesMediaChange {
+            clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
+        }
+
         let result = TimelineSignpost.store.interval(
             "applyProjection", count: mappedUpserts.count + removalIds.count
         ) {
@@ -323,12 +338,6 @@ extension WorkspaceState {
             )
         )
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
-    }
-
-    private func timelineRecordMayContainMediaAttachment(_ record: TimelineMessageRecordFfi) -> Bool {
-        if !record.media.isEmpty { return true }
-        if record.mediaJson?.isEmpty == false { return true }
-        return record.tags.contains { $0.values.first == "imeta" }
     }
 
     func startReply(to message: MessageItem) {
