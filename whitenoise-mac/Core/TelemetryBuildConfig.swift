@@ -40,7 +40,7 @@ struct TelemetryBuildConfig: Equatable {
         infoDictionary: [String: Any]? = Bundle.main.infoDictionary,
         processInfo: ProcessInfo = .processInfo,
         environment: [String: String]? = nil,
-        osVersion: String = ProcessInfo.processInfo.operatingSystemVersionString,
+        osVersion: String = TelemetryBuildConfig.marketingOSVersion(),
         deviceModelIdentifier: String? = nil
     ) -> TelemetryBuildConfig {
         let info = infoDictionary ?? [:]
@@ -162,6 +162,18 @@ struct TelemetryBuildConfig: Equatable {
 
     nonisolated private static func isUnresolvedBuildSetting(_ value: String) -> Bool {
         value.hasPrefix("$(") && value.hasSuffix(")")
+    }
+
+    /// Marketing-only OS version formatted as "major.minor.patch".
+    ///
+    /// `ProcessInfo.operatingSystemVersionString` embeds the build number (for
+    /// example "Version 15.5 (Build 24F74)"), a higher-entropy fingerprinting
+    /// signal. This resource is exported to a remote OTLP endpoint, so emit only
+    /// the marketing version drawn from `operatingSystemVersion`.
+    nonisolated static func marketingOSVersion(
+        _ version: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
+    ) -> String {
+        "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }
 
     nonisolated static func deviceModelIdentifier() -> String? {
