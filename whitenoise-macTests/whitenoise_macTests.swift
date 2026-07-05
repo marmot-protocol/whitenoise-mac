@@ -305,6 +305,46 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func overlappingAuditLogFileLoadsAreDroppedWhileLoadIsInFlight() async throws {
+        // Regression for #366: loadAuditLogFiles() owns a shared spinner flag. A second
+        // overlapping load must return at entry rather than enqueue another FFI fetch whose
+        // completion can race the first load's defer and clear the spinner early.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        runtime.clearSyncCallThreadRecords()
+        runtime.auditLogFilesGateEnabled = true
+
+        async let firstLoad: Void = state.loadAuditLogFiles()
+        while !(state.isLoadingAuditLogFiles && runtime.didReachAuditLogFilesGate) {
+            await Task.yield()
+        }
+
+        async let secondLoad: Void = state.loadAuditLogFiles()
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+
+        #expect(state.isLoadingAuditLogFiles)
+        #expect(runtime.syncCallThreadRecord("auditLogFiles").count == 1)
+
+        runtime.releaseAuditLogFilesGate()
+        await firstLoad
+        await secondLoad
+
+        #expect(runtime.syncCallThreadRecord("auditLogFiles").count == 1)
+        #expect(state.isLoadingAuditLogFiles == false)
+    }
+
+    @MainActor
     @Test func addingSecondAccountViaLoginBringsItOnlineWithoutRelaunch() async throws {
         // Regression for #74: the Settings → Add Account flow reuses login()/
         // signUp() while the runtime is already running. The new account must be
@@ -12820,6 +12860,17 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachSetLocalNotificationsGate: Bool {
         setLocalNotificationsGate.didReach
     }
+    /// Issue #366 reentrancy-test support: when armed, the first synchronous
+    /// `auditLogFiles` read blocks on the off-main FFI batch while a test issues
+    /// an overlapping load that must be dropped by WorkspaceState.
+    private let auditLogFilesGate = BlockingFfiGate()
+    var auditLogFilesGateEnabled: Bool {
+        get { auditLogFilesGate.isEnabled }
+        set { auditLogFilesGate.isEnabled = newValue }
+    }
+    var didReachAuditLogFilesGate: Bool {
+        auditLogFilesGate.didReach
+    }
     /// Issue #283 stale-account-test support: when armed, the first synchronous `userProfile` FFI
     /// read blocks on the off-main FFI batch until released, holding `performSettingsLoad`'s profile
     /// fetch in-flight so a test can switch the active account and assert account A's stale profile
@@ -13239,6 +13290,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func auditLogFiles() throws -> [AuditLogFileFfi] {
         recordSyncCall("auditLogFiles")
+        auditLogFilesGate.passIfArmed()
         return storedAuditLogFiles
     }
 
@@ -13317,6 +13369,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func releaseSetLocalNotificationsGate() {
         setLocalNotificationsGate.release()
+    }
+
+    func releaseAuditLogFilesGate() {
+        auditLogFilesGate.release()
     }
 
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws {

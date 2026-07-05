@@ -569,6 +569,7 @@ extension WorkspaceState {
             auditLogFiles = []
             return
         }
+        guard !isLoadingAuditLogFiles else { return }
 
         isLoadingAuditLogFiles = true
         defer { isLoadingAuditLogFiles = false }
