@@ -567,21 +567,31 @@ extension WorkspaceState {
     func loadAuditLogFiles() async {
         guard let client else {
             auditLogFiles = []
+            shouldReloadAuditLogFilesAfterCurrentLoad = false
             return
         }
-        guard !isLoadingAuditLogFiles else { return }
+        guard !isLoadingAuditLogFiles else {
+            shouldReloadAuditLogFilesAfterCurrentLoad = true
+            return
+        }
 
         isLoadingAuditLogFiles = true
-        defer { isLoadingAuditLogFiles = false }
-
-        do {
-            auditLogFiles = try await runOffMain {
-                try client.auditLogFiles()
-            }
-        } catch {
-            auditLogFiles = []
-            lastError = error.localizedDescription
+        defer {
+            isLoadingAuditLogFiles = false
+            shouldReloadAuditLogFilesAfterCurrentLoad = false
         }
+
+        repeat {
+            shouldReloadAuditLogFilesAfterCurrentLoad = false
+            do {
+                auditLogFiles = try await runOffMain {
+                    try client.auditLogFiles()
+                }
+            } catch {
+                auditLogFiles = []
+                lastError = error.localizedDescription
+            }
+        } while shouldReloadAuditLogFilesAfterCurrentLoad
     }
 
     func deleteAllAuditLogFiles() async {

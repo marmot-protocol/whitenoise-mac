@@ -305,10 +305,11 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func overlappingAuditLogFileLoadsAreDroppedWhileLoadIsInFlight() async throws {
+    @Test func overlappingAuditLogFileLoadsCoalesceWhileLoadIsInFlight() async throws {
         // Regression for #366: loadAuditLogFiles() owns a shared spinner flag. A second
-        // overlapping load must return at entry rather than enqueue another FFI fetch whose
-        // completion can race the first load's defer and clear the spinner early.
+        // overlapping load must not enqueue a concurrent FFI fetch whose completion can race
+        // the first load's defer, but it should request one fresh pass after the current load
+        // so mutation-triggered refreshes are not dropped.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -340,7 +341,7 @@ struct whitenoise_macTests {
         await firstLoad
         await secondLoad
 
-        #expect(runtime.syncCallThreadRecord("auditLogFiles").count == 1)
+        #expect(runtime.syncCallThreadRecord("auditLogFiles").count == 2)
         #expect(state.isLoadingAuditLogFiles == false)
     }
 
@@ -12862,7 +12863,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
     /// Issue #366 reentrancy-test support: when armed, the first synchronous
     /// `auditLogFiles` read blocks on the off-main FFI batch while a test issues
-    /// an overlapping load that must be dropped by WorkspaceState.
+    /// an overlapping load that must be coalesced by WorkspaceState.
     private let auditLogFilesGate = BlockingFfiGate()
     var auditLogFilesGateEnabled: Bool {
         get { auditLogFilesGate.isEnabled }
