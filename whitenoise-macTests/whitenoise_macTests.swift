@@ -10062,6 +10062,35 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removeSelectedChatStopsInProgressVoiceRecordingBeforeAutoReselection() async throws {
+        // #362: subscription deltas can remove the selected chat and auto-select a different
+        // conversation. That implicit navigation must tear down active conversation resources
+        // before the composer belongs to the new chat, or finishing would file chat A's audio
+        // under chat B and transcript export pagination would continue after leaving chat A.
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let removedChatId = try #require(state.selectedChat?.id)
+        let url = try armInProgressVoiceRecording(on: state)
+        let transcriptExportTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        state.groupTranscriptExportTask = transcriptExportTask
+        defer { transcriptExportTask.cancel() }
+
+        state.removeChat(groupIdHex: removedChatId, account: account)
+
+        #expect(state.selection != .chat(removedChatId))
+        #expect(state.selectedChat != nil)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(transcriptExportTask.isCancelled)
+        await transcriptExportTask.value
+    }
+
+    @MainActor
     @Test func resetToNewInstallStateStopsInProgressVoiceRecording() throws {
         // #311: the full local-data teardown must also release the recorder so a wipe cannot
         // leave the microphone active or plaintext audio writes running in the old state.
