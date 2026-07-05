@@ -3352,6 +3352,149 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func timelineMediaProjectionKeepsMediaReferenceCacheForUnchangedMediaTick() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let accountItem = AccountItem(summary: account)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let chat = ChatItem(
+            id: "group",
+            title: "Test Group",
+            subtitle: "Group message",
+            preview: "Attachment",
+            updatedAt: nil,
+            avatarSeed: "group",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let state = WorkspaceState(
+            accounts: [accountItem],
+            chatsByAccount: [accountItem.id: [chat]],
+            messagesByChat: ["group": []],
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = accountItem.id
+        state.selection = .chat("group")
+        let timelineReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "inbound.png",
+            ciphertextSha256: String(repeating: "e", count: 64),
+            plaintextSha256: String(repeating: "f", count: 64)
+        )
+
+        // Seed the store with the media message. This first projection is a genuine new-media
+        // event, so it is *expected* to invalidate the (empty) cache.
+        let mediaJsonPayload = mediaJson(for: timelineReference)
+        await state.applyTimelineProjection(
+            TimelineProjectionUpdateFfi(
+                groupIdHex: "group",
+                messages: [],
+                changes: [
+                    .upsert(
+                        trigger: .newMessage,
+                        message: timelineMessage(
+                            id: "inbound-media-message",
+                            groupIdHex: "group",
+                            sender: "alice",
+                            plaintext: "",
+                            recordedAt: 1_700_000_001,
+                            mediaJson: mediaJsonPayload
+                        ))
+                ],
+                chatListRow: nil,
+                chatListTrigger: .newLastMessage
+            ),
+            groupIdHex: "group",
+            account: accountItem,
+            client: runtime
+        )
+
+        // Prime the resolution cache with a miss for the unresolved (sourceEpoch == 0) ref.
+        let initial = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(initial.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        // Install a now-resolvable record: if the delivery-state tick were to wrongly clear the
+        // cache, the follow-up resolve would rebuild the index and surface this full reference.
+        let fullReference = mediaAttachmentReference(
+            sourceEpoch: 11,
+            mediaType: "image/png",
+            fileName: "inbound.png",
+            ciphertextSha256: timelineReference.ciphertextSha256,
+            plaintextSha256: timelineReference.plaintextSha256
+        )
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "inbound-media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: fullReference,
+                caption: nil,
+                recordedAt: 1_700_000_001,
+                receivedAt: 1_700_000_001
+            ),
+            download: MediaDownloadResultFfi(
+                plaintext: Data([0x05, 0x06, 0x07, 0x08]),
+                fileName: "inbound.png",
+                mediaType: "image/png",
+                sizeBytes: 4
+            )
+        )
+
+        // A pure delivery-state tick for the same message re-carries the identical media
+        // fields, so the mapped `mediaAttachments` are unchanged and the cache must be kept.
+        await state.applyTimelineProjection(
+            TimelineProjectionUpdateFfi(
+                groupIdHex: "group",
+                messages: [],
+                changes: [
+                    .upsert(
+                        trigger: .deliveryOrSendStateChanged,
+                        message: timelineMessage(
+                            id: "inbound-media-message",
+                            groupIdHex: "group",
+                            sender: "alice",
+                            plaintext: "",
+                            recordedAt: 1_700_000_001,
+                            mediaJson: mediaJsonPayload
+                        ))
+                ],
+                chatListRow: nil,
+                chatListTrigger: .newLastMessage
+            ),
+            groupIdHex: "group",
+            account: accountItem,
+            client: runtime
+        )
+
+        let stillCachedMiss = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(stillCachedMiss.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+    }
+
+    @MainActor
     @Test func workspaceCoalescesAndCachesSourceEpochZeroMediaReferenceResolution() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
