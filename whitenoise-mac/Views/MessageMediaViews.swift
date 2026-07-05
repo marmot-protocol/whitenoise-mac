@@ -193,14 +193,28 @@ struct MessageBubble: View {
                 .padding(.horizontal, 4)
             }
         }
+        // Hover actions are gated on `supportsChatActions` alone, independent of
+        // whether the bubble carries text/reply content. Anchoring the overlay to this
+        // content-hugging VStack (rather than the text-only `bubbleContent`) keeps React/Reply
+        // reachable for media-only messages, whose attachments render outside `bubbleContent`.
+        // See whitenoise-mac#361.
+        .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
+            if showsInlineActions {
+                MessageInlineActions(
+                    isPresentationActive: $isInlineActionPresentationActive,
+                    message: message
+                )
+                .offset(x: message.isOutgoing ? -100 : 100)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+        }
+        .animation(.smooth(duration: 0.12), value: showsInlineActions)
         .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
         .padding(message.isOutgoing ? .leading : .trailing, 72)
         .contentShape(Rectangle())
         .contextMenu {
-            if message.canCopyText || message.canDelete {
-                MessageOverflowMenuItems(message: message)
-            }
+            MessageContextMenuItems(message: message)
         }
         .onHover { hovering in
             isHovering = hovering
@@ -241,17 +255,6 @@ struct MessageBubble: View {
         .padding(.vertical, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
-        .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
-            if showsInlineActions {
-                MessageInlineActions(
-                    isPresentationActive: $isInlineActionPresentationActive,
-                    message: message
-                )
-                .offset(x: message.isOutgoing ? -100 : 100)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-        }
-        .animation(.smooth(duration: 0.12), value: showsInlineActions)
     }
 }
 
@@ -1464,7 +1467,7 @@ struct MessageEmojiPickerPopover: View {
 
 /// The Copy/Delete actions available on a message row, gated by the message's own
 /// `canCopyText` / `canDelete`. Centralised here so both presentations — the native
-/// `.contextMenu` (`MessageOverflowMenuItems`) and the inline hover popover
+/// `.contextMenu` (`MessageContextMenuItems`) and the inline hover popover
 /// (`MessageOverflowPopover`) — share one source of truth for which actions exist and what
 /// they do, while each keeps its own button styling.
 struct MessageRowAction: Identifiable {
@@ -1539,12 +1542,47 @@ struct MessageOverflowPopover: View {
     }
 }
 
-struct MessageOverflowMenuItems: View {
+/// The right-click menu for a chat bubble. Unlike the inline hover bar this is always
+/// reachable (no hover), so it mirrors the same React/Reply/Copy/Delete actions — gated on
+/// the message's own capabilities — rather than only the Copy/Delete overflow subset. This
+/// keeps React/Reply available for media-only bubbles, where the hover bar can be easy to
+/// miss and text/copy actions don't apply. See whitenoise-mac#361.
+struct MessageContextMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
 
+    /// A short list of common reactions offered inline in the context menu; the hover bar's
+    /// popover remains the path to the full emoji grid.
+    private static let quickReactionEmojis = ["👍", "❤️", "😂", "🎉", "🙏", "🔥"]
+
     var body: some View {
         let actions = MessageRowAction.all(for: message, workspace: workspace)
+
+        if message.canReact {
+            Menu {
+                ForEach(Self.quickReactionEmojis, id: \.self) { emoji in
+                    Button {
+                        Task { await workspace.react(to: message, emoji: emoji) }
+                    } label: {
+                        Text(emoji)
+                    }
+                }
+            } label: {
+                Label("React", systemImage: "face.smiling")
+            }
+        }
+
+        if message.canReply {
+            Button {
+                workspace.startReply(to: message)
+            } label: {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+            }
+        }
+
+        if (message.canReact || message.canReply) && !actions.isEmpty {
+            Divider()
+        }
         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
             if index > 0 { Divider() }
             Button(role: action.role, action: action.run) {
