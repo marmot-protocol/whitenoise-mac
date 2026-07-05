@@ -2455,6 +2455,22 @@ struct whitenoise_macTests {
             isOutgoing: false,
             presentation: .groupSystem
         )
+        // Regression for whitenoise-mac#361: a media-only bubble (no caption, no reply
+        // context) carries no bubble content, yet must still be reactable/replyable so the
+        // hover bar and context menu surface those actions.
+        let incomingMediaOnly = MessageItem(
+            id: "incoming-media-only",
+            senderName: "Alice",
+            body: "",
+            sentAt: sentAt,
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "photo",
+                    reference: mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+                )
+            ]
+        )
 
         #expect(outgoing.supportsChatActions)
         #expect(outgoing.canCopyText)
@@ -2467,6 +2483,13 @@ struct whitenoise_macTests {
         #expect(incoming.canReact)
         #expect(incoming.canReply)
         #expect(!incoming.canDelete)
+
+        #expect(!incomingMediaOnly.hasBubbleContent)
+        #expect(incomingMediaOnly.supportsChatActions)
+        #expect(!incomingMediaOnly.canCopyText)
+        #expect(incomingMediaOnly.canReact)
+        #expect(incomingMediaOnly.canReply)
+        #expect(!incomingMediaOnly.canDelete)
 
         for message in [deleted, failed] {
             #expect(!message.supportsChatActions)
