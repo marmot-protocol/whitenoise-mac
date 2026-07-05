@@ -1,6 +1,6 @@
-mdk-sha: e712232
+mdk-sha: 206d5bd
 mdk-branch: master
-built-at: 2026-07-04T12:01:50Z
+built-at: 2026-07-05T23:01:05Z
 uniffi-version: 0.28.3
 macos-targets: aarch64-apple-darwin
 macos-deployment-target: 15.6

@@ -12625,7 +12625,11 @@ public enum MarkdownBlockFfi {
     )
     case blockQuote(blocks: [MarkdownBlockFfi]
     )
-    case list(kind: MarkdownListKindFfi, tight: Bool, items: [MarkdownListItemFfi]
+    /**
+     * Named `ListBlock` (not `List`) to match the sibling `*Block` variants and
+     * to avoid shadowing `kotlin.collections.List` in generated Kotlin bindings.
+     */
+    case listBlock(kind: MarkdownListKindFfi, tight: Bool, items: [MarkdownListItemFfi]
     )
     case table(alignments: [MarkdownAlignmentFfi], header: [MarkdownTableCellFfi], rows: [[MarkdownTableCellFfi]]
     )
@@ -12658,7 +12662,7 @@ public struct FfiConverterTypeMarkdownBlockFfi: FfiConverterRustBuffer {
         case 5: return .blockQuote(blocks: try FfiConverterSequenceTypeMarkdownBlockFfi.read(from: &buf)
         )
         
-        case 6: return .list(kind: try FfiConverterTypeMarkdownListKindFfi.read(from: &buf), tight: try FfiConverterBool.read(from: &buf), items: try FfiConverterSequenceTypeMarkdownListItemFfi.read(from: &buf)
+        case 6: return .listBlock(kind: try FfiConverterTypeMarkdownListKindFfi.read(from: &buf), tight: try FfiConverterBool.read(from: &buf), items: try FfiConverterSequenceTypeMarkdownListItemFfi.read(from: &buf)
         )
         
         case 7: return .table(alignments: try FfiConverterSequenceTypeMarkdownAlignmentFfi.read(from: &buf), header: try FfiConverterSequenceTypeMarkdownTableCellFfi.read(from: &buf), rows: try FfiConverterSequenceSequenceTypeMarkdownTableCellFfi.read(from: &buf)
@@ -12702,7 +12706,7 @@ public struct FfiConverterTypeMarkdownBlockFfi: FfiConverterRustBuffer {
             FfiConverterSequenceTypeMarkdownBlockFfi.write(blocks, into: &buf)
             
         
-        case let .list(kind,tight,items):
+        case let .listBlock(kind,tight,items):
             writeInt(&buf, Int32(6))
             FfiConverterTypeMarkdownListKindFfi.write(kind, into: &buf)
             FfiConverterBool.write(tight, into: &buf)
@@ -13181,6 +13185,13 @@ public enum MarmotEventFfi {
     )
     case agentStreamActivity(accountIdHex: String, accountLabel: String
     )
+    /**
+     * A confirmed create/invite could not deliver a welcome to `recipient_hex`;
+     * that member is in the group but unjoinable until the welcome is
+     * re-delivered via `redeliver_welcome(message_id_hex)` (mdk#352).
+     */
+    case welcomeDeliveryPending(accountIdHex: String, accountLabel: String, groupIdHex: String, messageIdHex: String, recipientHex: String
+    )
 }
 
 
@@ -13213,6 +13224,9 @@ public struct FfiConverterTypeMarmotEventFfi: FfiConverterRustBuffer {
         )
         
         case 7: return .agentStreamActivity(accountIdHex: try FfiConverterString.read(from: &buf), accountLabel: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 8: return .welcomeDeliveryPending(accountIdHex: try FfiConverterString.read(from: &buf), accountLabel: try FfiConverterString.read(from: &buf), groupIdHex: try FfiConverterString.read(from: &buf), messageIdHex: try FfiConverterString.read(from: &buf), recipientHex: try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -13266,6 +13280,15 @@ public struct FfiConverterTypeMarmotEventFfi: FfiConverterRustBuffer {
             writeInt(&buf, Int32(7))
             FfiConverterString.write(accountIdHex, into: &buf)
             FfiConverterString.write(accountLabel, into: &buf)
+            
+        
+        case let .welcomeDeliveryPending(accountIdHex,accountLabel,groupIdHex,messageIdHex,recipientHex):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(accountIdHex, into: &buf)
+            FfiConverterString.write(accountLabel, into: &buf)
+            FfiConverterString.write(groupIdHex, into: &buf)
+            FfiConverterString.write(messageIdHex, into: &buf)
+            FfiConverterString.write(recipientHex, into: &buf)
             
         }
     }
