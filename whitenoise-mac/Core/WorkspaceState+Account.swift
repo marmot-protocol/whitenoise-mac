@@ -576,6 +576,7 @@ extension WorkspaceState {
         isSavingNotifications = false
         isSavingPrivacySecurity = false
         isLoadingAuditLogFiles = false
+        shouldReloadAuditLogFilesAfterCurrentLoad = false
         isDeletingAuditLogFiles = false
         isUploadingAuditLogFiles = false
         deletingKeyPackageId = nil
