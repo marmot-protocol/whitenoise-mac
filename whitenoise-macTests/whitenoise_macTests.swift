@@ -10020,14 +10020,22 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func removeSelectedChatStopsInProgressVoiceRecordingBeforeAutoReselection() throws {
+    @Test func removeSelectedChatStopsInProgressVoiceRecordingBeforeAutoReselection() async throws {
         // #362: subscription deltas can remove the selected chat and auto-select a different
-        // conversation. That implicit navigation must tear down the recorder before the composer
-        // belongs to the new chat, or finishing would file chat A's audio under chat B.
+        // conversation. That implicit navigation must tear down active conversation resources
+        // before the composer belongs to the new chat, or finishing would file chat A's audio
+        // under chat B and transcript export pagination would continue after leaving chat A.
         let state = WorkspaceState.preview()
         let account = AccountItem.samples[0]
         let removedChatId = try #require(state.selectedChat?.id)
         let url = try armInProgressVoiceRecording(on: state)
+        let transcriptExportTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        state.groupTranscriptExportTask = transcriptExportTask
+        defer { transcriptExportTask.cancel() }
 
         state.removeChat(groupIdHex: removedChatId, account: account)
 
@@ -10036,6 +10044,8 @@ struct whitenoise_macTests {
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecordingMeterTask == nil)
         #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(transcriptExportTask.isCancelled)
+        await transcriptExportTask.value
     }
 
     @MainActor
