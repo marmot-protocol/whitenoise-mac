@@ -1813,6 +1813,40 @@ struct whitenoise_macTests {
         #expect(fileManager.fileExists(atPath: unreadableEntryDirectory.path))
     }
 
+    @Test func messageMediaDiskCacheAccountPurgeSweepsCrashOrphanedStagingEntries() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
+        let staleStagingDirectory = stagingRoot.appendingPathComponent("crash-orphan", isDirectory: true)
+        let inSessionStagingDirectory = stagingRoot.appendingPathComponent("in-session", isDirectory: true)
+        try fileManager.createDirectory(at: staleStagingDirectory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: inSessionStagingDirectory, withIntermediateDirectories: true)
+        try Data("orphaned encrypted payload".utf8).write(
+            to: staleStagingDirectory.appendingPathComponent("payload.bin")
+        )
+        try Data("active encrypted payload".utf8).write(
+            to: inSessionStagingDirectory.appendingPathComponent("payload.bin")
+        )
+        try fileManager.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 100)],
+            ofItemAtPath: staleStagingDirectory.path
+        )
+        try fileManager.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2_000)],
+            ofItemAtPath: inSessionStagingDirectory.path
+        )
+
+        let cache = messageMediaDiskCache(root: root, sessionStartedAtUnixSeconds: 1_000)
+
+        await cache.purgeAccount("account-a")
+
+        #expect(!fileManager.fileExists(atPath: staleStagingDirectory.path))
+        #expect(fileManager.fileExists(atPath: inSessionStagingDirectory.path))
+    }
+
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -15815,6 +15849,7 @@ private func messageMediaDiskCache(
     keyData: Data = Data(repeating: 0x42, count: 32),
     evictionPolicy: MessageMediaDiskCache.EvictionPolicy = .standard,
     timestampProvider: @escaping MessageMediaDiskCache.TimestampProvider = { Date().timeIntervalSince1970 },
+    sessionStartedAtUnixSeconds: TimeInterval = Date().timeIntervalSince1970,
     keyDeleter: @escaping @Sendable () -> Void = {}
 ) -> MessageMediaDiskCache {
     MessageMediaDiskCache(
@@ -15822,7 +15857,8 @@ private func messageMediaDiskCache(
         keyProvider: { SymmetricKey(data: keyData) },
         keyDeleter: keyDeleter,
         timestampProvider: timestampProvider,
-        evictionPolicy: evictionPolicy
+        evictionPolicy: evictionPolicy,
+        sessionStartedAtUnixSeconds: sessionStartedAtUnixSeconds
     )
 }
 
