@@ -188,15 +188,21 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private let lock = NSLock()
     // Serializes the filesystem create/remove/move work of commits and purges so a slow
     // commit never blocks generation reads or purge bookkeeping (which stay on `lock`).
-    // A commit holds this lock while it re-reads the generation and moves the final entry
-    // into place; a purge holds it while it deletes on disk. Because `beginPurge()` bumps
-    // the generation under `lock` before its filesystem work runs, a commit that observes
-    // an unchanged generation while holding this lock is guaranteed no purge deletion can
-    // interleave with its move, so an older store can never resurrect a purged entry.
+    // A commit holds this lock while it re-reads the scoped generation and moves the final
+    // entry into place; a purge holds it while it deletes on disk. Because `beginPurge()`
+    // advances the relevant generation under `lock` before its filesystem work runs, a
+    // commit that observes an unchanged generation while holding this lock is guaranteed no
+    // purge deletion for that entry can interleave with its move, so an older store can never
+    // resurrect a purged entry. Per-account purges intentionally do not invalidate unrelated
+    // account generations, but they are still serialized through this same lock so filesystem
+    // moves/removes cannot interleave.
     private let fileMutationLock = NSLock()
-    private var generation = 0
-    private var purgeTask: Task<Void, Never>?
-    private var purgeGeneration: Int?
+    private var globalGeneration = 0
+    // Demand-created per-account counters are pruned on full-cache wipes; the global generation
+    // bump invalidates any stale handles that captured the older per-account values.
+    private var accountGenerations: [String: Int] = [:]
+    private var purgeSequence = 0
+    private var purgeTasks: [Int: ActivePurge] = [:]
     private var didSweepStagingDirectories = false
 
     init(
@@ -233,8 +239,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     func cachedDownload(for key: MessageMediaDiskCacheKey) async -> MessageMediaDownload? {
-        await waitForActivePurge()
-        let startGeneration = currentGeneration()
+        await waitForActivePurge(affecting: key.accountDigest)
+        guard let start = beginAccess(for: key.accountDigest) else { return nil }
 
         let root: URL
         let symmetricKey: SymmetricKey
@@ -254,18 +260,18 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             Self.readDownload(for: key, root: root, symmetricKey: symmetricKey)
         }.value
 
-        guard currentGeneration() == startGeneration else { return nil }
+        guard isCurrent(start) else { return nil }
         return result
     }
 
     func store(_ download: MessageMediaDownload, for key: MessageMediaDiskCacheKey) async {
-        // #236: atomically reject the store if a wipe/purge is in flight — `beginStore()`
-        // returns nil under an active purge, so we never resurrect the cache root after the
-        // key has been (or is about to be) deleted. #230: also honor cooperative cancellation
-        // so a store whose owning WorkspaceState task is cancelled mid-flight (account purge)
-        // bails and cleans up its staging rather than committing late. `start.generation` is
-        // the snapshot taken under the lock by `beginStore()`.
-        guard let start = beginStore() else { return }
+        // #236: atomically reject the store if a wipe/purge affecting this entry is in flight —
+        // `beginAccess(for:)` returns nil under a matching active purge, so we never resurrect the
+        // cache root after the key has been (or is about to be) deleted. #230: also honor
+        // cooperative cancellation so a store whose owning WorkspaceState task is cancelled
+        // mid-flight (account purge) bails and cleans up its staging rather than committing late.
+        // `start` is the scoped generation snapshot taken under the lock by `beginAccess(for:)`.
+        guard let start = beginAccess(for: key.accountDigest) else { return }
         guard !Task.isCancelled else { return }
 
         let root: URL
@@ -281,7 +287,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         } catch {
             return
         }
-        guard !Task.isCancelled, currentGeneration() == start.generation else { return }
+        guard !Task.isCancelled, isCurrent(start) else { return }
 
         let plaintext = download.payload.data
         let cachedAtUnixSeconds = timestampProvider()
@@ -301,13 +307,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             Self.discardPreparedEntry(prepared)
             return
         }
-        commitPreparedEntry(prepared, startGeneration: start.generation, symmetricKey: symmetricKey)
+        commitPreparedEntry(prepared, start: start, symmetricKey: symmetricKey)
     }
 
     func purgeAll(removeEncryptionKey: Bool = false) async {
         let root = try? directoryResolver()
         let deleteKey = keyDeleter
-        let task = beginPurge {
+        let task = beginPurge(scope: .all) {
             if let root {
                 try? FileManager.default.removeItem(at: root)
             }
@@ -337,7 +343,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
 
         let accountDigest = MessageMediaDiskCacheKey.accountDigest(for: accountId)
-        let task = beginPurge {
+        let task = beginPurge(scope: .account(accountDigest)) {
             Self.removeEntries(
                 matchingAccountDigest: accountDigest,
                 root: root,
@@ -354,22 +360,39 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
     #endif
 
-    private func waitForActivePurge() async {
-        if let task = activePurgeTask() {
-            await task.value
+    private func waitForActivePurge(affecting accountDigest: String? = nil) async {
+        while true {
+            let purges = activePurgeTasks(affecting: accountDigest)
+            guard !purges.isEmpty else { return }
+            for purge in purges {
+                await purge.task.value
+                finishPurge(purge)
+            }
         }
     }
 
-    private func activePurgeTask() -> Task<Void, Never>? {
+    private func activePurgeTasks(affecting accountDigest: String?) -> [PurgeHandle] {
         lock.lock()
         defer { lock.unlock() }
-        return purgeTask
+        return purgeTasks.compactMap { entry in
+            let sequence = entry.key
+            let purge = entry.value
+            if let accountDigest, !purge.scope.affects(accountDigest: accountDigest) {
+                return nil
+            }
+            return PurgeHandle(task: purge.task, sequence: sequence)
+        }
     }
 
-    private func currentGeneration() -> Int {
+    private func beginAccess(for accountDigest: String) -> AccessHandle? {
         lock.lock()
         defer { lock.unlock() }
-        return generation
+        guard !hasActivePurgeAffecting(accountDigest: accountDigest) else { return nil }
+        return AccessHandle(
+            accountDigest: accountDigest,
+            globalGeneration: globalGeneration,
+            accountGeneration: accountGenerations[accountDigest, default: 0]
+        )
     }
 
     private func sweepStaleStagingDirectoriesIfNeeded(root: URL) {
@@ -388,52 +411,64 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         Self.removeStaleStagingDirectories(root: root, olderThanUnixSeconds: cutoff)
     }
 
-    private func beginStore() -> StoreHandle? {
+    private func beginPurge(scope: PurgeScope, _ work: @escaping @Sendable () -> Void) -> PurgeHandle {
         lock.lock()
-        defer { lock.unlock() }
-        guard purgeTask == nil else { return nil }
-        return StoreHandle(generation: generation)
-    }
-
-    private func beginPurge(_ work: @escaping @Sendable () -> Void) -> PurgeHandle {
-        lock.lock()
-        generation += 1
-        let activeGeneration = generation
+        advanceGeneration(for: scope)
+        purgeSequence += 1
+        let sequence = purgeSequence
         let fileMutationLock = self.fileMutationLock
         let task = Task.detached(priority: .utility) {
             fileMutationLock.lock()
             defer { fileMutationLock.unlock() }
             work()
         }
-        purgeTask = task
-        purgeGeneration = activeGeneration
+        purgeTasks[sequence] = ActivePurge(task: task, scope: scope)
         lock.unlock()
-        return PurgeHandle(task: task, generation: activeGeneration)
+        return PurgeHandle(task: task, sequence: sequence)
     }
 
     private func finishPurge(_ handle: PurgeHandle) {
         lock.lock()
-        if purgeGeneration == handle.generation {
-            purgeTask = nil
-            purgeGeneration = nil
-        }
+        purgeTasks[handle.sequence] = nil
         lock.unlock()
+    }
+
+    private func advanceGeneration(for scope: PurgeScope) {
+        switch scope {
+        case .all:
+            globalGeneration += 1
+            accountGenerations.removeAll(keepingCapacity: true)
+        case .account(let accountDigest):
+            accountGenerations[accountDigest, default: 0] += 1
+        }
+    }
+
+    private func isCurrent(_ handle: AccessHandle) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return globalGeneration == handle.globalGeneration
+            && accountGenerations[handle.accountDigest, default: 0] == handle.accountGeneration
+    }
+
+    private func hasActivePurgeAffecting(accountDigest: String) -> Bool {
+        purgeTasks.values.contains { $0.scope.affects(accountDigest: accountDigest) }
     }
 
     private func commitPreparedEntry(
         _ prepared: PreparedEntry,
-        startGeneration: Int,
+        start: AccessHandle,
         symmetricKey: SymmetricKey
     ) {
         // Hold only the narrow filesystem-mutation lock across the slow create/remove/move
         // so generation reads and purge bookkeeping (on `lock`) never block on this commit.
-        // The generation re-check happens under `fileMutationLock`: a purge bumps the
-        // generation under `lock` before acquiring `fileMutationLock` for its deletion, so
-        // an unchanged generation observed here means no purge deletion can interleave.
+        // The scoped generation re-check happens under `fileMutationLock`: a purge advances
+        // the relevant generation under `lock` before acquiring `fileMutationLock` for its
+        // deletion, so an unchanged generation observed here means no matching purge deletion
+        // can interleave.
         fileMutationLock.lock()
         defer { fileMutationLock.unlock() }
 
-        guard currentGeneration() == startGeneration else {
+        guard isCurrent(start) else {
             Self.discardPreparedEntry(prepared)
             return
         }
@@ -468,13 +503,34 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let finalDirectory: URL
     }
 
-    private struct StoreHandle {
-        let generation: Int
+    private enum PurgeScope {
+        case all
+        case account(String)
+
+        func affects(accountDigest: String) -> Bool {
+            switch self {
+            case .all:
+                return true
+            case .account(let purgedAccountDigest):
+                return purgedAccountDigest == accountDigest
+            }
+        }
+    }
+
+    private struct AccessHandle {
+        let accountDigest: String
+        let globalGeneration: Int
+        let accountGeneration: Int
+    }
+
+    private struct ActivePurge {
+        let task: Task<Void, Never>
+        let scope: PurgeScope
     }
 
     private struct PurgeHandle {
         let task: Task<Void, Never>
-        let generation: Int
+        let sequence: Int
     }
 
     private struct CacheEntry {
