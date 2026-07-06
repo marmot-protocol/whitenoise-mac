@@ -182,6 +182,9 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private let keyDeleter: KeyDeleter
     private let timestampProvider: TimestampProvider
     private let evictionPolicy: EvictionPolicy
+    // Staging directories older than this cache instance were left by a previous process and
+    // are safe to discard; same-session staging may still be an in-flight store.
+    private let sessionStartedAtUnixSeconds: TimeInterval
     private let lock = NSLock()
     // Serializes the filesystem create/remove/move work of commits and purges so a slow
     // commit never blocks generation reads or purge bookkeeping (which stay on `lock`).
@@ -194,19 +197,22 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private var generation = 0
     private var purgeTask: Task<Void, Never>?
     private var purgeGeneration: Int?
+    private var didSweepStagingDirectories = false
 
     init(
         directoryResolver: @escaping DirectoryResolver = MessageMediaDiskCache.defaultDirectoryURL,
         keyProvider: @escaping KeyProvider = MessageMediaDiskCacheKeychain.symmetricKey,
         keyDeleter: @escaping KeyDeleter = MessageMediaDiskCacheKeychain.deleteKey,
         timestampProvider: @escaping TimestampProvider = { Date().timeIntervalSince1970 },
-        evictionPolicy: EvictionPolicy = .standard
+        evictionPolicy: EvictionPolicy = .standard,
+        sessionStartedAtUnixSeconds: TimeInterval = Date().timeIntervalSince1970
     ) {
         self.directoryResolver = directoryResolver
         self.keyProvider = keyProvider
         self.keyDeleter = keyDeleter
         self.timestampProvider = timestampProvider
         self.evictionPolicy = evictionPolicy
+        self.sessionStartedAtUnixSeconds = sessionStartedAtUnixSeconds
     }
 
     static func defaultDirectoryURL() throws -> URL {
@@ -234,6 +240,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let symmetricKey: SymmetricKey
         do {
             root = try directoryResolver()
+        } catch {
+            return nil
+        }
+        sweepStaleStagingDirectoriesIfNeeded(root: root)
+        do {
             symmetricKey = try keyProvider()
         } catch {
             return nil
@@ -261,6 +272,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let symmetricKey: SymmetricKey
         do {
             root = try directoryResolver()
+        } catch {
+            return
+        }
+        sweepStaleStagingDirectoriesIfNeeded(root: root)
+        do {
             symmetricKey = try keyProvider()
         } catch {
             return
@@ -310,6 +326,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let symmetricKey: SymmetricKey
         do {
             root = try directoryResolver()
+        } catch {
+            return
+        }
+        sweepStaleStagingDirectoriesIfNeeded(root: root)
+        do {
             symmetricKey = try keyProvider()
         } catch {
             return
@@ -349,6 +370,22 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return generation
+    }
+
+    private func sweepStaleStagingDirectoriesIfNeeded(root: URL) {
+        fileMutationLock.lock()
+        defer { fileMutationLock.unlock() }
+
+        lock.lock()
+        if didSweepStagingDirectories {
+            lock.unlock()
+            return
+        }
+        didSweepStagingDirectories = true
+        let cutoff = sessionStartedAtUnixSeconds
+        lock.unlock()
+
+        Self.removeStaleStagingDirectories(root: root, olderThanUnixSeconds: cutoff)
     }
 
     private func beginStore() -> StoreHandle? {
@@ -569,6 +606,41 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         try? FileManager.default.removeItem(at: stagingDirectory)
         removeEmptyDirectory(stagingDirectory.deletingLastPathComponent())
         removeEmptyDirectory(root)
+    }
+
+    private static func removeStaleStagingDirectories(root: URL, olderThanUnixSeconds cutoff: TimeInterval) {
+        let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
+        guard
+            let stagingDirectories = try? FileManager.default.contentsOfDirectory(
+                at: stagingRoot,
+                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey, .creationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return }
+
+        for stagingDirectory in stagingDirectories {
+            guard isDirectory(stagingDirectory),
+                isStaleStagingDirectory(stagingDirectory, olderThanUnixSeconds: cutoff)
+            else { continue }
+            try? FileManager.default.removeItem(at: stagingDirectory)
+        }
+        removeEmptyDirectory(stagingRoot)
+        removeEmptyDirectory(root)
+    }
+
+    private static func isStaleStagingDirectory(_ directory: URL, olderThanUnixSeconds cutoff: TimeInterval) -> Bool {
+        guard
+            let values = try? directory.resourceValues(forKeys: [
+                .contentModificationDateKey,
+                .creationDateKey,
+            ])
+        else {
+            return true
+        }
+        guard let modifiedAt = values.contentModificationDate ?? values.creationDate else {
+            return true
+        }
+        return modifiedAt.timeIntervalSince1970 < cutoff
     }
 
     private static func removeEmptyDirectory(_ directory: URL) {
