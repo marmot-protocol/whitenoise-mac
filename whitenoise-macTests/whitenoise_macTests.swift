@@ -1820,6 +1820,112 @@ struct whitenoise_macTests {
         #expect(cacheFiles.filter { $0.hasSuffix("payload.bin") }.count == 2)
     }
 
+    @Test func messageMediaDiskCacheReplaceEntryDoesNotEvictOthersAtEntryLimit() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cachedAtCounter = AtomicCounter()
+        let cache = messageMediaDiskCache(
+            root: root,
+            evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
+            timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
+        )
+        let firstPlaintext = Data("first cached media".utf8)
+        let secondPlaintext = Data("second cached media".utf8)
+        let firstKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: firstPlaintext, ciphertextByte: 0xa1)
+        )
+        let secondKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: secondPlaintext, ciphertextByte: 0xa2)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: firstPlaintext,
+                fileName: "first.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(firstPlaintext.count),
+                payloadId: "first"
+            ),
+            for: firstKey
+        )
+        await cache.store(
+            MessageMediaDownload(
+                data: secondPlaintext,
+                fileName: "second.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(secondPlaintext.count),
+                payloadId: "second"
+            ),
+            for: secondKey
+        )
+        await cache.store(
+            MessageMediaDownload(
+                data: firstPlaintext,
+                fileName: "first-renamed.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(firstPlaintext.count),
+                payloadId: "first-renamed"
+            ),
+            for: firstKey
+        )
+
+        #expect(try #require(await cache.cachedDownload(for: firstKey)).fileName == "first-renamed.jpg")
+        #expect(try #require(await cache.cachedDownload(for: secondKey)).data == secondPlaintext)
+
+        let cacheFiles = try fileManager.subpathsOfDirectory(atPath: root.path)
+        #expect(cacheFiles.filter { $0.hasSuffix("payload.bin") }.count == 2)
+    }
+
+    @Test func messageMediaDiskCacheEvictsAfterManyStoresUnderCap() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cachedAtCounter = AtomicCounter()
+        let cache = messageMediaDiskCache(
+            root: root,
+            evictionPolicy: .init(maxEntryCount: 4, maxTotalBytes: UInt64.max),
+            timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
+        )
+        var keys: [MessageMediaDiskCacheKey] = []
+        for index in 0..<5 {
+            let plaintext = Data("cached media \(index)".utf8)
+            let key = MessageMediaDiskCacheKey(
+                accountId: "account-a",
+                groupIdHex: "group-a",
+                reference: mediaDiskCacheReference(plaintext: plaintext, ciphertextByte: UInt8(0xb0 + index))
+            )
+            keys.append(key)
+            await cache.store(
+                MessageMediaDownload(
+                    data: plaintext,
+                    fileName: "photo-\(index).jpg",
+                    mediaType: "image/jpeg",
+                    sizeBytes: UInt64(plaintext.count),
+                    payloadId: "photo-\(index)"
+                ),
+                for: key
+            )
+        }
+
+        #expect(await cache.cachedDownload(for: keys[0]) == nil)
+        for index in 1..<5 {
+            let restored = try #require(await cache.cachedDownload(for: keys[index]))
+            #expect(restored.data == Data("cached media \(index)".utf8))
+        }
+
+        let cacheFiles = try fileManager.subpathsOfDirectory(atPath: root.path)
+        #expect(cacheFiles.filter { $0.hasSuffix("payload.bin") }.count == 4)
+    }
+
     @Test func messageMediaDiskCacheEvictsEntryWhenByteLimitExceeded() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

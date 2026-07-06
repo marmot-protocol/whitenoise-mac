@@ -204,6 +204,9 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private var purgeSequence = 0
     private var purgeTasks: [Int: ActivePurge] = [:]
     private var didSweepStagingDirectories = false
+    // Updated under `fileMutationLock` on commit and eviction; reset or invalidated on purge.
+    // Seeded with one full scan when nil so stores under the cap avoid re-walking the tree every time (#377).
+    private var trackedFootprint: CacheFootprint?
 
     init(
         directoryResolver: @escaping DirectoryResolver = MessageMediaDiskCache.defaultDirectoryURL,
@@ -313,13 +316,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     func purgeAll(removeEncryptionKey: Bool = false) async {
         let root = try? directoryResolver()
         let deleteKey = keyDeleter
-        let task = beginPurge(scope: .all) {
+        let task = beginPurge(scope: .all) { [self] in
             if let root {
                 try? FileManager.default.removeItem(at: root)
             }
             if removeEncryptionKey {
                 deleteKey()
             }
+            trackedFootprint = CacheFootprint(entryCount: 0, byteCount: 0)
         }
         await task.task.value
         finishPurge(task)
@@ -343,7 +347,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
 
         let accountDigest = MessageMediaDiskCacheKey.accountDigest(for: accountId)
-        let task = beginPurge(scope: .account(accountDigest)) {
+        let task = beginPurge(scope: .account(accountDigest)) { [self] in
             Self.removeEntries(
                 matchingAccountDigest: accountDigest,
                 root: root,
@@ -353,6 +357,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             // pass only removes entries it can attribute to the target account; this
             // second pass is account-agnostic and deletes entries no account can read.
             Self.removeUnreadableEntries(root: root, symmetricKey: symmetricKey)
+            // Account purges remove an arbitrary subset of entries. Re-seed lazily on the next store.
+            trackedFootprint = nil
         }
         await task.task.value
         finishPurge(task)
@@ -477,6 +483,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             return
         }
 
+        let isReplacement = FileManager.default.fileExists(atPath: prepared.finalDirectory.path)
+        let replacedByteCount = isReplacement
+            ? Self.entryByteCount(at: prepared.finalDirectory) : 0
+        let committedByteCount = Self.entryByteCount(at: prepared.stagingDirectory)
+
         do {
             try FileManager.default.createDirectory(
                 at: prepared.finalDirectory.deletingLastPathComponent(),
@@ -484,7 +495,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             )
             try? FileManager.default.removeItem(at: prepared.finalDirectory)
             try FileManager.default.moveItem(at: prepared.stagingDirectory, to: prepared.finalDirectory)
-            Self.enforceEvictionPolicy(evictionPolicy, root: prepared.root, symmetricKey: symmetricKey)
+            updateTrackedFootprintAfterCommit(
+                isNewEntry: !isReplacement,
+                committedByteCount: committedByteCount,
+                replacedByteCount: replacedByteCount,
+                root: prepared.root
+            )
+            enforceEvictionPolicy(root: prepared.root, symmetricKey: symmetricKey)
         } catch {
             try? FileManager.default.removeItem(at: prepared.stagingDirectory)
         }
@@ -544,8 +561,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private struct CacheFootprint {
-        let entryCount: Int
-        let byteCount: UInt64
+        var entryCount: Int
+        var byteCount: UInt64
     }
 
     private enum MetadataStatus {
@@ -825,23 +842,43 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         return .readable(metadata)
     }
 
-    private static func enforceEvictionPolicy(
-        _ policy: EvictionPolicy,
-        root: URL,
-        symmetricKey: SymmetricKey
+    private func updateTrackedFootprintAfterCommit(
+        isNewEntry: Bool,
+        committedByteCount: UInt64,
+        replacedByteCount: UInt64,
+        root: URL
     ) {
-        let footprint = cacheFootprint(root: root)
-        guard footprint.entryCount > policy.maxEntryCount || footprint.byteCount > policy.maxTotalBytes else {
+        if trackedFootprint == nil {
+            trackedFootprint = Self.cacheFootprint(root: root)
             return
         }
 
-        var entries = cacheEntries(root: root, symmetricKey: symmetricKey)
+        var tracked = trackedFootprint!
+        if isNewEntry {
+            tracked.entryCount += 1
+        }
+        let withoutReplaced =
+            tracked.byteCount > replacedByteCount ? tracked.byteCount - replacedByteCount : 0
+        tracked.byteCount = Self.addingWithSaturation(withoutReplaced, committedByteCount)
+        trackedFootprint = tracked
+    }
+
+    private func enforceEvictionPolicy(root: URL, symmetricKey: SymmetricKey) {
+        guard let tracked = trackedFootprint else { return }
+        guard
+            tracked.entryCount > evictionPolicy.maxEntryCount
+                || tracked.byteCount > evictionPolicy.maxTotalBytes
+        else { return }
+
+        var entries = Self.cacheEntries(root: root, symmetricKey: symmetricKey)
         var totalBytes = entries.reduce(UInt64(0)) { total, entry in
-            addingWithSaturation(total, entry.byteCount)
+            Self.addingWithSaturation(total, entry.byteCount)
         }
         var remainingCount = entries.count
 
-        guard remainingCount > policy.maxEntryCount || totalBytes > policy.maxTotalBytes else {
+        guard remainingCount > evictionPolicy.maxEntryCount || totalBytes > evictionPolicy.maxTotalBytes
+        else {
+            trackedFootprint = CacheFootprint(entryCount: remainingCount, byteCount: totalBytes)
             return
         }
 
@@ -853,20 +890,22 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
 
         for entry in entries {
-            guard remainingCount > policy.maxEntryCount || totalBytes > policy.maxTotalBytes else {
-                break
-            }
+            guard
+                remainingCount > evictionPolicy.maxEntryCount
+                    || totalBytes > evictionPolicy.maxTotalBytes
+            else { break }
 
             do {
                 try FileManager.default.removeItem(at: entry.directory)
                 remainingCount -= 1
                 totalBytes = totalBytes > entry.byteCount ? totalBytes - entry.byteCount : 0
-                removeEmptyDirectory(entry.directory.deletingLastPathComponent())
+                Self.removeEmptyDirectory(entry.directory.deletingLastPathComponent())
             } catch {
                 continue
             }
         }
-        removeEmptyDirectory(root)
+        Self.removeEmptyDirectory(root)
+        trackedFootprint = CacheFootprint(entryCount: remainingCount, byteCount: totalBytes)
     }
 
     private static func cacheFootprint(root: URL) -> CacheFootprint {
@@ -891,13 +930,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
             for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
                 entryCount += 1
-                byteCount = addingWithSaturation(
-                    byteCount,
-                    addingWithSaturation(
-                        fileByteCount(at: entryDirectory.appendingPathComponent(metadataFileName)),
-                        fileByteCount(at: entryDirectory.appendingPathComponent(payloadFileName))
-                    )
-                )
+                byteCount = addingWithSaturation(byteCount, entryByteCount(at: entryDirectory))
             }
         }
         return CacheFootprint(entryCount: entryCount, byteCount: byteCount)
@@ -923,8 +956,6 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             else { continue }
 
             for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
-                let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
-                let payloadURL = entryDirectory.appendingPathComponent(payloadFileName)
                 let metadata: Metadata
                 switch metadataStatus(in: entryDirectory, symmetricKey: symmetricKey) {
                 case .readable(let decodedMetadata):
@@ -941,10 +972,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                     CacheEntry(
                         directory: entryDirectory,
                         cachedAtUnixSeconds: metadata.cachedAtUnixSeconds,
-                        byteCount: addingWithSaturation(
-                            fileByteCount(at: metadataURL),
-                            fileByteCount(at: payloadURL)
-                        )
+                        byteCount: entryByteCount(at: entryDirectory)
                     )
                 )
             }
@@ -954,6 +982,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
     private static func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private static func entryByteCount(at entryDirectory: URL) -> UInt64 {
+        addingWithSaturation(
+            fileByteCount(at: entryDirectory.appendingPathComponent(metadataFileName)),
+            fileByteCount(at: entryDirectory.appendingPathComponent(payloadFileName))
+        )
     }
 
     private static func fileByteCount(at url: URL) -> UInt64 {
