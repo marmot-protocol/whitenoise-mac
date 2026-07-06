@@ -15793,7 +15793,7 @@ private func richMarkdownDocumentForPerformance() -> MarkdownDocumentFfi {
                 ),
                 .text(content: "."),
             ]),
-            .list(
+            .listBlock(
                 kind: .bullet(marker: "-"),
                 tight: true,
                 items: [
