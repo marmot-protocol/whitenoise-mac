@@ -67,7 +67,7 @@ nonisolated enum MarkdownDisplayBlock {
             self = .codeBlock(content)
         case .blockQuote(let blocks):
             self = .blockQuote(MarkdownDisplayDocument.makeBlocks(from: blocks, remainingDepth: remainingDepth - 1))
-        case .list(let kind, _, let items):
+        case .listBlock(let kind, _, let items):
             self = .list(items: Self.listItems(kind: kind, items: items, remainingDepth: remainingDepth))
         case .table(_, let header, let rows):
             self = .table(
