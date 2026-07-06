@@ -2326,6 +2326,92 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func timelineMappingFoldsKind1009EditsIntoTargetChatRows() async throws {
+        let originalTokens = MarkdownDocumentFfi(
+            blocks: [.paragraph(inlines: [.strong(children: [.text(content: "Original")])])],
+            truncated: false
+        )
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "target",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "**Original**",
+                    recordedAt: 1_800_000_000,
+                    contentTokens: originalTokens
+                ),
+                timelineMessage(
+                    id: "edit-old",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "Edited once",
+                    kind: 1_009,
+                    tags: [MessageTagFfi(values: ["e", "target"])],
+                    recordedAt: 1_800_000_030
+                ),
+                timelineMessage(
+                    id: "edit-new",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "Edited twice",
+                    kind: 1_009,
+                    tags: [MessageTagFfi(values: ["e", "target"])],
+                    recordedAt: 1_800_000_060
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == 1)
+        let message = try #require(messages.first)
+        #expect(message.id == "target")
+        #expect(message.timelineKind == 9)
+        #expect(message.body == "Edited twice")
+        #expect(message.isEdited)
+        #expect(message.metadataLabel.contains("Edited"))
+        #expect(message.contentMarkdown == nil)
+    }
+
+    @MainActor
+    @Test func timelineMappingIgnoresKind1009EditsFromDifferentAuthors() async throws {
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "target",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "Original",
+                    recordedAt: 1_800_000_000
+                ),
+                timelineMessage(
+                    id: "mallory-edit",
+                    groupIdHex: "group",
+                    sender: "mallory",
+                    plaintext: "Forged edit",
+                    kind: 1_009,
+                    tags: [MessageTagFfi(values: ["e", "target"])],
+                    recordedAt: 1_800_000_030
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == 1)
+        let message = try #require(messages.first)
+        #expect(message.id == "target")
+        #expect(message.body == "Original")
+        #expect(!message.isEdited)
+        #expect(!message.metadataLabel.contains("Edited"))
+    }
+
+    @MainActor
     @Test func deeplyNestedMarkdownBlocksCollapseInsteadOfRecursing() async throws {
         // Regression for whitenoise-mac#231: contentTokens is parsed from untrusted peer
         // content. A block quote nested far beyond the Swift-side depth bound must collapse
@@ -2618,6 +2704,158 @@ struct whitenoise_macTests {
             ])
         #expect(messages.allSatisfy { !$0.supportsChatActions })
         #expect(messages.allSatisfy { $0.statusLabel == nil })
+    }
+
+    @MainActor
+    @Test func timelineMappingRendersSystemEventsFromStructuredFields() async throws {
+        let alice = String(repeating: "a", count: 64)
+        let bob = String(repeating: "b", count: 64)
+        let carol = String(repeating: "c", count: 64)
+        let profiles = [
+            alice: ChatPeerProfile(accountIdHex: alice, displayName: "Alice", pictureURL: nil),
+            bob: ChatPeerProfile(accountIdHex: bob, displayName: "Bob", pictureURL: nil),
+            carol: ChatPeerProfile(accountIdHex: carol, displayName: "Carol", pictureURL: nil),
+        ]
+
+        func systemMessage(
+            _ id: String,
+            systemType: String,
+            text: String,
+            actor: String? = nil,
+            subject: String? = nil,
+            name: String? = nil,
+            oldName: String? = nil,
+            oldRetentionSeconds: UInt64? = nil,
+            newRetentionSeconds: UInt64? = nil,
+            recordedAt: UInt64
+        ) -> TimelineMessageRecordFfi {
+            timelineMessage(
+                id: id,
+                groupIdHex: "group",
+                sender: "",
+                plaintext: "",
+                kind: 1210,
+                recordedAt: recordedAt,
+                groupSystem: groupSystemEvent(
+                    systemType: systemType,
+                    text: text,
+                    actorAccountIdHex: actor,
+                    subjectAccountIdHex: subject,
+                    name: name,
+                    oldName: oldName,
+                    oldRetentionSeconds: oldRetentionSeconds,
+                    newRetentionSeconds: newRetentionSeconds
+                )
+            )
+        }
+
+        let page = TimelinePageFfi(
+            messages: [
+                systemMessage(
+                    "member-added",
+                    systemType: "member_added",
+                    text: "Member added",
+                    actor: alice,
+                    subject: bob,
+                    recordedAt: 1_700_000_000
+                ),
+                systemMessage(
+                    "member-removed",
+                    systemType: "member_removed",
+                    text: "Member removed",
+                    actor: alice,
+                    subject: bob,
+                    recordedAt: 1_700_000_001
+                ),
+                systemMessage(
+                    "member-left",
+                    systemType: "member_left",
+                    text: "Member left",
+                    subject: carol,
+                    recordedAt: 1_700_000_002
+                ),
+                systemMessage(
+                    "admin-added",
+                    systemType: "admin_added",
+                    text: "Admin added",
+                    actor: alice,
+                    subject: bob,
+                    recordedAt: 1_700_000_003
+                ),
+                systemMessage(
+                    "admin-removed",
+                    systemType: "admin_removed",
+                    text: "Admin removed",
+                    actor: bob,
+                    subject: carol,
+                    recordedAt: 1_700_000_004
+                ),
+                systemMessage(
+                    "group-renamed",
+                    systemType: "group_renamed",
+                    text: "Group renamed",
+                    actor: alice,
+                    name: "Team Two",
+                    oldName: "Team One",
+                    recordedAt: 1_700_000_005
+                ),
+                systemMessage(
+                    "group-avatar-changed",
+                    systemType: "group_avatar_changed",
+                    text: "Group avatar changed",
+                    actor: bob,
+                    recordedAt: 1_700_000_006
+                ),
+                systemMessage(
+                    "disappearing-timer-changed",
+                    systemType: "disappearing_timer_changed",
+                    text: "Disappearing timer changed",
+                    actor: alice,
+                    oldRetentionSeconds: 0,
+                    newRetentionSeconds: 604_800,
+                    recordedAt: 1_700_000_007
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let remoteMessages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: "self",
+            senderProfiles: profiles
+        )
+        let aliceLocalMessages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: alice,
+            senderProfiles: profiles
+        )
+        let bobLocalMessages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: bob,
+            senderProfiles: profiles
+        )
+
+        #expect(
+            remoteMessages.map(\.body) == [
+                "Alice added Bob",
+                "Alice removed Bob",
+                "Carol left",
+                "Alice made Bob an admin",
+                "Bob removed Carol as admin",
+                #"Alice renamed the group from "Team One" to "Team Two""#,
+                "Bob changed the group avatar",
+                "Alice changed disappearing messages from off to 1 week",
+            ])
+        #expect(aliceLocalMessages[0].body == "You added Bob")
+        #expect(aliceLocalMessages[3].body == "You made Bob an admin")
+        #expect(aliceLocalMessages[5].body == #"You renamed the group from "Team One" to "Team Two""#)
+        #expect(aliceLocalMessages[7].body == "You changed disappearing messages from off to 1 week")
+        #expect(bobLocalMessages[0].body == "Alice added you")
+        #expect(bobLocalMessages[1].body == "You were removed from the group by Alice")
+        #expect(bobLocalMessages[3].body == "Alice made you an admin")
+        #expect(bobLocalMessages[4].body == "You removed Carol as admin")
+        #expect(bobLocalMessages[6].body == "You changed the group avatar")
     }
 
     @MainActor
@@ -9860,6 +10098,35 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func messageDebugMetadataIncludesSourceAndReplyIdsWhenPresent() async throws {
+        let sourceId = "sourceabcdef0123456789abcdef0123456789"
+        let replyTargetId = "replyabcdef0123456789abcdef0123456789"
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "localabcdef0123456789abcdef0123456789",
+                    sourceMessageIdHex: sourceId,
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "Unsupported reply body",
+                    kind: 12_345,
+                    recordedAt: 1_700_000_000,
+                    replyToMessageIdHex: replyTargetId
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let message = try #require(MessageItem.timeline(from: page, activeAccountIdHex: "self").first)
+
+        #expect(message.presentation == .unsupported)
+        #expect(message.replyContext == nil)
+        #expect(message.debugDetail.contains("source \(DisplayText.short(sourceId, head: 10, tail: 8))"))
+        #expect(message.debugDetail.contains("reply \(DisplayText.short(replyTargetId, head: 10, tail: 8))"))
+    }
+
+    @MainActor
     @Test func defaultRelaysUseWhiteNoiseEuAndUsOnly() async throws {
         let defaults = [
             "wss://relay.eu.whitenoise.chat",
@@ -15119,6 +15386,7 @@ private func pagedTimeline(
 
 private func timelineMessage(
     id: String,
+    sourceMessageIdHex: String? = nil,
     direction: String = "inbound",
     groupIdHex: String,
     sender: String,
@@ -15128,6 +15396,9 @@ private func timelineMessage(
     recordedAt: UInt64,
     mediaJson: String? = nil,
     agentTextStreamJson: String? = nil,
+    groupSystem: GroupSystemEventFfi? = nil,
+    replyToMessageIdHex: String? = nil,
+    replyPreview: TimelineReplyPreviewFfi? = nil,
     reactions: TimelineReactionSummaryFfi = projectedReactionSummary([]),
     contentTokens: MarkdownDocumentFfi = emptyMarkdownDocument(),
     deleted: Bool = false,
@@ -15135,7 +15406,7 @@ private func timelineMessage(
 ) -> TimelineMessageRecordFfi {
     TimelineMessageRecordFfi(
         messageIdHex: id,
-        sourceMessageIdHex: nil,
+        sourceMessageIdHex: sourceMessageIdHex,
         direction: direction,
         groupIdHex: groupIdHex,
         sender: sender,
@@ -15145,16 +15416,38 @@ private func timelineMessage(
         tags: tags,
         timelineAt: recordedAt,
         receivedAt: recordedAt,
-        replyToMessageIdHex: nil,
-        replyPreview: nil,
+        replyToMessageIdHex: replyToMessageIdHex,
+        replyPreview: replyPreview,
         mediaJson: mediaJson,
         media: [],
         agentTextStreamJson: agentTextStreamJson,
-        groupSystem: nil,
+        groupSystem: groupSystem,
         reactions: reactions,
         deleted: deleted,
         deletedByMessageIdHex: nil,
         invalidationStatus: invalidationStatus
+    )
+}
+
+private func groupSystemEvent(
+    systemType: String,
+    text: String,
+    actorAccountIdHex: String? = nil,
+    subjectAccountIdHex: String? = nil,
+    name: String? = nil,
+    oldName: String? = nil,
+    oldRetentionSeconds: UInt64? = nil,
+    newRetentionSeconds: UInt64? = nil
+) -> GroupSystemEventFfi {
+    GroupSystemEventFfi(
+        systemType: systemType,
+        text: text,
+        actorAccountIdHex: actorAccountIdHex,
+        subjectAccountIdHex: subjectAccountIdHex,
+        name: name,
+        oldName: oldName,
+        oldRetentionSeconds: oldRetentionSeconds,
+        newRetentionSeconds: newRetentionSeconds
     )
 }
 

@@ -1419,6 +1419,8 @@ nonisolated enum MessagePresentation: Hashable {
 nonisolated struct MessageItem: Identifiable, Hashable {
     let id: String
     let groupIdHex: String
+    let sourceMessageIdHex: String?
+    let replyTargetIdHex: String?
     let senderAccountIdHex: String
     let senderName: String
     let senderPictureURL: String?
@@ -1433,6 +1435,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let timelineKind: UInt64
     let isDeleted: Bool
     let invalidationStatus: String?
+    let isEdited: Bool
     let isOutgoing: Bool
     let reactions: [MessageReaction]
     let replyContext: MessageReplyContext?
@@ -1454,6 +1457,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     nonisolated init(
         id: String,
         groupIdHex: String = "",
+        sourceMessageIdHex: String? = nil,
+        replyTargetIdHex: String? = nil,
         senderAccountIdHex: String? = nil,
         senderName: String,
         senderPictureURL: String? = nil,
@@ -1464,6 +1469,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         timelineKind: UInt64 = 9,
         isDeleted: Bool = false,
         invalidationStatus: String? = nil,
+        isEdited: Bool = false,
         isOutgoing: Bool,
         reactions: [MessageReaction] = [],
         replyContext: MessageReplyContext? = nil,
@@ -1475,6 +1481,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
         self.id = id
         self.groupIdHex = groupIdHex
+        self.sourceMessageIdHex = Self.nonBlank(sourceMessageIdHex)
+        self.replyTargetIdHex = Self.nonBlank(replyTargetIdHex)
         self.senderAccountIdHex = senderAccountIdHex ?? senderName
         self.senderName = senderName
         self.senderPictureURL = senderPictureURL
@@ -1505,6 +1513,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.timelineKind = timelineKind
         self.isDeleted = isDeleted
         self.invalidationStatus = invalidationStatus
+        self.isEdited = isEdited
         self.isOutgoing = isOutgoing
         self.reactions = reactions
         self.replyContext = replyContext
@@ -1526,7 +1535,14 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             statusLabel = nil
         }
         self.statusLabel = statusLabel
-        self.metadataLabel = statusLabel.map { "\(timeLabel)  \($0)" } ?? timeLabel
+        var metadataParts = [timeLabel]
+        if isEdited {
+            metadataParts.append(L10n.string("Edited"))
+        }
+        if let statusLabel {
+            metadataParts.append(statusLabel)
+        }
+        self.metadataLabel = metadataParts.joined(separator: "  ")
     }
 
     nonisolated private static func partitionMediaAttachments(_ attachments: [MessageMediaAttachment]) -> (
@@ -1552,7 +1568,14 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     }
 
     var debugDetail: String {
-        "\(DisplayText.short(id, head: 10, tail: 8)) - \(timelineAt)"
+        var parts = ["\(DisplayText.short(id, head: 10, tail: 8)) - \(timelineAt)"]
+        if let sourceMessageIdHex {
+            parts.append("source \(DisplayText.short(sourceMessageIdHex, head: 10, tail: 8))")
+        }
+        if let replyTargetIdHex {
+            parts.append("reply \(DisplayText.short(replyTargetIdHex, head: 10, tail: 8))")
+        }
+        return parts.joined(separator: " - ")
     }
 
     private var hasCopyableBody: Bool {
@@ -1564,6 +1587,12 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             return trimmedBody
         }
         return MessageMediaAttachment.previewText(for: mediaAttachments)
+    }
+
+    private nonisolated static func nonBlank(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private var isActionableContent: Bool {
@@ -1613,6 +1642,8 @@ extension MessageItem {
     nonisolated static func == (lhs: MessageItem, rhs: MessageItem) -> Bool {
         lhs.id == rhs.id
             && lhs.groupIdHex == rhs.groupIdHex
+            && lhs.sourceMessageIdHex == rhs.sourceMessageIdHex
+            && lhs.replyTargetIdHex == rhs.replyTargetIdHex
             && lhs.senderAccountIdHex == rhs.senderAccountIdHex
             && lhs.senderName == rhs.senderName
             && lhs.senderPictureURL == rhs.senderPictureURL
@@ -1622,6 +1653,7 @@ extension MessageItem {
             && lhs.timelineKind == rhs.timelineKind
             && lhs.isDeleted == rhs.isDeleted
             && lhs.invalidationStatus == rhs.invalidationStatus
+            && lhs.isEdited == rhs.isEdited
             && lhs.isOutgoing == rhs.isOutgoing
             && lhs.reactions == rhs.reactions
             && lhs.replyContext == rhs.replyContext
@@ -1637,7 +1669,9 @@ extension MessageItem {
     // is unique per message) doing the bulk of the distribution work.
     nonisolated func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+        hasher.combine(replyTargetIdHex)
         hasher.combine(timelineAt)
+        hasher.combine(isEdited)
         hasher.combine(body)
     }
 }
