@@ -10085,6 +10085,56 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func activeAccountNotificationResponseStopsInProgressVoiceRecordingBeforeChatSwitch() async throws {
+        // #374: tapping a same-account notification is an implicit chat switch. It must run
+        // the same conversation teardown as `selectChat` before the composer belongs to the
+        // notified chat, or a live recording/transcript export from chat A can continue under
+        // chat B.
+        let state = WorkspaceState.preview()
+        let account = try #require(state.activeAccount)
+        let currentChatId = try #require(state.selectedChat?.id)
+        let targetChat = try #require(state.activeChats.first { $0.id != currentChatId })
+        let url = try armInProgressVoiceRecording(on: state)
+        let transcriptExportTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        state.groupTranscriptExportTask = transcriptExportTask
+        defer { transcriptExportTask.cancel() }
+
+        state.handleNotificationResponse([
+            "groupIdHex": targetChat.id,
+            "accountIdHex": account.accountIdHex,
+            "accountRef": account.accountRef,
+        ])
+
+        #expect(state.selection == .chat(targetChat.id))
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(transcriptExportTask.isCancelled)
+        await transcriptExportTask.value
+    }
+
+    @MainActor
+    @Test func unresolvableAccountNotificationResponseStopsInProgressVoiceRecordingForActiveChat() throws {
+        // The fallback path for stale/missing notification account metadata still allows a chat
+        // owned by the active account. That same-account switch must not bypass teardown either.
+        let state = WorkspaceState.preview()
+        let currentChatId = try #require(state.selectedChat?.id)
+        let targetChat = try #require(state.activeChats.first { $0.id != currentChatId })
+        let url = try armInProgressVoiceRecording(on: state)
+
+        state.handleNotificationResponse(["groupIdHex": targetChat.id])
+
+        #expect(state.selection == .chat(targetChat.id))
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
     @Test func removeSelectedChatStopsInProgressVoiceRecordingBeforeAutoReselection() async throws {
         // #362: subscription deltas can remove the selected chat and auto-select a different
         // conversation. That implicit navigation must tear down active conversation resources
