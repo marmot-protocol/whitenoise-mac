@@ -571,7 +571,12 @@ extension WorkspaceState {
     ) async -> [String: ChatPeerProfile] {
         let senderIds = Set(
             records.flatMap { record in
-                [record.sender, record.replyPreview?.sender]
+                [
+                    record.sender,
+                    record.replyPreview?.sender,
+                    record.groupSystem?.actorAccountIdHex,
+                    record.groupSystem?.subjectAccountIdHex,
+                ]
             }
             .compactMap { $0 }
             .filter { !$0.isEmpty }

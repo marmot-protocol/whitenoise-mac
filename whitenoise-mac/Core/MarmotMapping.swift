@@ -130,11 +130,14 @@ nonisolated extension MessageItem {
         record: TimelineMessageRecordFfi,
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile],
+        editedPlaintext: String? = nil,
+        isEdited: Bool = false,
         reactions: [MessageReaction],
         replyContext: MessageReplyContext?
     ) {
         let senderProfile = senderProfiles[record.sender]
         let presentation = MessageItem.presentation(for: record.kind)
+        let plaintext = editedPlaintext ?? record.plaintext
         let mediaAttachments = MessageMediaParser.attachments(
             resolvedMedia: record.media,
             mediaJson: record.mediaJson,
@@ -142,10 +145,14 @@ nonisolated extension MessageItem {
             messageIdHex: record.messageIdHex
         )
         let body =
-            MessageItem.systemText(record.groupSystem)
+            MessageItem.systemText(
+                record.groupSystem,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            )
             ?? MessageItem.displayText(
                 presentation: presentation,
-                plaintext: record.plaintext,
+                plaintext: plaintext,
                 tags: record.tags,
                 deleted: record.deleted,
                 invalidationStatus: record.invalidationStatus,
@@ -155,6 +162,8 @@ nonisolated extension MessageItem {
         self.init(
             id: record.messageIdHex,
             groupIdHex: record.groupIdHex,
+            sourceMessageIdHex: record.sourceMessageIdHex,
+            replyTargetIdHex: record.replyToMessageIdHex,
             senderAccountIdHex: record.sender,
             senderName: MessageItem.senderName(
                 for: record.sender,
@@ -163,18 +172,21 @@ nonisolated extension MessageItem {
             ),
             senderPictureURL: senderProfile?.pictureURL,
             body: body,
-            contentMarkdown: MessageItem.renderableMarkdown(
-                document: record.contentTokens,
-                displayedBody: body,
-                deleted: record.deleted,
-                invalidationStatus: record.invalidationStatus,
-                presentation: presentation
-            ),
+            contentMarkdown: isEdited
+                ? nil
+                : MessageItem.renderableMarkdown(
+                    document: record.contentTokens,
+                    displayedBody: body,
+                    deleted: record.deleted,
+                    invalidationStatus: record.invalidationStatus,
+                    presentation: presentation
+                ),
             sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
             timelineAt: record.timelineAt,
             timelineKind: record.kind,
             isDeleted: record.deleted,
             invalidationStatus: record.invalidationStatus,
+            isEdited: isEdited,
             isOutgoing: presentation.isChatBubble
                 && (record.sender == activeAccountIdHex || record.direction.lowercased() == "outbound"),
             reactions: presentation.isChatBubble ? reactions : [],
@@ -192,18 +204,99 @@ nonisolated extension MessageItem {
         // MarmotKit returns an authoritative timeline window. Keep that order
         // intact: `timelineAt` is second-granular, and re-sorting in the client
         // can reshuffle records that the runtime/database already tie-broke.
-        return page.messages.map { record in
+        return displayRecords(from: page.messages).map { displayRecord in
             MessageItem(
-                record: record,
+                record: displayRecord.record,
                 activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles,
-                reactions: MessageReaction.summarize(record.reactions, activeAccountIdHex: activeAccountIdHex),
+                editedPlaintext: displayRecord.editedPlaintext,
+                isEdited: displayRecord.isEdited,
+                reactions: MessageReaction.summarize(
+                    displayRecord.record.reactions,
+                    activeAccountIdHex: activeAccountIdHex
+                ),
                 replyContext: MessageItem.replyContext(
-                    for: record.replyPreview,
+                    for: displayRecord.record.replyPreview,
                     senderProfiles: senderProfiles
                 )
             )
         }
+    }
+
+    private struct TimelineDisplayRecord {
+        let record: TimelineMessageRecordFfi
+        let editedPlaintext: String?
+
+        var isEdited: Bool { editedPlaintext != nil }
+    }
+
+    private struct MessageEditOverlay {
+        let plaintext: String
+        let timelineAt: UInt64
+        let messageIdHex: String
+    }
+
+    private static func displayRecords(from records: [TimelineMessageRecordFfi]) -> [TimelineDisplayRecord] {
+        guard records.contains(where: { $0.kind == MarmotTimelineKind.messageEdit }) else {
+            return records.map { TimelineDisplayRecord(record: $0, editedPlaintext: nil) }
+        }
+
+        let recordsById = records.reduce(into: [String: TimelineMessageRecordFfi]()) { result, record in
+            result[record.messageIdHex] = record
+        }
+        var editsByTarget = [String: MessageEditOverlay]()
+
+        for record in records where record.kind == MarmotTimelineKind.messageEdit {
+            guard record.invalidationStatus == nil,
+                let targetId = editTargetMessageId(in: record.tags),
+                let target = recordsById[targetId],
+                target.kind == MarmotTimelineKind.chat,
+                target.sender == record.sender,
+                !target.deleted,
+                target.invalidationStatus == nil
+            else {
+                continue
+            }
+
+            let overlay = MessageEditOverlay(
+                plaintext: record.plaintext,
+                timelineAt: record.timelineAt,
+                messageIdHex: record.messageIdHex
+            )
+            if shouldUseEdit(overlay, over: editsByTarget[targetId]) {
+                editsByTarget[targetId] = overlay
+            }
+        }
+
+        return records.compactMap { record in
+            guard record.kind != MarmotTimelineKind.messageEdit else { return nil }
+            return TimelineDisplayRecord(
+                record: record,
+                editedPlaintext: editsByTarget[record.messageIdHex]?.plaintext
+            )
+        }
+    }
+
+    private static func shouldUseEdit(_ candidate: MessageEditOverlay, over existing: MessageEditOverlay?) -> Bool {
+        guard let existing else { return true }
+        if candidate.timelineAt != existing.timelineAt {
+            return candidate.timelineAt > existing.timelineAt
+        }
+        return candidate.messageIdHex > existing.messageIdHex
+    }
+
+    private static func editTargetMessageId(in tags: [MessageTagFfi]) -> String? {
+        var target: String?
+        for tag in tags where tag.values.first == "e" {
+            guard tag.values.count == 2,
+                let candidate = tag.values.dropFirst().first?.nilIfBlank,
+                target == nil
+            else {
+                return nil
+            }
+            target = candidate
+        }
+        return target
     }
 
     fileprivate static func presentation(for kind: UInt64) -> MessagePresentation {
@@ -226,10 +319,380 @@ nonisolated extension MessageItem {
     /// The core's structured rendering for a group-system row (member changes,
     /// disappearing-timer changes, etc.), or `nil` when the record isn't a system
     /// event — in which case the caller falls back to the kind-based decode.
-    fileprivate static func systemText(_ event: GroupSystemEventFfi?) -> String? {
+    fileprivate static func systemText(
+        _ event: GroupSystemEventFfi?,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
         guard let event else { return nil }
-        let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
+        switch event.systemType {
+        case "member_added":
+            if let text = memberAddedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+                return text
+            }
+        case "member_removed":
+            if let text = memberRemovedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+                return text
+            }
+        case "member_left":
+            if let text = memberLeftText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+                return text
+            }
+        case "admin_added":
+            if let text = adminAddedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+                return text
+            }
+        case "admin_removed":
+            if let text = adminRemovedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+                return text
+            }
+        case "group_renamed":
+            if let text = groupRenamedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+                return text
+            }
+        case "group_avatar_changed":
+            if let text = groupAvatarChangedText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
+                return text
+            }
+        case "disappearing_timer_changed":
+            if let text = disappearingTimerChangedText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
+                return text
+            }
+        default:
+            break
+        }
+
+        return nonBlank(event.text) ?? groupSystemFallback(event.systemType)
+    }
+
+    private static func memberAddedText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        let actorName = systemAccountName(
+            event.actorAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        let subjectName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .object
+        )
+        let subjectStartName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+
+        if let actorName, let subjectName {
+            if event.actorAccountIdHex == event.subjectAccountIdHex {
+                return String(format: L10n.string("%@ joined"), subjectStartName ?? actorName)
+            }
+            return String(format: L10n.string("%@ added %@"), actorName, subjectName)
+        }
+        if let subjectStartName {
+            return String(format: L10n.string("%@ was added"), subjectStartName)
+        }
+        if let actorName {
+            return String(format: L10n.string("%@ added a member"), actorName)
+        }
+        return nil
+    }
+
+    private static func memberRemovedText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        let actorName = systemAccountName(
+            event.actorAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        let subjectName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .object
+        )
+        let subjectStartName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+
+        if let actorName, let subjectName {
+            if event.actorAccountIdHex == event.subjectAccountIdHex {
+                return String(format: L10n.string("%@ left the group"), subjectStartName ?? actorName)
+            }
+            if event.subjectAccountIdHex == activeAccountIdHex {
+                return String(format: L10n.string("You were removed from the group by %@"), actorName)
+            }
+            return String(format: L10n.string("%@ removed %@"), actorName, subjectName)
+        }
+        if let subjectStartName {
+            return String(format: L10n.string("%@ was removed"), subjectStartName)
+        }
+        if let actorName {
+            return String(format: L10n.string("%@ removed a member"), actorName)
+        }
+        return nil
+    }
+
+    private static func memberLeftText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        let subjectName =
+            systemAccountName(
+                event.subjectAccountIdHex,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles,
+                position: .subject
+            )
+            ?? systemAccountName(
+                event.actorAccountIdHex,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles,
+                position: .subject
+            )
+        return subjectName.map { String(format: L10n.string("%@ left"), $0) }
+    }
+
+    private static func adminAddedText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        let actorName = systemAccountName(
+            event.actorAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        let subjectName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .object
+        )
+        let subjectStartName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+
+        if let actorName, let subjectName {
+            if event.actorAccountIdHex == event.subjectAccountIdHex {
+                return String(format: L10n.string("%@ became an admin"), subjectStartName ?? actorName)
+            }
+            return String(format: L10n.string("%@ made %@ an admin"), actorName, subjectName)
+        }
+        if let subjectStartName {
+            return String(format: L10n.string("%@ was made an admin"), subjectStartName)
+        }
+        if let actorName {
+            return String(format: L10n.string("%@ added an admin"), actorName)
+        }
+        return nil
+    }
+
+    private static func adminRemovedText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        let actorName = systemAccountName(
+            event.actorAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        let subjectName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .object
+        )
+        let subjectStartName = systemAccountName(
+            event.subjectAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+
+        if let actorName, let subjectName {
+            if event.actorAccountIdHex == event.subjectAccountIdHex {
+                return String(format: L10n.string("%@ stepped down as admin"), subjectStartName ?? actorName)
+            }
+            if event.subjectAccountIdHex == activeAccountIdHex {
+                return String(format: L10n.string("You were removed as admin by %@"), actorName)
+            }
+            return String(format: L10n.string("%@ removed %@ as admin"), actorName, subjectName)
+        }
+        if let subjectStartName {
+            return String(format: L10n.string("%@ is no longer an admin"), subjectStartName)
+        }
+        if let actorName {
+            return String(format: L10n.string("%@ removed an admin"), actorName)
+        }
+        return nil
+    }
+
+    private static func groupRenamedText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        guard let name = nonBlank(event.name) else { return nil }
+        let actorName = systemAccountName(
+            event.actorAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        let oldName = nonBlank(event.oldName)
+
+        if let actorName, let oldName {
+            return String(format: L10n.string("%@ renamed the group from \"%@\" to \"%@\""), actorName, oldName, name)
+        }
+        if let actorName {
+            return String(format: L10n.string("%@ renamed the group to \"%@\""), actorName, name)
+        }
+        if let oldName {
+            return String(format: L10n.string("The group was renamed from \"%@\" to \"%@\""), oldName, name)
+        }
+        return String(format: L10n.string("The group was renamed to \"%@\""), name)
+    }
+
+    private static func groupAvatarChangedText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        let actorName = systemAccountName(
+            event.actorAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        if let actorName {
+            return String(format: L10n.string("%@ changed the group avatar"), actorName)
+        }
+        return L10n.string("The group avatar changed")
+    }
+
+    private static func disappearingTimerChangedText(
+        _ event: GroupSystemEventFfi,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile]
+    ) -> String? {
+        let actorName = systemAccountName(
+            event.actorAccountIdHex,
+            activeAccountIdHex: activeAccountIdHex,
+            senderProfiles: senderProfiles,
+            position: .subject
+        )
+        let newLabel = event.newRetentionSeconds.map(retentionDurationLabel)
+        let oldLabel = event.oldRetentionSeconds.map(retentionDurationLabel)
+
+        if let actorName, let oldLabel, let newLabel {
+            return String(
+                format: L10n.string("%@ changed disappearing messages from %@ to %@"),
+                actorName,
+                oldLabel,
+                newLabel
+            )
+        }
+        if let oldLabel, let newLabel {
+            return String(format: L10n.string("Disappearing messages changed from %@ to %@"), oldLabel, newLabel)
+        }
+        if let actorName, let newLabel {
+            return String(format: L10n.string("%@ set disappearing messages to %@"), actorName, newLabel)
+        }
+        if let newLabel {
+            return String(format: L10n.string("Disappearing messages set to %@"), newLabel)
+        }
+        if let actorName {
+            return String(format: L10n.string("%@ changed disappearing messages"), actorName)
+        }
+        return nil
+    }
+
+    private static func systemAccountName(
+        _ accountIdHex: String?,
+        activeAccountIdHex: String?,
+        senderProfiles: [String: ChatPeerProfile],
+        position: SystemAccountNamePosition
+    ) -> String? {
+        guard let accountIdHex = nonBlank(accountIdHex) else { return nil }
+        if accountIdHex == activeAccountIdHex {
+            switch position {
+            case .subject:
+                return L10n.string("You")
+            case .object:
+                return L10n.string("you")
+            }
+        }
+        return displayName(for: accountIdHex, profile: senderProfiles[accountIdHex])
+    }
+
+    private enum SystemAccountNamePosition {
+        case subject
+        case object
+    }
+
+    private static func nonBlank(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func retentionDurationLabel(_ seconds: UInt64) -> String {
+        switch seconds {
+        case 0:
+            return L10n.string("off")
+        case 1:
+            return L10n.string("1 second")
+        case 60:
+            return L10n.string("1 minute")
+        case 3_600:
+            return L10n.string("1 hour")
+        case 86_400:
+            return L10n.string("1 day")
+        case 604_800:
+            return L10n.string("1 week")
+        case 2_592_000:
+            return L10n.string("1 month")
+        default:
+            if seconds.isMultiple(of: 86_400) {
+                return String(format: L10n.string("%llu days"), CUnsignedLongLong(seconds / 86_400))
+            }
+            if seconds.isMultiple(of: 3_600) {
+                return String(format: L10n.string("%llu hours"), CUnsignedLongLong(seconds / 3_600))
+            }
+            if seconds.isMultiple(of: 60) {
+                return String(format: L10n.string("%llu minutes"), CUnsignedLongLong(seconds / 60))
+            }
+            return String(format: L10n.string("%llu seconds"), CUnsignedLongLong(seconds))
+        }
     }
 
     /// The Markdown document to render in a chat bubble, or `nil` when the bubble
@@ -419,6 +882,8 @@ nonisolated extension MessageItem {
             return L10n.string("Group renamed")
         case "group_avatar_changed":
             return L10n.string("Group avatar changed")
+        case "disappearing_timer_changed":
+            return L10n.string("Disappearing timer changed")
         default:
             return L10n.string("Group updated")
         }
@@ -427,6 +892,7 @@ nonisolated extension MessageItem {
 
 private nonisolated enum MarmotTimelineKind {
     static let chat: UInt64 = 9
+    static let messageEdit: UInt64 = 1009
     static let agentStreamStart: UInt64 = 1200
     static let agentActivity: UInt64 = 1201
     static let agentOperation: UInt64 = 1202
