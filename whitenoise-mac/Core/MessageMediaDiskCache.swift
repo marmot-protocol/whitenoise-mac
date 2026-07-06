@@ -484,8 +484,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
 
         let isReplacement = FileManager.default.fileExists(atPath: prepared.finalDirectory.path)
-        let replacedByteCount = isReplacement
-            ? Self.entryByteCount(at: prepared.finalDirectory) : 0
+        let replacedByteCount =
+            isReplacement
+            ? Self.entryByteCount(at: prepared.finalDirectory)
+            : 0
         let committedByteCount = Self.entryByteCount(at: prepared.stagingDirectory)
 
         do {
@@ -853,14 +855,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             return
         }
 
-        var tracked = trackedFootprint!
-        if isNewEntry {
-            tracked.entryCount += 1
-        }
+        let tracked = trackedFootprint!
+        let entryCount = isNewEntry ? tracked.entryCount + 1 : tracked.entryCount
         let withoutReplaced =
             tracked.byteCount > replacedByteCount ? tracked.byteCount - replacedByteCount : 0
-        tracked.byteCount = Self.addingWithSaturation(withoutReplaced, committedByteCount)
-        trackedFootprint = tracked
+        trackedFootprint = CacheFootprint(
+            entryCount: entryCount,
+            byteCount: Self.addingWithSaturation(withoutReplaced, committedByteCount)
+        )
     }
 
     private func enforceEvictionPolicy(root: URL, symmetricKey: SymmetricKey) {
