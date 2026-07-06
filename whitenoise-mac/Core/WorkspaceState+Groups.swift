@@ -51,9 +51,6 @@ extension WorkspaceState {
         guard groupTranscriptExportTask == nil, !isExportingGroupTranscript else { return }
         groupTranscriptExportTask = Task { [weak self] in
             await self?.copySelectedGroupTranscriptJSON()
-            await MainActor.run {
-                self?.groupTranscriptExportTask = nil
-            }
         }
     }
 
@@ -62,6 +59,8 @@ extension WorkspaceState {
     }
 
     func copySelectedGroupTranscriptJSON() async {
+        defer { groupTranscriptExportTask = nil }
+
         guard !isExportingGroupTranscript,
             let client,
             let activeAccount,
@@ -72,10 +71,7 @@ extension WorkspaceState {
         lastError = nil
         groupTranscriptExportStatus = nil
         isExportingGroupTranscript = true
-        defer {
-            isExportingGroupTranscript = false
-            groupTranscriptExportTask = nil
-        }
+        defer { isExportingGroupTranscript = false }
 
         do {
             let accountRef = activeAccount.accountRef
