@@ -2087,6 +2087,89 @@ struct whitenoise_macTests {
         #expect(fileManager.fileExists(atPath: inSessionStagingDirectory.path))
     }
 
+    @Test func messageMediaDiskCacheUnrelatedAccountPurgeDoesNotCancelInFlightStore() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyProviderGate = OneShotKeyProviderGate()
+        let cache = MessageMediaDiskCache(
+            directoryResolver: { root },
+            keyProvider: keyProviderGate.symmetricKey,
+            keyDeleter: {}
+        )
+        let plaintext = Data("active account store survives unrelated account purge".utf8)
+        let key = MessageMediaDiskCacheKey(
+            accountId: "account-b",
+            groupIdHex: "group-b",
+            reference: mediaDiskCacheReference(plaintext: plaintext, ciphertextByte: 0xbc)
+        )
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "active.jpg",
+            mediaType: "image/jpeg",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "active"
+        )
+
+        let storeTask = Task {
+            await cache.store(download, for: key)
+        }
+        await Task.detached {
+            keyProviderGate.waitUntilReached()
+        }.value
+
+        await cache.purgeAccount("account-a")
+        keyProviderGate.releaseGate()
+        await storeTask.value
+
+        let restored = try #require(await cache.cachedDownload(for: key))
+        #expect(restored.data == plaintext)
+        #expect(restored.fileName == "active.jpg")
+    }
+
+    @Test func messageMediaDiskCacheMatchingAccountPurgeCancelsInFlightStore() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyProviderGate = OneShotKeyProviderGate()
+        let cache = MessageMediaDiskCache(
+            directoryResolver: { root },
+            keyProvider: keyProviderGate.symmetricKey,
+            keyDeleter: {}
+        )
+        let plaintext = Data("matching account store should be discarded".utf8)
+        let key = MessageMediaDiskCacheKey(
+            accountId: "account-b",
+            groupIdHex: "group-b",
+            reference: mediaDiskCacheReference(plaintext: plaintext, ciphertextByte: 0xbd)
+        )
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "matching.jpg",
+            mediaType: "image/jpeg",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "matching"
+        )
+
+        let storeTask = Task {
+            await cache.store(download, for: key)
+        }
+        await Task.detached {
+            keyProviderGate.waitUntilReached()
+        }.value
+
+        await cache.purgeAccount("account-b")
+        keyProviderGate.releaseGate()
+        await storeTask.value
+
+        #expect(await cache.cachedDownload(for: key) == nil)
+        #expect(!fileManager.fileExists(atPath: root.path))
+    }
+
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
