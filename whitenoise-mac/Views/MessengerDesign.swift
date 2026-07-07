@@ -234,7 +234,11 @@ struct MessagesWindowBackground: View {
 
     var body: some View {
         Rectangle()
-            .fill(colorScheme == .dark ? Color(red: 0.055, green: 0.055, blue: 0.058) : Color(red: 0.975, green: 0.975, blue: 0.965))
+            .fill(
+                colorScheme == .dark
+                    ? Color(red: 0.055, green: 0.055, blue: 0.058)
+                    : Color(red: 0.975, green: 0.975, blue: 0.965)
+            )
             .ignoresSafeArea()
     }
 }
@@ -244,7 +248,11 @@ struct MessagesTranscriptBackground: View {
 
     var body: some View {
         Rectangle()
-            .fill(colorScheme == .dark ? Color(red: 0.055, green: 0.055, blue: 0.058) : Color(nsColor: .textBackgroundColor))
+            .fill(
+                colorScheme == .dark
+                    ? Color(red: 0.055, green: 0.055, blue: 0.058)
+                    : Color(nsColor: .textBackgroundColor)
+            )
             .ignoresSafeArea()
     }
 }
@@ -288,7 +296,11 @@ struct MessagesHeaderBackground: View {
 
     var body: some View {
         Rectangle()
-            .fill(colorScheme == .dark ? Color(red: 0.055, green: 0.055, blue: 0.058) : Color(nsColor: .textBackgroundColor))
+            .fill(
+                colorScheme == .dark
+                    ? Color(red: 0.055, green: 0.055, blue: 0.058)
+                    : Color(nsColor: .textBackgroundColor)
+            )
     }
 }
 
