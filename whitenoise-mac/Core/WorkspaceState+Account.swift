@@ -84,6 +84,7 @@ extension WorkspaceState {
     ) {
         leaveActiveConversation()
         stopTimelineListener()
+        cancelTimelineLoad()
         cancelChatListReload()
         stopChatListListener()
         clearEnteredLoginIdentity()
@@ -244,6 +245,7 @@ extension WorkspaceState {
         do {
             if wasActive {
                 stopTimelineListener()
+                cancelTimelineLoad()
                 cancelChatListReload()
                 stopChatListListener()
             }
@@ -307,6 +309,7 @@ extension WorkspaceState {
     /// drafts, settings snapshots). Shared by account removal and sign-out.
     func resetActiveAccountUIState() {
         stopTimelineListener()
+        cancelTimelineLoad()
         cancelChatListReload()
         stopChatListListener()
         cachedMessageChatIds.removeAll()
@@ -350,6 +353,7 @@ extension WorkspaceState {
         do {
             if wasActive {
                 stopTimelineListener()
+                cancelTimelineLoad()
                 cancelChatListReload()
                 stopChatListListener()
             }
