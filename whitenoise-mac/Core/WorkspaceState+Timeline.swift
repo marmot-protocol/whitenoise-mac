@@ -17,26 +17,93 @@ import UserNotifications
 @MainActor
 extension WorkspaceState {
     func loadMessages(groupIdHex: String) async {
-        guard let client, let activeAccount else {
-            finishTimelineInitialLoad(groupIdHex: groupIdHex)
-            return
-        }
         if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {
             finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return
         }
-        stopTimelineListener()
-        guard selectedChat?.id == groupIdHex else {
+
+        guard client != nil, let activeAccount else {
+            cancelTimelineLoad()
             finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return
         }
+        let accountId = activeAccount.id
+
+        if let existing = timelineLoadTask,
+            timelineLoadGroupId == groupIdHex,
+            timelineLoadAccountId == accountId
+        {
+            // Same-account duplicate loads join the owner task; its defer clears the spinner.
+            await existing.value
+            return
+        }
+
+        timelineLoadTask?.cancel()
+        timelineLoadGeneration &+= 1
+        let generation = timelineLoadGeneration
+        let task = Task<Void, Never> { [weak self] in
+            await self?.performTimelineLoad(
+                groupIdHex: groupIdHex,
+                accountId: accountId,
+                generation: generation
+            )
+        }
+        timelineLoadTask = task
+        timelineLoadGroupId = groupIdHex
+        timelineLoadAccountId = accountId
+
+        await task.value
+
+        if timelineLoadTask == task {
+            timelineLoadTask = nil
+            timelineLoadGroupId = nil
+            timelineLoadAccountId = nil
+        }
+    }
+
+    func performTimelineLoad(groupIdHex: String, accountId: String, generation: UInt64) async {
+        guard let client, let activeAccount, activeAccount.id == accountId else {
+            if ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) {
+                finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            }
+            return
+        }
+        guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) else {
+            return
+        }
+        if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {
+            // `loadMessages` checks this before spawning, but the store may become loaded while
+            // this task waits for the main actor; keep the defensive in-task short-circuit.
+            finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            return
+        }
+        stopTimelineListener()
+        guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex),
+            selectedChat?.id == groupIdHex
+        else {
+            if ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) {
+                finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            }
+            return
+        }
         beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
-        defer { finishTimelineInitialLoad(groupIdHex: groupIdHex) }
+        defer {
+            if ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) {
+                finishTimelineInitialLoad(groupIdHex: groupIdHex)
+            }
+        }
         do {
             let accountRef = activeAccount.accountRef
             if let row = try await runOffMain({
                 try client.initializeChatReadState(accountRef: accountRef, groupIdHex: groupIdHex)
             }) {
+                guard
+                    canContinueTimelineLoad(
+                        generation: generation,
+                        accountId: accountId,
+                        groupIdHex: groupIdHex
+                    )
+                else { return }
                 // `initializeChatReadState` may race a live chat-list delta. Do not let an
                 // older read-state row roll back a newer preview/timestamp already applied
                 // by the subscription listener while the FFI call was in flight.
@@ -53,12 +120,13 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 limit: Self.timelinePageLimit
             )
-            guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
+            guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex),
+                selectedChat?.id == groupIdHex
+            else { return }
 
             let snapshot = try await runOffMain { subscription.snapshot() }
-            guard activeAccountId == activeAccount.id,
-                selectedChat?.id == groupIdHex,
-                !Task.isCancelled
+            guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex),
+                selectedChat?.id == groupIdHex
             else { return }
             let page =
                 snapshot
@@ -74,12 +142,37 @@ extension WorkspaceState {
             // while we awaited above); only record the subscription when it actually started,
             // otherwise we leak a live handle with no `next()` loop draining it.
             startTimelineListener(groupIdHex: groupIdHex, account: activeAccount, subscription: subscription)
-            guard timelineTaskGroupId == groupIdHex else { return }
+            guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex),
+                timelineTaskGroupId == groupIdHex
+            else { return }
             activeTimelineSubscription = subscription
             activeTimelineGroupId = groupIdHex
+        } catch is CancellationError {
+            return
         } catch {
+            guard ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex) else { return }
             lastError = error.localizedDescription
         }
+    }
+
+    func ownsTimelineLoad(generation: UInt64, accountId: String, groupIdHex: String) -> Bool {
+        timelineLoadGeneration == generation
+            && timelineLoadAccountId == accountId
+            && timelineLoadGroupId == groupIdHex
+            && activeAccountId == accountId
+    }
+
+    func canContinueTimelineLoad(generation: UInt64, accountId: String, groupIdHex: String) -> Bool {
+        ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
+            && !Task.isCancelled
+    }
+
+    func cancelTimelineLoad() {
+        timelineLoadTask?.cancel()
+        timelineLoadTask = nil
+        timelineLoadGroupId = nil
+        timelineLoadAccountId = nil
+        timelineLoadGeneration &+= 1
     }
 
     func loadOlderMessages(groupIdHex: String) async {
