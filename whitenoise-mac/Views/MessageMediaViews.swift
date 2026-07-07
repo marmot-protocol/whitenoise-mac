@@ -274,13 +274,15 @@ private extension View {
     func autoDownloadMediaAttachment(
         _ downloadState: MediaDownloadStateStore,
         attachment: MessageMediaAttachment,
-        message: MessageItem
+        message: MessageItem,
+        requiresScrollVisibility: Bool = true
     ) -> some View {
         modifier(
             AutomaticMediaDownloadModifier(
                 downloadState: downloadState,
                 attachment: attachment,
-                message: message
+                message: message,
+                requiresScrollVisibility: requiresScrollVisibility
             )
         )
     }
@@ -291,20 +293,42 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
     let downloadState: MediaDownloadStateStore
     let attachment: MessageMediaAttachment
     let message: MessageItem
+    let requiresScrollVisibility: Bool
+    @State private var isVisibleInScrollView = false
 
     func body(content: Content) -> some View {
-        content
-            .onAppear {
+        Group {
+            if requiresScrollVisibility {
+                content
+                    // A tiny non-zero threshold means eager, non-lazy transcript rows do not
+                    // auto-download until at least part of the tile intersects the ScrollView.
+                    .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+                        isVisibleInScrollView = isVisible
+                        if isVisible {
+                            startAutomaticDownloadIfNeeded()
+                        }
+                    }
+            } else {
+                content
+                    .onAppear {
+                        startAutomaticDownloadIfNeeded()
+                    }
+            }
+        }
+        .onChange(of: attachment.id) { _, _ in
+            if shouldStartForCurrentVisibility {
                 startAutomaticDownloadIfNeeded()
             }
-            .onChange(of: attachment.id) { _, _ in
+        }
+        .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
+            if shouldStart, shouldStartForCurrentVisibility {
                 startAutomaticDownloadIfNeeded()
             }
-            .onChange(of: downloadState.shouldStartAutomaticDownload) { _, shouldStart in
-                if shouldStart {
-                    startAutomaticDownloadIfNeeded()
-                }
-            }
+        }
+    }
+
+    private var shouldStartForCurrentVisibility: Bool {
+        !requiresScrollVisibility || isVisibleInScrollView
     }
 
     private func startAutomaticDownloadIfNeeded() {
@@ -1293,7 +1317,8 @@ struct MessageImageGalleryContent: View {
         .autoDownloadMediaAttachment(
             downloadState,
             attachment: attachment,
-            message: message
+            message: message,
+            requiresScrollVisibility: false
         )
     }
 }
