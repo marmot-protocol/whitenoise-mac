@@ -147,6 +147,32 @@ private final class AtomicCounter: @unchecked Sendable {
         return value
     }
 
+    @discardableResult
+    func decrement() -> Int {
+        lock.lock()
+        storedValue -= 1
+        let value = storedValue
+        lock.unlock()
+        return value
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+}
+
+private final class AtomicMax: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = 0
+
+    func record(_ value: Int) {
+        lock.lock()
+        storedValue = max(storedValue, value)
+        lock.unlock()
+    }
+
     var value: Int {
         lock.lock()
         defer { lock.unlock() }
@@ -4694,6 +4720,28 @@ struct whitenoise_macTests {
         #expect(!store.shouldStartAutomaticDownload)
         store.update(.idle)
         #expect(store.shouldStartAutomaticDownload)
+    }
+
+    @Test func mediaAttachmentDownloadLimiterCapsConcurrentAcquires() async {
+        let limiter = MediaAttachmentDownloadLimiter(maxConcurrent: 2)
+        let inFlight = AtomicCounter()
+        let maxInFlight = AtomicMax()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    await limiter.acquire()
+                    let current = inFlight.increment()
+                    maxInFlight.record(current)
+                    try? await Task.sleep(nanoseconds: 5_000_000)
+                    inFlight.decrement()
+                    await limiter.release()
+                }
+            }
+        }
+
+        #expect(maxInFlight.value <= 2)
+        #expect(inFlight.value == 0)
     }
 
     @Test func messageAudioMetadataCacheHitPerformanceGuard() async throws {

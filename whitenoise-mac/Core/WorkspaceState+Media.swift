@@ -194,6 +194,14 @@ extension WorkspaceState {
             return
         }
 
+        await MediaAttachmentDownloadLimiter.shared.acquire()
+        defer {
+            Task { await MediaAttachmentDownloadLimiter.shared.release() }
+        }
+        if case .loaded = stateStore.state {
+            return
+        }
+
         do {
             let reference = try await resolvedMediaReference(
                 attachment.reference,
