@@ -74,6 +74,9 @@ extension WorkspaceState {
             switchedAccounts = false
         }
 
+        if !switchedAccounts {
+            leaveActiveConversation()
+        }
         selection = .chat(groupIdHex)
         isChatListVisible = true
         if !switchedAccounts {
