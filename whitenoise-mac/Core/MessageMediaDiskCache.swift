@@ -567,6 +567,11 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         var byteCount: UInt64
     }
 
+    private struct CacheScan {
+        let removableEntries: [CacheEntry]
+        let footprint: CacheFootprint
+    }
+
     private enum MetadataStatus {
         case readable(Metadata)
         case corrupt
@@ -872,11 +877,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 || tracked.byteCount > evictionPolicy.maxTotalBytes
         else { return }
 
-        var entries = Self.cacheEntries(root: root, symmetricKey: symmetricKey)
-        var totalBytes = entries.reduce(UInt64(0)) { total, entry in
-            Self.addingWithSaturation(total, entry.byteCount)
-        }
-        var remainingCount = entries.count
+        let scan = Self.cacheScan(root: root, symmetricKey: symmetricKey)
+        var entries = scan.removableEntries
+        var totalBytes = scan.footprint.byteCount
+        var remainingCount = scan.footprint.entryCount
 
         guard remainingCount > evictionPolicy.maxEntryCount || totalBytes > evictionPolicy.maxTotalBytes
         else {
@@ -938,16 +942,23 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         return CacheFootprint(entryCount: entryCount, byteCount: byteCount)
     }
 
-    private static func cacheEntries(root: URL, symmetricKey: SymmetricKey) -> [CacheEntry] {
+    private static func cacheScan(root: URL, symmetricKey: SymmetricKey) -> CacheScan {
         guard
             let shardDirectories = try? FileManager.default.contentsOfDirectory(
                 at: root,
                 includingPropertiesForKeys: [.isDirectoryKey],
                 options: [.skipsHiddenFiles]
             )
-        else { return [] }
+        else {
+            return CacheScan(
+                removableEntries: [],
+                footprint: CacheFootprint(entryCount: 0, byteCount: 0)
+            )
+        }
 
         var entries: [CacheEntry] = []
+        var entryCount = 0
+        var byteCount: UInt64 = 0
         for shardDirectory in shardDirectories where shardDirectory.lastPathComponent != "staging" {
             guard isDirectory(shardDirectory),
                 let entryDirectories = try? FileManager.default.contentsOfDirectory(
@@ -958,15 +969,20 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             else { continue }
 
             for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
+                let entryByteCount = entryByteCount(at: entryDirectory)
                 let metadata: Metadata
                 switch metadataStatus(in: entryDirectory, symmetricKey: symmetricKey) {
                 case .readable(let decodedMetadata):
                     metadata = decodedMetadata
+                    entryCount += 1
+                    byteCount = addingWithSaturation(byteCount, entryByteCount)
                 case .corrupt:
                     try? FileManager.default.removeItem(at: entryDirectory)
                     removeEmptyDirectory(shardDirectory)
                     continue
                 case .unavailable:
+                    entryCount += 1
+                    byteCount = addingWithSaturation(byteCount, entryByteCount)
                     continue
                 }
 
@@ -974,12 +990,15 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                     CacheEntry(
                         directory: entryDirectory,
                         cachedAtUnixSeconds: metadata.cachedAtUnixSeconds,
-                        byteCount: entryByteCount(at: entryDirectory)
+                        byteCount: entryByteCount
                     )
                 )
             }
         }
-        return entries
+        return CacheScan(
+            removableEntries: entries,
+            footprint: CacheFootprint(entryCount: entryCount, byteCount: byteCount)
+        )
     }
 
     private static func isDirectory(_ url: URL) -> Bool {

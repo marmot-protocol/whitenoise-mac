@@ -327,27 +327,51 @@ nonisolated extension MessageItem {
         guard let event else { return nil }
         switch event.systemType {
         case "member_added":
-            if let text = memberAddedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+            if let text = memberAddedText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
                 return text
             }
         case "member_removed":
-            if let text = memberRemovedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+            if let text = memberRemovedText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
                 return text
             }
         case "member_left":
-            if let text = memberLeftText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+            if let text = memberLeftText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
                 return text
             }
         case "admin_added":
-            if let text = adminAddedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+            if let text = adminAddedText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
                 return text
             }
         case "admin_removed":
-            if let text = adminRemovedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+            if let text = adminRemovedText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
                 return text
             }
         case "group_renamed":
-            if let text = groupRenamedText(event, activeAccountIdHex: activeAccountIdHex, senderProfiles: senderProfiles) {
+            if let text = groupRenamedText(
+                event,
+                activeAccountIdHex: activeAccountIdHex,
+                senderProfiles: senderProfiles
+            ) {
                 return text
             }
         case "group_avatar_changed":
