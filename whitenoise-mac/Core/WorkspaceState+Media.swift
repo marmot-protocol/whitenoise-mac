@@ -206,7 +206,25 @@ extension WorkspaceState {
             return
         }
 
-        await MediaAttachmentDownloadLimiter.shared.acquire()
+        do {
+            try await MediaAttachmentDownloadLimiter.shared.acquire()
+        } catch is CancellationError {
+            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+                stateStore.update(.idle)
+                return
+            }
+            if case .loading = stateStore.state {
+                stateStore.update(.idle)
+            }
+            return
+        } catch {
+            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+                stateStore.update(.idle)
+                return
+            }
+            stateStore.update(.failed(error.localizedDescription))
+            return
+        }
         defer {
             Task { await MediaAttachmentDownloadLimiter.shared.release() }
         }
@@ -226,29 +244,20 @@ extension WorkspaceState {
         }
 
         do {
-            let reference = try await resolvedMediaReference(
-                attachment.reference,
-                accountId: accountId,
-                accountRef: accountRef,
-                groupIdHex: groupIdHex,
-                client: client
-            )
-            guard
-                canPublishMediaDownloadState(
-                    forKey: key,
-                    stateStore: stateStore,
+            let download = try await withMediaAttachmentDownloadTimeout {
+                let reference = try await resolvedMediaReference(
+                    attachment.reference,
                     accountId: accountId,
-                    groupIdHex: groupIdHex
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex,
+                    client: client
                 )
-            else {
-                stateStore.update(.idle)
-                return
+                return try await client.downloadMedia(
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex,
+                    reference: reference
+                )
             }
-            let download = try await client.downloadMedia(
-                accountRef: accountRef,
-                groupIdHex: groupIdHex,
-                reference: reference
-            )
             guard
                 canPublishMediaDownloadState(
                     forKey: key,
@@ -276,6 +285,14 @@ extension WorkspaceState {
                 accountId: accountId,
                 storeGuard: storeGuard
             )
+        } catch is CancellationError {
+            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+                stateStore.update(.idle)
+                return
+            }
+            if case .loading = stateStore.state {
+                stateStore.update(.idle)
+            }
         } catch {
             guard
                 canPublishMediaDownloadState(
