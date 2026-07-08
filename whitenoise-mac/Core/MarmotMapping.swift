@@ -964,7 +964,10 @@ private nonisolated enum UntrustedJSON {
 }
 
 private nonisolated enum MessageMediaParser {
-    private static let maxAttachmentsPerMessage = OutgoingMediaDraftProcessor.maxAttachmentCount
+    // Legacy inbound fallback parsing intentionally mirrors the compose cap for now,
+    // but keeps its own policy name so it can diverge from outgoing media limits.
+    private static let maxFallbackAttachmentsPerMessage =
+        OutgoingMediaDraftProcessor.maxAttachmentCount
     private static let logger = Logger(subsystem: "com.whitenoise.media", category: "MessageMediaParser")
 
     static func attachments(
@@ -982,13 +985,14 @@ private nonisolated enum MessageMediaParser {
         if !resolvedMedia.isEmpty {
             resolvedReferences = resolvedMedia
         } else {
-            let tagReferences =
-                tags
-                .filter { $0.values.first == "imeta" }
-                .compactMap { reference(fromIMetaTag: $0.values, sourceEpoch: 0) }
+            let tagReferences = references(fromIMetaTags: tags)
             let jsonReferences = references(fromMediaJson: mediaJson)
-            let fallbackReferences = jsonReferences.isEmpty ? tagReferences : jsonReferences
-            resolvedReferences = cappedFallbackReferences(fallbackReferences)
+            let fallbackReferences =
+                jsonReferences.references.isEmpty ? tagReferences : jsonReferences
+            if fallbackReferences.wasTruncated {
+                logFallbackOverflow()
+            }
+            resolvedReferences = fallbackReferences.references
         }
 
         return resolvedReferences.enumerated().map { index, reference in
@@ -999,98 +1003,148 @@ private nonisolated enum MessageMediaParser {
         }
     }
 
-    private static func cappedFallbackReferences(
-        _ references: [MediaAttachmentReferenceFfi]
-    ) -> [MediaAttachmentReferenceFfi] {
-        guard references.count > maxAttachmentsPerMessage else { return references }
-
-        let droppedCount = references.count - maxAttachmentsPerMessage
-        logger.notice(
-            "Dropped \(droppedCount) fallback media attachment references over cap \(maxAttachmentsPerMessage)"
-        )
-        return Array(references.prefix(maxAttachmentsPerMessage))
+    private struct FallbackReferenceParseResult {
+        var references: [MediaAttachmentReferenceFfi] = []
+        var wasTruncated = false
     }
 
-    private static func references(fromMediaJson mediaJson: String?) -> [MediaAttachmentReferenceFfi] {
+    private static func references(fromIMetaTags tags: [MessageTagFfi]) -> FallbackReferenceParseResult {
+        var result = FallbackReferenceParseResult()
+        for tag in tags where tag.values.first == "imeta" {
+            guard result.references.count < maxFallbackAttachmentsPerMessage else {
+                result.wasTruncated = true
+                break
+            }
+            if let reference = reference(fromIMetaTag: tag.values, sourceEpoch: 0) {
+                result.references.append(reference)
+            }
+        }
+        return result
+    }
+
+    private static func logFallbackOverflow() {
+        logger.notice(
+            "Dropped fallback media attachment references after reaching cap \(maxFallbackAttachmentsPerMessage)"
+        )
+    }
+
+    private static func references(fromMediaJson mediaJson: String?) -> FallbackReferenceParseResult {
         guard let mediaJson,
             !UntrustedJSON.nestingExceedsLimit(mediaJson),
             let data = mediaJson.data(using: .utf8),
             let root = try? JSONSerialization.jsonObject(with: data)
-        else { return [] }
+        else { return FallbackReferenceParseResult() }
 
-        return references(fromJSONObject: root, remainingDepth: UntrustedJSON.maxNestingDepth)
+        var result = FallbackReferenceParseResult()
+        collectReferences(fromJSONObject: root, remainingDepth: UntrustedJSON.maxNestingDepth, into: &result)
+        return result
     }
 
-    private static func references(
+    private static func collectReferences(
         fromJSONObject value: Any,
-        remainingDepth: Int
-    ) -> [MediaAttachmentReferenceFfi] {
-        guard remainingDepth >= 0 else { return [] }
+        remainingDepth: Int,
+        into result: inout FallbackReferenceParseResult
+    ) {
+        guard remainingDepth >= 0, !result.wasTruncated else { return }
 
         if let dictionary = value as? [String: Any] {
             // Branches are mutually exclusive in precedence order so a single object
             // carrying multiple shapes (e.g. both `imeta` and the flat direct-reference
             // keys) cannot emit duplicate references for the same logical attachment.
             if let imeta = dictionary["imeta"] {
-                // Safe without its own depth counter because the raw JSON pre-scan rejects
                 // any object graph deeper than UntrustedJSON.maxNestingDepth before parsing.
-                let imetaReferences = references(
+                let beforeCount = result.references.count
+                collectReferences(
                     fromIMetaValue: imeta,
-                    sourceEpoch: unsignedInteger(dictionary["source_epoch"] ?? dictionary["sourceEpoch"])
+                    sourceEpoch: unsignedInteger(dictionary["source_epoch"] ?? dictionary["sourceEpoch"]),
+                    into: &result
                 )
-                if !imetaReferences.isEmpty {
-                    return imetaReferences
+                if result.wasTruncated || result.references.count > beforeCount {
+                    return
                 }
             }
             if let media = dictionary["media"] {
-                let mediaReferences = references(fromJSONObject: media, remainingDepth: remainingDepth - 1)
-                if !mediaReferences.isEmpty {
-                    return mediaReferences
+                let beforeCount = result.references.count
+                collectReferences(
+                    fromJSONObject: media,
+                    remainingDepth: remainingDepth - 1,
+                    into: &result
+                )
+                if result.wasTruncated || result.references.count > beforeCount {
+                    return
                 }
             }
             if let direct = reference(fromJSONObject: dictionary) {
-                return [direct]
+                append(direct, into: &result)
             }
-
-            return []
+            return
         }
 
         if let array = value as? [Any] {
-            if let tagReferences = references(fromIMetaArray: array, sourceEpoch: nil), !tagReferences.isEmpty {
-                return tagReferences
+            let stringArray = array.compactMap { $0 as? String }
+            if stringArray.count == array.count, stringArray.first == "imeta" {
+                if let reference = reference(fromIMetaTag: stringArray, sourceEpoch: 0) {
+                    append(reference, into: &result)
+                }
+                return
             }
-            return array.flatMap { references(fromJSONObject: $0, remainingDepth: remainingDepth - 1) }
+
+            for item in array {
+                guard result.references.count < maxFallbackAttachmentsPerMessage else {
+                    result.wasTruncated = true
+                    return
+                }
+                collectReferences(fromJSONObject: item, remainingDepth: remainingDepth - 1, into: &result)
+                if result.wasTruncated { return }
+            }
         }
-
-        return []
     }
 
-    private static func references(fromIMetaValue value: Any, sourceEpoch: UInt64?) -> [MediaAttachmentReferenceFfi] {
-        guard let array = value as? [Any],
-            let references = references(fromIMetaArray: array, sourceEpoch: sourceEpoch)
-        else { return [] }
-        return references
+    private static func collectReferences(
+        fromIMetaValue value: Any,
+        sourceEpoch: UInt64?,
+        into result: inout FallbackReferenceParseResult
+    ) {
+        guard let array = value as? [Any] else { return }
+        collectReferences(fromIMetaArray: array, sourceEpoch: sourceEpoch, into: &result)
     }
 
-    private static func references(fromIMetaArray array: [Any], sourceEpoch: UInt64?) -> [MediaAttachmentReferenceFfi]?
-    {
+    private static func collectReferences(
+        fromIMetaArray array: [Any],
+        sourceEpoch: UInt64?,
+        into result: inout FallbackReferenceParseResult
+    ) {
         let stringArray = array.compactMap { $0 as? String }
         if stringArray.count == array.count, stringArray.first == "imeta" {
-            return reference(fromIMetaTag: stringArray, sourceEpoch: sourceEpoch ?? 0).map { [$0] } ?? []
+            if let reference = reference(fromIMetaTag: stringArray, sourceEpoch: sourceEpoch ?? 0) {
+                append(reference, into: &result)
+            }
+            return
         }
 
-        var references: [MediaAttachmentReferenceFfi] = []
-        var sawTag = false
         for item in array {
             guard let tagArray = item as? [Any] else { continue }
             let tag = tagArray.compactMap { $0 as? String }
             guard tag.count == tagArray.count, tag.first == "imeta" else { continue }
-            sawTag = true
+            guard result.references.count < maxFallbackAttachmentsPerMessage else {
+                result.wasTruncated = true
+                return
+            }
             if let reference = reference(fromIMetaTag: tag, sourceEpoch: sourceEpoch ?? 0) {
-                references.append(reference)
+                result.references.append(reference)
             }
         }
-        return sawTag ? references : nil
+    }
+
+    private static func append(
+        _ reference: MediaAttachmentReferenceFfi,
+        into result: inout FallbackReferenceParseResult
+    ) {
+        guard result.references.count < maxFallbackAttachmentsPerMessage else {
+            result.wasTruncated = true
+            return
+        }
+        result.references.append(reference)
     }
 
     private static func reference(fromJSONObject dictionary: [String: Any]) -> MediaAttachmentReferenceFfi? {

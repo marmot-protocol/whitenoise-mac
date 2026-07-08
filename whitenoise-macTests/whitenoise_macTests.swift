@@ -3407,6 +3407,43 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func resolvedMediaBypassesFallbackAttachmentCap() async throws {
+        // The fallback cap is intentionally local to legacy `mediaJson`/`imeta` parsing.
+        // Non-empty core-resolved media is already validated upstream and remains intact.
+        let cap = OutgoingMediaDraftProcessor.maxAttachmentCount
+        let resolvedReferences = (0..<(cap + 2)).map { index in
+            mediaAttachmentReference(mediaType: "image/png", fileName: "resolved-\(index).png")
+        }
+        let fallbackReferences = (0..<(cap + 15)).map { index in
+            mediaAttachmentReference(mediaType: "image/png", fileName: "fallback-\(index).png")
+        }
+        let mediaObjects: [[String: Any]] = fallbackReferences.map { reference in
+            ["imeta": [mediaIMetaTag(for: reference).values]]
+        }
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "resolved-media",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJSONString(fromJSONObject: mediaObjects),
+                    media: resolvedReferences
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+
+        #expect(message.mediaAttachments.count == resolvedReferences.count)
+        #expect(message.mediaAttachments.map(\.reference.fileName) == resolvedReferences.map(\.fileName))
+    }
+
+    @MainActor
     @Test func mediaOnlyChatPreviewShowsAttachmentLabelInsteadOfUnsupported() async throws {
         // Regression for whitenoise-mac#175: `ChatListMessagePreviewFfi` carries no media
         // payload, so a media-only chat message arrives with empty plaintext. The chat-list
@@ -16217,6 +16254,7 @@ private func timelineMessage(
     tags: [MessageTagFfi] = [],
     recordedAt: UInt64,
     mediaJson: String? = nil,
+    media: [MediaAttachmentReferenceFfi] = [],
     agentTextStreamJson: String? = nil,
     groupSystem: GroupSystemEventFfi? = nil,
     replyToMessageIdHex: String? = nil,
@@ -16241,7 +16279,7 @@ private func timelineMessage(
         replyToMessageIdHex: replyToMessageIdHex,
         replyPreview: replyPreview,
         mediaJson: mediaJson,
-        media: [],
+        media: media,
         agentTextStreamJson: agentTextStreamJson,
         groupSystem: groupSystem,
         reactions: reactions,
