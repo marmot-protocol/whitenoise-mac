@@ -139,7 +139,11 @@ extension WorkspaceState {
     }
 
     func inviteMemberToSelectedGroup() async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isInvitingGroupMember else { return }
+        guard let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot,
+            !hasInFlightGroupDetailsMutation
+        else { return }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
         let query = groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -226,7 +230,7 @@ extension WorkspaceState {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
-            mutatingGroupMemberId == nil
+            !hasInFlightGroupDetailsMutation
         else { return }
         guard snapshot.isSelfAdmin, !snapshot.isLastAdmin else {
             lastError = L10n.string("Make another member an admin before stepping down.")
@@ -550,11 +554,15 @@ extension WorkspaceState {
         }
     }
 
+    var hasInFlightGroupDetailsMutation: Bool {
+        isInvitingGroupMember || mutatingGroupMemberId != nil
+    }
+
     func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
-            mutatingGroupMemberId == nil
+            !hasInFlightGroupDetailsMutation
         else { return }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex

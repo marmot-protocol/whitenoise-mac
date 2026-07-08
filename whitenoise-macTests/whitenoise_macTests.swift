@@ -10063,6 +10063,60 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func inviteMemberDropsWhileMemberMutationIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1newmember",
+            accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
+            npub: "npub1newmember"
+        )
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
+
+        runtime.groupMutationGateEnabled = true
+        async let firstPromote: Void = state.promoteGroupMember(member)
+        while !(state.mutatingGroupMemberId == member.id && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        state.groupInviteMemberQuery = "npub1newmember"
+        await state.inviteMemberToSelectedGroup()
+        #expect(runtime.inviteMembersDetailedCallCount == 0)
+
+        runtime.releaseGroupMutationGate()
+        await firstPromote
+    }
+
+    @MainActor
+    @Test func mutateGroupMemberDropsWhileInviteIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1newmember",
+            accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
+            npub: "npub1newmember"
+        )
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
+
+        state.groupInviteMemberQuery = "npub1newmember"
+        runtime.groupMutationGateEnabled = true
+        async let firstInvite: Void = state.inviteMemberToSelectedGroup()
+        while !(state.isInvitingGroupMember && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.promoteGroupMember(member)
+        #expect(runtime.promoteAdminDetailedCallCount == 0)
+
+        runtime.releaseGroupMutationGate()
+        await firstInvite
+    }
+
+    @MainActor
     @Test func selfDemoteAdminDropsOverlappingDuplicateInvocation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
