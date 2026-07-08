@@ -20,15 +20,14 @@ struct MessengerShellView: View {
                     AccountRailView()
                     GlassSeparator()
 
-                    ChatListDrawerView()
-                        .frame(width: 300, alignment: .leading)
-                        .frame(width: workspace.isChatListVisible ? 300 : 0, alignment: .leading)
-                        .opacity(workspace.isChatListVisible ? 1 : 0)
-                        .clipped()
-                        .allowsHitTesting(workspace.isChatListVisible)
+                    if workspace.isChatListVisible {
+                        ChatListDrawerView()
+                            .frame(width: 300, alignment: .leading)
+                            .transition(.move(edge: .leading).combined(with: .opacity))
 
-                    GlassSeparator()
-                        .opacity(workspace.isChatListVisible ? 1 : 0)
+                        GlassSeparator()
+                            .transition(.opacity)
+                    }
                     DetailPaneView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
