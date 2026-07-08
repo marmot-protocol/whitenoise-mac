@@ -248,6 +248,7 @@ final class MediaDownloadStateStore {
 final class MessageTimelineStore {
     struct ProjectionApplyResult: Equatable {
         let didChange: Bool
+        let didRemoveMessages: Bool
         let didTrimOlderMessages: Bool
     }
 
@@ -306,12 +307,14 @@ final class MessageTimelineStore {
         windowLimit: Int
     ) -> ProjectionApplyResult {
         var didChange = false
+        var didRemoveMessages = false
 
         if !removalIds.isEmpty {
             let originalCount = messages.count
             messages.removeAll { removalIds.contains($0.id) }
-            didChange = messages.count != originalCount
-            if didChange {
+            didRemoveMessages = messages.count != originalCount
+            didChange = didRemoveMessages
+            if didRemoveMessages {
                 rebuildIndexes()
             }
         }
@@ -353,7 +356,11 @@ final class MessageTimelineStore {
         if didChange {
             isLoaded = true
         }
-        return ProjectionApplyResult(didChange: didChange, didTrimOlderMessages: didTrimOlderMessages)
+        return ProjectionApplyResult(
+            didChange: didChange,
+            didRemoveMessages: didRemoveMessages,
+            didTrimOlderMessages: didTrimOlderMessages
+        )
     }
 
     private func rebuildIndexes() {

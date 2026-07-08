@@ -186,7 +186,14 @@ extension WorkspaceState {
         )
 
         if let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) {
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 stateStore.update(.idle)
                 return
             }
@@ -201,6 +208,17 @@ extension WorkspaceState {
         if case .loaded = stateStore.state {
             return
         }
+        guard
+            canPublishMediaDownloadState(
+                forKey: key,
+                stateStore: stateStore,
+                accountId: accountId,
+                groupIdHex: groupIdHex
+            )
+        else {
+            stateStore.update(.idle)
+            return
+        }
 
         do {
             let reference = try await resolvedMediaReference(
@@ -210,12 +228,30 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 client: client
             )
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
+                stateStore.update(.idle)
+                return
+            }
             let download = try await client.downloadMedia(
                 accountRef: accountRef,
                 groupIdHex: groupIdHex,
                 reference: reference
             )
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 stateStore.update(.idle)
                 return
             }
@@ -236,7 +272,14 @@ extension WorkspaceState {
                 storeGuard: storeGuard
             )
         } catch {
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 stateStore.update(.idle)
                 return
             }
@@ -254,6 +297,16 @@ extension WorkspaceState {
         let store = MediaDownloadStateStore()
         mediaDownloads[key] = store
         return store
+    }
+
+    private func canPublishMediaDownloadState(
+        forKey key: String,
+        stateStore: MediaDownloadStateStore,
+        accountId: String,
+        groupIdHex: String
+    ) -> Bool {
+        isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex)
+            && mediaDownloads[key] === stateStore
     }
 
     func addMediaAttachments(from urls: [URL]) async {
@@ -525,7 +578,7 @@ extension WorkspaceState {
                 message.mediaAttachments.map { attachment in
                     mediaDownloadKey(
                         accountId: accountId,
-                        groupIdHex: message.groupIdHex,
+                        groupIdHex: groupIdHex,
                         attachmentId: attachment.id
                     )
                 }
