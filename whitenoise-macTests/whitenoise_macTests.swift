@@ -3373,6 +3373,40 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func fallbackMediaJSONCapsWideAttachmentArrays() async throws {
+        // Regression for whitenoise-mac#404: the depth guard bounds nesting only. A flat
+        // legacy `mediaJson` array must also be capped so one message cannot allocate and
+        // render an unbounded number of fallback attachment tiles.
+        let cap = OutgoingMediaDraftProcessor.maxAttachmentCount
+        let references = (0..<(cap + 15)).map { index in
+            mediaAttachmentReference(mediaType: "image/png", fileName: "wide-\(index).png")
+        }
+        let mediaObjects: [[String: Any]] = references.map { reference in
+            ["imeta": [mediaIMetaTag(for: reference).values]]
+        }
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "wide-media-json",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJSONString(fromJSONObject: mediaObjects)
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+
+        #expect(message.mediaAttachments.count == cap)
+        #expect(message.mediaAttachments.map(\.reference.fileName) == Array(references.prefix(cap)).map(\.fileName))
+    }
+
+    @MainActor
     @Test func mediaOnlyChatPreviewShowsAttachmentLabelInsteadOfUnsupported() async throws {
         // Regression for whitenoise-mac#175: `ChatListMessagePreviewFfi` carries no media
         // payload, so a media-only chat message arrives with empty plaintext. The chat-list

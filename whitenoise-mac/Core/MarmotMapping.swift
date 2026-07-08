@@ -1,5 +1,6 @@
 import Foundation
 import MarmotKit
+import OSLog
 
 extension AccountItem {
     nonisolated init(summary: AccountSummaryFfi) {
@@ -963,6 +964,8 @@ private nonisolated enum UntrustedJSON {
 }
 
 private nonisolated enum MessageMediaParser {
+    private static let maxAttachmentsPerMessage = OutgoingMediaDraftProcessor.maxAttachmentCount
+    private static let logger = Logger(subsystem: "com.whitenoise.media", category: "MessageMediaParser")
 
     static func attachments(
         resolvedMedia: [MediaAttachmentReferenceFfi],
@@ -984,7 +987,8 @@ private nonisolated enum MessageMediaParser {
                 .filter { $0.values.first == "imeta" }
                 .compactMap { reference(fromIMetaTag: $0.values, sourceEpoch: 0) }
             let jsonReferences = references(fromMediaJson: mediaJson)
-            resolvedReferences = jsonReferences.isEmpty ? tagReferences : jsonReferences
+            let fallbackReferences = jsonReferences.isEmpty ? tagReferences : jsonReferences
+            resolvedReferences = cappedFallbackReferences(fallbackReferences)
         }
 
         return resolvedReferences.enumerated().map { index, reference in
@@ -993,6 +997,18 @@ private nonisolated enum MessageMediaParser {
                 reference: reference
             )
         }
+    }
+
+    private static func cappedFallbackReferences(
+        _ references: [MediaAttachmentReferenceFfi]
+    ) -> [MediaAttachmentReferenceFfi] {
+        guard references.count > maxAttachmentsPerMessage else { return references }
+
+        let droppedCount = references.count - maxAttachmentsPerMessage
+        logger.notice(
+            "Dropped \(droppedCount) fallback media attachment references over cap \(maxAttachmentsPerMessage)"
+        )
+        return Array(references.prefix(maxAttachmentsPerMessage))
     }
 
     private static func references(fromMediaJson mediaJson: String?) -> [MediaAttachmentReferenceFfi] {
