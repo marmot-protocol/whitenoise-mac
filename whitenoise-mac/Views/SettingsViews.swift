@@ -443,15 +443,9 @@ struct PublicIdentityQRCodeSheet: View {
 
                 Spacer()
 
-                Button {
+                GlassCircleCloseButton {
                     dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
                 }
-                .nativeGlassCircleButtonStyle()
-                .help("Close")
             }
 
             ZStack {
