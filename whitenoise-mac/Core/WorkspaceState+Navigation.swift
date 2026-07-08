@@ -65,8 +65,6 @@ extension WorkspaceState {
     }
 
     func toggleChatList() {
-        withAnimation(.smooth(duration: 0.18)) {
-            isChatListVisible.toggle()
-        }
+        isChatListVisible.toggle()
     }
 }

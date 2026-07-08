@@ -20,14 +20,21 @@ struct MessengerShellView: View {
                     AccountRailView()
                     GlassSeparator()
 
-                    if workspace.isChatListVisible {
-                        ChatListDrawerView()
-                            .frame(width: 300, alignment: .leading)
-                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    Group {
+                        if workspace.isChatListVisible {
+                            ChatListDrawerView()
+                                .frame(width: 300, alignment: .leading)
+                                .transition(.move(edge: .leading).combined(with: .opacity))
 
-                        GlassSeparator()
-                            .transition(.opacity)
+                            GlassSeparator()
+                                .transition(.opacity)
+                        }
                     }
+                    // Scope the sidebar transition to the drawer. The detail pane
+                    // width should jump once, not animate through every intermediate
+                    // width and force the non-lazy transcript to re-wrap each frame.
+                    .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
+
                     DetailPaneView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -47,7 +54,6 @@ struct MessengerShellView: View {
             MessagesWindowBackground()
         }
         .ignoresSafeArea(.container, edges: ignoredEdges)
-        .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
     }
 }
 
