@@ -923,8 +923,46 @@ private nonisolated enum MarmotTimelineKind {
     static let groupSystem: UInt64 = 1210
 }
 
+private nonisolated enum UntrustedJSON {
+    static let maxNestingDepth = 32
+
+    static func nestingExceedsLimit(_ json: String, maxDepth: Int = maxNestingDepth) -> Bool {
+        var depth = 0
+        var isInsideString = false
+        var isEscaped = false
+
+        for scalar in json.unicodeScalars {
+            if isInsideString {
+                if isEscaped {
+                    isEscaped = false
+                } else if scalar.value == 0x5C {  // \\
+                    isEscaped = true
+                } else if scalar.value == 0x22 {  // "
+                    isInsideString = false
+                }
+                continue
+            }
+
+            switch scalar.value {
+            case 0x22:  // "
+                isInsideString = true
+            case 0x7B, 0x5B:  // { or [
+                depth += 1
+                if depth > maxDepth {
+                    return true
+                }
+            case 0x7D, 0x5D:  // } or ]
+                depth = max(0, depth - 1)
+            default:
+                continue
+            }
+        }
+
+        return false
+    }
+}
+
 private nonisolated enum MessageMediaParser {
-    private static let maxMediaJSONTraversalDepth = 32
 
     static func attachments(
         resolvedMedia: [MediaAttachmentReferenceFfi],
@@ -959,12 +997,12 @@ private nonisolated enum MessageMediaParser {
 
     private static func references(fromMediaJson mediaJson: String?) -> [MediaAttachmentReferenceFfi] {
         guard let mediaJson,
-            !mediaJSONNestingExceedsLimit(mediaJson, maxDepth: maxMediaJSONTraversalDepth),
+            !UntrustedJSON.nestingExceedsLimit(mediaJson),
             let data = mediaJson.data(using: .utf8),
             let root = try? JSONSerialization.jsonObject(with: data)
         else { return [] }
 
-        return references(fromJSONObject: root, remainingDepth: maxMediaJSONTraversalDepth)
+        return references(fromJSONObject: root, remainingDepth: UntrustedJSON.maxNestingDepth)
     }
 
     private static func references(
@@ -979,7 +1017,7 @@ private nonisolated enum MessageMediaParser {
             // keys) cannot emit duplicate references for the same logical attachment.
             if let imeta = dictionary["imeta"] {
                 // Safe without its own depth counter because the raw JSON pre-scan rejects
-                // any object graph deeper than maxMediaJSONTraversalDepth before parsing.
+                // any object graph deeper than UntrustedJSON.maxNestingDepth before parsing.
                 let imetaReferences = references(
                     fromIMetaValue: imeta,
                     sourceEpoch: unsignedInteger(dictionary["source_epoch"] ?? dictionary["sourceEpoch"])
@@ -1009,41 +1047,6 @@ private nonisolated enum MessageMediaParser {
         }
 
         return []
-    }
-
-    private static func mediaJSONNestingExceedsLimit(_ json: String, maxDepth: Int) -> Bool {
-        var depth = 0
-        var isInsideString = false
-        var isEscaped = false
-
-        for scalar in json.unicodeScalars {
-            if isInsideString {
-                if isEscaped {
-                    isEscaped = false
-                } else if scalar.value == 0x5C {  // \\
-                    isEscaped = true
-                } else if scalar.value == 0x22 {  // "
-                    isInsideString = false
-                }
-                continue
-            }
-
-            switch scalar.value {
-            case 0x22:  // "
-                isInsideString = true
-            case 0x7B, 0x5B:  // { or [
-                depth += 1
-                if depth > maxDepth {
-                    return true
-                }
-            case 0x7D, 0x5D:  // } or ]
-                depth = max(0, depth - 1)
-            default:
-                continue
-            }
-        }
-
-        return false
     }
 
     private static func references(fromIMetaValue value: Any, sourceEpoch: UInt64?) -> [MediaAttachmentReferenceFfi] {
@@ -1228,7 +1231,9 @@ private nonisolated struct TimelinePayload: Decodable {
     private static let decoder = JSONDecoder()
 
     static func decode(from text: String) -> TimelinePayload? {
-        guard let data = text.data(using: .utf8) else { return nil }
+        guard !UntrustedJSON.nestingExceedsLimit(text),
+            let data = text.data(using: .utf8)
+        else { return nil }
         return try? decoder.decode(TimelinePayload.self, from: data)
     }
 }
