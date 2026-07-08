@@ -7549,6 +7549,91 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func replyContextAndPendingMediaAreMutuallyExclusive() async throws {
+        // Issue #399: FFI media uploads carry no reply target. The composer must never
+        // keep both a visible reply banner and pending media, regardless of which one
+        // the user starts first, because sendDraft() can only route to one send path.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let attachment = PendingMediaAttachment(
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("hello media".utf8),
+            dim: nil
+        )
+        let parent = MessageItem(
+            id: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready.",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        guard let draftKey = state.selectedComposerDraftKey else {
+            Issue.record("Expected a composer draft key")
+            return
+        }
+
+        state.startReply(to: parent)
+        state.appendPendingMediaAttachment(attachment, for: draftKey)
+        state.draftText = "Photo caption"
+
+        #expect(state.replyDraftContext == nil)
+        #expect(state.pendingMediaAttachments.count == 1)
+
+        await state.sendDraft()
+
+        #expect(runtime.uploadMediaCallCount == 1)
+        #expect(runtime.replyToMessageCallCount == 0)
+        #expect(runtime.repliedMessage == nil)
+        #expect(runtime.uploadedMedia?.request.caption == "Photo caption")
+        #expect(state.pendingMediaAttachments.isEmpty)
+
+        state.appendPendingMediaAttachment(attachment, for: draftKey)
+        #expect(state.pendingMediaAttachments.count == 1)
+
+        state.startReply(to: parent)
+        state.draftText = "Text reply only"
+
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(state.replyDraftContext?.targetMessageId == "parent")
+
+        await state.sendDraft()
+
+        #expect(runtime.uploadMediaCallCount == 1)
+        #expect(runtime.replyToMessageCallCount == 1)
+        #expect(
+            runtime.repliedMessage
+                == SentReply(
+                    groupIdHex: "direct-group",
+                    targetMessageId: "parent",
+                    text: "Text reply only"
+                ))
+    }
+
+    @MainActor
     @Test func messageActionsPublishReactionAndDelete() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
