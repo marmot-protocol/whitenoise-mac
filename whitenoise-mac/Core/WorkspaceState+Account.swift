@@ -334,10 +334,27 @@ extension WorkspaceState {
         lastConfirmedReadMarkers.removeAll()
         deliveredNotificationKeys.removeAll()
         deliveredNotificationKeyOrder.removeAll()
+        resetAccountScopedGroupAndNewChatUIState()
         profileDraft = ProfileDraft()
         keyPackages = []
         auditLogFiles = []
         auditLogUploadStatus = nil
+    }
+
+    private func resetAccountScopedGroupAndNewChatUIState() {
+        isNewChatComposerVisible = false
+        resetNewChatComposer()
+        isResolvingNewChat = false
+        isCreatingChat = false
+
+        isGroupImagePickerPresented = false
+        groupImageSearchQuery = ""
+        groupImageResults = []
+        invalidateGroupImageSearch()
+        isSavingGroupImage = false
+
+        closeGroupDetails()
+        groupTranscriptExportTask = nil
     }
 
     /// Non-destructive sign-out: retains the account's local data but deactivates
@@ -593,33 +610,7 @@ extension WorkspaceState {
         isDeletingAuditLogFiles = false
         isUploadingAuditLogFiles = false
         deletingKeyPackageId = nil
-        isNewChatComposerVisible = false
-        resetNewChatComposer()
-        isResolvingNewChat = false
-        isCreatingChat = false
-        isGroupImagePickerPresented = false
-        groupImageSearchQuery = ""
-        groupImageResults = []
-        invalidateGroupImageSearch()
-        isSavingGroupImage = false
-        isGroupDetailsPresented = false
-        groupDetailsSnapshot = nil
-        groupProfileDraftName = ""
-        groupProfileDraftDescription = ""
-        groupInviteMemberQuery = ""
-        // Invalidate any in-flight load so a stale completion cannot write into the reset state;
-        // this also clears `isLoadingGroupDetails`. See issue #135.
-        invalidateGroupDetailsLoad()
-        isSavingGroupProfile = false
-        isInvitingGroupMember = false
-        isAcceptingGroupInvite = false
-        isDecliningGroupInvite = false
-        isArchivingGroup = false
-        isLeavingGroup = false
-        isExportingGroupTranscript = false
-        groupTranscriptExportTask = nil
-        groupTranscriptExportStatus = nil
-        mutatingGroupMemberId = nil
+        resetAccountScopedGroupAndNewChatUIState()
         self.storageRootPath = storageRootPath
         timelinePagingByChat = [:]
         timelineInitialLoadGroupId = nil
