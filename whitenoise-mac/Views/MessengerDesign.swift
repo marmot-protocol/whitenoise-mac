@@ -474,3 +474,30 @@ extension View {
         }
     }
 }
+
+/// Shared 28×28 circular glass dismiss/back control for sheet and column chrome.
+struct GlassCircleCloseButton: View {
+    let symbol: String
+    let helpText: String
+    let action: () -> Void
+
+    init(
+        symbol: String = "xmark",
+        help: String = "Close",
+        action: @escaping () -> Void
+    ) {
+        self.symbol = symbol
+        self.helpText = help
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 28, height: 28)
+        }
+        .nativeGlassCircleButtonStyle()
+        .help(helpText)
+    }
+}

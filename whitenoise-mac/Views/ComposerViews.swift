@@ -529,15 +529,9 @@ struct NewChatColumnView: View {
                     .font(.title2.weight(.semibold))
                     .lineLimit(1)
                 Spacer()
-                Button {
+                GlassCircleCloseButton {
                     workspace.closeNewChatComposer()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 28, height: 28)
                 }
-                .nativeGlassCircleButtonStyle()
-                .help("Close")
             }
             .padding(.horizontal, 14)
             .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
