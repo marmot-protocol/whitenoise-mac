@@ -7,7 +7,7 @@ import Foundation
 
 /// Bounds concurrent attachment downloads so opening a media-heavy chat cannot spawn
 /// unbounded FFI `downloadMedia` calls.
-enum MediaAttachmentDownloadConcurrency {
+nonisolated enum MediaAttachmentDownloadConcurrency {
     static let maxConcurrentDownloads = 4
 
     /// Wall-clock ceiling for one attachment's resolve+download FFI while holding a limiter slot.
@@ -22,13 +22,13 @@ enum MediaAttachmentDownloadConcurrency {
     #endif
 }
 
-struct MediaAttachmentDownloadTimeoutError: LocalizedError {
+nonisolated struct MediaAttachmentDownloadTimeoutError: LocalizedError {
     var errorDescription: String? {
         L10n.string("Attachment download timed out")
     }
 }
 
-func withMediaAttachmentDownloadTimeout<T>(
+nonisolated func withMediaAttachmentDownloadTimeout<T>(
     nanoseconds: UInt64 = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
@@ -40,7 +40,7 @@ func withMediaAttachmentDownloadTimeout<T>(
     return try await race.value()
 }
 
-private final class MediaAttachmentDownloadTimeoutRace<T>: @unchecked Sendable {
+private nonisolated final class MediaAttachmentDownloadTimeoutRace<T>: @unchecked Sendable {
     private let nanoseconds: UInt64
     private let operation: @Sendable () async throws -> T
     private let lock = NSLock()
@@ -146,7 +146,7 @@ actor MediaAttachmentDownloadLimiter {
 
         let waiterID = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else {

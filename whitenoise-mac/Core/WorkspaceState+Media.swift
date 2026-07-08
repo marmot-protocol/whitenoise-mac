@@ -245,7 +245,7 @@ extension WorkspaceState {
 
         do {
             let download = try await withMediaAttachmentDownloadTimeout {
-                let reference = try await resolvedMediaReference(
+                let reference = try await self.resolvedMediaReference(
                     attachment.reference,
                     accountId: accountId,
                     accountRef: accountRef,
