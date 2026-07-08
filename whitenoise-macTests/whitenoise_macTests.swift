@@ -1084,6 +1084,72 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func resetActiveAccountUIStateClearsGroupAndNewChatPII() async throws {
+        let primary = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        runtime.installGroup(messageGroup())
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: primary.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: groupChat)
+        #expect(state.groupDetailsSnapshot?.members.count == 3)
+
+        state.groupProfileDraftName = "Private group name"
+        state.groupProfileDraftDescription = "Private group description"
+        state.groupInviteMemberQuery = "npub1privateinvite"
+        state.isGroupImagePickerPresented = true
+        state.groupImageSearchQuery = "private avatar"
+        state.groupImageResults = [
+            GroupImageSearchResult(
+                id: "image-1",
+                title: "Private Avatar",
+                imageURL: "https://example.com/private-avatar.jpg",
+                thumbnailURL: "https://example.com/private-avatar-thumb.jpg",
+                creator: "Private Creator",
+                license: "cc0",
+                attribution: nil,
+                sourceURL: nil,
+                width: 128,
+                height: 128
+            )
+        ]
+        let recipient = NewChatRecipient(
+            sourceQuery: "npub1recipient",
+            memberRef: "npub1recipient",
+            accountIdHex: "recipient1234567890recipient1234567890recipient1234567890recip1",
+            npub: "npub1recipient",
+            displayName: "Private Recipient",
+            pictureURL: "https://example.com/recipient.png"
+        )
+        state.newChatQuery = "npub1recipient"
+        state.newChatName = "Private chat"
+        state.newChatDescription = "Private chat description"
+        state.newChatRecipient = recipient
+        state.newChatRecipients = [recipient]
+
+        state.resetActiveAccountUIState()
+
+        // Sign-out and active-account removal share this reset path; group-scoped
+        // roster/details, invite queries, image-picker results, and new-chat recipients
+        // must not survive account teardown. See #398.
+        #expect(!state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot == nil)
+        #expect(state.groupProfileDraftName.isEmpty)
+        #expect(state.groupProfileDraftDescription.isEmpty)
+        #expect(state.groupInviteMemberQuery.isEmpty)
+        #expect(!state.isGroupImagePickerPresented)
+        #expect(state.groupImageSearchQuery.isEmpty)
+        #expect(state.groupImageResults.isEmpty)
+        #expect(state.newChatQuery.isEmpty)
+        #expect(state.newChatName.isEmpty)
+        #expect(state.newChatDescription.isEmpty)
+        #expect(state.newChatRecipient == nil)
+        #expect(state.newChatRecipients.isEmpty)
+    }
+
+    @MainActor
     @Test func removeNonActiveAccountClearsItsUnreadBadge() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
