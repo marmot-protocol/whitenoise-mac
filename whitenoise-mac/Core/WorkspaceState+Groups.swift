@@ -140,6 +140,9 @@ extension WorkspaceState {
 
     func inviteMemberToSelectedGroup() async {
         guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isInvitingGroupMember else { return }
+        let accountId = activeAccount.id
+        let groupIdHex = snapshot.groupIdHex
+        let generation = groupDetailsLoadGeneration
         let query = groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard looksLikeMemberRef(query) else {
             lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
@@ -154,15 +157,36 @@ extension WorkspaceState {
             let normalized = try await runOffMain {
                 try client.normalizeMemberRef(memberRef: query)
             }
+            guard
+                isCurrentGroupDetailsMutation(
+                    generation: generation,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else { return }
             let result = try await client.inviteMembersDetailed(
                 accountRef: activeAccount.accountRef,
-                groupIdHex: snapshot.groupIdHex,
+                groupIdHex: groupIdHex,
                 memberRefs: [normalized.npub]
             )
+            guard
+                isCurrentGroupDetailsMutation(
+                    generation: generation,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else { return }
             groupInviteMemberQuery = ""
             applyGroupMutationResult(result)
             await reloadChats(forceFreshSnapshot: true)
         } catch {
+            guard
+                isCurrentGroupDetailsMutation(
+                    generation: generation,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else { return }
             lastError = error.localizedDescription
         }
     }
@@ -210,6 +234,9 @@ extension WorkspaceState {
         }
 
         lastError = nil
+        let accountId = activeAccount.id
+        let groupIdHex = snapshot.groupIdHex
+        let generation = groupDetailsLoadGeneration
         let selfMemberId = snapshot.members.first(where: \.isSelf)?.id ?? activeAccount.accountIdHex
         mutatingGroupMemberId = selfMemberId
         defer { mutatingGroupMemberId = nil }
@@ -217,11 +244,25 @@ extension WorkspaceState {
         do {
             let result = try await client.selfDemoteAdminDetailed(
                 accountRef: activeAccount.accountRef,
-                groupIdHex: snapshot.groupIdHex
+                groupIdHex: groupIdHex
             )
+            guard
+                isCurrentGroupDetailsMutation(
+                    generation: generation,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else { return }
             applyGroupMutationResult(result)
             await reloadChats(forceFreshSnapshot: true)
         } catch {
+            guard
+                isCurrentGroupDetailsMutation(
+                    generation: generation,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else { return }
             lastError = error.localizedDescription
         }
     }
@@ -515,6 +556,9 @@ extension WorkspaceState {
             let snapshot = groupDetailsSnapshot,
             mutatingGroupMemberId == nil
         else { return }
+        let accountId = activeAccount.id
+        let groupIdHex = snapshot.groupIdHex
+        let generation = groupDetailsLoadGeneration
         lastError = nil
         mutatingGroupMemberId = member.id
         defer { mutatingGroupMemberId = nil }
@@ -525,34 +569,62 @@ extension WorkspaceState {
             case .promote:
                 result = try await client.promoteAdminDetailed(
                     accountRef: activeAccount.accountRef,
-                    groupIdHex: snapshot.groupIdHex,
+                    groupIdHex: groupIdHex,
                     memberRef: member.npub
                 )
             case .demote:
                 if member.isSelf {
                     result = try await client.selfDemoteAdminDetailed(
                         accountRef: activeAccount.accountRef,
-                        groupIdHex: snapshot.groupIdHex
+                        groupIdHex: groupIdHex
                     )
                 } else {
                     result = try await client.demoteAdminDetailed(
                         accountRef: activeAccount.accountRef,
-                        groupIdHex: snapshot.groupIdHex,
+                        groupIdHex: groupIdHex,
                         memberRef: member.npub
                     )
                 }
             case .remove:
                 result = try await client.removeMembersDetailed(
                     accountRef: activeAccount.accountRef,
-                    groupIdHex: snapshot.groupIdHex,
+                    groupIdHex: groupIdHex,
                     memberRefs: [member.npub]
                 )
             }
+            guard
+                isCurrentGroupDetailsMutation(
+                    generation: generation,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else { return }
             applyGroupMutationResult(result)
             await reloadChats(forceFreshSnapshot: true)
         } catch {
+            guard
+                isCurrentGroupDetailsMutation(
+                    generation: generation,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else { return }
             lastError = error.localizedDescription
         }
+    }
+
+    /// True if a group-member mutation that captured these values on entry may still commit its
+    /// returned details. Mutations capture the current group-details generation without bumping it:
+    /// closing details or starting a newer load invalidates the token, but the mutation does not
+    /// steal ownership of `isLoadingGroupDetails` from an in-flight details load.
+    func isCurrentGroupDetailsMutation(
+        generation: UInt64,
+        accountId: String,
+        groupIdHex: String
+    ) -> Bool {
+        ownsGroupDetailsLoad(generation: generation)
+            && activeAccountId == accountId
+            && selectedChat?.id == groupIdHex
     }
 
     func applyGroupMutationResult(_ result: GroupMutationResultFfi) {

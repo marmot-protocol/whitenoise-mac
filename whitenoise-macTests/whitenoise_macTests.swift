@@ -9702,6 +9702,80 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func closingGroupDetailsInvalidatesInFlightGroupMemberMutationApply() async throws {
+        // Issue #392: group-member mutations return a fresh group-details snapshot. If the details
+        // panel is closed while the mutation is in flight, that completion must not repopulate the
+        // closed panel's backing snapshot.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf })
+
+        runtime.groupMutationGateEnabled = true
+        async let promotion: Void = state.promoteGroupMember(member)
+        while !(state.mutatingGroupMemberId == member.id && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        state.closeGroupDetails()
+        #expect(state.groupDetailsSnapshot == nil)
+        #expect(!state.isGroupDetailsPresented)
+
+        runtime.releaseGroupMutationGate()
+        await promotion
+
+        #expect(state.groupDetailsSnapshot == nil)
+        #expect(!state.isGroupDetailsPresented)
+        #expect(state.mutatingGroupMemberId == nil)
+    }
+
+    @MainActor
+    @Test func accountSwitchInvalidatesInFlightGroupMemberMutationCacheApply() async throws {
+        // Issue #392: an account switch clears the member cache. A mutation started by the previous
+        // account must not re-seed that cache after the switch completes.
+        let primary = desktopAccount()
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, backup])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: primary.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let primaryAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+        state.prepareForActiveAccountSwitch(to: primaryAccount, preservingMessageCacheFor: nil)
+        await state.reloadChats(forceFreshSnapshot: true)
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selection = .chat(groupChat.id)
+        await state.showGroupDetails(for: groupChat)
+        let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf })
+        #expect(state.groupMemberDetailsCache["group"] != nil)
+
+        runtime.groupMutationGateEnabled = true
+        async let promotion: Void = state.promoteGroupMember(member)
+        while !(state.mutatingGroupMemberId == member.id && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(state.groupMemberDetailsCache.isEmpty)
+
+        runtime.releaseGroupMutationGate()
+        await promotion
+
+        #expect(state.activeAccountId == "Backup Account")
+        #expect(state.groupMemberDetailsCache.isEmpty)
+        #expect(state.mutatingGroupMemberId == nil)
+    }
+
+    @MainActor
     @Test func groupDetailsProfileSaveAndInviteUseBindings() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
