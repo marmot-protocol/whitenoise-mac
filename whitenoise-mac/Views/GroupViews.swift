@@ -58,15 +58,9 @@ struct GroupDetailsSheet: View {
                         .controlSize(.small)
                 }
 
-                Button {
+                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat") {
                     workspace.closeGroupDetails()
-                } label: {
-                    Image(systemName: "chevron.backward")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 28, height: 28)
                 }
-                .nativeGlassCircleButtonStyle()
-                .help("Back to chat")
             }
             .padding(20)
 
@@ -609,15 +603,9 @@ struct GroupImagePickerSheet: View {
 
                     Spacer()
 
-                    Button {
+                    GlassCircleCloseButton {
                         workspace.closeGroupImagePicker()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .frame(width: 28, height: 28)
                     }
-                    .nativeGlassCircleButtonStyle()
-                    .help("Close")
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 16)
