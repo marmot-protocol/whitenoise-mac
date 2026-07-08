@@ -9776,6 +9776,36 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupMemberMutationInvalidatesOlderInFlightGroupDetailsLoad() async throws {
+        // Issue #392 follow-up: a mutation applies a fresh details/member snapshot. An older
+        // loadGroupDetails call that was already waiting in FFI must not complete afterward and
+        // overwrite the mutation result with its pre-mutation snapshot.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf })
+        #expect(member.isAdmin == false)
+
+        runtime.groupDetailsGateEnabled = true
+        async let staleLoad: Void = state.reloadSelectedGroupDetails()
+        while !(state.isLoadingGroupDetails && runtime.didReachGroupDetailsGate) {
+            await Task.yield()
+        }
+
+        await state.promoteGroupMember(member)
+        #expect(state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id })?.isAdmin == true)
+        #expect(state.isLoadingGroupDetails == false)
+
+        runtime.releaseGroupDetailsGate()
+        await staleLoad
+
+        #expect(state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id })?.isAdmin == true)
+        #expect(state.isLoadingGroupDetails == false)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func groupDetailsProfileSaveAndInviteUseBindings() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])

@@ -142,12 +142,12 @@ extension WorkspaceState {
         guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isInvitingGroupMember else { return }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
-        let generation = groupDetailsLoadGeneration
         let query = groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard looksLikeMemberRef(query) else {
             lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
             return
         }
+        let generation = beginGroupDetailsMutation()
 
         lastError = nil
         isInvitingGroupMember = true
@@ -236,7 +236,7 @@ extension WorkspaceState {
         lastError = nil
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
-        let generation = groupDetailsLoadGeneration
+        let generation = beginGroupDetailsMutation()
         let selfMemberId = snapshot.members.first(where: \.isSelf)?.id ?? activeAccount.accountIdHex
         mutatingGroupMemberId = selfMemberId
         defer { mutatingGroupMemberId = nil }
@@ -558,7 +558,7 @@ extension WorkspaceState {
         else { return }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
-        let generation = groupDetailsLoadGeneration
+        let generation = beginGroupDetailsMutation()
         lastError = nil
         mutatingGroupMemberId = member.id
         defer { mutatingGroupMemberId = nil }
@@ -614,9 +614,9 @@ extension WorkspaceState {
     }
 
     /// True if a group-member mutation that captured these values on entry may still commit its
-    /// returned details. Mutations capture the current group-details generation without bumping it:
-    /// closing details or starting a newer load invalidates the token, but the mutation does not
-    /// steal ownership of `isLoadingGroupDetails` from an in-flight details load.
+    /// returned details. Mutations own a fresh group-details generation so they supersede any
+    /// already in-flight load; closing details, switching accounts, or starting a newer load
+    /// invalidates the token before stale details can be applied.
     func isCurrentGroupDetailsMutation(
         generation: UInt64,
         accountId: String,
@@ -660,6 +660,15 @@ extension WorkspaceState {
 
     func beginGroupDetailsLoad() -> UInt64 {
         groupDetailsLoadGeneration &+= 1
+        return groupDetailsLoadGeneration
+    }
+
+    /// Start a group-member mutation's guarded apply window. The mutation returns a fresh
+    /// `GroupDetailsFfi`, so it must invalidate any older `loadGroupDetails` already awaiting FFI;
+    /// otherwise that load can complete last and overwrite the mutation result with stale members.
+    /// Clear the shared load spinner here because the superseded load intentionally no longer owns it.
+    func beginGroupDetailsMutation() -> UInt64 {
+        invalidateGroupDetailsLoad()
         return groupDetailsLoadGeneration
     }
 
