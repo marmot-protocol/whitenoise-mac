@@ -23,7 +23,7 @@ extension WorkspaceState {
         guard phase == .ready, client != nil else {
             // Cold start: .onOpenURL fires before bootstrap() finishes, and the link may
             // also arrive while signed out. Queue the reference; every path to `.ready`
-            // funnels through activateReadyState(), which flushes it.
+            // funnels through activateReadyState(), which flushes it without activating.
             pendingDeepLinkProfileReference = reference
             if phase == .onboarding {
                 backgroundStatus = L10n.string("Sign in to start a chat from this link.")
@@ -40,6 +40,8 @@ extension WorkspaceState {
             let reference = pendingDeepLinkProfileReference
         else { return }
         pendingDeepLinkProfileReference = nil
+        // Queued links came from an earlier untrusted URL event. Handle them once ready,
+        // but do not foreground the app later as a delayed side effect.
         Task { await openProfileReference(reference) }
     }
 }
