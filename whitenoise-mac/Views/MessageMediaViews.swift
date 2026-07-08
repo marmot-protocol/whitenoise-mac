@@ -21,16 +21,60 @@ import SwiftUI
 /// fit in the cost-bounded decoded-image cache.
 private let mediaThumbnailOversample: CGFloat = 1.5
 
+/// Per-conversation hover-selection gate. Bubbles register a local `isSelectable` binding;
+/// `activate` flips only the previous and newly active bubble so hover does not invalidate
+/// the non-lazy transcript `ForEach` parent (whitenoise-mac#397). SwiftUI calls this from
+/// main-thread view lifecycle / hover callbacks; it intentionally publishes no observable
+/// state back to `ConversationView`.
+final class ConversationHoverSelectionCoordinator {
+    private var activeMessageID: String?
+    private var registrations: [String: Binding<Bool>] = [:]
+
+    func register(messageID: String, isSelectable: Binding<Bool>) {
+        registrations[messageID] = isSelectable
+        isSelectable.wrappedValue = activeMessageID == messageID
+    }
+
+    func unregister(messageID: String) {
+        if activeMessageID == messageID {
+            activeMessageID = nil
+        }
+        registrations.removeValue(forKey: messageID)
+    }
+
+    func activate(messageID: String) {
+        guard activeMessageID != messageID else { return }
+        if let previousID = activeMessageID {
+            registrations[previousID]?.wrappedValue = false
+        }
+        activeMessageID = messageID
+        registrations[messageID]?.wrappedValue = true
+    }
+
+    func reset() {
+        if let activeMessageID {
+            registrations[activeMessageID]?.wrappedValue = false
+        }
+        activeMessageID = nil
+    }
+}
+
+private struct ConversationHoverSelectionCoordinatorKey: EnvironmentKey {
+    static let defaultValue = ConversationHoverSelectionCoordinator()
+}
+
+extension EnvironmentValues {
+    var conversationHoverSelectionCoordinator: ConversationHoverSelectionCoordinator {
+        get { self[ConversationHoverSelectionCoordinatorKey.self] }
+        set { self[ConversationHoverSelectionCoordinatorKey.self] = newValue }
+    }
+}
+
 struct ConversationMessageRow: View, Equatable {
     let message: MessageItem
-    /// Whether this row is the currently text-selectable bubble (drives `.textSelection`).
-    /// Passed by value so value-diffing only re-runs the rows whose selectability flipped.
-    var isSelectable: Bool = false
     /// Keep the debug toggle as a row input so `.equatable()` still updates rows when the
-    /// diagnostics presentation changes, while ordinary hover/selection churn skips rows
-    /// whose value inputs are unchanged.
+    /// diagnostics presentation changes, while hover/selection churn is scoped below the row.
     var showsDebugMetadata = false
-    let onActivateSelection: (String) -> Void
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     // Receives the resolved MessageItem by value (not via a shared @Observable lookup),
@@ -40,9 +84,7 @@ struct ConversationMessageRow: View, Equatable {
         if message.presentation.isChatBubble {
             MessageBubble(
                 message: message,
-                isSelectable: isSelectable,
                 showsDebugMetadata: showsDebugMetadata,
-                onActivateSelection: onActivateSelection,
                 onOpenImageGallery: onOpenImageGallery
             )
         } else {
@@ -52,7 +94,6 @@ struct ConversationMessageRow: View, Equatable {
 
     static func == (lhs: ConversationMessageRow, rhs: ConversationMessageRow) -> Bool {
         lhs.message == rhs.message
-            && lhs.isSelectable == rhs.isSelectable
             && lhs.showsDebugMetadata == rhs.showsDebugMetadata
     }
 }
@@ -108,13 +149,12 @@ struct TimelineNoticeRow: View {
 
 struct MessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.conversationHoverSelectionCoordinator) private var hoverSelectionCoordinator
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
+    @State private var isSelectable = false
     let message: MessageItem
-    /// Whether this bubble's text is selectable right now (only the active bubble is).
-    var isSelectable: Bool = false
     let showsDebugMetadata: Bool
-    let onActivateSelection: (String) -> Void
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     var body: some View {
@@ -216,12 +256,18 @@ struct MessageBubble: View {
         .contextMenu {
             MessageContextMenuItems(message: message)
         }
+        .onAppear {
+            hoverSelectionCoordinator.register(messageID: message.id, isSelectable: $isSelectable)
+        }
+        .onDisappear {
+            hoverSelectionCoordinator.unregister(messageID: message.id)
+        }
         .onHover { hovering in
             isHovering = hovering
             // Make this the active (selectable) bubble on hover-enter; do NOT clear on
             // exit, so the selection survives moving the cursor toward ⌘C / the menu bar.
             if hovering {
-                onActivateSelection(message.id)
+                hoverSelectionCoordinator.activate(messageID: message.id)
             }
         }
     }

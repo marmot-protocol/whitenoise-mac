@@ -282,11 +282,10 @@ private struct ConversationView: View {
     @State private var isFileImporterPresented = false
     @State private var isFileDropTargeted = false
     @State private var imageGallery: MessageImageGalleryPresentation?
-    /// The single message bubble that is currently text-selectable. Set on hover and kept
-    /// until another bubble is hovered or the chat changes, so at most one bubble is ever
-    /// backed by a selection NSView — avoiding the mass-platform-view layout hang that
-    /// blanket `.textSelection(.enabled)` caused (whitenoise-mac#205).
-    @State private var activeSelectionMessageID: String?
+    /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
+    /// register local `isSelectable` state so hover only updates the previous and active row
+    /// (whitenoise-mac#397).
+    @State private var hoverSelectionCoordinator = ConversationHoverSelectionCoordinator()
     /// True while the ScrollView is in any non-idle phase. Drives `.allowsHitTesting` on the
     /// transcript so per-frame hover/hit-test/tracking work is skipped during a fling and
     /// restored the moment scrolling settles.
@@ -332,16 +331,13 @@ private struct ConversationView: View {
                             ForEach(messages) { message in
                                 ConversationMessageRow(
                                     message: message,
-                                    isSelectable: activeSelectionMessageID == message.id,
-                                    showsDebugMetadata: workspace.streamingDebugEnabled,
-                                    onActivateSelection: { messageId in
-                                        activeSelectionMessageID = messageId
-                                    }
+                                    showsDebugMetadata: workspace.streamingDebugEnabled
                                 ) { gallery in
                                     imageGallery = gallery
                                 }
                                 .equatable()
                             }
+                            .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
 
                             if paging.hasMoreAfter {
                                 TimelinePageLoadingRow(isLoading: paging.isLoadingAfter)
@@ -387,7 +383,7 @@ private struct ConversationView: View {
                     pendingPrependAnchorId = nil
                     pendingAppendAnchorId = nil
                     isPinnedToBottom = true
-                    activeSelectionMessageID = nil
+                    hoverSelectionCoordinator.reset()
                 }
                 .onChange(of: messageIDs.last) { _, newMessageId in
                     switch timelineNewestMessageScrollAction(

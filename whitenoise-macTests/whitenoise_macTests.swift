@@ -188,9 +188,7 @@ private struct TranscriptPerformanceRows: View {
             ForEach(messages) { message in
                 ConversationMessageRow(
                     message: message,
-                    isSelectable: false,
-                    showsDebugMetadata: false,
-                    onActivateSelection: { _ in }
+                    showsDebugMetadata: false
                 ) { _ in }
                 .equatable()
             }
