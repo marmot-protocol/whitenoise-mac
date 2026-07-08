@@ -285,6 +285,80 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func replacingTimelineWindowEvictsMediaDownloadsOutsideWindow() async throws {
+        // Regression for whitenoise-mac#394: decrypted attachment payloads for messages that
+        // leave the selected timeline window must be released instead of staying resident until
+        // the user switches conversations.
+        let account = AccountItem.samples[0]
+        let chat = ChatItem.samples[0]
+        let staleAttachment = MessageMediaAttachment(
+            id: "stale-attachment",
+            reference: mediaReference(fileName: "stale.png", mediaType: "image/png")
+        )
+        let retainedAttachment = MessageMediaAttachment(
+            id: "retained-attachment",
+            reference: mediaReference(fileName: "retained.png", mediaType: "image/png")
+        )
+        let staleMessage = MessageItem(
+            id: "stale-message",
+            groupIdHex: chat.id,
+            senderName: "Alice",
+            body: "Scrolled away",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [staleAttachment]
+        )
+        let retainedMessage = MessageItem(
+            id: "retained-message",
+            groupIdHex: chat.id,
+            senderName: "Alice",
+            body: "Still visible",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isOutgoing: false,
+            mediaAttachments: [retainedAttachment]
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [chat]],
+            messagesByChat: [chat.id: [staleMessage, retainedMessage]],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(chat.id)
+
+        let staleKey = state.mediaDownloadKey(message: staleMessage, attachment: staleAttachment)
+        let retainedKey = state.mediaDownloadKey(message: retainedMessage, attachment: retainedAttachment)
+        let staleStore = mediaDownloadStore(
+            plaintext: Data("stale decrypted plaintext".utf8),
+            fileName: "stale.png",
+            payloadId: "stale-payload"
+        )
+        let retainedStore = mediaDownloadStore(
+            plaintext: Data("retained decrypted plaintext".utf8),
+            fileName: "retained.png",
+            payloadId: "retained-payload"
+        )
+        state.mediaDownloads[staleKey] = staleStore
+        state.mediaDownloads[retainedKey] = retainedStore
+
+        state.replaceMessages([retainedMessage], groupIdHex: chat.id)
+
+        #expect(state.mediaDownloads[staleKey] == nil)
+        #expect(staleStore.state == .idle)
+        let retained = try #require(state.mediaDownloads[retainedKey])
+        #expect(retained === retainedStore)
+        let retainedData: Data?
+        if case .loaded(let download) = retained.state {
+            retainedData = download.data
+        } else {
+            retainedData = nil
+        }
+        #expect(retainedData == Data("retained decrypted plaintext".utf8))
+    }
+
+    @MainActor
     @Test func detachedWindowSuppressesUpsertNewerThanPostRemovalHead() async throws {
         // Regression for whitenoise-mac#331: applyProjection must recompute the window head
         // *after* removals. In a detached (scrolled-back) window, a delta that removes the
@@ -1093,6 +1167,42 @@ struct PureValueTests {
             sourceURL: nil,
             width: nil,
             height: nil
+        )
+    }
+
+    @MainActor
+    private func mediaDownloadStore(
+        plaintext: Data,
+        fileName: String,
+        payloadId: String
+    ) -> MediaDownloadStateStore {
+        let store = MediaDownloadStateStore()
+        store.update(
+            .loaded(
+                MessageMediaDownload(
+                    data: plaintext,
+                    fileName: fileName,
+                    mediaType: "image/png",
+                    sizeBytes: UInt64(plaintext.count),
+                    payloadId: payloadId
+                )
+            )
+        )
+        return store
+    }
+
+    private func mediaReference(fileName: String, mediaType: String) -> MediaAttachmentReferenceFfi {
+        MediaAttachmentReferenceFfi(
+            locators: [MediaLocatorFfi(kind: "blossom", value: "https://media.example/\(fileName)")],
+            ciphertextSha256: "ciphertext-\(fileName)",
+            plaintextSha256: "plaintext-\(fileName)",
+            nonceHex: "00",
+            fileName: fileName,
+            mediaType: mediaType,
+            version: "1",
+            sourceEpoch: 1,
+            dim: nil,
+            thumbhash: nil
         )
     }
 

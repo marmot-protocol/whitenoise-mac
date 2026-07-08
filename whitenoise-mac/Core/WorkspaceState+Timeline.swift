@@ -741,6 +741,7 @@ extension WorkspaceState {
             timelinePagingByChat = [groupIdHex: nextPaging]
         }
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
+        pruneMediaDownloadCache(keeping: groupIdHex)
     }
 
     func finalizeTimelineStoreMutation(
@@ -755,6 +756,7 @@ extension WorkspaceState {
         messageTimelineStores = [groupIdHex: timelineStore]
         timelinePagingByChat = [groupIdHex: paging]
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
+        pruneMediaDownloadCache(keeping: groupIdHex)
     }
 
     func refreshSelectedTimelineAfterSend(

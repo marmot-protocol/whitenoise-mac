@@ -3905,17 +3905,7 @@ struct whitenoise_macTests {
         )
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
-        state.selectChat(
-            ChatItem(
-                id: "group",
-                title: "Test Group",
-                subtitle: "Group message",
-                preview: "Attachment",
-                updatedAt: nil,
-                avatarSeed: "group",
-                pictureURL: nil,
-                unreadCount: 0
-            ))
+        state.selection = .chat("group")
         let message = MessageItem(
             id: "media-message",
             groupIdHex: "group",
@@ -3931,6 +3921,7 @@ struct whitenoise_macTests {
             ]
         )
         let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: "group")
 
         await state.loadMediaAttachment(attachment, for: message)
         let stateAfterFirstLoad = state.mediaDownloadState(for: message, attachment: attachment)
@@ -4563,7 +4554,7 @@ struct whitenoise_macTests {
         )
         await state.bootstrap()
         let chat = try #require(state.activeChats.first)
-        state.selectChat(chat)
+        state.selection = .chat(chat.id)
         let message = MessageItem(
             id: "suppressed-cached-message",
             groupIdHex: "group",
@@ -4579,6 +4570,7 @@ struct whitenoise_macTests {
             ]
         )
         let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: chat.id)
 
         state.suppressAllMediaDiskStores()
         await state.loadMediaAttachment(attachment, for: message)

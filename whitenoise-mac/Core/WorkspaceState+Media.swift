@@ -246,7 +246,7 @@ extension WorkspaceState {
 
     /// Lazily allocates per-attachment stores from SwiftUI body lookup without observing the
     /// backing dictionary; `mediaDownloads` is `@ObservationIgnored`, and pruning bounds it to
-    /// the active conversation.
+    /// attachments that still belong to the active timeline window.
     func mediaDownloadStateStore(forKey key: String) -> MediaDownloadStateStore {
         if let store = mediaDownloads[key] {
             return store
@@ -484,7 +484,19 @@ extension WorkspaceState {
     }
 
     func mediaDownloadKey(message: MessageItem, attachment: MessageMediaAttachment) -> String {
-        [activeAccountId ?? "", message.groupIdHex, attachment.id].joined(separator: "\u{1F}")
+        mediaDownloadKey(
+            accountId: activeAccountId ?? "",
+            groupIdHex: message.groupIdHex,
+            attachmentId: attachment.id
+        )
+    }
+
+    private func mediaDownloadKey(
+        accountId: String,
+        groupIdHex: String,
+        attachmentId: String
+    ) -> String {
+        [accountId, groupIdHex, attachmentId].joined(separator: "\u{1F}")
     }
 
     func pruneMediaDownloadCache(keeping groupIdHex: String?) {
@@ -494,12 +506,31 @@ extension WorkspaceState {
         }
 
         let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
-        let removedKeys = mediaDownloads.keys.filter { !$0.hasPrefix(prefix) }
+        let retainedKeys = retainedMediaDownloadKeys(groupIdHex: groupIdHex, accountId: activeAccountId)
+        let removedKeys = mediaDownloads.keys.filter { key in
+            guard key.hasPrefix(prefix) else { return true }
+            return !retainedKeys.contains(key)
+        }
         for key in removedKeys {
             // Notify any lingering per-attachment observers before dropping the store.
             mediaDownloads[key]?.update(.idle)
             mediaDownloads[key] = nil
         }
+    }
+
+    private func retainedMediaDownloadKeys(groupIdHex: String, accountId: String) -> Set<String> {
+        guard let timelineStore = messageTimelineStores[groupIdHex] else { return [] }
+        return Set(
+            timelineStore.messages.flatMap { message in
+                message.mediaAttachments.map { attachment in
+                    mediaDownloadKey(
+                        accountId: accountId,
+                        groupIdHex: message.groupIdHex,
+                        attachmentId: attachment.id
+                    )
+                }
+            }
+        )
     }
 
     func resetMediaDownloadStateStores() {
