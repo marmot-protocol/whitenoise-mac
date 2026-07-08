@@ -3832,6 +3832,70 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func deeplyNestedTimelinePayloadJSONFallsBackWithoutDecoding() async throws {
+        // Regression for whitenoise-mac#403: agent/group-system plaintext JSON is peer content.
+        // Overly deep nesting must be rejected before JSONDecoder runs on the timeline path.
+        let deepActivityJSON = timelinePayloadJSONWithNesting(
+            inner: ["v": 1, "text": "Thinking"],
+            objectDepth: 40
+        )
+        let deepOperationJSON = timelinePayloadJSONWithNesting(
+            inner: ["v": 1, "event_type": "tool_call", "preview": "glp-1"],
+            objectDepth: 40
+        )
+        let deepSystemJSON = timelinePayloadJSONWithNesting(
+            inner: ["v": 1, "system_type": "group_renamed", "text": "Group renamed"],
+            objectDepth: 40
+        )
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "deep-activity",
+                    groupIdHex: "group",
+                    sender: "agent",
+                    plaintext: deepActivityJSON,
+                    kind: 1201,
+                    recordedAt: 1_700_000_000
+                ),
+                timelineMessage(
+                    id: "deep-operation",
+                    groupIdHex: "group",
+                    sender: "agent",
+                    plaintext: deepOperationJSON,
+                    kind: 1202,
+                    recordedAt: 1_700_000_001
+                ),
+                timelineMessage(
+                    id: "deep-system",
+                    groupIdHex: "group",
+                    sender: "",
+                    plaintext: deepSystemJSON,
+                    kind: 1210,
+                    recordedAt: 1_700_000_002
+                ),
+                timelineMessage(
+                    id: "shallow-activity",
+                    groupIdHex: "group",
+                    sender: "agent",
+                    plaintext: #"{"v":1,"text":"Thinking"}"#,
+                    kind: 1201,
+                    recordedAt: 1_700_000_003
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+
+        #expect(messages.count == 4)
+        #expect(messages[0].body == deepActivityJSON)
+        #expect(messages[1].body == deepOperationJSON)
+        #expect(messages[2].body == deepSystemJSON)
+        #expect(messages[3].body == "Thinking")
+    }
+
+    @MainActor
     @Test func boundedNestedMediaJSONStillProducesAttachments() async throws {
         // Base helper shape is object + imeta array + tag array, so 29 wrappers
         // reaches the current raw nesting limit of 32 without exceeding it.
@@ -16638,6 +16702,14 @@ private func mediaJson(for reference: MediaAttachmentReferenceFfi, arrayDepth de
     var object: Any = ["imeta": [mediaIMetaTag(for: reference).values]]
     for _ in 0..<depth {
         object = [object]
+    }
+    return mediaJSONString(fromJSONObject: object)
+}
+
+private func timelinePayloadJSONWithNesting(inner: [String: Any], objectDepth depth: Int) -> String {
+    var object: Any = inner
+    for _ in 0..<depth {
+        object = ["wrapper": object]
     }
     return mediaJSONString(fromJSONObject: object)
 }
