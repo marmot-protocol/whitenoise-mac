@@ -6,7 +6,6 @@
 //  (kAEGetURL). Registered via CFBundleURLTypes in Config/Info.plist.
 //
 
-import AppKit
 import Foundation
 
 @MainActor
@@ -21,8 +20,6 @@ extension WorkspaceState {
             return
         }
 
-        NSApplication.shared.activate(ignoringOtherApps: true)
-
         guard phase == .ready, client != nil else {
             // Cold start: .onOpenURL fires before bootstrap() finishes, and the link may
             // also arrive while signed out. Queue the reference; every path to `.ready`
@@ -34,6 +31,7 @@ extension WorkspaceState {
             return
         }
 
+        appActivationHandler(false)
         Task { await openProfileReference(reference) }
     }
 
