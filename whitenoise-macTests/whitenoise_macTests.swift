@@ -5284,6 +5284,57 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func visualMediaTileTapActionRetriesFailedVideoBeforeGallery() {
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .failed("network"),
+                attachmentKind: .video
+            ) == .retryDownload
+        )
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .failed("network"),
+                attachmentKind: .image
+            ) == .retryDownload
+        )
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .idle,
+                attachmentKind: .image
+            ) == .openImageGallery
+        )
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .idle,
+                attachmentKind: .video
+            ) == .none
+        )
+    }
+
+    @Test func visualMediaTileTapGestureRoutesRetryActionToDownload() throws {
+        // MessageVisualMediaTile is a SwiftUI gesture surface that the unit tests cannot
+        // tap directly here. Guard the wiring shape so a failed-tile retry action remains
+        // connected to the explicit download entry point, while the pure decision helper
+        // above guards that failed video tiles choose that action.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let tileStart = try #require(source.range(of: "struct MessageVisualMediaTile: View {"))
+        let rest = source[tileStart.upperBound...]
+        let tileEnd = try #require(rest.range(of: "\nstruct MessageMediaAttachmentView: View {")?.lowerBound)
+        let tileSource = String(source[tileStart.lowerBound..<tileEnd])
+
+        #expect(tileSource.contains("MessageVisualMediaTileInteraction.tapAction"))
+        #expect(tileSource.contains("case .retryDownload:"))
+        #expect(tileSource.contains("Task { await workspace.loadMediaAttachment(attachment, for: message) }"))
+    }
+
+    @MainActor
     @Test func loadMediaAttachmentRetriesFromFailedState() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
