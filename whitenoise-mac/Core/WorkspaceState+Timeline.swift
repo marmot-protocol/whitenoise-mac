@@ -435,6 +435,11 @@ extension WorkspaceState {
 
     func startReply(to message: MessageItem) {
         guard message.supportsChatActions else { return }
+        // Media uploads cannot carry a reply target yet, so reply and pending media are
+        // mutually exclusive — starting a reply drops any staged attachments.
+        if let draftKey = selectedComposerDraftKey {
+            pendingMediaAttachmentsByConversation[draftKey] = nil
+        }
         replyDraftContext = MessageReplyContext(
             targetMessageId: message.id,
             senderName: message.senderName,
