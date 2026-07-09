@@ -23,7 +23,7 @@ extension WorkspaceState {
         guard !query.isEmpty else {
             invalidateNewChatLookup()
             newChatRecipient = nil
-            lastError = L10n.string("Enter an npub, profile link, or public key.")
+            lastError = L10n.string("Enter a NIP-05, npub, profile link, or public key.")
             return nil
         }
 
@@ -44,8 +44,9 @@ extension WorkspaceState {
         }
 
         do {
+            let memberRef = try await memberRefCandidate(for: query)
             let member = try await runOffMain {
-                try client.normalizeMemberRef(memberRef: query)
+                try client.normalizeMemberRef(memberRef: memberRef)
             }
             try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: MarmotClient.seedRelays)
             peerProfileFFICache[member.accountIdHex] = nil
@@ -81,7 +82,7 @@ extension WorkspaceState {
                 return nil
             }
             newChatRecipient = nil
-            lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
+            lastError = L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
             return nil
         }
     }
@@ -271,6 +272,9 @@ extension WorkspaceState {
 
     func looksLikeMemberRef(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if NIP05Identifier(trimmed) != nil {
+            return true
+        }
         if MarkdownLinkPolicy.isProfileReferenceInput(trimmed) {
             return true
         }
@@ -278,5 +282,12 @@ extension WorkspaceState {
             return true
         }
         return trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit)
+    }
+
+    func memberRefCandidate(for query: String) async throws -> String {
+        if NIP05Identifier(query) != nil {
+            return try await nip05Resolver.accountReference(for: query)
+        }
+        return query
     }
 }

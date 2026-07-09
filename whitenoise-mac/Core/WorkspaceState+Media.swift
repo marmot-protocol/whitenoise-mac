@@ -20,6 +20,7 @@ extension WorkspaceState {
         draftTextByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
         pendingMediaAttachmentsByConversation.removeAll()
+        pendingMediaUploadStatesByConversation.removeAll()
     }
 
     func clearComposerDrafts(for chatIds: [String], accountId: String) {
@@ -28,6 +29,7 @@ extension WorkspaceState {
             draftTextByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
             pendingMediaAttachmentsByConversation[key] = nil
+            pendingMediaUploadStatesByConversation[key] = nil
         }
     }
 
@@ -40,6 +42,9 @@ extension WorkspaceState {
         }
         for key in pendingMediaAttachmentsByConversation.keys.filter({ $0.accountId == accountId }) {
             pendingMediaAttachmentsByConversation[key] = nil
+        }
+        for key in pendingMediaUploadStatesByConversation.keys.filter({ $0.accountId == accountId }) {
+            pendingMediaUploadStatesByConversation[key] = nil
         }
     }
 
@@ -338,11 +343,61 @@ extension WorkspaceState {
         }
     }
 
+    func addPastedMediaAttachments(from pasteboard: NSPasteboard = .general) async {
+        let pasteboardAttachments = OutgoingMediaPasteboardReader.attachments(from: pasteboard)
+        await addPastedMediaAttachments(pasteboardAttachments)
+    }
+
+    func addPastedMediaAttachments(_ pasteboardAttachments: [OutgoingMediaPasteboardAttachment]) async {
+        guard let draftKey = selectedComposerDraftKey else { return }
+        guard canBeginMediaAttachmentSelection() else { return }
+        guard !pasteboardAttachments.isEmpty else { return }
+
+        let selected = Array(pasteboardAttachments.prefix(remainingMediaAttachmentSlots))
+        if selected.count < pasteboardAttachments.count {
+            presentMaxMediaAttachmentWarning()
+        }
+
+        for item in selected {
+            do {
+                let attachment = try await preparedPastedMediaAttachment(from: item)
+                guard appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey) else { return }
+            } catch is CancellationError {
+                return
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    private func preparedPastedMediaAttachment(
+        from item: OutgoingMediaPasteboardAttachment
+    ) async throws -> PendingMediaAttachment {
+        switch item.payload {
+        case .fileURL(let url):
+            let isSecurityScoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if isSecurityScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            return try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
+        case .imageData(let data, let typeIdentifier):
+            return try await OutgoingMediaDraftProcessor.preparedAttachment(
+                fromPastedImageData: data,
+                typeIdentifier: typeIdentifier
+            )
+        }
+    }
+
     func removePendingMediaAttachment(_ id: PendingMediaAttachment.ID) {
         guard let selectedComposerDraftKey else { return }
         var attachments = pendingMediaAttachmentsByConversation[selectedComposerDraftKey] ?? []
         attachments.removeAll { $0.id == id }
         pendingMediaAttachmentsByConversation[selectedComposerDraftKey] = attachments.isEmpty ? nil : attachments
+        var uploadStates = pendingMediaUploadStatesByConversation[selectedComposerDraftKey] ?? [:]
+        uploadStates[id] = nil
+        pendingMediaUploadStatesByConversation[selectedComposerDraftKey] = uploadStates.isEmpty ? nil : uploadStates
     }
 
     func toggleVoiceRecording() async {
@@ -431,11 +486,11 @@ extension WorkspaceState {
     }
 
     func canBeginMediaAttachmentSelection() -> Bool {
-        // An ended membership must also refuse new attachments/recordings: the drop
-        // target and file importer stay reachable even while the composer is replaced
-        // by the membership-ended notice, and anything collected here could otherwise
-        // accumulate invisibly (the pending-media strip is hidden) and never be sent.
-        guard client != nil, selectedChat?.isNoLongerMember == false else { return false }
+        // Hidden composers must also refuse new attachments/recordings: drops,
+        // importers, paste, and recording shortcuts can still fire while the visible
+        // composer is replaced, and collected media would otherwise accumulate
+        // invisibly (the pending-media strip is hidden) and never be sent.
+        guard client != nil, selectedChat?.canUseComposer == true else { return false }
         guard remainingMediaAttachmentSlots > 0 else {
             presentMaxMediaAttachmentWarning()
             return false

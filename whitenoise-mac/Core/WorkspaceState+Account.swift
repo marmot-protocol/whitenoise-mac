@@ -92,6 +92,8 @@ extension WorkspaceState {
         invalidateNotificationSettingsOperations()
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         searchText = ""
+        chatListFilter = .active
+        archivingChatId = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: groupIdHex)
         clearMediaReferenceResolutionCache()
@@ -681,6 +683,7 @@ extension WorkspaceState {
             npub: resolved?.npub,
             pictureURL: resolved?.profilePicture,
             localSigning: base.localSigning,
+            externalSigning: base.externalSigning,
             isRunning: base.isRunning,
             signedOut: base.signedOut
         )
@@ -700,6 +703,7 @@ extension WorkspaceState {
             npub: account.npub,
             pictureURL: pictureURL,
             localSigning: account.localSigning,
+            externalSigning: account.externalSigning,
             isRunning: account.isRunning,
             signedOut: account.signedOut
         )

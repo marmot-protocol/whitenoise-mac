@@ -11,6 +11,7 @@ extension AccountItem {
             displayName: title,
             accountIdHex: summary.accountIdHex,
             localSigning: summary.localSigning,
+            externalSigning: summary.externalSigning,
             isRunning: summary.running,
             signedOut: summary.signedOut
         )
@@ -531,6 +532,9 @@ nonisolated extension MessageItem {
             return String(format: L10n.string("%@ made %@ an admin"), actorName, subjectName)
         }
         if let subjectStartName {
+            if event.subjectAccountIdHex == activeAccountIdHex {
+                return L10n.string("You were made an admin")
+            }
             return String(format: L10n.string("%@ was made an admin"), subjectStartName)
         }
         if let actorName {

@@ -79,6 +79,17 @@ struct PureValueTests {
         )
     }
 
+    @Test func composerReturnKeyPolicySendsPlainReturnOnly() async throws {
+        #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: NSEvent.ModifierFlags()) == .send)
+        #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: .shift) == .insertLineBreak)
+        #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: .command) == .deferToSystem)
+        #expect(
+            ComposerKeyboardShortcutPolicy.returnKeyAction(for: [.shift, .command])
+                == .deferToSystem
+        )
+        #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: .option) == .deferToSystem)
+    }
+
     @Test func mediaDurationLabelClampsNonFiniteAndOversizedDurations() async throws {
         // Regression for whitenoise-mac#253: the audio duration is peer-derived
         // (MediaWaveformAnalyzer -> AVAudioFile.length / sampleRate), so it may be
@@ -501,6 +512,7 @@ struct PureValueTests {
             avatarUrl: nil,
             avatarDim: nil,
             avatarThumbhash: nil,
+            imageHashHex: nil,
             encryptedMedia: AppGroupEncryptedMediaComponentFfi(
                 componentId: 0,
                 component: "",
@@ -595,6 +607,7 @@ struct PureValueTests {
                 avatarUrl: nil,
                 avatarDim: nil,
                 avatarThumbhash: nil,
+                imageHashHex: nil,
                 encryptedMedia: AppGroupEncryptedMediaComponentFfi(
                     componentId: 0,
                     component: "",

@@ -19,7 +19,10 @@ extension WorkspaceState {
     func showGroupDetails(for chat: ChatItem) async {
         cancelGroupTranscriptExport()
         lastError = nil
-        groupDetailsSnapshot = nil
+        if groupDetailsSnapshot?.groupIdHex != chat.id {
+            groupDetailsSnapshot = nil
+            isLoadingGroupDetails = true
+        }
         groupInviteMemberQuery = ""
         groupTranscriptExportStatus = nil
         isGroupDetailsPresented = true
@@ -153,7 +156,7 @@ extension WorkspaceState {
         let groupIdHex = snapshot.groupIdHex
         let query = groupInviteMemberQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard looksLikeMemberRef(query) else {
-            lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
+            lastError = L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
             return
         }
         let generation = beginGroupDetailsMutation()
@@ -163,8 +166,9 @@ extension WorkspaceState {
         defer { isInvitingGroupMember = false }
 
         do {
+            let memberRef = try await memberRefCandidate(for: query)
             let normalized = try await runOffMain {
-                try client.normalizeMemberRef(memberRef: query)
+                try client.normalizeMemberRef(memberRef: memberRef)
             }
             guard
                 isCurrentGroupDetailsMutation(
@@ -276,27 +280,42 @@ extension WorkspaceState {
         }
     }
 
-    func setSelectedGroupArchived(_ archived: Bool) async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isArchivingGroup else { return }
+    func setChatArchived(_ chat: ChatItem, archived: Bool) async {
+        guard let client, let activeAccount, archivingChatId == nil else { return }
         lastError = nil
-        isArchivingGroup = true
-        defer { isArchivingGroup = false }
+        archivingChatId = chat.id
+        defer { archivingChatId = nil }
 
         do {
             _ = try await client.setGroupArchived(
                 accountRef: activeAccount.accountRef,
-                groupIdHex: snapshot.groupIdHex,
+                groupIdHex: chat.id,
                 archived: archived
             )
-            if archived {
-                closeGroupDetails()
-            }
             await reloadChats(forceFreshSnapshot: true)
-            if !archived {
-                await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
-            }
         } catch {
-            lastError = error.localizedDescription
+            lastError =
+                archived
+                ? L10n.string("Couldn't archive chat")
+                : L10n.string("Couldn't update archive")
+        }
+    }
+
+    func setSelectedGroupArchived(_ archived: Bool) async {
+        guard let snapshot = groupDetailsSnapshot, !isArchivingGroup else { return }
+        guard let chat = selectedChat ?? chatItem(accountId: activeAccountId ?? "", chatId: snapshot.groupIdHex) else {
+            return
+        }
+
+        lastError = nil
+        isArchivingGroup = true
+        defer { isArchivingGroup = false }
+
+        await setChatArchived(chat, archived: archived)
+        if archived {
+            closeGroupDetails()
+        } else {
+            await loadGroupDetails(groupIdHex: snapshot.groupIdHex)
         }
     }
 
@@ -525,8 +544,18 @@ extension WorkspaceState {
     }
 
     func loadGroupDetails(groupIdHex: String) async {
-        guard let client, let activeAccount else { return }
-        guard selectedChat?.id == groupIdHex else { return }
+        guard let client, let activeAccount else {
+            if groupDetailsSnapshot == nil {
+                isLoadingGroupDetails = false
+            }
+            return
+        }
+        guard selectedChat?.id == groupIdHex else {
+            if groupDetailsSnapshot == nil {
+                isLoadingGroupDetails = false
+            }
+            return
+        }
 
         // Last-request-wins guard (issue #135): this method is reachable concurrently for the same
         // group, and the FFI pair below is completion-ordered, not request-ordered. Capture the

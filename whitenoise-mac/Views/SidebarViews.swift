@@ -160,24 +160,29 @@ struct ChatListDrawerView: View {
             } else if workspace.isNewChatComposerVisible {
                 NewChatColumnView()
             } else {
-                let filteredChats = workspace.filteredChats
+                let isShowingArchived = workspace.chatListFilter == .archived
+                let visibleChats = isShowingArchived ? workspace.filteredArchivedChats : workspace.filteredChats
+
                 VStack(spacing: 10) {
                     HStack(spacing: 8) {
-                        Text("Chats")
+                        Text(workspace.chatListFilter.title)
                             .font(.title2.weight(.semibold))
                         Spacer()
-                        Button {
-                            workspace.showNewChat()
-                        } label: {
-                            Image(systemName: "square.and.pencil")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 34, height: 34)
-                                .background {
-                                    MessagesCircleControlBackground()
-                                }
+                        ChatListFilterMenu()
+                        if !isShowingArchived {
+                            Button {
+                                workspace.showNewChat()
+                            } label: {
+                                Image(systemName: "square.and.pencil")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 34, height: 34)
+                                    .background {
+                                        MessagesCircleControlBackground()
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .help("New chat")
                         }
-                        .buttonStyle(.plain)
-                        .help("New chat")
                     }
 
                     MessagesSearchField(text: $workspace.searchText, accessibilityIdentifier: "chat.search")
@@ -190,32 +195,134 @@ struct ChatListDrawerView: View {
 
                 ScrollView {
                     LazyVStack(spacing: 3) {
-                        ForEach(filteredChats) { chat in
-                            Button {
-                                workspace.selectChat(chat)
-                            } label: {
-                                ChatRowContent(
-                                    chat: chat,
-                                    isSelected: workspace.selection == .chat(chat.id)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("chat.row.\(chat.id)")
+                        ForEach(visibleChats) { chat in
+                            ChatSidebarRow(chat: chat, isArchived: isShowingArchived)
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 8)
                 }
-                .accessibilityIdentifier("chat.list")
+                .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
-                    if filteredChats.isEmpty {
-                        EmptyDrawerState()
+                    if visibleChats.isEmpty {
+                        if isShowingArchived {
+                            ArchivedEmptyDrawerState()
+                        } else {
+                            EmptyDrawerState()
+                        }
                     }
                 }
             }
         }
         .background {
             MessagesSidebarBackground(level: .drawer)
+        }
+    }
+}
+
+private struct ChatListFilterMenu: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var isFilterPickerPresented = false
+
+    var body: some View {
+        Button {
+            isFilterPickerPresented = true
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .background {
+                    MessagesCircleControlBackground(isSelected: workspace.chatListFilter == .archived)
+                }
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isFilterPickerPresented, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(ChatListFilter.allCases, id: \.self) { filter in
+                    filterButton(filter)
+                }
+            }
+            .padding(8)
+        }
+        .help(L10n.string("Show archived chats"))
+        .accessibilityIdentifier("chat.list.filter")
+    }
+
+    private func filterButton(_ filter: ChatListFilter) -> some View {
+        Button {
+            workspace.chatListFilter = filter
+            isFilterPickerPresented = false
+        } label: {
+            HStack(spacing: 8) {
+                if workspace.chatListFilter == filter {
+                    Image(systemName: "checkmark")
+                        .frame(width: 14)
+                } else {
+                    Color.clear
+                        .frame(width: 14, height: 1)
+                }
+
+                Text(filter.title)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(minWidth: 150, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background {
+            if workspace.chatListFilter == filter {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
+            }
+        }
+    }
+}
+
+private struct ArchivedEmptyDrawerState: View {
+    var body: some View {
+        ContentUnavailableView(L10n.string("No archived chats"), systemImage: "archivebox")
+            .padding()
+    }
+}
+
+private struct ChatSidebarRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let chat: ChatItem
+    let isArchived: Bool
+
+    private var isArchiving: Bool {
+        workspace.archivingChatId == chat.id
+    }
+
+    var body: some View {
+        Button {
+            workspace.selectChat(chat)
+        } label: {
+            ChatRowContent(
+                chat: chat,
+                isSelected: workspace.selection == .chat(chat.id)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
+        .contextMenu {
+            if isArchived {
+                Button {
+                    Task { await workspace.setChatArchived(chat, archived: false) }
+                } label: {
+                    Label(L10n.string("Unarchive"), systemImage: "tray.and.arrow.up")
+                }
+                .disabled(isArchiving)
+            } else {
+                Button {
+                    Task { await workspace.setChatArchived(chat, archived: true) }
+                } label: {
+                    Label(L10n.string("Archive"), systemImage: "archivebox")
+                }
+                .disabled(isArchiving)
+            }
         }
     }
 }

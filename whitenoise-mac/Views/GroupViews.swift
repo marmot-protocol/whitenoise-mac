@@ -222,7 +222,8 @@ struct GroupDetailsSheet: View {
                         Section("Invite") {
                             HStack(spacing: 10) {
                                 TextField(
-                                    "npub, profile link, or hex public key", text: $workspace.groupInviteMemberQuery
+                                    "NIP-05, npub, profile link, or hex public key",
+                                    text: $workspace.groupInviteMemberQuery
                                 )
                                 .textFieldStyle(.roundedBorder)
 
@@ -359,6 +360,10 @@ struct GroupDetailsSheet: View {
                 }
                 .formStyle(.grouped)
                 .scrollContentBackground(.hidden)
+            } else if workspace.isLoadingGroupDetails {
+                ProgressView()
+                    .controlSize(.regular)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("Group details unavailable", systemImage: "person.2")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -370,7 +375,7 @@ struct GroupDetailsSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            LiquidGlassBackground()
+            MessagesTranscriptBackground()
         }
         .confirmationDialog(
             archiveConfirmationTitle,
