@@ -347,8 +347,7 @@ final class MessageTimelineStore {
 
         var didTrimOlderMessages = false
         if messages.count > windowLimit {
-            messages.removeFirst(messages.count - windowLimit)
-            rebuildIndexes()
+            trimOldestMessages(count: messages.count - windowLimit)
             didTrimOlderMessages = true
             didChange = true
         }
@@ -371,6 +370,18 @@ final class MessageTimelineStore {
             messages.enumerated().map { ($0.element.id, $0.offset) },
             uniquingKeysWith: { _, new in new }
         )
+    }
+
+    private func trimOldestMessages(count trimCount: Int) {
+        guard trimCount > 0 else { return }
+        let trimmedIDs = messages.prefix(trimCount).map(\.id)
+        messages.removeFirst(trimCount)
+        messageIDs.removeFirst(trimCount)
+        for id in trimmedIDs {
+            lookup[id] = nil
+            indexById[id] = nil
+        }
+        reindexMessages(startingAt: 0)
     }
 
     private func insertMessage(_ item: MessageItem, at index: Int) {
