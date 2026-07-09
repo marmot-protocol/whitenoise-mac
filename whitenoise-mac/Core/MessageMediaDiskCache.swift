@@ -204,7 +204,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private var purgeSequence = 0
     private var purgeTasks: [Int: ActivePurge] = [:]
     private var didSweepStagingDirectories = false
-    // Updated under `fileMutationLock` on commit, read-path deletion, and eviction; reset or invalidated on purge.
+    // Updated under `fileMutationLock` on commit and eviction.
+    // Invalidated when read-path deletions or account purges remove an unknown subset.
     // Seeded with one full scan when nil so stores under the cap avoid re-walking the tree every time (#377).
     private var trackedFootprint: CacheFootprint?
 
@@ -585,8 +586,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         start: AccessHandle
     ) -> MessageMediaDownload? {
         let entryDirectory = Self.entryDirectory(for: key, root: root)
-        let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
-        let payloadURL = entryDirectory.appendingPathComponent(payloadFileName)
+        let metadataURL = entryDirectory.appendingPathComponent(Self.metadataFileName)
+        let payloadURL = entryDirectory.appendingPathComponent(Self.payloadFileName)
 
         let metadataData: Data
         do {

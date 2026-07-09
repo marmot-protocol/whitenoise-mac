@@ -1871,13 +1871,21 @@ struct whitenoise_macTests {
         )
         let corruptReference = mediaDiskCacheReference(plaintext: corruptPlaintext, ciphertextByte: 0xa2)
         let replacementReference = mediaDiskCacheReference(plaintext: replacementPlaintext, ciphertextByte: 0xa3)
-        let staleKey = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: staleReference)
+        let staleKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: staleReference
+        )
         let invalidatingKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
             reference: invalidatingReference
         )
-        let corruptKey = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: corruptReference)
+        let corruptKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: corruptReference
+        )
         let replacementKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
@@ -1909,6 +1917,8 @@ struct whitenoise_macTests {
         )
         let staleEntryDirectory = try #require(cache.entryDirectory(for: staleKey))
         let corruptEntryDirectory = try #require(cache.entryDirectory(for: corruptKey))
+        // The corrupt unread entry is a sentinel for an unintended full cacheScan: a stale,
+        // inflated trackedFootprint would force a scan on the next store and remove it early.
         try Data("not sealed metadata".utf8).write(to: corruptEntryDirectory.appendingPathComponent("metadata.bin"))
 
         #expect(await cache.cachedDownload(for: invalidatingKey) == nil)
