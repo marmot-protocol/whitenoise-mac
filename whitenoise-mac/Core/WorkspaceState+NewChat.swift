@@ -19,7 +19,7 @@ extension WorkspaceState {
     @discardableResult
     func resolveNewChatQuery() async -> NewChatRecipient? {
         let query = newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let client else { return nil }
+        guard client != nil else { return nil }
         guard !query.isEmpty else {
             invalidateNewChatLookup()
             newChatRecipient = nil
@@ -44,34 +44,7 @@ extension WorkspaceState {
         }
 
         do {
-            let memberRef = try await memberRefCandidate(for: query)
-            let member = try await runOffMain {
-                try client.normalizeMemberRef(memberRef: memberRef)
-            }
-            try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: MarmotClient.seedRelays)
-            peerProfileFFICache[member.accountIdHex] = nil
-            let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
-                let profile = try? client.userProfile(accountIdHex: member.accountIdHex)
-                return ResolvedPeerFFI(
-                    profileDisplayName: profile?.displayName,
-                    profileName: profile?.name,
-                    profilePicture: profile?.picture,
-                    directoryDisplayName: client.displayName(accountIdHex: member.accountIdHex)
-                )
-            }
-            let displayName = firstNonBlank([
-                resolved?.profileDisplayName,
-                resolved?.profileName,
-                resolved?.directoryDisplayName,
-            ])
-            let recipient = NewChatRecipient(
-                sourceQuery: query,
-                memberRef: member.memberRef,
-                accountIdHex: member.accountIdHex,
-                npub: member.npub,
-                displayName: displayName,
-                pictureURL: resolved?.profilePicture
-            )
+            guard let recipient = try await resolveNewChatRecipient(for: query) else { return nil }
             guard isCurrentNewChatLookup(generation: lookupGeneration, query: query) else {
                 return nil
             }
@@ -85,6 +58,40 @@ extension WorkspaceState {
             lastError = L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
             return nil
         }
+    }
+
+    /// Resolve a profile/member reference without reading from or writing to the live New Chat
+    /// input fields. Callers that own the composer state can apply their own freshness checks.
+    func resolveNewChatRecipient(for query: String) async throws -> NewChatRecipient? {
+        guard let client else { return nil }
+        let memberRef = try await memberRefCandidate(for: query)
+        let member = try await runOffMain {
+            try client.normalizeMemberRef(memberRef: memberRef)
+        }
+        try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: MarmotClient.seedRelays)
+        peerProfileFFICache[member.accountIdHex] = nil
+        let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
+            let profile = try? client.userProfile(accountIdHex: member.accountIdHex)
+            return ResolvedPeerFFI(
+                profileDisplayName: profile?.displayName,
+                profileName: profile?.name,
+                profilePicture: profile?.picture,
+                directoryDisplayName: client.displayName(accountIdHex: member.accountIdHex)
+            )
+        }
+        let displayName = firstNonBlank([
+            resolved?.profileDisplayName,
+            resolved?.profileName,
+            resolved?.directoryDisplayName,
+        ])
+        return NewChatRecipient(
+            sourceQuery: query,
+            memberRef: member.memberRef,
+            accountIdHex: member.accountIdHex,
+            npub: member.npub,
+            displayName: displayName,
+            pictureURL: resolved?.profilePicture
+        )
     }
 
     func resolveNewChatQueryIfReady() async {

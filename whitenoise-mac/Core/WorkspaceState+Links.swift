@@ -64,17 +64,12 @@ extension WorkspaceState {
     }
 
     private func appendProfileReferenceToCurrentNewChat(query: String) async {
-        let previousQuery = newChatQuery
-        let previousRecipient = newChatRecipient
-
-        invalidateNewChatLookup()
-        newChatRecipient = nil
-        newChatQuery = query
-        if let recipient = await resolveNewChatQuery() {
-            _ = appendNewChatRecipient(recipient)
+        do {
+            if let recipient = try await resolveNewChatRecipient(for: query) {
+                _ = appendNewChatRecipient(recipient)
+            }
+        } catch {
+            lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
         }
-        invalidateNewChatLookup()
-        newChatQuery = previousQuery
-        newChatRecipient = previousRecipient
     }
 }
