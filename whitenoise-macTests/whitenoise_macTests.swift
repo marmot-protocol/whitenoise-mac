@@ -776,6 +776,38 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func signOutLastActiveAccountStopsInProgressVoiceRecording() async throws {
+        // #386: the account-rail sign-out path can send the last signed-in account
+        // straight to onboarding, removing the composer that owns the Stop control.
+        // It must still run active-conversation teardown so the mic is not left hot
+        // and the plaintext scratch recording does not survive sign-out.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        UserDefaults.standard.set(primary.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let url = try armInProgressVoiceRecording(on: state)
+        let desktopAccount = try #require(state.accounts.first { $0.id == primary.label })
+
+        await state.signOutAccount(desktopAccount)
+
+        #expect(runtime.signedOutAccountRefs == [primary.label])
+        #expect(state.phase == .onboarding)
+        #expect(state.activeAccountId == nil)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecorder == nil)
+        #expect(state.voiceRecordingURL == nil)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(state.voiceRecordingSamples.isEmpty)
+        #expect(state.voiceRecordingDurationSeconds == 0)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
     @Test func removingBackgroundAccountSelectedMidFlightRecoversActiveAccount() async throws {
         // Regression for the account-switch/remove race: if the user selects the
         // background account that is currently being removed while removal is in flight,
