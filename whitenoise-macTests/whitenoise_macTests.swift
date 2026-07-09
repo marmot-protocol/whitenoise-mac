@@ -10777,10 +10777,6 @@ struct whitenoise_macTests {
         let representation = try #require(image.representations.first)
 
         #expect(max(representation.pixelsWide, representation.pixelsHigh) <= productionTileMaxPixelSize)
-        #expect(
-            PendingMediaDraftThumbnailDecoder.decodedCost(for: image)
-                <= productionTileMaxPixelSize * productionTileMaxPixelSize * 4
-        )
     }
 
     @Test func pendingMediaDraftThumbnailDecoderRejectsInvalidImageData() async throws {

@@ -52,7 +52,7 @@ struct PendingMediaDraftTile: View {
     let tileSize: CGSize
 
     @State private var decodedImagePreview: NSImage?
-    @State private var decodedImageCacheKey: String?
+    @State private var decodedImageTaskID: String?
 
     var body: some View {
         Group {
@@ -93,7 +93,7 @@ struct PendingMediaDraftTile: View {
     }
 
     private var imagePreviewTaskID: String {
-        Self.cacheKey(for: attachment, maxPixelSize: imagePreviewMaxPixelSize)
+        Self.previewTaskID(for: attachment, maxPixelSize: imagePreviewMaxPixelSize)
     }
 
     private var imagePreviewMaxPixelSize: CGFloat {
@@ -102,12 +102,12 @@ struct PendingMediaDraftTile: View {
 
     @MainActor
     private func loadImagePreview() async {
-        let cacheKey = imagePreviewTaskID
-        if decodedImageCacheKey == cacheKey {
+        let taskID = imagePreviewTaskID
+        if decodedImageTaskID == taskID {
             return
         }
 
-        decodedImageCacheKey = cacheKey
+        decodedImageTaskID = taskID
         decodedImagePreview = nil
 
         let data = attachment.data
@@ -116,11 +116,11 @@ struct PendingMediaDraftTile: View {
             PendingMediaDraftThumbnailDecoder.image(from: data, maxPixelSize: maxPixelSize)
         }.value
 
-        guard decodedImageCacheKey == cacheKey else { return }
+        guard decodedImageTaskID == taskID else { return }
         decodedImagePreview = decoded
     }
 
-    private static func cacheKey(for attachment: PendingMediaAttachment, maxPixelSize: CGFloat) -> String {
+    private static func previewTaskID(for attachment: PendingMediaAttachment, maxPixelSize: CGFloat) -> String {
         "\(attachment.id.uuidString)|\(attachment.data.count)|\(Int(maxPixelSize))"
     }
 
@@ -170,8 +170,6 @@ struct PendingMediaDraftTile: View {
 }
 
 nonisolated enum PendingMediaDraftThumbnailDecoder {
-    static let defaultDecodedCacheTotalCostLimit = 8 * 1024 * 1024
-
     static func image(from data: Data, maxPixelSize: CGFloat) -> NSImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
@@ -188,16 +186,6 @@ nonisolated enum PendingMediaDraftThumbnailDecoder {
             return nil
         }
         return DownsampledImageSizing.image(fromDownsampled: cgImage)
-    }
-
-    static func decodedCost(for image: NSImage) -> Int {
-        let representation = image.representations.first
-        let width = max(1, representation?.pixelsWide ?? Int(ceil(image.size.width)))
-        let height = max(1, representation?.pixelsHigh ?? Int(ceil(image.size.height)))
-        guard width <= Int.max / max(height, 1) / 4 else {
-            return defaultDecodedCacheTotalCostLimit
-        }
-        return width * height * 4
     }
 }
 
