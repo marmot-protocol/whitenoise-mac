@@ -285,6 +285,54 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func messageTimelineStoreTrimsSaturatedWindowWithoutStaleIndexes() async throws {
+        // Regression for whitenoise-mac#422: once the live window is saturated, appending one
+        // newer message should trim only the oldest row and keep the lookup/index structures
+        // aligned without a full dedup/index rebuild on every message.
+        func message(id: String, timelineAt: UInt64, body: String? = nil) -> MessageItem {
+            MessageItem(
+                id: id,
+                senderName: "sender",
+                body: body ?? id,
+                sentAt: Date(timeIntervalSince1970: TimeInterval(timelineAt)),
+                timelineAt: timelineAt,
+                isOutgoing: false
+            )
+        }
+
+        let store = MessageTimelineStore.loaded(with: [
+            message(id: "m0", timelineAt: 0),
+            message(id: "m1", timelineAt: 1),
+            message(id: "m2", timelineAt: 2),
+        ])
+
+        let result = store.applyProjection(
+            upserts: [message(id: "m3", timelineAt: 3)],
+            removals: [],
+            anchoredToNewest: true,
+            windowLimit: 3
+        )
+
+        #expect(result.didTrimOlderMessages)
+        #expect(store.messages.map(\.id) == ["m1", "m2", "m3"])
+        #expect(store.messageIDs == ["m1", "m2", "m3"])
+        #expect(!store.containsMessage(id: "m0"))
+        #expect(store.lookup["m0"] == nil)
+        #expect(store.lookup["m1"]?.body == "m1")
+
+        _ = store.applyProjection(
+            upserts: [message(id: "m1", timelineAt: 1, body: "updated")],
+            removals: [],
+            anchoredToNewest: true,
+            windowLimit: 3
+        )
+
+        #expect(store.messages.map(\.body) == ["updated", "m2", "m3"])
+        #expect(store.messageIDs == ["m1", "m2", "m3"])
+        #expect(store.lookup["m1"]?.body == "updated")
+    }
+
+    @MainActor
     @Test func replacingTimelineWindowEvictsMediaDownloadsOutsideWindow() async throws {
         // Regression for whitenoise-mac#394: decrypted attachment payloads for messages that
         // leave the selected timeline window must be released instead of staying resident until
