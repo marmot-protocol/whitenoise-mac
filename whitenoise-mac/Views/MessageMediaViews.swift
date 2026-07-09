@@ -427,6 +427,22 @@ struct MessageImageGalleryPresentation: Identifiable, Equatable {
     }
 }
 
+enum MessageVisualMediaTileTapAction: Equatable {
+    case retryDownload
+    case openImageGallery
+    case none
+}
+
+enum MessageVisualMediaTileInteraction {
+    static func tapAction(
+        downloadState: MediaDownloadState,
+        attachmentKind: MessageMediaKind
+    ) -> MessageVisualMediaTileTapAction {
+        if case .failed = downloadState { return .retryDownload }
+        return attachmentKind == .image ? .openImageGallery : .none
+    }
+}
+
 struct MessageVisualMediaGrid: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
@@ -509,6 +525,7 @@ struct MessageVisualMediaGrid: View {
 }
 
 struct MessageVisualMediaTile: View {
+    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.displayScale) private var displayScale
     let downloadState: MediaDownloadStateStore
     let message: MessageItem
@@ -538,10 +555,21 @@ struct MessageVisualMediaTile: View {
             message: message
         )
         .onTapGesture {
-            if attachment.kind == .image,
-                let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment)
-            {
-                onOpenImageGallery(gallery)
+            switch MessageVisualMediaTileInteraction.tapAction(
+                downloadState: downloadState.state,
+                attachmentKind: attachment.kind
+            ) {
+            case .retryDownload:
+                Task { await workspace.loadMediaAttachment(attachment, for: message) }
+            case .openImageGallery:
+                if let gallery = MessageImageGalleryPresentation(
+                    message: message,
+                    initialAttachment: attachment
+                ) {
+                    onOpenImageGallery(gallery)
+                }
+            case .none:
+                break
             }
         }
         .accessibilityIdentifier("message.media.visualTile.\(attachment.id)")
