@@ -1849,6 +1849,86 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: entryDirectory.path))
     }
 
+    @Test func messageMediaDiskCacheReadDeletionMaintainsTrackedFootprint() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cachedAtCounter = AtomicCounter()
+        let cache = messageMediaDiskCache(
+            root: root,
+            evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
+            timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
+        )
+        let stalePlaintext = Data("stale media for replaced reference".utf8)
+        let corruptPlaintext = Data("corrupt metadata entry that should not be swept early".utf8)
+        let replacementPlaintext = Data("replacement media after read-path deletion".utf8)
+        let staleReference = mediaDiskCacheReference(plaintext: stalePlaintext, ciphertextByte: 0xa1)
+        let invalidatingReference = mediaDiskCacheReference(
+            plaintext: Data("different plaintext digest for the same ciphertext".utf8),
+            ciphertextByte: 0xa1
+        )
+        let corruptReference = mediaDiskCacheReference(plaintext: corruptPlaintext, ciphertextByte: 0xa2)
+        let replacementReference = mediaDiskCacheReference(plaintext: replacementPlaintext, ciphertextByte: 0xa3)
+        let staleKey = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: staleReference)
+        let invalidatingKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: invalidatingReference
+        )
+        let corruptKey = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: corruptReference)
+        let replacementKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: replacementReference
+        )
+
+        #expect(staleKey.cacheID == invalidatingKey.cacheID)
+        #expect(staleKey.plaintextSha256 != invalidatingKey.plaintextSha256)
+
+        await cache.store(
+            MessageMediaDownload(
+                data: stalePlaintext,
+                fileName: "stale.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(stalePlaintext.count),
+                payloadId: "stale"
+            ),
+            for: staleKey
+        )
+        await cache.store(
+            MessageMediaDownload(
+                data: corruptPlaintext,
+                fileName: "corrupt.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(corruptPlaintext.count),
+                payloadId: "corrupt"
+            ),
+            for: corruptKey
+        )
+        let staleEntryDirectory = try #require(cache.entryDirectory(for: staleKey))
+        let corruptEntryDirectory = try #require(cache.entryDirectory(for: corruptKey))
+        try Data("not sealed metadata".utf8).write(to: corruptEntryDirectory.appendingPathComponent("metadata.bin"))
+
+        #expect(await cache.cachedDownload(for: invalidatingKey) == nil)
+        #expect(!fileManager.fileExists(atPath: staleEntryDirectory.path))
+
+        await cache.store(
+            MessageMediaDownload(
+                data: replacementPlaintext,
+                fileName: "replacement.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(replacementPlaintext.count),
+                payloadId: "replacement"
+            ),
+            for: replacementKey
+        )
+
+        #expect(fileManager.fileExists(atPath: corruptEntryDirectory.path))
+        #expect(try #require(await cache.cachedDownload(for: replacementKey)).data == replacementPlaintext)
+    }
+
     @Test func messageMediaDiskCachePreservesEntryWhenMetadataCannotBeRead() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
