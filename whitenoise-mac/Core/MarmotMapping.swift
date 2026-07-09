@@ -1246,14 +1246,15 @@ private extension String {
 
 private nonisolated extension MessageReaction {
     static func summarize(_ summary: TimelineReactionSummaryFfi, activeAccountIdHex: String?) -> [MessageReaction] {
-        let ownReactionIdsByEmoji = activeAccountIdHex.map { accountIdHex in
-            Dictionary(
-                summary.userReactions.lazy
-                    .filter { $0.sender == accountIdHex }
-                    .map { ($0.emoji, $0.reactionMessageIdHex) },
-                uniquingKeysWith: { first, _ in first }
-            )
-        } ?? [:]
+        let ownReactionIdsByEmoji =
+            activeAccountIdHex.map { accountIdHex in
+                Dictionary(
+                    summary.userReactions.lazy
+                        .filter { $0.sender == accountIdHex }
+                        .map { ($0.emoji, $0.reactionMessageIdHex) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+            } ?? [:]
 
         return summary.byEmoji.map { reaction in
             MessageReaction(
