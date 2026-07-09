@@ -310,9 +310,10 @@ extension WorkspaceState {
         }
     }
 
-    /// Clears all active-account-scoped in-memory UI state (timelines, caches,
-    /// drafts, settings snapshots). Shared by account removal and sign-out.
+    /// Clears all active-account-scoped in-memory UI state (conversation resources,
+    /// timelines, caches, drafts, settings snapshots). Shared by account removal and sign-out.
     func resetActiveAccountUIState() {
+        leaveActiveConversation()
         stopTimelineListener()
         cancelTimelineLoad()
         cancelChatListReload()
