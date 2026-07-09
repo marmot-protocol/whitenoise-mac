@@ -41,6 +41,10 @@ nonisolated enum MarkdownLinkPolicy {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             return false
         }
+        // Reject embedded userinfo before host-based checks. A peer-controlled
+        // link like `https://relay.damus.io@evil.example` connects to
+        // `evil.example` but reads as the trusted relay host to a human.
+        guard url.user == nil, url.password == nil else { return false }
         guard let host = url.host, !host.isEmpty else { return false }
         // Peer-controlled links must not point at literal private/loopback/link-local
         // destinations. Reuse the SSRF host check already implemented for avatar image URLs so
