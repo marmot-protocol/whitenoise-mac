@@ -210,6 +210,13 @@ extension WorkspaceState {
         }
     }
 
+    var hasInProgressNewChatComposition: Bool {
+        !newChatRecipients.isEmpty
+            || !newChatName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !newChatDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     func resetNewChatComposer() {
         invalidateNewChatLookup()
         newChatQuery = ""

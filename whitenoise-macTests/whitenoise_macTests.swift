@@ -12931,6 +12931,87 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func openingProfileLinkPreservesInProgressNewChatComposition() async throws {
+        // Issue #421: profile autolinks/deep links must not wipe an in-progress New Chat
+        // draft (recipients, group name, description) when the composer is already visible.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
+        let carolId = "carol1234567890carol1234567890carol1234567890carol1234567890"
+        let nprofile = "nprofile1bob"
+        let query = "nostr:\(nprofile)"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: query, accountIdHex: bobId, npub: "npub1bob")
+        runtime.installNormalizedMemberRef(query: "npub1carol", accountIdHex: carolId, npub: "npub1carol")
+        runtime.installProfile(
+            accountIdHex: bobId,
+            profile: UserProfileMetadataFfi(
+                name: "bob",
+                displayName: "Bob Link",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1alice"
+        _ = await state.addCurrentNewChatRecipient()
+        state.newChatName = "Project Room"
+        state.newChatDescription = "planning space"
+        state.newChatQuery = "npub1carol"
+        await state.resolveNewChatQuery()
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
+
+        _ = state.handleMessageLinkOpen(URL(string: query)!)
+        let added = await waitFor {
+            state.newChatRecipients.contains { $0.accountIdHex == bobId }
+        }
+
+        #expect(added)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId, bobId])
+        #expect(state.newChatName == "Project Room")
+        #expect(state.newChatDescription == "planning space")
+        #expect(state.newChatQuery == "npub1carol")
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkPreservesInProgressNewChatComposition() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
+        let routedQuery = "nostr:npub1bob"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: bobId, npub: "npub1bob")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1alice"
+        _ = await state.addCurrentNewChatRecipient()
+        state.newChatName = "Project Room"
+        state.newChatDescription = "planning space"
+
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1bob?from=qr")!)
+        let added = await waitFor {
+            state.newChatRecipients.contains { $0.accountIdHex == bobId }
+        }
+
+        #expect(added)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId, bobId])
+        #expect(state.newChatName == "Project Room")
+        #expect(state.newChatDescription == "planning space")
+    }
+
+    @MainActor
     @Test func openingMarmotProfileAutolinkShowsNewChatComposerAndResolvesRecipient() async throws {
         // Kit-emitted marmot://profile/... autolinks in message text route through the same
         // in-app profile flow as nostr: links (mdk#725 / #340); the FFI receives the
