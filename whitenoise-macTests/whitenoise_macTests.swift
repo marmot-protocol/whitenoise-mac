@@ -9384,6 +9384,69 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func filteredChatsObservationInvalidatesOnChatListDeltaAfterCacheHit() async throws {
+        // Regression for #390: `filteredChats` is memoized through ignored cache state, but each
+        // body pass still has to read the observed chat list. Otherwise a cache-hit pass drops the
+        // sidebar's `chatsByAccount` subscription and background-chat updates do not repaint it.
+        let account = AccountItem.samples[0]
+        let selected = ChatItem(
+            id: "selected-chat",
+            title: "Selected group",
+            subtitle: "Group message",
+            preview: "selected preview",
+            updatedAt: Date(timeIntervalSince1970: 100),
+            avatarSeed: "selected-chat",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let background = ChatItem(
+            id: "background-chat",
+            title: "Background group",
+            subtitle: "Group message",
+            preview: "old background",
+            updatedAt: Date(timeIntervalSince1970: 90),
+            avatarSeed: "background-chat",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [selected, background]],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(selected.id)
+
+        #expect(state.filteredChats.map(\.id) == [selected.id, background.id])
+
+        let invalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.filteredChats.map(\.id)
+        } onChange: {
+            invalidated.markInvalidated()
+        }
+
+        state.upsertChat(
+            ChatItem(
+                id: background.id,
+                title: background.title,
+                subtitle: background.subtitle,
+                preview: "new background",
+                updatedAt: Date(timeIntervalSince1970: 200),
+                avatarSeed: background.avatarSeed,
+                pictureURL: background.pictureURL,
+                unreadCount: 3
+            ),
+            forAccountId: account.id
+        )
+
+        #expect(invalidated.value)
+        #expect(state.filteredChats.map(\.id) == [background.id, selected.id])
+        #expect(state.filteredChats.first?.preview == "new background")
+        #expect(state.filteredChats.first?.unreadCount == 3)
+    }
+
+    @MainActor
     @Test func workspaceChatIndexesAndFilterCachePerformanceGuard() async throws {
         let account = AccountItem.samples[0]
         let chats = performanceChatItems(count: 5_000)
