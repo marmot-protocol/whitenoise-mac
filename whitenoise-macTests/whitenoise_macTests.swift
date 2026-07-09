@@ -10033,6 +10033,35 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func saveGroupProfileDropsWhileMemberMutationIsInFlight() async throws {
+        // PR #418 review: a profile save triggers loadGroupDetails(), which must not start a
+        // newer details generation while a member mutation owns the apply window for its result.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
+
+        runtime.groupMutationGateEnabled = true
+        async let firstPromote: Void = state.promoteGroupMember(member)
+        while !(state.mutatingGroupMemberId == member.id && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        state.groupProfileDraftName = "Renamed While Mutating"
+        state.groupProfileDraftDescription = "Should be ignored until mutation finishes"
+        await state.saveGroupProfile()
+        #expect(runtime.updateGroupProfileCallCount == 0)
+        #expect(state.isSavingGroupProfile == false)
+
+        runtime.releaseGroupMutationGate()
+        await firstPromote
+
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+        #expect(state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id })?.isAdmin == true)
+    }
+
+    @MainActor
     @Test func inviteMemberDropsOverlappingDuplicateInvocation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])

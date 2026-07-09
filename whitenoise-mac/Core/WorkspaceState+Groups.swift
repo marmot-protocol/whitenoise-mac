@@ -112,7 +112,12 @@ extension WorkspaceState {
     }
 
     func saveGroupProfile() async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isSavingGroupProfile else { return }
+        guard let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot,
+            !isSavingGroupProfile,
+            !hasInFlightGroupDetailsMutation
+        else { return }
         let trimmedName = groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDescription = groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {

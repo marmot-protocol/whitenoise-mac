@@ -158,7 +158,11 @@ struct GroupDetailsSheet: View {
                                     systemImage: "checkmark.circle")
                             }
                             .nativeGlassProminentButtonStyle()
-                            .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
+                            .disabled(
+                                !hasProfileChanges
+                                    || workspace.isSavingGroupProfile
+                                    || workspace.hasInFlightGroupDetailsMutation
+                            )
                         }
                     }
                     // Profile edits publish a group commit, which the core rejects for a
