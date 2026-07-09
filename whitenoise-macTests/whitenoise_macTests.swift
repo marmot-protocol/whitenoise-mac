@@ -230,6 +230,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -255,6 +256,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -284,6 +286,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -324,6 +327,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -358,6 +362,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -399,6 +404,7 @@ struct whitenoise_macTests {
             label: "Primary Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -416,6 +422,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -443,6 +450,7 @@ struct whitenoise_macTests {
             label: "Primary Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -456,6 +464,7 @@ struct whitenoise_macTests {
             label: "Second Identity",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -484,6 +493,7 @@ struct whitenoise_macTests {
             label: "Primary Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -503,6 +513,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -533,6 +544,7 @@ struct whitenoise_macTests {
             label: "Primary Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -548,6 +560,7 @@ struct whitenoise_macTests {
             label: "Second Identity",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -587,6 +600,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -609,6 +623,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -636,6 +651,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -643,6 +659,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -665,6 +682,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -672,6 +690,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -724,6 +743,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -731,6 +751,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -819,6 +840,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -826,6 +848,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -868,6 +891,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -877,6 +901,7 @@ struct whitenoise_macTests {
             label: "Other Account",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -884,6 +909,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -918,6 +944,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -963,6 +990,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1008,6 +1036,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1039,6 +1068,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1069,6 +1099,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1095,6 +1126,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1128,6 +1160,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1135,6 +1168,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1235,6 +1269,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1242,6 +1277,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -2819,6 +2855,49 @@ struct whitenoise_macTests {
         #expect(!chat.isNoLongerMember)
     }
 
+    @Test func pendingInviteChatCannotUseComposerUntilConfirmed() {
+        let activeChat = ChatItem(
+            id: "active-group",
+            title: "Planning",
+            subtitle: "Planning",
+            preview: "No messages yet",
+            updatedAt: nil,
+            avatarSeed: "active-group",
+            pictureURL: nil,
+            unreadCount: 0,
+            pendingConfirmation: false,
+            selfMembership: .member
+        )
+        let pendingInvite = ChatItem(
+            id: "pending-group",
+            title: "Planning",
+            subtitle: "Planning",
+            preview: "Alice: Welcome in",
+            updatedAt: nil,
+            avatarSeed: "pending-group",
+            pictureURL: nil,
+            unreadCount: 0,
+            pendingConfirmation: true,
+            selfMembership: .member
+        )
+        let removedChat = ChatItem(
+            id: "removed-group",
+            title: "Planning",
+            subtitle: "Planning",
+            preview: "No messages yet",
+            updatedAt: nil,
+            avatarSeed: "removed-group",
+            pictureURL: nil,
+            unreadCount: 0,
+            pendingConfirmation: false,
+            selfMembership: .removed
+        )
+
+        #expect(activeChat.canUseComposer)
+        #expect(!pendingInvite.canUseComposer)
+        #expect(!removedChat.canUseComposer)
+    }
+
     @MainActor
     @Test func chatRowMapsSelfMembershipVariantsIntoChatItem() async throws {
         let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
@@ -3437,12 +3516,19 @@ struct whitenoise_macTests {
                     recordedAt: 1_700_000_003
                 ),
                 systemMessage(
+                    "admin-added-self-without-actor",
+                    systemType: "admin_added",
+                    text: "Admin added",
+                    subject: bob,
+                    recordedAt: 1_700_000_004
+                ),
+                systemMessage(
                     "admin-removed",
                     systemType: "admin_removed",
                     text: "Admin removed",
                     actor: bob,
                     subject: carol,
-                    recordedAt: 1_700_000_004
+                    recordedAt: 1_700_000_005
                 ),
                 systemMessage(
                     "group-renamed",
@@ -3451,14 +3537,14 @@ struct whitenoise_macTests {
                     actor: alice,
                     name: "Team Two",
                     oldName: "Team One",
-                    recordedAt: 1_700_000_005
+                    recordedAt: 1_700_000_006
                 ),
                 systemMessage(
                     "group-avatar-changed",
                     systemType: "group_avatar_changed",
                     text: "Group avatar changed",
                     actor: bob,
-                    recordedAt: 1_700_000_006
+                    recordedAt: 1_700_000_007
                 ),
                 systemMessage(
                     "disappearing-timer-changed",
@@ -3467,7 +3553,7 @@ struct whitenoise_macTests {
                     actor: alice,
                     oldRetentionSeconds: 0,
                     newRetentionSeconds: 604_800,
-                    recordedAt: 1_700_000_007
+                    recordedAt: 1_700_000_008
                 ),
             ],
             hasMoreBefore: false,
@@ -3496,6 +3582,7 @@ struct whitenoise_macTests {
                 "Alice removed Bob",
                 "Carol left",
                 "Alice made Bob an admin",
+                "Bob was made an admin",
                 "Bob removed Carol as admin",
                 #"Alice renamed the group from "Team One" to "Team Two""#,
                 "Bob changed the group avatar",
@@ -3503,13 +3590,15 @@ struct whitenoise_macTests {
             ])
         #expect(aliceLocalMessages[0].body == "You added Bob")
         #expect(aliceLocalMessages[3].body == "You made Bob an admin")
-        #expect(aliceLocalMessages[5].body == #"You renamed the group from "Team One" to "Team Two""#)
-        #expect(aliceLocalMessages[7].body == "You changed disappearing messages from off to 1 week")
+        #expect(aliceLocalMessages[4].body == "Bob was made an admin")
+        #expect(aliceLocalMessages[6].body == #"You renamed the group from "Team One" to "Team Two""#)
+        #expect(aliceLocalMessages[8].body == "You changed disappearing messages from off to 1 week")
         #expect(bobLocalMessages[0].body == "Alice added you")
         #expect(bobLocalMessages[1].body == "You were removed from the group by Alice")
         #expect(bobLocalMessages[3].body == "Alice made you an admin")
-        #expect(bobLocalMessages[4].body == "You removed Carol as admin")
-        #expect(bobLocalMessages[6].body == "You changed the group avatar")
+        #expect(bobLocalMessages[4].body == "You were made an admin")
+        #expect(bobLocalMessages[5].body == "You removed Carol as admin")
+        #expect(bobLocalMessages[7].body == "You changed the group avatar")
     }
 
     @MainActor
@@ -4247,6 +4336,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -4317,6 +4407,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -4407,6 +4498,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -4526,6 +4618,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -4669,6 +4762,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -4818,6 +4912,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -4890,6 +4985,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -4971,6 +5067,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -5082,6 +5179,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -5183,6 +5281,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -5443,6 +5542,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -5568,6 +5668,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: false
         )
@@ -5781,6 +5882,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -5826,6 +5928,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -5889,6 +5992,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -5952,6 +6056,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6167,6 +6272,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6356,6 +6462,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6441,6 +6548,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6488,6 +6596,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6539,6 +6648,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6594,6 +6704,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6647,6 +6758,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6677,6 +6789,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6746,6 +6859,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6785,6 +6899,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6828,6 +6943,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6864,6 +6980,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6924,6 +7041,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -6969,6 +7087,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7027,6 +7146,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7085,6 +7205,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7152,6 +7273,7 @@ struct whitenoise_macTests {
             label: "Primary Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7159,6 +7281,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7277,6 +7400,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7335,6 +7459,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7391,6 +7516,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7579,6 +7705,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7655,6 +7782,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7757,6 +7885,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7813,6 +7942,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7889,6 +8019,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -7976,6 +8107,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8061,6 +8193,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8106,6 +8239,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8158,6 +8292,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8240,6 +8375,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8292,6 +8428,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8340,6 +8477,161 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func imageSendTracksUploadStateUntilComposerClears() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let imageURL = directory.appendingPathComponent("screenshot.png")
+        try Self.testPNGData(width: 40, height: 28).write(to: imageURL)
+
+        await state.bootstrap()
+        await state.addMediaAttachments(from: [imageURL])
+        let attachment = try #require(state.pendingMediaAttachments.first)
+        #expect(attachment.kind == .image)
+
+        runtime.messageActionGateEnabled = true
+        async let send: Void = state.sendDraft()
+        while !(state.isSending && runtime.didReachMessageActionGate) {
+            await Task.yield()
+        }
+
+        #expect(state.pendingMediaUploadStates[attachment.id] == .uploading)
+
+        runtime.releaseMessageActionGate()
+        for _ in 0..<1_000 where state.pendingMediaUploadStates[attachment.id] != .uploaded {
+            await Task.yield()
+        }
+
+        #expect(state.pendingMediaUploadStates[attachment.id] == .uploaded)
+        await send
+        #expect(state.pendingMediaUploadStates.isEmpty)
+        #expect(state.pendingMediaAttachments.isEmpty)
+    }
+
+    @MainActor
+    @Test func pastedImageAttachmentAppendsToComposer() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("whitenoise-macTests.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        defer { pasteboard.clearContents() }
+        let item = NSPasteboardItem()
+        #expect(item.setData(try Self.testPNGData(width: 36, height: 24), forType: .png))
+        #expect(pasteboard.writeObjects([item]))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.addPastedMediaAttachments(from: pasteboard)
+
+        let attachment = try #require(state.pendingMediaAttachments.first)
+        #expect(state.pendingMediaAttachments.count == 1)
+        #expect(attachment.kind == .image)
+        #expect(attachment.mediaType == "image/jpeg")
+        #expect(attachment.dim == "36x24")
+        #expect(attachment.fileName.hasPrefix("pasted-image-"))
+        #expect(attachment.fileName.hasSuffix(".jpg"))
+        #expect(state.canSend)
+    }
+
+    @MainActor
+    @Test func pastedImageFileURLAppendsToComposerInsteadOfPathText() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let imageURL = directory.appendingPathComponent("screenshot.png")
+        try Self.testPNGData(width: 40, height: 28).write(to: imageURL)
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("whitenoise-macTests.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        defer { pasteboard.clearContents() }
+        let item = NSPasteboardItem()
+        #expect(item.setString(imageURL.absoluteString, forType: .fileURL))
+        #expect(item.setString(imageURL.path, forType: .string))
+        #expect(pasteboard.writeObjects([item]))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.addPastedMediaAttachments(from: pasteboard)
+
+        let attachment = try #require(state.pendingMediaAttachments.first)
+        #expect(state.pendingMediaAttachments.count == 1)
+        #expect(attachment.kind == .image)
+        #expect(attachment.mediaType == "image/jpeg")
+        #expect(attachment.dim == "40x28")
+        #expect(attachment.fileName == "screenshot.png.jpg")
+        #expect(state.draftText.isEmpty)
+    }
+
+    @MainActor
     @Test func endedMembershipDisablesSendingWhileChatStaysListed() async throws {
         // A group the local account was removed from stays in the chat list so the
         // history remains readable, but the core rejects sends to it
@@ -8348,6 +8640,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8386,6 +8679,18 @@ struct whitenoise_macTests {
 
         #expect(state.pendingMediaAttachments.isEmpty)
         #expect(!state.canSend)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("whitenoise-macTests.\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        defer { pasteboard.clearContents() }
+        let item = NSPasteboardItem()
+        #expect(item.setData(try Self.testPNGData(width: 16, height: 16), forType: .png))
+        #expect(pasteboard.writeObjects([item]))
+
+        await state.addPastedMediaAttachments(from: pasteboard)
+
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(!state.canSend)
     }
 
     @MainActor
@@ -8399,6 +8704,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8450,6 +8756,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8511,13 +8818,14 @@ struct whitenoise_macTests {
         // Issue #78: sendDraft() must guard against reentrancy. `isSending` flips synchronously,
         // but the model only suspends (and draftText is only cleared) at the `await sendText(...)`.
         // A second invocation delivered before SwiftUI re-renders the disabled send button
-        // (⌘-Return auto-repeat, double events) would otherwise observe the still-unchanged
+        // (Return auto-repeat, double events) would otherwise observe the still-unchanged
         // draftText and re-send the same message. Repro: hold the first send in-flight at the
         // FFI gate, fire an overlapping second send, then release. Only one text must be sent.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8576,6 +8884,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8653,6 +8962,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8710,6 +9020,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8761,6 +9072,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -8800,6 +9112,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9116,6 +9429,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9131,6 +9445,7 @@ struct whitenoise_macTests {
             avatarUrl: nil,
             avatarDim: nil,
             avatarThumbhash: nil,
+            imageHashHex: nil,
             encryptedMedia: encryptedMediaComponent(),
             disappearingMessageSecs: 0,
             archived: false,
@@ -9180,6 +9495,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9499,6 +9815,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9563,6 +9880,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9666,6 +9984,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9721,6 +10040,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9779,6 +10099,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9927,6 +10248,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -9994,6 +10316,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -10058,6 +10381,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -10084,6 +10408,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -10116,6 +10441,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -10149,6 +10475,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -10364,6 +10691,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -10589,6 +10917,8 @@ struct whitenoise_macTests {
         #expect(archiveRuntime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: true))
         #expect(!archiveState.isGroupDetailsPresented)
         #expect(archiveState.activeChats.isEmpty)
+        #expect(archiveState.archivedChats.count == 1)
+        #expect(archiveState.archivedChats.first?.id == "group")
 
         let leaveRuntime = FakeMarmotRuntime(accounts: [account])
         let leaveDetails = groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
@@ -10618,6 +10948,90 @@ struct whitenoise_macTests {
         #expect(leaveRuntime.leftGroupIdHex == "group")
         #expect(!leaveState.isGroupDetailsPresented)
         #expect(leaveState.activeChats.isEmpty)
+    }
+
+    @MainActor
+    @Test func sidebarArchiveMovesChatToArchivedSection() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let chat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.setChatArchived(chat, archived: true)
+
+        #expect(runtime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: true))
+        #expect(state.activeChats.isEmpty)
+        #expect(state.archivedChats.count == 1)
+        #expect(state.archivedChats.first?.id == chat.id)
+        #expect(state.archivedChats.first?.subtitle == L10n.string("Archived"))
+
+        await state.setChatArchived(chat, archived: false)
+
+        #expect(runtime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: false))
+        #expect(state.archivedChats.isEmpty)
+        #expect(state.activeChats.count == 1)
+        #expect(state.activeChats.first?.id == chat.id)
+    }
+
+    @MainActor
+    @Test func archivedChatSearchFiltersArchivedSection() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let chat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        await state.setChatArchived(chat, archived: true)
+        state.searchText = "missing"
+
+        #expect(state.filteredArchivedChats.isEmpty)
+        #expect(state.filteredChats.isEmpty)
+
+        state.searchText = chat.title.prefix(3).description
+        #expect(state.filteredArchivedChats.count == 1)
+        #expect(state.filteredArchivedChats.first?.id == chat.id)
+    }
+
+    @MainActor
+    @Test func chatListFilterShowsArchivedChatsOnlyWhenSelected() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        guard let chat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        #expect(state.chatListFilter == .active)
+        #expect(state.filteredChats.count == 1)
+        #expect(state.filteredArchivedChats.isEmpty)
+
+        await state.setChatArchived(chat, archived: true)
+
+        #expect(state.filteredChats.isEmpty)
+        #expect(state.filteredArchivedChats.count == 1)
+
+        state.chatListFilter = .archived
+        #expect(state.filteredArchivedChats.count == 1)
+        #expect(state.filteredChats.isEmpty)
+
+        state.chatListFilter = .active
+        #expect(state.filteredChats.isEmpty)
+        #expect(state.filteredArchivedChats.count == 1)
     }
 
     @MainActor
@@ -11314,6 +11728,20 @@ struct whitenoise_macTests {
         #expect(image == nil)
     }
 
+    @Test func pastedImageDraftProcessorEncodesImageAttachment() async throws {
+        let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
+            fromPastedImageData: try Self.testPNGData(width: 48, height: 32),
+            typeIdentifier: UTType.png.identifier
+        )
+
+        #expect(attachment.kind == .image)
+        #expect(attachment.mediaType == "image/jpeg")
+        #expect(attachment.dim == "48x32")
+        #expect(attachment.fileName.hasPrefix("pasted-image-"))
+        #expect(attachment.fileName.hasSuffix(".jpg"))
+        #expect(attachment.data.count <= OutgoingMediaDraftProcessor.maxImageAttachmentBytes)
+    }
+
     @Test func remoteImageLoaderCoalescesConcurrentLoadsForSameCacheKey() async throws {
         RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0.2)
         let config = URLSessionConfiguration.ephemeral
@@ -11819,6 +12247,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12093,6 +12522,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12154,6 +12584,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12161,6 +12592,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12206,6 +12638,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12219,6 +12652,73 @@ struct whitenoise_macTests {
 
         #expect(state.resolvedNewChatRecipient?.title == "Desktop Account")
         #expect(state.resolvedNewChatRecipient?.pictureURL == "https://example.com/avatar.png")
+    }
+
+    @MainActor
+    @Test func resolvingNewChatRecipientUsesNIP05() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: aliceId, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice NIP-05",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: "alice@example.com",
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(
+            nip05Resolver: StubNIP05Resolver(accountReferences: ["alice@example.com": aliceId]),
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "alice@example.com"
+        await state.resolveNewChatQuery()
+
+        #expect(state.looksLikeMemberRef("alice@example.com"))
+        #expect(state.resolvedNewChatRecipient?.sourceQuery == "alice@example.com")
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == aliceId)
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(state.resolvedNewChatRecipient?.title == "Alice NIP-05")
+        #expect(state.resolvedNewChatRecipient?.pictureURL == "https://example.com/alice.png")
+    }
+
+    @MainActor
+    @Test func createNewChatResolvesPendingNIP05Query() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: aliceId, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice NIP-05",
+                about: nil,
+                picture: nil,
+                nip05: "alice@example.com",
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(
+            nip05Resolver: StubNIP05Resolver(accountReferences: ["alice@example.com": aliceId]),
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "alice@example.com"
+        await state.createNewChat()
+
+        #expect(runtime.createdGroupMemberRefs == [aliceId])
+        #expect(runtime.createdGroupName == "Alice NIP-05")
+        #expect(state.selection == .chat("created-group"))
     }
 
     @MainActor
@@ -12402,6 +12902,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12460,6 +12961,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12510,6 +13012,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12530,6 +13033,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12596,6 +13100,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12622,6 +13127,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12644,6 +13150,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12651,6 +13158,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12703,6 +13211,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12733,6 +13242,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12759,6 +13269,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12803,6 +13314,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12830,6 +13342,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12837,6 +13350,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12888,6 +13402,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12895,6 +13410,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12950,6 +13466,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -12957,6 +13474,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13009,6 +13527,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13016,6 +13535,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13074,6 +13594,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13081,6 +13602,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13237,6 +13759,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13306,6 +13829,7 @@ struct whitenoise_macTests {
             label: "primary-account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13313,6 +13837,7 @@ struct whitenoise_macTests {
             label: "secondary-account",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13382,6 +13907,7 @@ struct whitenoise_macTests {
             label: "primary-account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13389,6 +13915,7 @@ struct whitenoise_macTests {
             label: "secondary-account",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13482,6 +14009,7 @@ struct whitenoise_macTests {
             label: "primary-account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13535,6 +14063,7 @@ struct whitenoise_macTests {
             label: "primary-account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13585,6 +14114,7 @@ struct whitenoise_macTests {
             label: "primary-account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13592,6 +14122,7 @@ struct whitenoise_macTests {
             label: "signed-out-account",
             accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
             localSigning: true,
+            externalSigning: false,
             signedOut: true,
             running: false
         )
@@ -13638,6 +14169,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13667,6 +14199,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13701,6 +14234,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13723,6 +14257,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13759,6 +14294,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13807,6 +14343,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13851,6 +14388,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13905,6 +14443,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13944,6 +14483,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -13973,6 +14513,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14008,6 +14549,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14049,6 +14591,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14095,6 +14638,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14280,6 +14824,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14327,6 +14872,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14374,6 +14920,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14413,6 +14960,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14455,6 +15003,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14474,6 +15023,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14507,6 +15057,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14537,6 +15088,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14569,6 +15121,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14576,6 +15129,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14637,6 +15191,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14644,6 +15199,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14702,6 +15258,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14709,6 +15266,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14781,6 +15339,7 @@ struct whitenoise_macTests {
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14788,6 +15347,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -14891,6 +15451,17 @@ private actor FakeGroupImageSearchClient: GroupImageSearchClient {
     func searchImages(query: String) async throws -> [GroupImageSearchResult] {
         queries.append(query)
         return results
+    }
+}
+
+private struct StubNIP05Resolver: NIP05Resolving {
+    let accountReferences: [String: String]
+
+    func accountReference(for identifier: String) async throws -> String {
+        guard let reference = accountReferences[identifier] else {
+            throw NIP05ResolutionError.notFound
+        }
+        return reference
     }
 }
 
@@ -15729,6 +16300,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                 avatarUrl: nil,
                 avatarDim: nil,
                 avatarThumbhash: nil,
+                imageHashHex: nil,
                 encryptedMedia: encryptedMediaComponent(),
                 disappearingMessageSecs: 0,
                 archived: false,
@@ -16393,6 +16965,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             label: accountRef,
             accountIdHex: accountRef,
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -17452,6 +18025,7 @@ private func desktopAccount() -> AccountSummaryFfi {
         label: "Desktop Account",
         accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         localSigning: true,
+        externalSigning: false,
         signedOut: false,
         running: true
     )
@@ -17558,6 +18132,7 @@ private func directGroup() -> AppGroupRecordFfi {
         avatarUrl: nil,
         avatarDim: nil,
         avatarThumbhash: nil,
+        imageHashHex: nil,
         encryptedMedia: encryptedMediaComponent(),
         disappearingMessageSecs: 0,
         archived: false,
@@ -17580,6 +18155,7 @@ private func messageGroup() -> AppGroupRecordFfi {
         avatarUrl: nil,
         avatarDim: nil,
         avatarThumbhash: nil,
+        imageHashHex: nil,
         encryptedMedia: encryptedMediaComponent(),
         disappearingMessageSecs: 0,
         archived: false,

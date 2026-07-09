@@ -13,8 +13,216 @@ import AppKit
 import ImageIO
 import SwiftUI
 
+struct ComposerMessageInputView: View {
+    @Binding var text: String
+    let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
+    let onSend: () -> Void
+
+    @State private var measuredHeight = ComposerMessageInputMetrics.minHeight
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ComposerMessageTextViewRepresentable(
+                text: $text,
+                measuredHeight: $measuredHeight,
+                onPasteMedia: onPasteMedia,
+                onSend: onSend
+            )
+            .frame(height: measuredHeight)
+
+            if text.isEmpty {
+                Text("Message")
+                    .font(.body)
+                    .foregroundStyle(Color(nsColor: .placeholderTextColor))
+                    .padding(.top, 1)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(minHeight: ComposerMessageInputMetrics.minHeight)
+    }
+}
+
+private enum ComposerMessageInputMetrics {
+    static let minHeight: CGFloat = 20
+    static let maxHeight: CGFloat = 96
+}
+
+nonisolated enum ComposerReturnKeyAction: Equatable {
+    case send
+    case insertLineBreak
+    case deferToSystem
+}
+
+nonisolated enum ComposerKeyboardShortcutPolicy {
+    static func returnKeyAction(for modifierFlags: NSEvent.ModifierFlags) -> ComposerReturnKeyAction {
+        let meaningfulFlags =
+            modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .intersection([.shift, .control, .option, .command])
+        if meaningfulFlags.isEmpty {
+            return .send
+        }
+        if meaningfulFlags == .shift {
+            return .insertLineBreak
+        }
+        return .deferToSystem
+    }
+}
+
+private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var measuredHeight: CGFloat
+    let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
+    let onSend: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, measuredHeight: $measuredHeight, onPasteMedia: onPasteMedia, onSend: onSend)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = ComposerPasteInterceptingTextView()
+        textView.delegate = context.coordinator
+        textView.drawsBackground = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.textContainerInset = NSSize(width: 0, height: 1)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: ComposerMessageInputMetrics.minHeight)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        configureHandlers(for: textView, coordinator: context.coordinator)
+
+        scrollView.documentView = textView
+        context.coordinator.updateMeasuredHeight(for: textView)
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.measuredHeight = $measuredHeight
+        context.coordinator.onPasteMedia = onPasteMedia
+        context.coordinator.onSend = onSend
+
+        guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
+        configureHandlers(for: textView, coordinator: context.coordinator)
+        textView.font = .preferredFont(forTextStyle: .body)
+        if textView.string != text {
+            textView.string = text
+        }
+        context.coordinator.updateMeasuredHeight(for: textView)
+        DispatchQueue.main.async {
+            context.coordinator.updateMeasuredHeight(for: textView)
+        }
+    }
+
+    private func configureHandlers(for textView: ComposerPasteInterceptingTextView, coordinator: Coordinator) {
+        textView.mediaPasteHandler = { [weak coordinator] in
+            coordinator?.handleMediaPaste() ?? false
+        }
+        textView.returnKeySendHandler = { [weak coordinator] in
+            coordinator?.onSend()
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var measuredHeight: Binding<CGFloat>
+        var onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
+        var onSend: () -> Void
+
+        init(
+            text: Binding<String>,
+            measuredHeight: Binding<CGFloat>,
+            onPasteMedia: @escaping ([OutgoingMediaPasteboardAttachment]) -> Void,
+            onSend: @escaping () -> Void
+        ) {
+            self.text = text
+            self.measuredHeight = measuredHeight
+            self.onPasteMedia = onPasteMedia
+            self.onSend = onSend
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text.wrappedValue = textView.string
+            updateMeasuredHeight(for: textView)
+        }
+
+        func handleMediaPaste() -> Bool {
+            let attachments = OutgoingMediaPasteboardReader.attachments(from: .general)
+            guard !attachments.isEmpty else { return false }
+            onPasteMedia(attachments)
+            return true
+        }
+
+        func updateMeasuredHeight(for textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager,
+                let textContainer = textView.textContainer
+            else { return }
+
+            layoutManager.ensureLayout(for: textContainer)
+            let usedHeight = layoutManager.usedRect(for: textContainer).height
+            let insetHeight = textView.textContainerInset.height * 2
+            let height = min(
+                ComposerMessageInputMetrics.maxHeight,
+                max(ComposerMessageInputMetrics.minHeight, ceil(usedHeight + insetHeight))
+            )
+            if abs(measuredHeight.wrappedValue - height) > 0.5 {
+                measuredHeight.wrappedValue = height
+            }
+        }
+    }
+}
+
+@MainActor
+private final class ComposerPasteInterceptingTextView: NSTextView {
+    var mediaPasteHandler: (() -> Bool)?
+    var returnKeySendHandler: (() -> Void)?
+
+    override func paste(_ sender: Any?) {
+        if mediaPasteHandler?() == true {
+            return
+        }
+        super.paste(sender)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard event.charactersIgnoringModifiers == "\r" || event.charactersIgnoringModifiers == "\n" else {
+            super.keyDown(with: event)
+            return
+        }
+
+        switch ComposerKeyboardShortcutPolicy.returnKeyAction(for: event.modifierFlags) {
+        case .send:
+            returnKeySendHandler?()
+        case .insertLineBreak:
+            insertNewlineIgnoringFieldEditor(nil)
+        case .deferToSystem:
+            super.keyDown(with: event)
+        }
+    }
+}
+
 struct PendingMediaDraftStrip: View {
     let attachments: [PendingMediaAttachment]
+    let uploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]
+    let isSending: Bool
     let onRemove: (PendingMediaAttachment.ID) -> Void
 
     private let tileSize = CGSize(width: 74, height: 74)
@@ -24,19 +232,26 @@ struct PendingMediaDraftStrip: View {
             HStack(spacing: 8) {
                 ForEach(attachments) { attachment in
                     ZStack(alignment: .topTrailing) {
-                        PendingMediaDraftTile(attachment: attachment, tileSize: tileSize)
+                        PendingMediaDraftTile(
+                            attachment: attachment,
+                            tileSize: tileSize,
+                            uploadState: uploadStates[attachment.id]
+                        )
 
-                        Button {
-                            onRemove(attachment.id)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 18, weight: .semibold))
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(Color(nsColor: .windowBackgroundColor), Color.primary.opacity(0.82))
+                        if !isSending {
+                            Button {
+                                onRemove(attachment.id)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(
+                                        Color(nsColor: .windowBackgroundColor), Color.primary.opacity(0.82))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove attachment")
+                            .offset(x: 7, y: -7)
                         }
-                        .buttonStyle(.plain)
-                        .help("Remove attachment")
-                        .offset(x: 7, y: -7)
                     }
                 }
             }
@@ -50,6 +265,7 @@ struct PendingMediaDraftStrip: View {
 struct PendingMediaDraftTile: View {
     let attachment: PendingMediaAttachment
     let tileSize: CGSize
+    let uploadState: PendingMediaUploadState?
 
     @State private var decodedImagePreview: NSImage?
     @State private var decodedImageTaskID: String?
@@ -76,6 +292,12 @@ struct PendingMediaDraftTile: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if attachment.kind == .image, let uploadState {
+                PendingMediaUploadStatusBadge(state: uploadState)
+                    .padding(5)
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
@@ -166,6 +388,33 @@ struct PendingMediaDraftTile: View {
         Image(systemName: systemName)
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(.secondary)
+    }
+}
+
+private struct PendingMediaUploadStatusBadge: View {
+    let state: PendingMediaUploadState
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(.regularMaterial)
+            Circle()
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+
+            switch state {
+            case .uploading:
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.accentColor)
+                    .scaleEffect(0.62)
+            case .uploaded:
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.green)
+            }
+        }
+        .frame(width: 24, height: 24)
+        .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
     }
 }
 
@@ -463,6 +712,101 @@ struct MembershipEndedComposerNotice: View {
     }
 }
 
+/// Replaces the composer until the user accepts or declines a pending group invite.
+struct PendingGroupInviteComposerNotice: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let chat: ChatItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(inviteMessage)
+                        .font(.callout.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(L10n.string("If you decline, this chat will be removed from your chat list."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    Task { await workspace.acceptGroupInvite(for: chat) }
+                } label: {
+                    HStack(spacing: 8) {
+                        if workspace.isAcceptingGroupInvite {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                        }
+                        Text(workspace.isAcceptingGroupInvite ? L10n.string("Accepting...") : L10n.string("Accept"))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                }
+                .controlSize(.large)
+                .nativeGlassProminentButtonStyle()
+                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                .help(L10n.string("Accept invite"))
+
+                Button(role: .destructive) {
+                    Task { await workspace.declineGroupInvite(for: chat) }
+                } label: {
+                    HStack(spacing: 8) {
+                        if workspace.isDecliningGroupInvite {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "xmark.circle")
+                        }
+                        Text(workspace.isDecliningGroupInvite ? L10n.string("Declining...") : L10n.string("Decline"))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                }
+                .controlSize(.large)
+                .nativeGlassButtonStyle()
+                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
+                .help(L10n.string("Decline invite"))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassCard()
+        .accessibilityIdentifier("composer.pendingGroupInvite")
+    }
+
+    private var inviteMessage: String {
+        String(format: L10n.string("%@ invited you to a secure chat."), inviterName)
+    }
+
+    private var inviterName: String {
+        if let previewSender = previewSenderName {
+            return previewSender
+        }
+        return L10n.string("Someone")
+    }
+
+    private var previewSenderName: String? {
+        let preview = chat.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let separator = preview.firstIndex(of: ":") else { return nil }
+        let candidate = String(preview[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty,
+            candidate != L10n.string("You"),
+            candidate != chat.title
+        else { return nil }
+        return candidate
+    }
+}
+
 struct NewChatColumnView: View {
     @Environment(WorkspaceState.self) private var workspace
     @FocusState private var isSearchFocused: Bool
@@ -493,7 +837,7 @@ struct NewChatColumnView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
 
-                        TextField("npub or hex public key", text: $workspace.newChatQuery)
+                        TextField("NIP-05, npub, or hex public key", text: $workspace.newChatQuery)
                             .textFieldStyle(.plain)
                             .focused($isSearchFocused)
                             .onSubmit {
@@ -516,9 +860,11 @@ struct NewChatColumnView: View {
                                     .stroke(isSearchFocused ? MessagesPalette.sentBubble : Color.clear, lineWidth: 1)
                             }
 
-                        Text("Add one or more people by npub or hex public key. Press return or tap + to add each one.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                        Text(
+                            "Add one or more people by NIP-05, npub, or hex public key. Press return or tap + to add each one."
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                     }
 
                     if workspace.isResolvingNewChat {
@@ -762,39 +1108,10 @@ struct ConversationHeader: View {
 
             Spacer()
 
-            if chat.pendingConfirmation {
-                Button {
-                    Task { await workspace.acceptGroupInvite(for: chat) }
-                } label: {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
-                }
-                .buttonStyle(.plain)
-                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                .help("Accept invite")
-
-                Button(role: .destructive) {
-                    Task { await workspace.declineGroupInvite(for: chat) }
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
-                }
-                .buttonStyle(.plain)
-                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                .help("Decline invite")
-            }
-
             // Changing the group image is a send (commit) under the hood, which the
-            // core rejects once the local account is no longer a member.
-            if !chat.isDirect && !chat.isNoLongerMember {
+            // core rejects until the invite is accepted, or once the local account is
+            // no longer a member.
+            if !chat.isDirect && chat.canUseComposer {
                 Button {
                     workspace.showGroupImagePicker(for: chat)
                 } label: {

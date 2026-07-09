@@ -69,7 +69,7 @@ extension WorkspaceState {
         do {
             let subscription = try await client.subscribeChatList(
                 accountRef: activeAccount.accountRef,
-                includeArchived: false
+                includeArchived: true
             )
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
 
@@ -154,7 +154,7 @@ extension WorkspaceState {
                 } else {
                     subscription = try await client.subscribeChatList(
                         accountRef: account.accountRef,
-                        includeArchived: false
+                        includeArchived: true
                     )
                     guard activeAccountId == account.id, !Task.isCancelled else { break }
                     let rows = try await runOffMain { subscription.snapshot() }
@@ -198,15 +198,25 @@ extension WorkspaceState {
     func applyChatRows(_ rows: [ChatListRowFfi], account: AccountItem) async {
         guard activeAccountId == account.id else { return }
 
-        let chatItems = rows.map { baseChatItem(from: $0, account: account) }
-        let previousChatIds = Set((chatsByAccount[account.id] ?? []).map(\.id))
-        let nextChatIds = Set(chatItems.map(\.id))
-        let removedChatIds = previousChatIds.subtracting(nextChatIds)
-        for groupId in removedChatIds {
+        let activeRows = rows.filter { !$0.archived }
+        let archivedRows = rows.filter(\.archived)
+        let activeItems = activeRows.map { baseChatItem(from: $0, account: account) }
+        let archivedItems = archivedRows.map { baseChatItem(from: $0, account: account) }
+
+        let previousActiveChatIds = Set((chatsByAccount[account.id] ?? []).map(\.id))
+        let nextActiveChatIds = Set(activeItems.map(\.id))
+        let removedActiveChatIds = previousActiveChatIds.subtracting(nextActiveChatIds)
+
+        let previousArchivedChatIds = Set((archivedChatsByAccount[account.id] ?? []).map(\.id))
+        let nextArchivedChatIds = Set(archivedItems.map(\.id))
+        let removedArchivedChatIds = previousArchivedChatIds.subtracting(nextArchivedChatIds)
+
+        for groupId in removedActiveChatIds.union(removedArchivedChatIds) {
             invalidateGroupMembers(for: groupId)
         }
-        clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
-        setChats(sortedChatItems(chatItems), forAccountId: account.id)
+        clearComposerDrafts(for: Array(removedActiveChatIds.union(removedArchivedChatIds)), accountId: account.id)
+        setChats(sortedChatItems(activeItems), forAccountId: account.id)
+        setArchivedChats(sortedChatItems(archivedItems), forAccountId: account.id)
         dismissGroupImagePickerIfSelectedChatUnavailable()
         cancelVoiceRecordingIfSelectedMembershipEnded()
         ensureSelectedMessageTimelineStore()
@@ -238,6 +248,7 @@ extension WorkspaceState {
         case .removeRow(trigger: _, let groupIdHex):
             invalidateGroupMembers(for: groupIdHex)
             removeChat(groupIdHex: groupIdHex, account: account)
+            removeArchivedChatFromList(chatId: groupIdHex, forAccountId: account.id)
         }
     }
 
@@ -263,9 +274,14 @@ extension WorkspaceState {
         guard activeAccountId == account.id else { return }
 
         if row.archived {
-            removeChat(groupIdHex: row.groupIdHex, account: account)
+            moveChatToArchived(row: row, account: account, shouldEnrich: shouldEnrich)
+            if shouldEnrich {
+                startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
+            }
             return
         }
+
+        removeArchivedChatFromList(chatId: row.groupIdHex, forAccountId: account.id)
 
         var chat = baseChatItem(from: row, account: account)
         let current = chatItem(accountId: account.id, chatId: chat.id)
@@ -296,6 +312,43 @@ extension WorkspaceState {
             // must not put groupDetails/userProfile work back on every read-marker advance.
             readStateMetadataEnrichmentAttempts.insert(row.groupIdHex)
             await enrichChatRows([row], account: account)
+        }
+    }
+
+    func moveChatToArchived(
+        row: ChatListRowFfi,
+        account: AccountItem,
+        shouldEnrich: Bool = true
+    ) {
+        guard activeAccountId == account.id else { return }
+
+        let groupIdHex = row.groupIdHex
+        let currentActive = chatItem(accountId: account.id, chatId: groupIdHex)
+        removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
+
+        var chat = baseChatItem(from: row, account: account)
+        if !shouldEnrich, let currentActive {
+            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
+        } else if let currentActive {
+            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
+        }
+
+        upsertArchivedChat(chat, forAccountId: account.id)
+        cancelVoiceRecordingIfSelectedMembershipEnded()
+        ensureSelectedMessageTimelineStore()
+
+        guard case .chat(let selectedGroupId) = selection,
+            selectedGroupId == groupIdHex
+        else { return }
+
+        leaveActiveConversation()
+        closeGroupImagePicker()
+        let nextChat = mostRecentChat(in: chatsByAccount[account.id] ?? [])
+        selection = nextChat.map { .chat($0.id) }
+        pruneMessageCache(keeping: nextChat?.id)
+        if let nextChat {
+            beginTimelineInitialLoadIfNeeded(groupIdHex: nextChat.id)
+            Task { await loadMessages(groupIdHex: nextChat.id) }
         }
     }
 
@@ -413,38 +466,61 @@ extension WorkspaceState {
     func applyChatMetadataEnrichment(_ enrichedItems: [ChatItem], account: AccountItem) {
         guard activeAccountId == account.id, !enrichedItems.isEmpty else { return }
 
-        var chats = chatsByAccount[account.id] ?? []
         let incremental = enrichedItems.count == 1
-        var didUpdate = false
+        var activeChats = chatsByAccount[account.id] ?? []
+        var archivedChats = archivedChatsByAccount[account.id] ?? []
+        var didUpdateActive = false
+        var didUpdateArchived = false
+
         for enrichedItem in enrichedItems {
-            guard let index = chatIndex(accountId: account.id, chatId: enrichedItem.id) else { continue }
-            let current = chats[index]
-            let next = ChatItem(
-                id: current.id,
-                title: enrichedItem.title,
-                subtitle: enrichedItem.subtitle,
-                preview: current.preview,
-                updatedAt: current.updatedAt,
-                avatarSeed: enrichedItem.avatarSeed,
-                pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
-                unreadCount: current.unreadCount,
-                unreadMentionCount: current.unreadMentionCount,
-                isDirect: enrichedItem.isDirect,
-                pendingConfirmation: current.pendingConfirmation,
-                selfMembership: current.selfMembership
-            )
+            if let index = chatIndex(accountId: account.id, chatId: enrichedItem.id) {
+                let current = activeChats[index]
+                let next = enrichedChatItemPreservingCurrentRowState(enrichedItem, current: current)
+                guard next != current else { continue }
+                if incremental {
+                    upsertChat(next, forAccountId: account.id)
+                } else {
+                    activeChats[index] = next
+                }
+                didUpdateActive = true
+                continue
+            }
+
+            guard let index = archivedChatIndex(accountId: account.id, chatId: enrichedItem.id) else { continue }
+            let current = archivedChats[index]
+            let next = enrichedChatItemPreservingCurrentRowState(enrichedItem, current: current)
             guard next != current else { continue }
             if incremental {
-                upsertChat(next, forAccountId: account.id)
+                upsertArchivedChat(next, forAccountId: account.id)
             } else {
-                chats[index] = next
+                archivedChats[index] = next
             }
-            didUpdate = true
+            didUpdateArchived = true
         }
 
-        if didUpdate, !incremental {
-            setChats(sortedChatItems(chats), forAccountId: account.id)
+        if didUpdateActive, !incremental {
+            setChats(sortedChatItems(activeChats), forAccountId: account.id)
         }
+        if didUpdateArchived, !incremental {
+            setArchivedChats(sortedChatItems(archivedChats), forAccountId: account.id)
+        }
+    }
+
+    private func enrichedChatItemPreservingCurrentRowState(_ enrichedItem: ChatItem, current: ChatItem) -> ChatItem {
+        ChatItem(
+            id: current.id,
+            title: enrichedItem.title,
+            subtitle: enrichedItem.subtitle,
+            preview: current.preview,
+            updatedAt: current.updatedAt,
+            avatarSeed: enrichedItem.avatarSeed,
+            pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
+            unreadCount: current.unreadCount,
+            unreadMentionCount: current.unreadMentionCount,
+            isDirect: enrichedItem.isDirect,
+            pendingConfirmation: current.pendingConfirmation,
+            selfMembership: current.selfMembership
+        )
     }
 
     func enrichedChatItem(

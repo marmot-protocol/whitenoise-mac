@@ -483,10 +483,15 @@ final class WorkspaceState {
     /// mutation invalidates the selected conversation chrome, while transcript reads remain
     /// scoped through per-chat timeline stores.
     var selectedChatRevision = 0
+    var archivedChatsByAccount: [String: [ChatItem]] = [:]
     @ObservationIgnored var chatLookupByAccount: [String: [String: ChatItem]] = [:]
     @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
     @ObservationIgnored var chatListGenerationByAccount: [String: Int] = [:]
     @ObservationIgnored var filteredChatsCache: FilteredChatsCache?
+    @ObservationIgnored var archivedChatLookupByAccount: [String: [String: ChatItem]] = [:]
+    @ObservationIgnored var archivedChatIndexByAccount: [String: [String: Int]] = [:]
+    @ObservationIgnored var archivedChatListGenerationByAccount: [String: Int] = [:]
+    @ObservationIgnored var filteredArchivedChatsCache: FilteredChatsCache?
     /// Ids of the chats whose transcript window is currently cached in `messageTimelineStores`.
     /// The message arrays themselves live only on the stores; tracking membership in a small set
     /// (rather than a parallel `[String: [MessageItem]]`) avoids copying the open conversation's
@@ -543,6 +548,8 @@ final class WorkspaceState {
         }
     }
     var searchText = ""
+    var chatListFilter: ChatListFilter = .active
+    var archivingChatId: String?
     var isChatListVisible = true
     var draftText: String {
         get {
@@ -561,6 +568,10 @@ final class WorkspaceState {
     var pendingMediaAttachments: [PendingMediaAttachment] {
         guard let selectedComposerDraftKey else { return [] }
         return pendingMediaAttachmentsByConversation[selectedComposerDraftKey] ?? []
+    }
+    var pendingMediaUploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState] {
+        guard let selectedComposerDraftKey else { return [:] }
+        return pendingMediaUploadStatesByConversation[selectedComposerDraftKey] ?? [:]
     }
     var isRefreshing = false
     var isSending = false
@@ -696,6 +707,8 @@ final class WorkspaceState {
     var draftTextByConversation: [ComposerDraftKey: String] = [:]
     var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
     var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
+    var pendingMediaUploadStatesByConversation:
+        [ComposerDraftKey: [PendingMediaAttachment.ID: PendingMediaUploadState]] = [:]
     var voiceRecorder: AVAudioRecorder?
     var voiceRecordingURL: URL?
     var voiceRecordingMeterTask: Task<Void, Never>?
@@ -713,6 +726,7 @@ final class WorkspaceState {
     let copyTextHandler: @MainActor (String, Bool) -> Void
     let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     let groupImageSearchClient: any GroupImageSearchClient
+    let nip05Resolver: any NIP05Resolving
     /// Injectable clock for peer-profile cache TTL decisions, so tests can drive cache
     /// expiry deterministically (whitenoise-mac#8). Defaults to the system clock.
     let nowProvider: @MainActor () -> Date
@@ -1118,6 +1132,7 @@ final class WorkspaceState {
             TelemetryBuildConfig.current()
         },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
+        nip05Resolver: (any NIP05Resolving)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
         mediaDiskCache: MessageMediaDiskCache = .shared,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
@@ -1133,6 +1148,7 @@ final class WorkspaceState {
         self.copyTextHandler = copyTextHandler
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
+        self.nip05Resolver = nip05Resolver ?? NIP05Resolver()
         self.nowProvider = nowProvider
         self.mediaDiskCache = mediaDiskCache
         self.clientFactory = clientFactory
@@ -1202,10 +1218,22 @@ final class WorkspaceState {
         return chatsByAccount[activeAccountId] ?? []
     }
 
+    var archivedChats: [ChatItem] {
+        guard let activeAccountId else { return [] }
+        return archivedChatsByAccount[activeAccountId] ?? []
+    }
+
     var filteredChats: [ChatItem] {
+        filteredChats(matching: searchText)
+    }
+
+    var filteredArchivedChats: [ChatItem] {
+        filteredArchivedChats(matching: searchText)
+    }
+
+    func filteredChats(matching query: String) -> [ChatItem] {
         guard let activeAccountId else { return [] }
         let generation = chatListGenerationByAccount[activeAccountId] ?? 0
-        let query = searchText
         if let cache = filteredChatsCache,
             cache.accountId == activeAccountId,
             cache.generation == generation,
@@ -1224,10 +1252,31 @@ final class WorkspaceState {
         return result
     }
 
+    func filteredArchivedChats(matching query: String) -> [ChatItem] {
+        guard let activeAccountId else { return [] }
+        let generation = archivedChatListGenerationByAccount[activeAccountId] ?? 0
+        if let cache = filteredArchivedChatsCache,
+            cache.accountId == activeAccountId,
+            cache.generation == generation,
+            cache.query == query
+        {
+            return cache.result
+        }
+
+        let result = ChatFilter.filtered(archivedChatsByAccount[activeAccountId] ?? [], query: query)
+        filteredArchivedChatsCache = FilteredChatsCache(
+            accountId: activeAccountId,
+            generation: generation,
+            query: query,
+            result: result
+        )
+        return result
+    }
+
     var selectedChat: ChatItem? {
         guard case .chat(let chatId) = selection else { return nil }
         _ = selectedChatRevision
-        return activeAccountId.flatMap { chatLookupByAccount[$0]?[chatId] }
+        return activeAccountId.flatMap { chatItem(accountId: $0, chatId: chatId) }
     }
 
     var resolvedNewChatRecipient: NewChatRecipient? {
@@ -1293,6 +1342,10 @@ final class WorkspaceState {
         chatLookupByAccount[accountId] = nil
         chatIndexByAccount[accountId] = nil
         bumpChatListGeneration(forAccountId: accountId)
+        archivedChatsByAccount[accountId] = nil
+        archivedChatLookupByAccount[accountId] = nil
+        archivedChatIndexByAccount[accountId] = nil
+        bumpArchivedChatListGeneration(forAccountId: accountId)
     }
 
     func resetChats() {
@@ -1304,6 +1357,11 @@ final class WorkspaceState {
         chatIndexByAccount = [:]
         chatListGenerationByAccount = [:]
         filteredChatsCache = nil
+        archivedChatsByAccount = [:]
+        archivedChatLookupByAccount = [:]
+        archivedChatIndexByAccount = [:]
+        archivedChatListGenerationByAccount = [:]
+        filteredArchivedChatsCache = nil
     }
 
     func rebuildChatIndexes() {
@@ -1311,6 +1369,11 @@ final class WorkspaceState {
         chatIndexByAccount = [:]
         for accountId in Array(chatsByAccount.keys) {
             rebuildChatIndexes(forAccountId: accountId)
+        }
+        archivedChatLookupByAccount = [:]
+        archivedChatIndexByAccount = [:]
+        for accountId in Array(archivedChatsByAccount.keys) {
+            rebuildArchivedChatIndexes(forAccountId: accountId)
         }
     }
 
@@ -1345,12 +1408,102 @@ final class WorkspaceState {
         chatIndexByAccount[accountId] = indexes
     }
 
+    func rebuildArchivedChatIndexes(forAccountId accountId: String) {
+        let chats = Self.deduplicatedChats(archivedChatsByAccount[accountId] ?? [])
+        if archivedChatsByAccount[accountId] != nil {
+            archivedChatsByAccount[accountId] = chats
+        }
+        archivedChatLookupByAccount[accountId] = Dictionary(
+            chats.map { ($0.id, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
+        archivedChatIndexByAccount[accountId] = Dictionary(
+            chats.enumerated().map { ($0.element.id, $0.offset) },
+            uniquingKeysWith: { _, new in new }
+        )
+        bumpArchivedChatListGeneration(forAccountId: accountId)
+    }
+
+    func reindexArchivedChats(forAccountId accountId: String, startingAt startIndex: Int) {
+        let chats = archivedChatsByAccount[accountId] ?? []
+        guard startIndex < chats.endIndex else { return }
+
+        var lookup = archivedChatLookupByAccount[accountId] ?? [:]
+        var indexes = archivedChatIndexByAccount[accountId] ?? [:]
+        for index in max(0, startIndex)..<chats.endIndex {
+            let chat = chats[index]
+            lookup[chat.id] = chat
+            indexes[chat.id] = index
+        }
+        archivedChatLookupByAccount[accountId] = lookup
+        archivedChatIndexByAccount[accountId] = indexes
+    }
+
     func chatItem(accountId: String, chatId: String) -> ChatItem? {
-        chatLookupByAccount[accountId]?[chatId]
+        chatLookupByAccount[accountId]?[chatId] ?? archivedChatLookupByAccount[accountId]?[chatId]
     }
 
     func chatIndex(accountId: String, chatId: String) -> Int? {
         chatIndexByAccount[accountId]?[chatId]
+    }
+
+    func archivedChatItem(accountId: String, chatId: String) -> ChatItem? {
+        archivedChatLookupByAccount[accountId]?[chatId]
+    }
+
+    func archivedChatIndex(accountId: String, chatId: String) -> Int? {
+        archivedChatIndexByAccount[accountId]?[chatId]
+    }
+
+    func setArchivedChats(_ chats: [ChatItem], forAccountId accountId: String) {
+        archivedChatsByAccount[accountId] = Self.deduplicatedChats(chats)
+        rebuildArchivedChatIndexes(forAccountId: accountId)
+    }
+
+    func upsertArchivedChat(_ chat: ChatItem, forAccountId accountId: String) {
+        let chats = archivedChatsByAccount[accountId] ?? []
+        let result = ChatListOrdering.upsertResult(
+            chat,
+            into: chats,
+            existingIndex: archivedChatIndex(accountId: accountId, chatId: chat.id)
+        )
+        archivedChatsByAccount[accountId] = result.chats
+
+        if let reindexStart = result.reindexStart {
+            reindexArchivedChats(forAccountId: accountId, startingAt: reindexStart)
+        } else {
+            var lookup = archivedChatLookupByAccount[accountId] ?? [:]
+            lookup[chat.id] = chat
+            archivedChatLookupByAccount[accountId] = lookup
+        }
+        bumpArchivedChatListGeneration(forAccountId: accountId)
+    }
+
+    @discardableResult
+    func removeArchivedChatFromList(chatId: String, forAccountId accountId: String) -> [ChatItem] {
+        var chats = archivedChatsByAccount[accountId] ?? []
+        if let index = archivedChatIndex(accountId: accountId, chatId: chatId) {
+            chats.remove(at: index)
+            archivedChatsByAccount[accountId] = chats
+
+            var lookup = archivedChatLookupByAccount[accountId] ?? [:]
+            lookup[chatId] = nil
+            archivedChatLookupByAccount[accountId] = lookup
+
+            var indexes = archivedChatIndexByAccount[accountId] ?? [:]
+            indexes[chatId] = nil
+            archivedChatIndexByAccount[accountId] = indexes
+
+            reindexArchivedChats(forAccountId: accountId, startingAt: index)
+            bumpArchivedChatListGeneration(forAccountId: accountId)
+            return chats
+        }
+
+        let originalCount = chats.count
+        chats.removeAll { $0.id == chatId }
+        guard chats.count != originalCount else { return chats }
+        setArchivedChats(chats, forAccountId: accountId)
+        return chats
     }
 
     private func bumpChatListGeneration(forAccountId accountId: String) {
@@ -1360,6 +1513,13 @@ final class WorkspaceState {
         }
         if filteredChatsCache?.accountId == accountId {
             filteredChatsCache = nil
+        }
+    }
+
+    private func bumpArchivedChatListGeneration(forAccountId accountId: String) {
+        archivedChatListGenerationByAccount[accountId, default: 0] += 1
+        if filteredArchivedChatsCache?.accountId == accountId {
+            filteredArchivedChatsCache = nil
         }
     }
 
@@ -1437,11 +1597,11 @@ final class WorkspaceState {
     }
 
     var canSend: Bool {
-        // The core rejects sends to a group the local account left or was removed
-        // from (`invalid_transition`), so an ended membership disables sending
-        // even though the chat stays selectable for reading history.
+        // The core rejects sends while an invite is pending, or once the local
+        // account left/was removed (`invalid_transition`), so those readable
+        // states do not expose outbound composer actions.
         client != nil
-            && selectedChat?.isNoLongerMember == false
+            && selectedChat?.canUseComposer == true
             && (!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !pendingMediaAttachments.isEmpty)
             && !isSending
@@ -2023,7 +2183,7 @@ extension ProfileDraft {
     }
 
     func primaryDisplayName(fallback: String) -> String {
-        firstNonBlank([displayName, name, fallback]) ?? fallback
+        firstNonBlank([displayName, fallback]) ?? fallback
     }
 }
 

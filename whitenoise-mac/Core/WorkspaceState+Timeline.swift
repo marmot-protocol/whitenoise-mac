@@ -14,6 +14,10 @@ import Observation
 import SwiftUI
 import UserNotifications
 
+private enum ComposerMediaUploadPresentation {
+    static let uploadedAcknowledgementDelayNanoseconds: UInt64 = 300_000_000
+}
+
 @MainActor
 extension WorkspaceState {
     func loadMessages(groupIdHex: String) async {
@@ -539,14 +543,14 @@ extension WorkspaceState {
         // `!isSending` is the reentrancy guard: `isSending` flips synchronously here,
         // but the model only suspends (and `draftText` is only cleared) at the `await`
         // below. Without this guard a second invocation delivered before SwiftUI
-        // re-renders the disabled send button (⌘-Return auto-repeat, double events)
+        // re-renders the disabled send button (Return auto-repeat, double events)
         // would still observe the old `draftText` and re-send the same message.
         guard let client,
             let activeAccount,
             let selectedChat,
-            // Mirrors `canSend`: the core rejects sends to a group the local
-            // account left or was removed from (`invalid_transition`).
-            !selectedChat.isNoLongerMember,
+            // Mirrors `canSend`: the core rejects sends while an invite is pending,
+            // or once the local account left/was removed (`invalid_transition`).
+            selectedChat.canUseComposer,
             let draftKey = selectedComposerDraftKey,
             !text.isEmpty || !mediaAttachments.isEmpty,
             !isSending
@@ -556,7 +560,8 @@ extension WorkspaceState {
 
         do {
             if !mediaAttachments.isEmpty {
-                _ = try await client.uploadMedia(
+                markMediaAttachmentsUploading(mediaAttachments, draftKey: draftKey)
+                let uploadResult = try await client.uploadMedia(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: selectedChat.id,
                     request: MediaUploadRequestFfi(
@@ -566,6 +571,12 @@ extension WorkspaceState {
                         blossomServer: nil
                     )
                 )
+                markUploadedMediaAttachments(mediaAttachments, uploadResult: uploadResult, draftKey: draftKey)
+                if pendingMediaUploadStatesByConversation[draftKey]?.isEmpty == false {
+                    try? await Task.sleep(
+                        nanoseconds: ComposerMediaUploadPresentation.uploadedAcknowledgementDelayNanoseconds
+                    )
+                }
                 clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: selectedChat.id)
             } else if let replyDraftContext {
                 _ = try await client.replyToMessage(
@@ -588,6 +599,7 @@ extension WorkspaceState {
             draftTextByConversation[draftKey] = nil
             replyDraftContextByConversation[draftKey] = nil
             pendingMediaAttachmentsByConversation[draftKey] = nil
+            pendingMediaUploadStatesByConversation[draftKey] = nil
             // One authoritative re-window so the user sees their just-sent message
             // immediately, even if the live projection for it is momentarily in flight.
             // The follow-on delivery-state transitions then arrive as projection deltas
@@ -595,8 +607,33 @@ extension WorkspaceState {
             // full re-map per delivery.
             await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
+            pendingMediaUploadStatesByConversation[draftKey] = nil
             lastError = error.localizedDescription
         }
+    }
+
+    private func markMediaAttachmentsUploading(_ attachments: [PendingMediaAttachment], draftKey: ComposerDraftKey) {
+        let imageStates = Dictionary(
+            uniqueKeysWithValues:
+                attachments
+                .filter { $0.kind == .image }
+                .map { ($0.id, PendingMediaUploadState.uploading) }
+        )
+        pendingMediaUploadStatesByConversation[draftKey] = imageStates.isEmpty ? nil : imageStates
+    }
+
+    private func markUploadedMediaAttachments(
+        _ attachments: [PendingMediaAttachment],
+        uploadResult: MediaUploadResultFfi,
+        draftKey: ComposerDraftKey
+    ) {
+        var uploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
+        let uploadedCount = min(attachments.count, uploadResult.attachments.count)
+        for index in 0..<uploadedCount {
+            guard attachments[index].kind == .image else { continue }
+            uploadStates[attachments[index].id] = .uploaded
+        }
+        pendingMediaUploadStatesByConversation[draftKey] = uploadStates.isEmpty ? nil : uploadStates
     }
 
     func startTimelineListener(

@@ -392,7 +392,10 @@ struct AccountSettingsRow: View {
         if account.signedOut {
             return L10n.string("Signed out")
         }
-        return account.localSigning ? L10n.string("Local signing") : L10n.string("Watch-only")
+        if account.localSigning {
+            return L10n.string("Local signing")
+        }
+        return account.externalSigning ? L10n.string("External signing") : L10n.string("Watch-only")
     }
 }
 
@@ -602,13 +605,10 @@ struct ProfileSettingsView: View {
             }
 
             Section("Profile") {
-                TextField("Display name", text: $workspace.profileDraft.displayName)
-                TextField("Name", text: $workspace.profileDraft.name)
+                TextField("Name", text: $workspace.profileDraft.displayName)
                 TextField("About", text: $workspace.profileDraft.about, axis: .vertical)
                     .lineLimit(3...5)
                 TextField("Picture URL", text: $workspace.profileDraft.picture)
-                TextField("NIP-05", text: $workspace.profileDraft.nip05)
-                TextField("Lightning address", text: $workspace.profileDraft.lud16)
             }
 
             Section {
@@ -638,7 +638,6 @@ struct ProfileSettingsView: View {
     private func profilePreviewName(fallback account: AccountItem) -> String {
         firstNonBlank([
             workspace.profileDraft.displayName,
-            workspace.profileDraft.name,
             account.displayName,
         ]) ?? account.displayName
     }
@@ -669,10 +668,7 @@ struct IdentityKeysSettingsView: View {
                             Text(account.displayName)
                                 .font(.headline)
                                 .lineLimit(1)
-                            Text(
-                                account.localSigning
-                                    ? L10n.string("Local signing account") : L10n.string("Watch-only account")
-                            )
+                            Text(accountSigningDescription(for: account))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         }
@@ -709,7 +705,8 @@ struct IdentityKeysSettingsView: View {
                     LabeledContent("Private key") {
                         Text(
                             account.localSigning
-                                ? L10n.string("Stored in Keychain") : L10n.string("Not stored on this Mac")
+                                ? L10n.string("Stored in Keychain")
+                                : L10n.string("Not stored on this Mac")
                         )
                         .foregroundStyle(.secondary)
                     }
@@ -760,6 +757,13 @@ struct IdentityKeysSettingsView: View {
             PrivateKeyBackupSheet()
         }
     }
+
+    private func accountSigningDescription(for account: AccountItem) -> String {
+        if account.localSigning {
+            return L10n.string("Local signing account")
+        }
+        return account.externalSigning ? L10n.string("External signing account") : L10n.string("Watch-only account")
+    }
 }
 
 /// Private-key backup sheet: reveal the raw `nsec` or export a passphrase-encrypted
@@ -792,13 +796,8 @@ struct PrivateKeyBackupSheet: View {
                 .buttonStyle(.borderless)
             }
 
-            Picker("Backup type", selection: $mode) {
-                Text("Encrypted (NIP-49)").tag(Mode.encrypted)
-                Text("Raw nsec").tag(Mode.nsec)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: mode) { _, _ in revealedSecret = nil }
+            backupTypeSelector
+                .onChange(of: mode) { _, _ in revealedSecret = nil }
 
             switch mode {
             case .encrypted:
@@ -861,6 +860,46 @@ struct PrivateKeyBackupSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+    }
+
+    private var backupTypeSelector: some View {
+        HStack(spacing: 0) {
+            backupTypeButton("Encrypted (NIP-49)", mode: .encrypted)
+            backupTypeButton("Raw nsec", mode: .nsec)
+        }
+        .padding(2)
+        .frame(maxWidth: .infinity)
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.10))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Backup type")
+    }
+
+    private func backupTypeButton(_ title: LocalizedStringKey, mode targetMode: Mode) -> some View {
+        let isSelected = mode == targetMode
+        return Button {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                mode = targetMode
+            }
+        } label: {
+            Text(title)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.accentColor)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     private func produceBackup() async {

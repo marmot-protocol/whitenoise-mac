@@ -306,222 +306,220 @@ private struct ConversationView: View {
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
 
-        VStack(spacing: 0) {
-            ConversationHeader(chat: chat)
-            GlassSeparator(axis: .horizontal)
+        ZStack {
+            VStack(spacing: 0) {
+                ConversationHeader(chat: chat)
+                GlassSeparator(axis: .horizontal)
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    // A NON-lazy `VStack`: the timeline window is capped (`timelineWindowLimit`
-                    // = 200), so eagerly realizing every row measures each exactly once and lets
-                    // scrolling be pure translation. `LazyVStack` instead re-estimated row sizes
-                    // continuously to resolve `.defaultScrollAnchor(.bottom)` — ~80 `sizeThatFits`
-                    // calls per row — which pinned the main thread for seconds while scrolling a
-                    // small group (the #205 scroll-layout storm). Measure-once removes that whole
-                    // class of hang; if a large window's eager build ever costs too much, the fix
-                    // is cheaper rows, not a return to lazy estimation.
-                    VStack(spacing: 12) {
-                        if messageIDs.isEmpty {
-                            if isLoadingInitialPage {
-                                TimelineInitialLoadingView()
-                            } else {
-                                EmptyConversationView()
-                            }
-                        } else {
-                            // Pure visual indicators — no `.onAppear` pagination triggers.
-                            // Loading older/newer history is driven by scroll geometry below.
-                            if paging.hasMoreBefore {
-                                TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
-                            }
-
-                            ForEach(messages) { message in
-                                ConversationMessageRow(
-                                    message: message,
-                                    showsDebugMetadata: workspace.streamingDebugEnabled
-                                ) { gallery in
-                                    imageGallery = gallery
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        // A NON-lazy `VStack`: the timeline window is capped (`timelineWindowLimit`
+                        // = 200), so eagerly realizing every row measures each exactly once and lets
+                        // scrolling be pure translation. `LazyVStack` instead re-estimated row sizes
+                        // continuously to resolve `.defaultScrollAnchor(.bottom)` — ~80 `sizeThatFits`
+                        // calls per row — which pinned the main thread for seconds while scrolling a
+                        // small group (the #205 scroll-layout storm). Measure-once removes that whole
+                        // class of hang; if a large window's eager build ever costs too much, the fix
+                        // is cheaper rows, not a return to lazy estimation.
+                        VStack(spacing: 12) {
+                            if messageIDs.isEmpty {
+                                if isLoadingInitialPage {
+                                    TimelineInitialLoadingView()
+                                } else {
+                                    EmptyConversationView()
                                 }
-                                .equatable()
-                            }
-                            .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
+                            } else {
+                                // Pure visual indicators — no `.onAppear` pagination triggers.
+                                // Loading older/newer history is driven by scroll geometry below.
+                                if paging.hasMoreBefore {
+                                    TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
+                                }
 
-                            if paging.hasMoreAfter {
-                                TimelinePageLoadingRow(isLoading: paging.isLoadingAfter)
+                                ForEach(messages) { message in
+                                    ConversationMessageRow(
+                                        message: message,
+                                        showsDebugMetadata: workspace.streamingDebugEnabled
+                                    ) { gallery in
+                                        imageGallery = gallery
+                                    }
+                                    .equatable()
+                                }
+                                .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
+
+                                if paging.hasMoreAfter {
+                                    TimelinePageLoadingRow(isLoading: paging.isLoadingAfter)
+                                }
                             }
+
+                            // Scroll-to-bottom target. Pure layout: pin/pagination state is
+                            // derived from scroll geometry (`onScrollGeometryChange`), so no
+                            // `.onAppear`/`.onDisappear` here writes state back into layout — the
+                            // feedback that let the old sentinel/anchor callbacks spin the main
+                            // thread (whitenoise-mac#205).
+                            Color.clear
+                                .frame(height: bottomTranscriptPadding)
+                                .id(bottomAnchorId)
                         }
-
-                        // Scroll-to-bottom target. Pure layout: pin/pagination state is
-                        // derived from scroll geometry (`onScrollGeometryChange`), so no
-                        // `.onAppear`/`.onDisappear` here writes state back into layout — the
-                        // feedback that let the old sentinel/anchor callbacks spin the main
-                        // thread (whitenoise-mac#205).
-                        Color.clear
-                            .frame(height: bottomTranscriptPadding)
-                            .id(bottomAnchorId)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 18)
+                        .padding(.bottom, 8)
+                        // While actively scrolling, make the transcript content transparent to
+                        // hit-testing so SwiftUI skips per-frame hover/responder/tracking-area work
+                        // for the moving rows (Instruments: HoverEventDispatcher /
+                        // updateTrackingAreasWithInvalidCursorRects / containsGlobalPoints). The
+                        // ScrollView still scrolls; full interactivity returns once it settles.
+                        .allowsHitTesting(!isActivelyScrolling)
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.top, 18)
-                    .padding(.bottom, 8)
-                    // While actively scrolling, make the transcript content transparent to
-                    // hit-testing so SwiftUI skips per-frame hover/responder/tracking-area work
-                    // for the moving rows (Instruments: HoverEventDispatcher /
-                    // updateTrackingAreasWithInvalidCursorRects / containsGlobalPoints). The
-                    // ScrollView still scrolls; full interactivity returns once it settles.
-                    .allowsHitTesting(!isActivelyScrolling)
-                }
-                .accessibilityIdentifier("conversation.transcript")
-                .id(chat.id)
-                .defaultScrollAnchor(.bottom)
-                .onScrollPhaseChange { _, phase in
-                    isActivelyScrolling = phase != .idle
-                }
-                .onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
-                    TimelineScrollMetrics(geometry: geometry, bottomPadding: bottomTranscriptPadding)
-                } action: { _, metrics in
-                    // Threshold-crossing signal only (booleans), so this runs when the user
-                    // crosses an edge — not on every scrolled pixel — and only ever writes
-                    // `isPinnedToBottom`, which no view's layout depends on.
-                    isPinnedToBottom = metrics.atBottom
-                    if metrics.nearTop { loadOlderIfNeeded() }
-                    if metrics.nearBottom { loadNewerIfNeeded() }
-                }
-                .onChange(of: chat.id) { _, _ in
-                    pendingPrependAnchorId = nil
-                    pendingAppendAnchorId = nil
-                    isPinnedToBottom = true
-                    hoverSelectionCoordinator.reset()
-                }
-                .onChange(of: messageIDs.last) { _, newMessageId in
-                    switch timelineNewestMessageScrollAction(
-                        messageIDs: messageIDs,
-                        newMessageIsOutgoing: messages.last?.isOutgoing == true,
-                        paging: paging,
-                        pendingPrependAnchorId: pendingPrependAnchorId,
-                        pendingAppendAnchorId: pendingAppendAnchorId,
-                        newMessageId: newMessageId,
-                        isPinnedToBottom: isPinnedToBottom
-                    ) {
-                    case .restorePendingAppendAnchor(let anchorId):
-                        DispatchQueue.main.async {
-                            // Re-validate against live state: the user may have switched
-                            // chats or a newer paging request may have landed since this
-                            // scroll restoration was scheduled.
-                            guard workspace.selectedChat?.id == chat.id,
-                                pendingAppendAnchorId == anchorId,
-                                workspace.selectedTimelineContainsMessage(anchorId)
-                            else { return }
-                            TimelineSignpost.scroll.interval("restoreAppendAnchor") {
-                                proxy.scrollTo(anchorId, anchor: .bottom)
-                            }
-                            pendingAppendAnchorId = nil
-                        }
-                        return
-                    case .clearPendingAppendAnchor:
+                    .accessibilityIdentifier("conversation.transcript")
+                    .id(chat.id)
+                    .defaultScrollAnchor(.bottom)
+                    .onScrollPhaseChange { _, phase in
+                        isActivelyScrolling = phase != .idle
+                    }
+                    .onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
+                        TimelineScrollMetrics(geometry: geometry, bottomPadding: bottomTranscriptPadding)
+                    } action: { _, metrics in
+                        // Threshold-crossing signal only (booleans), so this runs when the user
+                        // crosses an edge — not on every scrolled pixel — and only ever writes
+                        // `isPinnedToBottom`, which no view's layout depends on.
+                        isPinnedToBottom = metrics.atBottom
+                        if metrics.nearTop { loadOlderIfNeeded() }
+                        if metrics.nearBottom { loadNewerIfNeeded() }
+                    }
+                    .onChange(of: chat.id) { _, _ in
+                        pendingPrependAnchorId = nil
                         pendingAppendAnchorId = nil
-                        return
-                    case .scrollToBottom:
-                        scrollToBottom(with: proxy)
-                    case .none:
-                        return
+                        isPinnedToBottom = true
+                        hoverSelectionCoordinator.reset()
                     }
-                }
-                .onChange(of: messageIDs.first) { _, _ in
-                    guard let anchorId = pendingPrependAnchorId,
-                        workspace.selectedTimelineContainsMessage(anchorId)
-                    else { return }
-                    DispatchQueue.main.async {
-                        // Re-validate against live state: the user may have switched
-                        // chats (which clears pendingPrependAnchorId) or another prepend
-                        // may have landed between scheduling and execution of this block.
-                        // Without re-checking, proxy.scrollTo would run against the new
-                        // conversation using a stale anchor, and the unconditional clear
-                        // would drop restoration for a subsequent legitimate prepend.
-                        guard workspace.selectedChat?.id == chat.id,
-                            pendingPrependAnchorId == anchorId,
+                    .onChange(of: messageIDs.last) { _, newMessageId in
+                        switch timelineNewestMessageScrollAction(
+                            messageIDs: messageIDs,
+                            newMessageIsOutgoing: messages.last?.isOutgoing == true,
+                            paging: paging,
+                            pendingPrependAnchorId: pendingPrependAnchorId,
+                            pendingAppendAnchorId: pendingAppendAnchorId,
+                            newMessageId: newMessageId,
+                            isPinnedToBottom: isPinnedToBottom
+                        ) {
+                        case .restorePendingAppendAnchor(let anchorId):
+                            DispatchQueue.main.async {
+                                // Re-validate against live state: the user may have switched
+                                // chats or a newer paging request may have landed since this
+                                // scroll restoration was scheduled.
+                                guard workspace.selectedChat?.id == chat.id,
+                                    pendingAppendAnchorId == anchorId,
+                                    workspace.selectedTimelineContainsMessage(anchorId)
+                                else { return }
+                                TimelineSignpost.scroll.interval("restoreAppendAnchor") {
+                                    proxy.scrollTo(anchorId, anchor: .bottom)
+                                }
+                                pendingAppendAnchorId = nil
+                            }
+                            return
+                        case .clearPendingAppendAnchor:
+                            pendingAppendAnchorId = nil
+                            return
+                        case .scrollToBottom:
+                            scrollToBottom(with: proxy)
+                        case .none:
+                            return
+                        }
+                    }
+                    .onChange(of: messageIDs.first) { _, _ in
+                        guard let anchorId = pendingPrependAnchorId,
                             workspace.selectedTimelineContainsMessage(anchorId)
                         else { return }
-                        TimelineSignpost.scroll.interval("restorePrependAnchor") {
-                            proxy.scrollTo(anchorId, anchor: .top)
+                        DispatchQueue.main.async {
+                            // Re-validate against live state: the user may have switched
+                            // chats (which clears pendingPrependAnchorId) or another prepend
+                            // may have landed between scheduling and execution of this block.
+                            // Without re-checking, proxy.scrollTo would run against the new
+                            // conversation using a stale anchor, and the unconditional clear
+                            // would drop restoration for a subsequent legitimate prepend.
+                            guard workspace.selectedChat?.id == chat.id,
+                                pendingPrependAnchorId == anchorId,
+                                workspace.selectedTimelineContainsMessage(anchorId)
+                            else { return }
+                            TimelineSignpost.scroll.interval("restorePrependAnchor") {
+                                proxy.scrollTo(anchorId, anchor: .top)
+                            }
+                            pendingPrependAnchorId = nil
                         }
-                        pendingPrependAnchorId = nil
                     }
                 }
-            }
 
-            GlassSeparator(axis: .horizontal)
+                GlassSeparator(axis: .horizontal)
 
-            VStack(spacing: 8) {
-                // The core rejects sends to a group the local account left or was
-                // removed from (`invalid_transition`), so the whole composer —
-                // reply/media drafts included — gives way to an explanatory notice.
-                if chat.isNoLongerMember {
-                    MembershipEndedComposerNotice(membership: chat.selfMembership)
-                } else {
-                    composerControls
+                VStack(spacing: 8) {
+                    // The core rejects sends to a group the local account left or was
+                    // removed from (`invalid_transition`), so the whole composer —
+                    // reply/media drafts included — gives way to an explanatory notice.
+                    if chat.isNoLongerMember {
+                        MembershipEndedComposerNotice(membership: chat.selfMembership)
+                    } else if chat.pendingConfirmation {
+                        PendingGroupInviteComposerNotice(chat: chat)
+                    } else {
+                        composerControls
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 14)
+                .background {
+                    MessagesComposerBarBackground()
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
             .background {
-                MessagesComposerBarBackground()
+                MessagesTranscriptBackground()
             }
-        }
-        .background {
-            MessagesTranscriptBackground()
-        }
-        .overlay {
-            if let imageGallery {
-                MessageImageGalleryOverlay(presentation: imageGallery) {
-                    self.imageGallery = nil
-                }
-                .transition(.opacity)
-                .zIndex(2)
-            }
-        }
-        .fileImporter(
-            isPresented: $isFileImporterPresented,
-            allowedContentTypes: OutgoingMediaAttachmentPolicy.fileImporterAllowedTypes,
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
-                Task { await workspace.addMediaAttachments(from: urls) }
-            case .failure(let error):
-                workspace.reportUserActionError(error.localizedDescription)
-            }
-        }
-        .dropDestination(for: URL.self) { urls, _ in
-            // Refuse drops once membership ended: the pending-media strip is hidden
-            // behind the membership-ended notice, so accepted files would accumulate
-            // invisibly and could never be sent. `addMediaAttachments` re-checks via
-            // `canBeginMediaAttachmentSelection()` as defense in depth.
-            guard !chat.isNoLongerMember else { return false }
-            Task { await workspace.addMediaAttachments(from: urls) }
-            return !urls.isEmpty
-        } isTargeted: { isTargeted in
-            isFileDropTargeted = isTargeted && !chat.isNoLongerMember
-        }
-        .overlay {
-            if isFileDropTargeted {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
-                    .padding(10)
-                    .allowsHitTesting(false)
-            }
-        }
-        // Chat info / settings slides in from the right and replaces the
-        // transcript instead of presenting as a modal sheet, giving the
-        // settings page the full conversation width. An opaque base behind the
-        // glass keeps the transcript from bleeding through while it stays
-        // mounted underneath (preserving scroll position on the way back).
-        .overlay {
-            if workspace.isGroupDetailsPresented {
-                GroupDetailsSheet(chat: chat)
-                    .background {
-                        Rectangle().fill(.background)
-                        MessagesTranscriptBackground()
+            .overlay {
+                if let imageGallery {
+                    MessageImageGalleryOverlay(presentation: imageGallery) {
+                        self.imageGallery = nil
                     }
+                    .transition(.opacity)
+                    .zIndex(2)
+                }
+            }
+            .fileImporter(
+                isPresented: $isFileImporterPresented,
+                allowedContentTypes: OutgoingMediaAttachmentPolicy.fileImporterAllowedTypes,
+                allowsMultipleSelection: true
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    Task { await workspace.addMediaAttachments(from: urls) }
+                case .failure(let error):
+                    workspace.reportUserActionError(error.localizedDescription)
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                // Refuse drops whenever the composer is hidden: accepted files would
+                // accumulate invisibly behind the replacement notice and could never be
+                // sent. `addMediaAttachments` re-checks via
+                // `canBeginMediaAttachmentSelection()` as defense in depth.
+                guard chat.canUseComposer else { return false }
+                Task { await workspace.addMediaAttachments(from: urls) }
+                return !urls.isEmpty
+            } isTargeted: { isTargeted in
+                isFileDropTargeted = isTargeted && chat.canUseComposer
+            }
+            .overlay {
+                if isFileDropTargeted {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
+                        .padding(10)
+                        .allowsHitTesting(false)
+                }
+            }
+
+            // Chat info / settings slides in from the right as a full-size pane
+            // over the mounted conversation. Keeping the transcript mounted preserves
+            // scroll position, while the details pane supplies its own opaque base so
+            // chat content and media never visually bleed through during the slide.
+            if workspace.isGroupDetailsPresented {
+                GroupDetailsPane(chat: chat)
                     .transition(.move(edge: .trailing))
                     .zIndex(3)
             }
@@ -550,6 +548,8 @@ private struct ConversationView: View {
         if !workspace.pendingMediaAttachments.isEmpty {
             PendingMediaDraftStrip(
                 attachments: workspace.pendingMediaAttachments,
+                uploadStates: workspace.pendingMediaUploadStates,
+                isSending: workspace.isSending,
                 onRemove: workspace.removePendingMediaAttachment
             )
         }
@@ -579,15 +579,22 @@ private struct ConversationView: View {
                 .disabled(workspace.isSending)
                 .help("Attach files")
 
-                TextField("Message", text: $workspace.draftText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...5)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background {
-                        MessagesComposerFieldBackground()
+                ComposerMessageInputView(
+                    text: $workspace.draftText,
+                    onPasteMedia: { attachments in
+                        Task { await workspace.addPastedMediaAttachments(attachments) }
+                    },
+                    onSend: {
+                        Task { await workspace.sendDraft() }
                     }
-                    .accessibilityIdentifier("composer.message")
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background {
+                    MessagesComposerFieldBackground()
+                }
+                .accessibilityIdentifier("composer.message")
 
                 Button {
                     Task { await workspace.toggleVoiceRecording() }
@@ -606,15 +613,23 @@ private struct ConversationView: View {
                 Button {
                     Task { await workspace.sendDraft() }
                 } label: {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 32, height: 32)
-                        .background {
-                            MessagesSendButtonBackground(isEnabled: workspace.canSend)
+                    Group {
+                        if workspace.isSending {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                                .scaleEffect(0.72)
+                        } else {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 14, weight: .semibold))
                         }
+                    }
+                    .frame(width: 32, height: 32)
+                    .background {
+                        MessagesSendButtonBackground(isEnabled: workspace.canSend || workspace.isSending)
+                    }
                 }
                 .buttonStyle(.plain)
-                .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!workspace.canSend)
                 .help("Send")
             }
@@ -696,6 +711,21 @@ private struct StartupView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct GroupDetailsPane: View {
+    let chat: ChatItem
+
+    var body: some View {
+        GroupDetailsSheet(chat: chat)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                MessagesTranscriptBackground()
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .accessibilityIdentifier("group.details.pane")
     }
 }
 

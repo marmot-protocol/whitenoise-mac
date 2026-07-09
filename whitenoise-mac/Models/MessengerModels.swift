@@ -16,6 +16,7 @@ struct AccountItem: Identifiable, Hashable {
     /// Pre-sanitized avatar URL; `ProfileImageAvatarView` still applies `loadRemoteImages`.
     let sanitizedPictureURL: URL?
     let localSigning: Bool
+    let externalSigning: Bool
     let isRunning: Bool
     /// True when the account has been signed out (non-destructive): local data is
     /// retained but it is not active until signed back in.
@@ -31,6 +32,7 @@ struct AccountItem: Identifiable, Hashable {
         pictureURL: String? = nil,
         sanitizedPictureURL: URL? = nil,
         localSigning: Bool = true,
+        externalSigning: Bool = false,
         isRunning: Bool = true,
         signedOut: Bool = false
     ) {
@@ -44,6 +46,7 @@ struct AccountItem: Identifiable, Hashable {
         self.sanitizedPictureURL =
             sanitizedPictureURL ?? RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
         self.localSigning = localSigning
+        self.externalSigning = externalSigning
         self.isRunning = isRunning
         self.signedOut = signedOut
     }
@@ -127,6 +130,9 @@ nonisolated struct ChatItem: Identifiable, Hashable {
 
     /// True when the local account left or was removed from this group.
     var isNoLongerMember: Bool { selfMembership != .member }
+
+    /// True when the local account can use the outbound composer for this chat.
+    var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember }
 
     init(
         id: String,
@@ -475,6 +481,11 @@ enum MediaDownloadState: Equatable {
     case failed(String)
 }
 
+nonisolated enum PendingMediaUploadState: Equatable, Sendable {
+    case uploading
+    case uploaded
+}
+
 nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
     let id: UUID
     let fileName: String
@@ -769,6 +780,100 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
     }
 }
 
+nonisolated struct OutgoingMediaPasteboardAttachment: Equatable, Sendable {
+    enum Payload: Equatable, Sendable {
+        case fileURL(URL)
+        case imageData(Data, typeIdentifier: String?)
+    }
+
+    let payload: Payload
+}
+
+@MainActor
+enum OutgoingMediaPasteboardReader {
+    private static let preferredImagePasteboardTypes: [NSPasteboard.PasteboardType] = [
+        NSPasteboard.PasteboardType(UTType.png.identifier),
+        NSPasteboard.PasteboardType(UTType.jpeg.identifier),
+        NSPasteboard.PasteboardType(UTType.tiff.identifier),
+        NSPasteboard.PasteboardType(UTType.gif.identifier),
+    ]
+    private static let legacyFilenamesPasteboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+
+    static func attachments(from pasteboard: NSPasteboard) -> [OutgoingMediaPasteboardAttachment] {
+        let itemAttachments = pasteboard.pasteboardItems?.compactMap(attachment(from:)) ?? []
+        if !itemAttachments.isEmpty {
+            return itemAttachments
+        }
+        let fileAttachments = legacyFileURLs(from: pasteboard)
+            .map { OutgoingMediaPasteboardAttachment(payload: .fileURL($0)) }
+        if !fileAttachments.isEmpty {
+            return fileAttachments
+        }
+        if let imageData = imageDataFromPasteboardFallback(pasteboard) {
+            return [
+                OutgoingMediaPasteboardAttachment(
+                    payload: .imageData(imageData, typeIdentifier: UTType.tiff.identifier)
+                )
+            ]
+        }
+        return []
+    }
+
+    private static func attachment(from item: NSPasteboardItem) -> OutgoingMediaPasteboardAttachment? {
+        if let url = fileURL(from: item) {
+            return OutgoingMediaPasteboardAttachment(payload: .fileURL(url))
+        }
+        if let image = imageData(from: item) {
+            return OutgoingMediaPasteboardAttachment(
+                payload: .imageData(image.data, typeIdentifier: image.typeIdentifier)
+            )
+        }
+        return nil
+    }
+
+    private static func fileURL(from item: NSPasteboardItem) -> URL? {
+        guard let value = item.string(forType: .fileURL),
+            let url = URL(string: value),
+            url.isFileURL
+        else {
+            return nil
+        }
+        return url
+    }
+
+    private static func imageData(from item: NSPasteboardItem) -> (data: Data, typeIdentifier: String?)? {
+        for type in orderedImagePasteboardTypes(from: item) {
+            guard let data = item.data(forType: type), !data.isEmpty else { continue }
+            return (data, type.rawValue)
+        }
+        return nil
+    }
+
+    private static func orderedImagePasteboardTypes(from item: NSPasteboardItem) -> [NSPasteboard.PasteboardType] {
+        var ordered = preferredImagePasteboardTypes.filter { item.types.contains($0) }
+        for type in item.types where !ordered.contains(type) && isImagePasteboardType(type) {
+            ordered.append(type)
+        }
+        return ordered
+    }
+
+    private static func isImagePasteboardType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        UTType(type.rawValue)?.conforms(to: .image) == true
+    }
+
+    private static func legacyFileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        guard let paths = pasteboard.propertyList(forType: legacyFilenamesPasteboardType) as? [String] else {
+            return []
+        }
+        return paths.map(URL.init(fileURLWithPath:)).filter(\.isFileURL)
+    }
+
+    private static func imageDataFromPasteboardFallback(_ pasteboard: NSPasteboard) -> Data? {
+        guard let image = NSImage(pasteboard: pasteboard) else { return nil }
+        return image.tiffRepresentation
+    }
+}
+
 nonisolated enum OutgoingMediaDraftProcessor {
     static let maxAttachmentCount = 10
     static let maxLongEdge: CGFloat = 2048
@@ -817,6 +922,21 @@ nonisolated enum OutgoingMediaDraftProcessor {
                     fileName: resourceValues.name ?? url.lastPathComponent,
                     typeIdentifier: resourceValues.contentType?.identifier
                 ))
+        }.value
+        return prepared.attachment
+    }
+
+    static func preparedAttachment(
+        fromPastedImageData data: Data,
+        typeIdentifier: String?
+    ) async throws -> PendingMediaAttachment {
+        let prepared = try await Task.detached(priority: .userInitiated) { () async throws -> SendableAttachment in
+            let attachment = try await preparedAttachmentValue(
+                from: data,
+                fileName: "pasted-image-\(Int(Date().timeIntervalSince1970)).jpg",
+                typeIdentifier: typeIdentifier
+            )
+            return SendableAttachment(attachment: attachment)
         }.value
         return prepared.attachment
     }
@@ -2114,6 +2234,29 @@ enum ChatFilter {
             chat.title.localizedCaseInsensitiveContains(needle)
                 || chat.subtitle.localizedCaseInsensitiveContains(needle)
                 || chat.preview.localizedCaseInsensitiveContains(needle)
+        }
+    }
+}
+
+enum ChatListFilter: String, CaseIterable {
+    case active
+    case archived
+
+    var title: String {
+        switch self {
+        case .active:
+            return L10n.string("Chats")
+        case .archived:
+            return L10n.string("Archived")
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .active:
+            return "bubble.left.and.bubble.right"
+        case .archived:
+            return "archivebox"
         }
     }
 }
