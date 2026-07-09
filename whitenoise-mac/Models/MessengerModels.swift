@@ -2210,7 +2210,7 @@ struct NewChatRecipient: Equatable {
     }
 
     var title: String {
-        PeerDisplayText.sanitize(displayName) ?? DisplayText.short(accountIdHex)
+        displayName ?? DisplayText.short(accountIdHex)
     }
 
     var subtitle: String {

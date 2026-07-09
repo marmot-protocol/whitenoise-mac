@@ -18,6 +18,7 @@ private func isolated(_ text: String) -> String {
     fsi + text + pdi
 }
 
+@Suite(.serialized)
 struct PeerDisplayTextTests {
     @Test func sanitizeStripsBidiAndFormatControls() async throws {
         let malicious = "\(rtlOverride)Alice\(ltrIsolate)"
