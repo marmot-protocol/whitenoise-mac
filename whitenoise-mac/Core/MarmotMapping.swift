@@ -1246,25 +1246,22 @@ private extension String {
 
 private nonisolated extension MessageReaction {
     static func summarize(_ summary: TimelineReactionSummaryFfi, activeAccountIdHex: String?) -> [MessageReaction] {
-        summary.byEmoji
-            .map { reaction in
-                let ownReactionMessageId = activeAccountIdHex.flatMap { accountIdHex in
-                    summary.userReactions.first { userReaction in
-                        userReaction.emoji == reaction.emoji && userReaction.sender == accountIdHex
-                    }?.reactionMessageIdHex
-                }
-                let isOwn = activeAccountIdHex.map { reaction.senders.contains($0) } ?? false
+        let ownReactionIdsByEmoji = activeAccountIdHex.map { accountIdHex in
+            Dictionary(
+                summary.userReactions.lazy
+                    .filter { $0.sender == accountIdHex }
+                    .map { ($0.emoji, $0.reactionMessageIdHex) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        } ?? [:]
 
-                return MessageReaction(
-                    emoji: reaction.emoji,
-                    count: reaction.senders.count,
-                    isOwn: isOwn,
-                    ownReactionMessageId: ownReactionMessageId
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.count != rhs.count { return lhs.count > rhs.count }
-                return lhs.emoji < rhs.emoji
-            }
+        return summary.byEmoji.map { reaction in
+            MessageReaction(
+                emoji: reaction.emoji,
+                count: reaction.senders.count,
+                isOwn: activeAccountIdHex.map { reaction.senders.contains($0) } ?? false,
+                ownReactionMessageId: ownReactionIdsByEmoji[reaction.emoji]
+            )
+        }
     }
 }
