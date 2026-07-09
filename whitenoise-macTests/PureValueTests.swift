@@ -1013,6 +1013,24 @@ struct PureValueTests {
         }
     }
 
+    @Test func markdownLinkPolicyRejectsEmbeddedUserinfoHostConfusion() async throws {
+        // Peer Markdown links are user-visible strings. Embedded userinfo can make
+        // the URL read like a trusted host while URL parsing sends the browser to
+        // the attacker-controlled host, so match RelayURLValidator's policy and
+        // reject any user/password component before exposing the link.
+        for raw in [
+            "https://relay.damus.io@evil.example/phish",
+            "http://trusted.example@evil.example/path",
+            "https://user:pass@evil.example/path",
+            "https://:pass@evil.example/path",
+            "https://user@evil.example/path",
+        ] {
+            let url = try #require(URL(string: raw))
+            #expect(!MarkdownLinkPolicy.isAllowedExternalURL(url), "expected rejection for \(raw)")
+            #expect(MarkdownLinkPolicy.sanitizedURL(from: raw) == nil, "expected nil for \(raw)")
+        }
+    }
+
     @Test func marmotProfileLinkAcceptsStrictProfileFormOnly() async throws {
         // Accepted: strict marmot://profile/<npub|nprofile>, query ignored, case-insensitive
         // scheme/host. These flow in from OS deep links and kit-emitted message autolinks.
@@ -1138,6 +1156,17 @@ struct PureValueTests {
             ], remainingDepth: 32)
         #expect(String(unsafeAutolink.characters) == "smb://attacker/share")
         #expect(links(in: unsafeAutolink).isEmpty)
+
+        let hostConfusion = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .link(
+                    dest: "https://relay.damus.io@evil.example/phish",
+                    title: nil,
+                    children: [.text(content: "spoof")]
+                )
+            ], remainingDepth: 32)
+        #expect(String(hostConfusion.characters) == "spoof")
+        #expect(links(in: hostConfusion).isEmpty)
     }
 
     @Test func markdownInlineBuilderKeepsNostrEntitiesInternal() async throws {
