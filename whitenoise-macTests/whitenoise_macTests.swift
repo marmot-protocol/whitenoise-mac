@@ -13859,6 +13859,57 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleIncomingNotificationSettingsReadDoesNotClobberCommittedToggle() async throws {
+        // Issue #428: a notification update reuses one settings read for both the
+        // published snapshot and delivery gate. If that read was already in flight
+        // when a same-account toggle committed, its stale snapshot must not
+        // overwrite the newer toggle state.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Desktop Account")
+        #expect(!state.notificationSettings.localNotificationsEnabled)
+
+        runtime.notificationSettingsGateEnabled = true
+        async let staleUpdate: Void = state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "notice-1",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "See you there."
+            ))
+        while !runtime.didReachNotificationSettingsGate {
+            await Task.yield()
+        }
+
+        await state.setLocalNotificationsEnabled(true)
+        #expect(runtime.localNotificationsEnabledSet == true)
+        #expect(state.notificationSettings.localNotificationsEnabled)
+
+        runtime.releaseNotificationSettingsGate()
+        _ = await staleUpdate
+
+        #expect(state.notificationSettings.localNotificationsEnabled)
+        #expect(notificationCenter.postedRequests.isEmpty)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func senderOnlyPreviewModeOmitsDecryptedMessageBody() async throws {
         // Issue #30: notification body must never leak decrypted plaintext when
         // the user opts into sender-only previews. DM => body is generic, group
