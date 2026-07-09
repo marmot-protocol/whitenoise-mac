@@ -465,6 +465,11 @@ final class WorkspaceState {
     var phase: Phase = .bootstrapping
     var accounts: [AccountItem]
     var chatsByAccount: [String: [ChatItem]]
+    /// Observed invalidation token for `selectedChat`, whose actual lookup stays in the
+    /// ignored O(1) indexes below. Live chat-list deltas mutate those indexes, so the selected
+    /// conversation needs this tracked scalar to re-read fresh metadata without subscribing to
+    /// the whole chat dictionary.
+    var selectedChatRevision = 0
     @ObservationIgnored var chatLookupByAccount: [String: [String: ChatItem]] = [:]
     @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
     @ObservationIgnored var chatListGenerationByAccount: [String: Int] = [:]
@@ -1208,6 +1213,7 @@ final class WorkspaceState {
 
     var selectedChat: ChatItem? {
         guard case .chat(let chatId) = selection else { return nil }
+        _ = selectedChatRevision
         return activeAccountId.flatMap { chatLookupByAccount[$0]?[chatId] }
     }
 
@@ -1333,6 +1339,9 @@ final class WorkspaceState {
 
     private func bumpChatListGeneration(forAccountId accountId: String) {
         chatListGenerationByAccount[accountId, default: 0] += 1
+        if activeAccountId == accountId {
+            selectedChatRevision += 1
+        }
         if filteredChatsCache?.accountId == accountId {
             filteredChatsCache = nil
         }

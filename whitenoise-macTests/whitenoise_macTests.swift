@@ -9086,6 +9086,75 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selectedChatObservationInvalidatesOnSelectedChatMetadataDelta() async throws {
+        // Regression for #388: `selectedChat` resolves through ignored O(1) indexes, so it must
+        // still read an observed token that live chat-list deltas bump. Otherwise the open
+        // conversation keeps rendering a frozen ChatItem after renames/membership-ended flips.
+        let account = AccountItem.samples[0]
+        let selected = ChatItem(
+            id: "selected-chat",
+            title: "Original group",
+            subtitle: "Group message",
+            preview: "before",
+            updatedAt: Date(timeIntervalSince1970: 100),
+            avatarSeed: "selected-chat",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let background = ChatItem(
+            id: "background-chat",
+            title: "Background group",
+            subtitle: "Group message",
+            preview: "background",
+            updatedAt: Date(timeIntervalSince1970: 90),
+            avatarSeed: "background-chat",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [selected, background]],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(selected.id)
+
+        #expect(state.selectedChat?.title == "Original group")
+        #expect(state.selectedChat?.isNoLongerMember == false)
+
+        let invalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.selectedChat?.title
+            _ = state.selectedChat?.isNoLongerMember
+        } onChange: {
+            invalidated.markInvalidated()
+        }
+
+        state.upsertChat(
+            ChatItem(
+                id: selected.id,
+                title: "Renamed group",
+                subtitle: selected.subtitle,
+                preview: "after",
+                updatedAt: selected.updatedAt,
+                avatarSeed: "renamed-avatar",
+                pictureURL: selected.pictureURL,
+                unreadCount: selected.unreadCount,
+                unreadMentionCount: selected.unreadMentionCount,
+                isDirect: selected.isDirect,
+                pendingConfirmation: selected.pendingConfirmation,
+                selfMembership: .removed
+            ),
+            forAccountId: account.id
+        )
+
+        #expect(invalidated.value)
+        #expect(state.selectedChat?.title == "Renamed group")
+        #expect(state.selectedChat?.avatarSeed == "renamed-avatar")
+        #expect(state.selectedChat?.isNoLongerMember == true)
+    }
+
+    @MainActor
     @Test func workspaceChatIndexesAndFilterCachePerformanceGuard() async throws {
         let account = AccountItem.samples[0]
         let chats = performanceChatItems(count: 5_000)
