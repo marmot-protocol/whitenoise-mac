@@ -509,6 +509,7 @@ struct MessageVisualMediaGrid: View {
 }
 
 struct MessageVisualMediaTile: View {
+    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.displayScale) private var displayScale
     let downloadState: MediaDownloadStateStore
     let message: MessageItem
@@ -538,6 +539,10 @@ struct MessageVisualMediaTile: View {
             message: message
         )
         .onTapGesture {
+            if case .failed = downloadState.state {
+                Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                return
+            }
             if attachment.kind == .image,
                 let gallery = MessageImageGalleryPresentation(message: message, initialAttachment: attachment)
             {
