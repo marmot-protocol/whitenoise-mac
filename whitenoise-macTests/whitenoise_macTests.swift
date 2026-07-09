@@ -5386,6 +5386,132 @@ struct whitenoise_macTests {
         #expect(store.shouldStartAutomaticDownload)
     }
 
+    @MainActor
+    @Test func visualMediaTileTapActionRetriesFailedVideoBeforeGallery() {
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .failed("network"),
+                attachmentKind: .video
+            ) == .retryDownload
+        )
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .failed("network"),
+                attachmentKind: .image
+            ) == .retryDownload
+        )
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .idle,
+                attachmentKind: .image
+            ) == .openImageGallery
+        )
+        #expect(
+            MessageVisualMediaTileInteraction.tapAction(
+                downloadState: .idle,
+                attachmentKind: .video
+            ) == .none
+        )
+    }
+
+    @Test func visualMediaTileTapGestureRoutesRetryActionToDownload() throws {
+        // MessageVisualMediaTile is a SwiftUI gesture surface that the unit tests cannot
+        // tap directly here. Guard the wiring shape so a failed-tile retry action remains
+        // connected to the explicit download entry point, while the pure decision helper
+        // above guards that failed video tiles choose that action.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let tileStart = try #require(source.range(of: "struct MessageVisualMediaTile: View {"))
+        let rest = source[tileStart.upperBound...]
+        let tileEnd = try #require(rest.range(of: "\nstruct MessageMediaAttachmentView: View {")?.lowerBound)
+        let tileSource = String(source[tileStart.lowerBound..<tileEnd])
+
+        #expect(tileSource.contains("MessageVisualMediaTileInteraction.tapAction"))
+        #expect(tileSource.contains("case .retryDownload:"))
+        #expect(tileSource.contains("Task { await workspace.loadMediaAttachment(attachment, for: message) }"))
+    }
+
+    @MainActor
+    @Test func loadMediaAttachmentRetriesFromFailedState() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let plaintext = Data([0x00, 0x0F, 0xF0, 0xFF])
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "video/mp4",
+            fileName: "clip.mp4",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let download = MediaDownloadResultFfi(
+            plaintext: plaintext,
+            fileName: "clip.mp4",
+            mediaType: "video/mp4",
+            sizeBytes: UInt64(plaintext.count)
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.selection = .chat("group")
+        let message = MessageItem(
+            id: "failed-video-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "failed-video-message#0#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: "group")
+
+        await state.loadMediaAttachment(attachment, for: message)
+        guard case .failed = state.mediaDownloadState(for: message, attachment: attachment) else {
+            Issue.record("Expected initial video download to fail")
+            return
+        }
+        #expect(runtime.downloadMediaCallCount == 1)
+
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "failed-video-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: reference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: download
+        )
+        await state.loadMediaAttachment(attachment, for: message)
+
+        guard case .loaded(let loaded) = state.mediaDownloadState(for: message, attachment: attachment) else {
+            Issue.record("Expected failed video download to retry successfully")
+            return
+        }
+        #expect(loaded.data == plaintext)
+        #expect(runtime.downloadMediaCallCount == 2)
+    }
+
     @Test func mediaAttachmentDownloadLimiterCapsConcurrentAcquires() async {
         let limiter = MediaAttachmentDownloadLimiter(maxConcurrent: 2)
         let inFlight = AtomicCounter()
