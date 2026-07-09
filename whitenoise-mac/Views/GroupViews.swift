@@ -158,7 +158,11 @@ struct GroupDetailsSheet: View {
                                     systemImage: "checkmark.circle")
                             }
                             .nativeGlassProminentButtonStyle()
-                            .disabled(!hasProfileChanges || workspace.isSavingGroupProfile)
+                            .disabled(
+                                !hasProfileChanges
+                                    || workspace.isSavingGroupProfile
+                                    || workspace.hasInFlightGroupDetailsMutation
+                            )
                         }
                     }
                     // Profile edits publish a group commit, which the core rejects for a
@@ -231,7 +235,7 @@ struct GroupDetailsSheet: View {
                                         systemImage: "person.badge.plus")
                                 }
                                 .disabled(
-                                    workspace.isInvitingGroupMember
+                                    workspace.hasInFlightGroupDetailsMutation
                                         || workspace.groupInviteMemberQuery.trimmingCharacters(
                                             in: .whitespacesAndNewlines
                                         ).isEmpty
@@ -258,7 +262,7 @@ struct GroupDetailsSheet: View {
                                 } label: {
                                     Label("Step Down as Admin", systemImage: "star.slash")
                                 }
-                                .disabled(workspace.mutatingGroupMemberId != nil || snapshot.isLastAdmin)
+                                .disabled(workspace.hasInFlightGroupDetailsMutation || snapshot.isLastAdmin)
                             }
 
                             Button(role: .destructive) {
@@ -393,6 +397,7 @@ struct GroupDetailsSheet: View {
             Button("Step Down", role: .destructive) {
                 Task { await workspace.selfDemoteSelectedGroupAdmin() }
             }
+            .disabled(workspace.hasInFlightGroupDetailsMutation)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You'll stay in the group, but another admin will need to restore your admin status.")
@@ -553,7 +558,7 @@ struct GroupMemberRow: View {
                         .frame(width: 28, height: 28)
                 }
                 .menuStyle(.borderlessButton)
-                .disabled(workspace.mutatingGroupMemberId != nil)
+                .disabled(workspace.hasInFlightGroupDetailsMutation)
             }
         }
         .confirmationDialog(
@@ -564,6 +569,7 @@ struct GroupMemberRow: View {
             Button("Remove Member", role: .destructive) {
                 Task { await workspace.removeGroupMember(member) }
             }
+            .disabled(workspace.hasInFlightGroupDetailsMutation)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes \(member.displayName) from the group.")
