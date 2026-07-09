@@ -186,7 +186,14 @@ extension WorkspaceState {
         )
 
         if let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) {
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 stateStore.update(.idle)
                 return
             }
@@ -201,6 +208,17 @@ extension WorkspaceState {
         if case .loaded = stateStore.state {
             return
         }
+        guard
+            canPublishMediaDownloadState(
+                forKey: key,
+                stateStore: stateStore,
+                accountId: accountId,
+                groupIdHex: groupIdHex
+            )
+        else {
+            stateStore.update(.idle)
+            return
+        }
 
         do {
             let reference = try await resolvedMediaReference(
@@ -210,12 +228,30 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 client: client
             )
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
+                stateStore.update(.idle)
+                return
+            }
             let download = try await client.downloadMedia(
                 accountRef: accountRef,
                 groupIdHex: groupIdHex,
                 reference: reference
             )
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 stateStore.update(.idle)
                 return
             }
@@ -236,7 +272,14 @@ extension WorkspaceState {
                 storeGuard: storeGuard
             )
         } catch {
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
                 stateStore.update(.idle)
                 return
             }
@@ -246,7 +289,7 @@ extension WorkspaceState {
 
     /// Lazily allocates per-attachment stores from SwiftUI body lookup without observing the
     /// backing dictionary; `mediaDownloads` is `@ObservationIgnored`, and pruning bounds it to
-    /// the active conversation.
+    /// attachments that still belong to the active timeline window.
     func mediaDownloadStateStore(forKey key: String) -> MediaDownloadStateStore {
         if let store = mediaDownloads[key] {
             return store
@@ -254,6 +297,16 @@ extension WorkspaceState {
         let store = MediaDownloadStateStore()
         mediaDownloads[key] = store
         return store
+    }
+
+    private func canPublishMediaDownloadState(
+        forKey key: String,
+        stateStore: MediaDownloadStateStore,
+        accountId: String,
+        groupIdHex: String
+    ) -> Bool {
+        isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex)
+            && mediaDownloads[key] === stateStore
     }
 
     func addMediaAttachments(from urls: [URL]) async {
@@ -487,7 +540,19 @@ extension WorkspaceState {
     }
 
     func mediaDownloadKey(message: MessageItem, attachment: MessageMediaAttachment) -> String {
-        [activeAccountId ?? "", message.groupIdHex, attachment.id].joined(separator: "\u{1F}")
+        mediaDownloadKey(
+            accountId: activeAccountId ?? "",
+            groupIdHex: message.groupIdHex,
+            attachmentId: attachment.id
+        )
+    }
+
+    private func mediaDownloadKey(
+        accountId: String,
+        groupIdHex: String,
+        attachmentId: String
+    ) -> String {
+        [accountId, groupIdHex, attachmentId].joined(separator: "\u{1F}")
     }
 
     func pruneMediaDownloadCache(keeping groupIdHex: String?) {
@@ -497,12 +562,31 @@ extension WorkspaceState {
         }
 
         let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
-        let removedKeys = mediaDownloads.keys.filter { !$0.hasPrefix(prefix) }
+        let retainedKeys = retainedMediaDownloadKeys(groupIdHex: groupIdHex, accountId: activeAccountId)
+        let removedKeys = mediaDownloads.keys.filter { key in
+            guard key.hasPrefix(prefix) else { return true }
+            return !retainedKeys.contains(key)
+        }
         for key in removedKeys {
             // Notify any lingering per-attachment observers before dropping the store.
             mediaDownloads[key]?.update(.idle)
             mediaDownloads[key] = nil
         }
+    }
+
+    private func retainedMediaDownloadKeys(groupIdHex: String, accountId: String) -> Set<String> {
+        guard let timelineStore = messageTimelineStores[groupIdHex] else { return [] }
+        return Set(
+            timelineStore.messages.flatMap { message in
+                message.mediaAttachments.map { attachment in
+                    mediaDownloadKey(
+                        accountId: accountId,
+                        groupIdHex: groupIdHex,
+                        attachmentId: attachment.id
+                    )
+                }
+            }
+        )
     }
 
     func resetMediaDownloadStateStores() {
