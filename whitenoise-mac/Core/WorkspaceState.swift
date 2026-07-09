@@ -468,7 +468,9 @@ final class WorkspaceState {
     /// Observed invalidation token for `selectedChat`, whose actual lookup stays in the
     /// ignored O(1) indexes below. Live chat-list deltas mutate those indexes, so the selected
     /// conversation needs this tracked scalar to re-read fresh metadata without subscribing to
-    /// the whole chat dictionary.
+    /// the whole chat dictionary. It is intentionally coarse: any active-account chat-list
+    /// mutation invalidates the selected conversation chrome, while transcript reads remain
+    /// scoped through per-chat timeline stores.
     var selectedChatRevision = 0
     @ObservationIgnored var chatLookupByAccount: [String: [String: ChatItem]] = [:]
     @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
@@ -1283,6 +1285,9 @@ final class WorkspaceState {
     }
 
     func resetChats() {
+        // Currently used only by `resetToNewInstallState`, which clears `activeAccountId` and
+        // `selection` in the same synchronous reset path. A future caller that keeps a selected
+        // chat alive while clearing these ignored indexes must also bump `selectedChatRevision`.
         chatsByAccount = [:]
         chatLookupByAccount = [:]
         chatIndexByAccount = [:]
