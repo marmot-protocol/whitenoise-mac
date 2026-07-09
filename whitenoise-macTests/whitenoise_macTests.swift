@@ -4132,17 +4132,7 @@ struct whitenoise_macTests {
         )
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
-        state.selectChat(
-            ChatItem(
-                id: "group",
-                title: "Test Group",
-                subtitle: "Group message",
-                preview: "Attachment",
-                updatedAt: nil,
-                avatarSeed: "group",
-                pictureURL: nil,
-                unreadCount: 0
-            ))
+        state.selection = .chat("group")
         let message = MessageItem(
             id: "media-message",
             groupIdHex: "group",
@@ -4158,6 +4148,7 @@ struct whitenoise_macTests {
             ]
         )
         let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: "group")
 
         await state.loadMediaAttachment(attachment, for: message)
         let stateAfterFirstLoad = state.mediaDownloadState(for: message, attachment: attachment)
@@ -4790,7 +4781,7 @@ struct whitenoise_macTests {
         )
         await state.bootstrap()
         let chat = try #require(state.activeChats.first)
-        state.selectChat(chat)
+        state.selection = .chat(chat.id)
         let message = MessageItem(
             id: "suppressed-cached-message",
             groupIdHex: "group",
@@ -4806,6 +4797,7 @@ struct whitenoise_macTests {
             ]
         )
         let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: chat.id)
 
         state.suppressAllMediaDiskStores()
         await state.loadMediaAttachment(attachment, for: message)
@@ -4875,22 +4867,33 @@ struct whitenoise_macTests {
         )
         await state.bootstrap()
         let chat = try #require(state.activeChats.first)
-        state.selectChat(chat)
-        let message = MessageItem(
-            id: "late-after-failed-delete-message",
-            groupIdHex: "group",
-            senderName: "Alice",
-            body: "",
-            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
-            isOutgoing: false,
-            mediaAttachments: [
-                MessageMediaAttachment(
-                    id: "late-after-failed-delete-message#0#\(reference.plaintextSha256)",
-                    reference: reference
+        state.selection = .chat(chat.id)
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "late-after-failed-delete-message",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJson(for: reference)
                 )
-            ]
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+        runtime.installTimelinePage(page, groupIdHex: "group")
+        let message = try #require(
+            MessageItem.timeline(
+                from: page,
+                activeAccountIdHex: AccountItem(summary: account).id
+            ).first
         )
         let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: "group")
+        // `deleteAllData()` recovery reloads the selected timeline after a failed wipe. Keep this
+        // fixture message in that recovered window so the test continues to model a visible tile
+        // whose late download is still allowed to publish.
         let stateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
         let cacheKey = MessageMediaDiskCacheKey(
             accountId: AccountItem(summary: account).id,
@@ -4916,6 +4919,107 @@ struct whitenoise_macTests {
             return
         }
         #expect(loaded.data == plaintext)
+        #expect(state.mediaDiskStoreTasks.isEmpty)
+        #expect(await mediaDiskCache.cachedDownload(for: cacheKey) == nil)
+    }
+
+    @MainActor
+    @Test func mediaDownloadFinishingAfterTimelinePruneDoesNotPublishPlaintext() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: false
+        )
+        let plaintext = Data([0x70, 0x71, 0x72, 0x73])
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "pruned-late.png",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let download = MediaDownloadResultFfi(
+            plaintext: plaintext,
+            fileName: "pruned-late.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count)
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "pruned-late-media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: reference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: download
+        )
+        let mediaDiskCache = messageMediaDiskCache(root: root)
+        let state = WorkspaceState(
+            mediaDiskCache: mediaDiskCache,
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+        state.selection = .chat(chat.id)
+        let message = MessageItem(
+            id: "pruned-late-media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "pruned-late-media-message#0#\(reference.plaintextSha256)",
+                    reference: reference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+        state.replaceMessages([message], groupIdHex: "group")
+        let key = state.mediaDownloadKey(message: message, attachment: attachment)
+        let stateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
+        let cacheKey = MessageMediaDiskCacheKey(
+            accountId: AccountItem(summary: account).id,
+            groupIdHex: "group",
+            reference: reference
+        )
+
+        runtime.mediaDownloadGateEnabled = true
+        async let load: Void = state.loadMediaAttachment(attachment, for: message)
+        while !runtime.didReachMediaDownloadGate {
+            await Task.yield()
+        }
+
+        state.replaceMessages([], groupIdHex: "group")
+        #expect(state.mediaDownloads[key] == nil)
+        #expect(stateStore.state == .idle)
+
+        runtime.releaseMediaDownloadGate()
+        await load
+        for _ in 0..<20 where !state.mediaDiskStoreTasks.isEmpty {
+            await Task.yield()
+        }
+
+        #expect(state.mediaDownloads[key] == nil)
+        #expect(stateStore.state == .idle)
         #expect(state.mediaDiskStoreTasks.isEmpty)
         #expect(await mediaDiskCache.cachedDownload(for: cacheKey) == nil)
     }
@@ -14711,6 +14815,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func installMessages(_ messages: [AppMessageRecordFfi], groupIdHex: String) {
         messagesByGroupId[groupIdHex] = messages
         timelinePagesByGroupId[groupIdHex] = projectedTimeline(from: messages)
+    }
+
+    func installTimelinePage(_ page: TimelinePageFfi, groupIdHex: String) {
+        timelinePagesByGroupId[groupIdHex] = page
     }
 
     func installGroup(_ group: AppGroupRecordFfi) {

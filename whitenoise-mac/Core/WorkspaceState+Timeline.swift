@@ -428,7 +428,10 @@ extension WorkspaceState {
                 hasMoreAfter: paging.hasMoreAfter,
                 isLoadingBefore: paging.isLoadingBefore,
                 isLoadingAfter: paging.isLoadingAfter
-            )
+            ),
+            pruneMediaDownloads: result.didRemoveMessages
+                || result.didTrimOlderMessages
+                || introducesMediaChange
         )
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
@@ -746,11 +749,13 @@ extension WorkspaceState {
             timelinePagingByChat = [groupIdHex: nextPaging]
         }
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
+        pruneMediaDownloadCache(keeping: groupIdHex)
     }
 
     func finalizeTimelineStoreMutation(
         groupIdHex: String,
-        paging: TimelinePagingState
+        paging: TimelinePagingState,
+        pruneMediaDownloads: Bool
     ) {
         let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
         for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
@@ -760,6 +765,9 @@ extension WorkspaceState {
         messageTimelineStores = [groupIdHex: timelineStore]
         timelinePagingByChat = [groupIdHex: paging]
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
+        if pruneMediaDownloads {
+            pruneMediaDownloadCache(keeping: groupIdHex)
+        }
     }
 
     func refreshSelectedTimelineAfterSend(
