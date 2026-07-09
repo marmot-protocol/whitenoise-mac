@@ -54,26 +54,6 @@ struct PendingMediaDraftTile: View {
     @State private var decodedImagePreview: NSImage?
     @State private var decodedImageCacheKey: String?
 
-    // The composer only shows a handful of draft tiles. Keep thumbnails bounded while allowing
-    // enough headroom for several ~148px previews and matching failed-decode entries.
-    private static let imagePreviewCacheCountLimit = 64
-    private static let failedImagePreviewCacheCountLimit = imagePreviewCacheCountLimit
-    private static let imagePreviewCacheTotalCostLimit =
-        PendingMediaDraftThumbnailDecoder.defaultDecodedCacheTotalCostLimit
-
-    private static let imagePreviewCache: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = imagePreviewCacheCountLimit
-        cache.totalCostLimit = imagePreviewCacheTotalCostLimit
-        return cache
-    }()
-
-    private static let failedImagePreviewCache: NSCache<NSString, NSNumber> = {
-        let cache = NSCache<NSString, NSNumber>()
-        cache.countLimit = failedImagePreviewCacheCountLimit
-        return cache
-    }()
-
     var body: some View {
         Group {
             switch attachment.kind {
@@ -123,18 +103,7 @@ struct PendingMediaDraftTile: View {
     @MainActor
     private func loadImagePreview() async {
         let cacheKey = imagePreviewTaskID
-        let nsCacheKey = cacheKey as NSString
         if decodedImageCacheKey == cacheKey {
-            return
-        }
-        if let cached = Self.imagePreviewCache.object(forKey: nsCacheKey) {
-            decodedImageCacheKey = cacheKey
-            decodedImagePreview = cached
-            return
-        }
-        if Self.failedImagePreviewCache.object(forKey: nsCacheKey) != nil {
-            decodedImageCacheKey = cacheKey
-            decodedImagePreview = nil
             return
         }
 
@@ -148,16 +117,6 @@ struct PendingMediaDraftTile: View {
         }.value
 
         guard decodedImageCacheKey == cacheKey else { return }
-        if let decoded {
-            Self.failedImagePreviewCache.removeObject(forKey: nsCacheKey)
-            Self.imagePreviewCache.setObject(
-                decoded,
-                forKey: nsCacheKey,
-                cost: PendingMediaDraftThumbnailDecoder.decodedCost(for: decoded)
-            )
-        } else {
-            Self.failedImagePreviewCache.setObject(NSNumber(value: true), forKey: nsCacheKey)
-        }
         decodedImagePreview = decoded
     }
 
