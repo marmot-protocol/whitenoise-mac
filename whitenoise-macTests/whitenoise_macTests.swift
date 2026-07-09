@@ -1164,6 +1164,115 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func prepareForActiveAccountSwitchClosesGroupDetails() async throws {
+        let primary = desktopAccount()
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, backup])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: primary.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let primaryAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+        state.prepareForActiveAccountSwitch(to: primaryAccount, preservingMessageCacheFor: nil)
+        await state.reloadChats(forceFreshSnapshot: true)
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        await state.showGroupDetails(for: groupChat)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot?.members.count == 3)
+
+        state.groupProfileDraftName = "Private group name"
+        state.groupProfileDraftDescription = "Private group description"
+        state.groupInviteMemberQuery = "npub1privateinvite"
+        state.groupTranscriptExportStatus = "Copied transcript JSON for 1 events."
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+
+        state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
+
+        // Live switches are account-boundary teardown: account A's details/transcript-export UI
+        // must not stay visible under account B. See #420.
+        #expect(state.activeAccountId == backupAccount.id)
+        #expect(!state.isGroupDetailsPresented)
+        #expect(state.groupDetailsSnapshot == nil)
+        #expect(state.groupProfileDraftName.isEmpty)
+        #expect(state.groupProfileDraftDescription.isEmpty)
+        #expect(state.groupInviteMemberQuery.isEmpty)
+        #expect(state.groupTranscriptExportStatus == nil)
+    }
+
+    @MainActor
+    @Test func groupTranscriptExportDoesNotCopyAfterAccountSwitch() async throws {
+        let primary = desktopAccount()
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, backup])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: primary.accountIdHex))
+
+        let exportEntered = DispatchSemaphore(value: 0)
+        let releaseExport = DispatchSemaphore(value: 0)
+        let messageId = String(repeating: "1", count: 64)
+        runtime.timelineMessagesHandler = { query in
+            if query.before == nil {
+                exportEntered.signal()
+                _ = releaseExport.wait(timeout: .now() + 5)
+                return TimelinePageFfi(
+                    messages: [
+                        timelineMessage(
+                            id: messageId,
+                            groupIdHex: "group",
+                            sender: primary.accountIdHex,
+                            plaintext: "account A decrypted transcript",
+                            recordedAt: 1_700_000_000
+                        )
+                    ],
+                    hasMoreBefore: false,
+                    hasMoreAfter: false
+                )
+            }
+            return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        var copiedText: String?
+        let state = WorkspaceState(
+            copyTextHandler: { text, _ in copiedText = text },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let primaryAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+        state.prepareForActiveAccountSwitch(to: primaryAccount, preservingMessageCacheFor: nil)
+        await state.reloadChats(forceFreshSnapshot: true)
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        await state.showGroupDetails(for: groupChat)
+
+        // Call the async helper directly (rather than startCopySelectedGroupTranscriptJSON)
+        // so this test isolates the post-await stale-account guard from task cancellation.
+        async let export: Void = state.copySelectedGroupTranscriptJSON()
+        #expect(await waitForSemaphore(exportEntered, timeout: .now() + 2) == .success)
+
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
+        releaseExport.signal()
+        await export
+
+        // Even if the off-main export survives cancellation long enough to return, its completion
+        // must not write account A's decrypted transcript or status after switching to account B.
+        #expect(state.activeAccountId == backupAccount.id)
+        #expect(copiedText == nil)
+        #expect(state.groupTranscriptExportStatus == nil)
+    }
+
+    @MainActor
     @Test func resetActiveAccountUIStateClearsGroupAndNewChatPII() async throws {
         let primary = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [primary])

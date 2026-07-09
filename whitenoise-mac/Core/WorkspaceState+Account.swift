@@ -87,6 +87,7 @@ extension WorkspaceState {
         cancelTimelineLoad()
         cancelChatListReload()
         stopChatListListener()
+        closeGroupDetails()
         clearEnteredLoginIdentity()
         activeAccountId = account.id
         invalidateNotificationSettingsOperations()
