@@ -1091,6 +1091,47 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func prepareForActiveAccountSwitchClearsReadMarkers() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            signedOut: false,
+            running: true
+        )
+        let primaryAccount = AccountItem(summary: primary)
+        let backupAccount = AccountItem(summary: backup)
+        let runtime = FakeMarmotRuntime(accounts: [primary, backup])
+        let state = WorkspaceState(
+            accounts: [primaryAccount, backupAccount],
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = primaryAccount.id
+
+        let marker = ReadMarker(
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            messageId: "m10"
+        )
+        state.lastMarkedReadMarkers["shared-group"] = marker
+        state.lastConfirmedReadMarkers["shared-group"] = marker
+
+        state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
+
+        // Live account switches must not inherit groupIdHex-keyed read markers from
+        // the previous identity. See #429.
+        #expect(state.lastMarkedReadMarkers.isEmpty)
+        #expect(state.lastConfirmedReadMarkers.isEmpty)
+        #expect(state.activeAccountId == backupAccount.id)
+    }
+
+    @MainActor
     @Test func resetActiveAccountUIStateClearsGroupAndNewChatPII() async throws {
         let primary = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [primary])

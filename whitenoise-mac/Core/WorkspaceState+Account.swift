@@ -100,6 +100,11 @@ extension WorkspaceState {
         // account does not inherit stale cross-account entries (whitenoise-mac#8/#9).
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
+        // Read markers are keyed by groupIdHex only; stale entries from the
+        // previous account suppress the first legitimate advance for a shared
+        // group id under the new identity. See #429.
+        lastMarkedReadMarkers.removeAll()
+        lastConfirmedReadMarkers.removeAll()
         refreshObservabilityRuntime()
     }
 
