@@ -13610,6 +13610,7 @@ struct whitenoise_macTests {
         _ = await staleUpdate
 
         #expect(state.notificationSettings.localNotificationsEnabled)
+        #expect(notificationCenter.postedRequests.isEmpty)
         #expect(state.lastError == nil)
     }
 
