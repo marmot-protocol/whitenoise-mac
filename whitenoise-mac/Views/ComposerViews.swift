@@ -52,27 +52,7 @@ struct PendingMediaDraftTile: View {
     let tileSize: CGSize
 
     @State private var decodedImagePreview: NSImage?
-    @State private var decodedImageCacheKey: String?
-
-    // The composer only shows a handful of draft tiles. Keep thumbnails bounded while allowing
-    // enough headroom for several ~148px previews and matching failed-decode entries.
-    private static let imagePreviewCacheCountLimit = 64
-    private static let failedImagePreviewCacheCountLimit = imagePreviewCacheCountLimit
-    private static let imagePreviewCacheTotalCostLimit =
-        PendingMediaDraftThumbnailDecoder.defaultDecodedCacheTotalCostLimit
-
-    private static let imagePreviewCache: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = imagePreviewCacheCountLimit
-        cache.totalCostLimit = imagePreviewCacheTotalCostLimit
-        return cache
-    }()
-
-    private static let failedImagePreviewCache: NSCache<NSString, NSNumber> = {
-        let cache = NSCache<NSString, NSNumber>()
-        cache.countLimit = failedImagePreviewCacheCountLimit
-        return cache
-    }()
+    @State private var decodedImageTaskID: String?
 
     var body: some View {
         Group {
@@ -113,7 +93,7 @@ struct PendingMediaDraftTile: View {
     }
 
     private var imagePreviewTaskID: String {
-        Self.cacheKey(for: attachment, maxPixelSize: imagePreviewMaxPixelSize)
+        Self.previewTaskID(for: attachment, maxPixelSize: imagePreviewMaxPixelSize)
     }
 
     private var imagePreviewMaxPixelSize: CGFloat {
@@ -122,23 +102,12 @@ struct PendingMediaDraftTile: View {
 
     @MainActor
     private func loadImagePreview() async {
-        let cacheKey = imagePreviewTaskID
-        let nsCacheKey = cacheKey as NSString
-        if decodedImageCacheKey == cacheKey {
-            return
-        }
-        if let cached = Self.imagePreviewCache.object(forKey: nsCacheKey) {
-            decodedImageCacheKey = cacheKey
-            decodedImagePreview = cached
-            return
-        }
-        if Self.failedImagePreviewCache.object(forKey: nsCacheKey) != nil {
-            decodedImageCacheKey = cacheKey
-            decodedImagePreview = nil
+        let taskID = imagePreviewTaskID
+        if decodedImageTaskID == taskID {
             return
         }
 
-        decodedImageCacheKey = cacheKey
+        decodedImageTaskID = taskID
         decodedImagePreview = nil
 
         let data = attachment.data
@@ -147,21 +116,11 @@ struct PendingMediaDraftTile: View {
             PendingMediaDraftThumbnailDecoder.image(from: data, maxPixelSize: maxPixelSize)
         }.value
 
-        guard decodedImageCacheKey == cacheKey else { return }
-        if let decoded {
-            Self.failedImagePreviewCache.removeObject(forKey: nsCacheKey)
-            Self.imagePreviewCache.setObject(
-                decoded,
-                forKey: nsCacheKey,
-                cost: PendingMediaDraftThumbnailDecoder.decodedCost(for: decoded)
-            )
-        } else {
-            Self.failedImagePreviewCache.setObject(NSNumber(value: true), forKey: nsCacheKey)
-        }
+        guard decodedImageTaskID == taskID else { return }
         decodedImagePreview = decoded
     }
 
-    private static func cacheKey(for attachment: PendingMediaAttachment, maxPixelSize: CGFloat) -> String {
+    private static func previewTaskID(for attachment: PendingMediaAttachment, maxPixelSize: CGFloat) -> String {
         "\(attachment.id.uuidString)|\(attachment.data.count)|\(Int(maxPixelSize))"
     }
 
@@ -211,8 +170,6 @@ struct PendingMediaDraftTile: View {
 }
 
 nonisolated enum PendingMediaDraftThumbnailDecoder {
-    static let defaultDecodedCacheTotalCostLimit = 8 * 1024 * 1024
-
     static func image(from data: Data, maxPixelSize: CGFloat) -> NSImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
@@ -229,16 +186,6 @@ nonisolated enum PendingMediaDraftThumbnailDecoder {
             return nil
         }
         return DownsampledImageSizing.image(fromDownsampled: cgImage)
-    }
-
-    static func decodedCost(for image: NSImage) -> Int {
-        let representation = image.representations.first
-        let width = max(1, representation?.pixelsWide ?? Int(ceil(image.size.width)))
-        let height = max(1, representation?.pixelsHigh ?? Int(ceil(image.size.height)))
-        guard width <= Int.max / max(height, 1) / 4 else {
-            return defaultDecodedCacheTotalCostLimit
-        }
-        return width * height * 4
     }
 }
 
