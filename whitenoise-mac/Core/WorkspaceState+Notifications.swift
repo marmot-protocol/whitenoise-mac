@@ -19,6 +19,11 @@ extension WorkspaceState {
     func handleNotificationUpdate(_ update: NotificationUpdateFfi) async {
         guard !update.isFromSelf else { return }
         guard !deliveredNotificationKeys.contains(update.notificationKey) else { return }
+        let activeNotificationAccountId =
+            activeAccount?.accountIdHex == update.accountIdHex ? activeAccount?.id : nil
+        // A same-account settings toggle/load that commits while the FFI read is
+        // in flight owns the newer published snapshot; do not clobber it on resume.
+        let notificationSettingsGenerationAtStart = notificationSettingsGeneration
 
         // Read the account's notification settings exactly once over the FFI
         // boundary, then reuse the snapshot for both responsibilities below:
@@ -29,7 +34,12 @@ extension WorkspaceState {
         // snapshot untouched, matching the prior early-return-on-error behavior.
         guard let settings = await fetchNotificationSettings(for: update) else { return }
 
-        if activeAccount?.accountIdHex == update.accountIdHex {
+        if let activeNotificationAccountId,
+            ownsNotificationSettingsOperation(
+                accountId: activeNotificationAccountId,
+                generation: notificationSettingsGenerationAtStart
+            )
+        {
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         }
 
