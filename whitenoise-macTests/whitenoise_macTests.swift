@@ -1825,6 +1825,96 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: entryDirectory.path))
     }
 
+    @Test func messageMediaDiskCacheEvictsCorruptMetadata() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("media whose metadata will be corrupted".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+        let entryDirectory = try #require(cache.entryDirectory(for: key))
+        try Data("not sealed metadata".utf8).write(to: entryDirectory.appendingPathComponent("metadata.bin"))
+
+        #expect(await cache.cachedDownload(for: key) == nil)
+        #expect(!fileManager.fileExists(atPath: entryDirectory.path))
+    }
+
+    @Test func messageMediaDiskCachePreservesEntryWhenMetadataCannotBeRead() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("media with temporarily unreadable metadata".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+        let entryDirectory = try #require(cache.entryDirectory(for: key))
+        let metadataURL = entryDirectory.appendingPathComponent("metadata.bin")
+        let payloadURL = entryDirectory.appendingPathComponent("payload.bin")
+        try fileManager.removeItem(at: metadataURL)
+        try fileManager.createDirectory(at: metadataURL, withIntermediateDirectories: false)
+
+        #expect(await cache.cachedDownload(for: key) == nil)
+        var metadataIsDirectory = ObjCBool(false)
+        #expect(fileManager.fileExists(atPath: metadataURL.path, isDirectory: &metadataIsDirectory))
+        #expect(metadataIsDirectory.boolValue)
+        #expect(fileManager.fileExists(atPath: payloadURL.path))
+    }
+
+    @Test func messageMediaDiskCachePreservesEntryWhenPayloadCannotBeRead() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("media with temporarily unreadable payload".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "network-download"
+        )
+
+        await cache.store(download, for: key)
+        let entryDirectory = try #require(cache.entryDirectory(for: key))
+        let metadataURL = entryDirectory.appendingPathComponent("metadata.bin")
+        let payloadURL = entryDirectory.appendingPathComponent("payload.bin")
+        try fileManager.removeItem(at: payloadURL)
+        try fileManager.createDirectory(at: payloadURL, withIntermediateDirectories: false)
+
+        #expect(await cache.cachedDownload(for: key) == nil)
+        #expect(fileManager.fileExists(atPath: metadataURL.path))
+        var payloadIsDirectory = ObjCBool(false)
+        #expect(fileManager.fileExists(atPath: payloadURL.path, isDirectory: &payloadIsDirectory))
+        #expect(payloadIsDirectory.boolValue)
+    }
+
     @Test func messageMediaDiskCacheEvictsOldestEntriesWhenEntryLimitExceeded() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
