@@ -36,6 +36,21 @@ struct PeerDisplayTextTests {
         #expect(wrapped.hasSuffix(pdi))
     }
 
+    @Test func newChatRecipientTitleSanitizesPeerControlledDisplayName() async throws {
+        let recipient = NewChatRecipient(
+            sourceQuery: "npub1recipient",
+            memberRef: "npub1recipient",
+            accountIdHex: "def456",
+            npub: "npub1recipient",
+            displayName: "\(rtlOverride)Trusted Admin\(ltrIsolate)",
+            pictureURL: nil
+        )
+
+        #expect(recipient.displayName == "Trusted Admin")
+        #expect(recipient.title == "Trusted Admin")
+        #expect(!recipient.title.unicodeScalars.contains { $0.properties.generalCategory == .format })
+    }
+
     @Test func chatListRowsSanitizePeerControlledTitlesAndPreviewSenderNames() async throws {
         let row = ChatListRowFfi(
             groupIdHex: "group",
@@ -78,7 +93,7 @@ struct PeerDisplayTextTests {
         let alice = String(repeating: "a", count: 64)
         let spoofedName = "\(rtlOverride)Trusted Admin\(ltrIsolate)"
         let profiles = [
-            alice: ChatPeerProfile(accountIdHex: alice, displayName: spoofedName, pictureURL: nil),
+            alice: ChatPeerProfile(accountIdHex: alice, displayName: spoofedName, pictureURL: nil)
         ]
         let page = TimelinePageFfi(
             messages: [
@@ -88,7 +103,7 @@ struct PeerDisplayTextTests {
                     sender: alice,
                     plaintext: "hello",
                     recordedAt: 1_700_000_000
-                ),
+                )
             ],
             hasMoreBefore: false,
             hasMoreAfter: false
@@ -103,7 +118,7 @@ struct PeerDisplayTextTests {
     @Test func timelineMappingSanitizesGroupRenameNamesAndIsolatesTemplateFragments() async throws {
         let alice = String(repeating: "a", count: 64)
         let profiles = [
-            alice: ChatPeerProfile(accountIdHex: alice, displayName: "Alice", pictureURL: nil),
+            alice: ChatPeerProfile(accountIdHex: alice, displayName: "Alice", pictureURL: nil)
         ]
         let maliciousOld = "\(rtlOverride)Team One\(ltrIsolate)"
         let maliciousNew = "\(ltrIsolate)Team Two\(rtlOverride)"
@@ -123,7 +138,7 @@ struct PeerDisplayTextTests {
                         name: maliciousNew,
                         oldName: maliciousOld
                     )
-                ),
+                )
             ],
             hasMoreBefore: false,
             hasMoreAfter: false
@@ -133,7 +148,10 @@ struct PeerDisplayTextTests {
         #expect(messages.count == 1)
 
         let body = messages[0].body
-        #expect(body == "\(isolated("Alice")) renamed the group from \"\(isolated("Team One"))\" to \"\(isolated("Team Two"))\"")
+        let expectedBody =
+            "\(isolated("Alice")) renamed the group from \"\(isolated("Team One"))\" "
+            + "to \"\(isolated("Team Two"))\""
+        #expect(body == expectedBody)
         #expect(!body.unicodeScalars.contains { $0.value == 0x202E })
         #expect(!body.unicodeScalars.contains { $0.value == 0x2066 })
         #expect(body.contains(isolated("Team One")))
@@ -150,7 +168,7 @@ struct PeerDisplayTextTests {
                     plaintext: #"{"v":1,"system_type":"group_renamed","text":"\u202EGroup renamed\u2066"}"#,
                     kind: 1210,
                     recordedAt: 1_700_000_000
-                ),
+                )
             ],
             hasMoreBefore: false,
             hasMoreAfter: false

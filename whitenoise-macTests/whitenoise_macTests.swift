@@ -3877,6 +3877,12 @@ struct whitenoise_macTests {
             activeAccountIdHex: bob,
             senderProfiles: profiles
         )
+        let remoteRenameBody =
+            #"\#(isolated("Alice")) renamed the group from "\#(isolated("Team One"))" "#
+            + #"to "\#(isolated("Team Two"))""#
+        let aliceRenameBody =
+            #"You renamed the group from "\#(isolated("Team One"))" "#
+            + #"to "\#(isolated("Team Two"))""#
 
         #expect(
             remoteMessages.map(\.body) == [
@@ -3886,14 +3892,14 @@ struct whitenoise_macTests {
                 "\(isolated("Alice")) made \(isolated("Bob")) an admin",
                 "\(isolated("Bob")) was made an admin",
                 "\(isolated("Bob")) removed \(isolated("Carol")) as admin",
-                #"\#(isolated("Alice")) renamed the group from "\#(isolated("Team One"))" to "\#(isolated("Team Two"))""#,
+                remoteRenameBody,
                 "\(isolated("Bob")) changed the group avatar",
                 "\(isolated("Alice")) changed disappearing messages from off to 1 week",
             ])
         #expect(aliceLocalMessages[0].body == "You added \(isolated("Bob"))")
         #expect(aliceLocalMessages[3].body == "You made \(isolated("Bob")) an admin")
         #expect(aliceLocalMessages[4].body == "\(isolated("Bob")) was made an admin")
-        #expect(aliceLocalMessages[6].body == #"You renamed the group from "\#(isolated("Team One"))" to "\#(isolated("Team Two"))""#)
+        #expect(aliceLocalMessages[6].body == aliceRenameBody)
         #expect(aliceLocalMessages[8].body == "You changed disappearing messages from off to 1 week")
         #expect(bobLocalMessages[0].body == "\(isolated("Alice")) added you")
         #expect(bobLocalMessages[1].body == "You were removed from the group by \(isolated("Alice"))")

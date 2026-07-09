@@ -1660,12 +1660,16 @@ final class WorkspaceState {
         let members = details.members
             .map { member in
                 let action = actionByMemberId[member.memberIdHex]
+                let displayName =
+                    firstNonBlank([
+                        PeerDisplayText.sanitize(member.displayName),
+                        PeerDisplayText.sanitize(member.account),
+                    ]) ?? DisplayText.short(member.npub, head: 12, tail: 8)
                 return GroupMemberItem(
                     id: member.memberIdHex,
-                    displayName: firstNonBlank([member.displayName, member.account])
-                        ?? DisplayText.short(member.npub, head: 12, tail: 8),
+                    displayName: displayName,
                     npub: member.npub,
-                    accountLabel: member.account,
+                    accountLabel: PeerDisplayText.sanitize(member.account),
                     isLocal: member.local,
                     isAdmin: member.isAdmin,
                     isSelf: member.isSelf,
@@ -1684,7 +1688,7 @@ final class WorkspaceState {
         return GroupDetailsSnapshot(
             groupIdHex: details.group.groupIdHex,
             endpoint: details.group.endpoint,
-            name: firstNonBlank([details.group.name]) ?? L10n.string("Unnamed group"),
+            name: PeerDisplayText.sanitize(details.group.name) ?? L10n.string("Unnamed group"),
             description: details.group.description,
             avatarURL: avatarURL,
             sanitizedAvatarURL: RemoteImageURLPolicy.sanitizedURL(from: avatarURL),
