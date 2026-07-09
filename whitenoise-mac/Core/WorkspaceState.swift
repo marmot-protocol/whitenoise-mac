@@ -683,6 +683,7 @@ final class WorkspaceState {
     let clientFactory: @MainActor () throws -> any MarmotRuntime
     let localNotificationCenter: any LocalNotificationCenter
     let appActivityProvider: @MainActor () -> Bool
+    let appActivationHandler: @MainActor (_ ignoringOtherApps: Bool) -> Void
     let conversationWindowVisibilityProvider: @MainActor () -> Bool
     let copyTextHandler: @MainActor (String, Bool) -> Void
     let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
@@ -1081,6 +1082,9 @@ final class WorkspaceState {
         messagesByChat: [String: [MessageItem]] = [:],
         localNotificationCenter: (any LocalNotificationCenter)? = nil,
         appActivityProvider: @escaping @MainActor () -> Bool = { NSApplication.shared.isActive },
+        appActivationHandler: @escaping @MainActor (_ ignoringOtherApps: Bool) -> Void = {
+            NSApplication.shared.activate(ignoringOtherApps: $0)
+        },
         conversationWindowVisibilityProvider: @escaping @MainActor () -> Bool = {
             WorkspaceState.defaultConversationWindowVisibilityProvider()
         },
@@ -1099,6 +1103,7 @@ final class WorkspaceState {
         self.cachedMessageChatIds = Set(messagesByChat.keys)
         self.localNotificationCenter = localNotificationCenter ?? MacLocalNotificationCenter()
         self.appActivityProvider = appActivityProvider
+        self.appActivationHandler = appActivationHandler
         self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
         self.copyTextHandler = copyTextHandler
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
