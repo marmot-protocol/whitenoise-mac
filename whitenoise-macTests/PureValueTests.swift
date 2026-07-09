@@ -1130,6 +1130,102 @@ struct PureValueTests {
             disappearingMessageSecs: 0
         )
     }
+
+    @MainActor
+    @Test func hoverSelectionCoordinatorOnlyTogglesAffectedBubbles() async throws {
+        let coordinator = ConversationHoverSelectionCoordinator()
+        var firstSelectable = false
+        var secondSelectable = false
+        var thirdSelectable = false
+        var firstChangeCount = 0
+        var secondChangeCount = 0
+        var thirdChangeCount = 0
+        coordinator.register(
+            messageID: "first",
+            isSelectable: Binding(
+                get: { firstSelectable },
+                set: {
+                    firstSelectable = $0
+                    firstChangeCount += 1
+                }
+            )
+        )
+        coordinator.register(
+            messageID: "second",
+            isSelectable: Binding(
+                get: { secondSelectable },
+                set: {
+                    secondSelectable = $0
+                    secondChangeCount += 1
+                }
+            )
+        )
+        coordinator.register(
+            messageID: "third",
+            isSelectable: Binding(
+                get: { thirdSelectable },
+                set: {
+                    thirdSelectable = $0
+                    thirdChangeCount += 1
+                }
+            )
+        )
+        firstChangeCount = 0
+        secondChangeCount = 0
+        thirdChangeCount = 0
+
+        coordinator.activate(messageID: "first")
+        #expect(firstSelectable)
+        #expect(!secondSelectable)
+        #expect(!thirdSelectable)
+        #expect(firstChangeCount == 1)
+        #expect(secondChangeCount == 0)
+        #expect(thirdChangeCount == 0)
+
+        firstChangeCount = 0
+        secondChangeCount = 0
+        thirdChangeCount = 0
+        coordinator.activate(messageID: "third")
+        #expect(!firstSelectable)
+        #expect(!secondSelectable)
+        #expect(thirdSelectable)
+        #expect(firstChangeCount == 1)
+        #expect(secondChangeCount == 0)
+        #expect(thirdChangeCount == 1)
+
+        firstChangeCount = 0
+        secondChangeCount = 0
+        thirdChangeCount = 0
+        coordinator.activate(messageID: "third")
+        #expect(thirdSelectable)
+        #expect(firstChangeCount == 0)
+        #expect(secondChangeCount == 0)
+        #expect(thirdChangeCount == 0)
+
+        coordinator.reset()
+        #expect(!firstSelectable)
+        #expect(!secondSelectable)
+        #expect(!thirdSelectable)
+    }
+
+    @MainActor
+    @Test func hoverSelectionCoordinatorRegistersLateJoinerAsInactive() async throws {
+        let coordinator = ConversationHoverSelectionCoordinator()
+        var firstSelectable = false
+        coordinator.register(
+            messageID: "first",
+            isSelectable: Binding(get: { firstSelectable }, set: { firstSelectable = $0 })
+        )
+        coordinator.activate(messageID: "first")
+
+        var secondSelectable = false
+        coordinator.register(
+            messageID: "second",
+            isSelectable: Binding(get: { secondSelectable }, set: { secondSelectable = $0 })
+        )
+        #expect(firstSelectable)
+        #expect(!secondSelectable)
+    }
 }
 
 @MainActor
