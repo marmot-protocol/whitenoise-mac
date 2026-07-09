@@ -134,6 +134,15 @@ private final class ObservationInvalidationFlag: @unchecked Sendable {
     }
 }
 
+@MainActor
+private final class AppActivationRecorder {
+    private(set) var requests: [Bool] = []
+
+    func record(ignoringOtherApps: Bool) {
+        requests.append(ignoringOtherApps)
+    }
+}
+
 private final class AtomicCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var storedValue = 0
@@ -11480,7 +11489,11 @@ struct whitenoise_macTests {
         let routedQuery = "nostr:npub1alice"
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
-        let state = WorkspaceState(clientFactory: { runtime })
+        let activationRecorder = AppActivationRecorder()
+        let state = WorkspaceState(
+            appActivationHandler: activationRecorder.record,
+            clientFactory: { runtime }
+        )
 
         await state.bootstrap()
         state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
@@ -11492,6 +11505,26 @@ struct whitenoise_macTests {
         #expect(state.isNewChatComposerVisible)
         #expect(state.pendingDeepLinkProfileReference == nil)
         #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(activationRecorder.requests == [false])
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkWhenSignedOutQueuesWithoutActivatingApp() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let activationRecorder = AppActivationRecorder()
+        let state = WorkspaceState(
+            appActivationHandler: activationRecorder.record,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+
+        #expect(state.phase == .onboarding)
+        #expect(state.pendingDeepLinkProfileReference == "npub1alice")
+        #expect(state.backgroundStatus == "Sign in to start a chat from this link.")
+        #expect(!state.isNewChatComposerVisible)
+        #expect(activationRecorder.requests.isEmpty)
     }
 
     @MainActor
@@ -11503,11 +11536,16 @@ struct whitenoise_macTests {
         let routedQuery = "nostr:npub1alice"
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
-        let state = WorkspaceState(clientFactory: { runtime })
+        let activationRecorder = AppActivationRecorder()
+        let state = WorkspaceState(
+            appActivationHandler: activationRecorder.record,
+            clientFactory: { runtime }
+        )
 
         state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
         #expect(state.pendingDeepLinkProfileReference == "npub1alice")
         #expect(state.resolvedNewChatRecipient == nil)
+        #expect(activationRecorder.requests.isEmpty)
 
         await state.bootstrap()
         let resolved = await waitFor {
@@ -11517,6 +11555,7 @@ struct whitenoise_macTests {
         #expect(resolved)
         #expect(state.isNewChatComposerVisible)
         #expect(state.pendingDeepLinkProfileReference == nil)
+        #expect(activationRecorder.requests.isEmpty)
     }
 
     @MainActor
