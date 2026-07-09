@@ -587,24 +587,46 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
         let payloadURL = entryDirectory.appendingPathComponent(payloadFileName)
 
+        let metadataData: Data
         do {
-            let metadataData = try Data(contentsOf: metadataURL)
+            metadataData = try Data(contentsOf: metadataURL)
+        } catch {
+            // A raw filesystem read failure may be transient; preserve the entry
+            // just like the purge path's `.unavailable` metadata status.
+            return nil
+        }
+
+        let metadata: Metadata
+        do {
             let metadataPlaintext = try open(
                 metadataData,
                 using: symmetricKey,
                 authenticatedBy: metadataAAD(for: key.cacheID)
             )
-            let metadata = try JSONDecoder().decode(Metadata.self, from: metadataPlaintext)
-            guard metadata.version == 1,
-                metadata.accountDigest == key.accountDigest,
-                metadata.ciphertextSha256 == key.ciphertextSha256,
-                metadata.plaintextSha256 == key.plaintextSha256
-            else {
-                try? FileManager.default.removeItem(at: entryDirectory)
-                return nil
-            }
+            metadata = try JSONDecoder().decode(Metadata.self, from: metadataPlaintext)
+        } catch {
+            try? FileManager.default.removeItem(at: entryDirectory)
+            return nil
+        }
+        guard metadata.version == 1,
+            metadata.accountDigest == key.accountDigest,
+            metadata.ciphertextSha256 == key.ciphertextSha256,
+            metadata.plaintextSha256 == key.plaintextSha256
+        else {
+            try? FileManager.default.removeItem(at: entryDirectory)
+            return nil
+        }
 
-            let payloadData = try Data(contentsOf: payloadURL)
+        let payloadData: Data
+        do {
+            payloadData = try Data(contentsOf: payloadURL)
+        } catch {
+            // A raw payload filesystem read failure may be transient; keep the entry
+            // until decrypt/auth failure proves the payload is corrupt.
+            return nil
+        }
+
+        do {
             let plaintext = try open(
                 payloadData,
                 using: symmetricKey,
@@ -624,9 +646,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 sizeBytes: metadata.sizeBytes
             )
         } catch {
-            if FileManager.default.fileExists(atPath: entryDirectory.path) {
-                try? FileManager.default.removeItem(at: entryDirectory)
-            }
+            try? FileManager.default.removeItem(at: entryDirectory)
             return nil
         }
     }
