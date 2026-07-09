@@ -210,10 +210,11 @@ extension WorkspaceState {
 
     func localNotificationRequest(for update: NotificationUpdateFfi) -> LocalNotificationRequest {
         let senderName =
-            firstNonBlank([
-                update.sender.displayName,
-                update.sender.accountIdHex,
-            ]) ?? L10n.string("Someone")
+            PeerDisplayText.sanitize(update.sender.displayName)
+            ?? PeerDisplayText.sanitize(update.sender.accountIdHex)
+            ?? L10n.string("Someone")
+        let senderTemplateName = PeerDisplayText.templateFragment(senderName)
+        let groupName = PeerDisplayText.sanitize(update.groupName)
         let previewText = firstNonBlank([update.previewText]) ?? L10n.string("New message")
 
         // For an E2EE messenger, notification content is rendered as banners,
@@ -233,7 +234,7 @@ extension WorkspaceState {
                 body = L10n.string("New group invite")
             } else {
                 title = L10n.string("Group invite")
-                body = firstNonBlank([update.groupName, senderName]) ?? L10n.string("New group invite")
+                body = groupName ?? senderName
             }
         case .newMessage:
             switch previewMode {
@@ -242,15 +243,15 @@ extension WorkspaceState {
                     title = senderName
                     body = previewText
                 } else {
-                    title = firstNonBlank([update.groupName]) ?? L10n.string("New message")
-                    body = "\(senderName): \(previewText)"
+                    title = groupName ?? L10n.string("New message")
+                    body = "\(senderTemplateName): \(previewText)"
                 }
             case .senderOnly:
                 if update.isDm {
                     title = senderName
                     body = genericBody
                 } else {
-                    title = firstNonBlank([update.groupName]) ?? L10n.string("New message")
+                    title = groupName ?? L10n.string("New message")
                     body = senderName
                 }
             case .hidden:

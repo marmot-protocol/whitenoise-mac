@@ -3152,7 +3152,7 @@ struct whitenoise_macTests {
 
         #expect(chat.pendingConfirmation)
         #expect(chat.subtitle == "Planning")
-        #expect(chat.preview == "Alice: Welcome in")
+        #expect(chat.preview == "\(isolated("Alice")): Welcome in")
         #expect(chat.selfMembership == .member)
         #expect(!chat.isNoLongerMember)
     }
@@ -3880,26 +3880,26 @@ struct whitenoise_macTests {
 
         #expect(
             remoteMessages.map(\.body) == [
-                "Alice added Bob",
-                "Alice removed Bob",
-                "Carol left",
-                "Alice made Bob an admin",
-                "Bob was made an admin",
-                "Bob removed Carol as admin",
-                #"Alice renamed the group from "Team One" to "Team Two""#,
-                "Bob changed the group avatar",
-                "Alice changed disappearing messages from off to 1 week",
+                "\(isolated("Alice")) added \(isolated("Bob"))",
+                "\(isolated("Alice")) removed \(isolated("Bob"))",
+                "\(isolated("Carol")) left",
+                "\(isolated("Alice")) made \(isolated("Bob")) an admin",
+                "\(isolated("Bob")) was made an admin",
+                "\(isolated("Bob")) removed \(isolated("Carol")) as admin",
+                #"\#(isolated("Alice")) renamed the group from "\#(isolated("Team One"))" to "\#(isolated("Team Two"))""#,
+                "\(isolated("Bob")) changed the group avatar",
+                "\(isolated("Alice")) changed disappearing messages from off to 1 week",
             ])
-        #expect(aliceLocalMessages[0].body == "You added Bob")
-        #expect(aliceLocalMessages[3].body == "You made Bob an admin")
-        #expect(aliceLocalMessages[4].body == "Bob was made an admin")
-        #expect(aliceLocalMessages[6].body == #"You renamed the group from "Team One" to "Team Two""#)
+        #expect(aliceLocalMessages[0].body == "You added \(isolated("Bob"))")
+        #expect(aliceLocalMessages[3].body == "You made \(isolated("Bob")) an admin")
+        #expect(aliceLocalMessages[4].body == "\(isolated("Bob")) was made an admin")
+        #expect(aliceLocalMessages[6].body == #"You renamed the group from "\#(isolated("Team One"))" to "\#(isolated("Team Two"))""#)
         #expect(aliceLocalMessages[8].body == "You changed disappearing messages from off to 1 week")
-        #expect(bobLocalMessages[0].body == "Alice added you")
-        #expect(bobLocalMessages[1].body == "You were removed from the group by Alice")
-        #expect(bobLocalMessages[3].body == "Alice made you an admin")
+        #expect(bobLocalMessages[0].body == "\(isolated("Alice")) added you")
+        #expect(bobLocalMessages[1].body == "You were removed from the group by \(isolated("Alice"))")
+        #expect(bobLocalMessages[3].body == "\(isolated("Alice")) made you an admin")
         #expect(bobLocalMessages[4].body == "You were made an admin")
-        #expect(bobLocalMessages[5].body == "You removed Carol as admin")
+        #expect(bobLocalMessages[5].body == "You removed \(isolated("Carol")) as admin")
         #expect(bobLocalMessages[7].body == "You changed the group avatar")
     }
 
@@ -4041,7 +4041,7 @@ struct whitenoise_macTests {
         )
 
         let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
-        #expect(directChat.preview == "Alice: Attachment")
+        #expect(directChat.preview == "\(isolated("Alice")): Attachment")
 
         let groupRow = ChatListRowFfi(
             groupIdHex: "group",
@@ -4073,7 +4073,7 @@ struct whitenoise_macTests {
         )
 
         let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
-        #expect(groupChat.preview == "Alice: Attachment")
+        #expect(groupChat.preview == "\(isolated("Alice")): Attachment")
     }
 
     @MainActor
@@ -10462,7 +10462,7 @@ struct whitenoise_macTests {
         #expect(state.activeChats.first?.avatarSeed == aliceId)
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
         #expect(state.activeChats.first?.isDirect == true)
-        #expect(state.activeChats.first?.preview == "Alice Actual: Latest message")
+        #expect(state.activeChats.first?.preview == "\(isolated("Alice Actual")): Latest message")
     }
 
     @MainActor
@@ -15630,15 +15630,15 @@ struct whitenoise_macTests {
                 account: account,
                 notificationKey: "group-notice",
                 groupIdHex: "team-group",
-                senderName: "Bob",
+                senderName: "\u{202E}Bob\u{2066}",
                 previewText: "The launch plan is ready.",
                 isDm: false,
-                groupName: "Engineering"
+                groupName: "\u{202E}Engineering\u{2066}"
             ))
 
         #expect(notificationCenter.postedRequests.count == 1)
         #expect(notificationCenter.postedRequests.first?.title == "Engineering")
-        #expect(notificationCenter.postedRequests.first?.body == "Bob: The launch plan is ready.")
+        #expect(notificationCenter.postedRequests.first?.body == "\(isolated("Bob")): The launch plan is ready.")
     }
 
     @MainActor
@@ -18472,6 +18472,10 @@ private func pagedTimeline(
         hasMoreBefore: sortedMessages.count > pageMessages.count,
         hasMoreAfter: false
     )
+}
+
+private func isolated(_ text: String) -> String {
+    "\u{2068}\(text)\u{2069}"
 }
 
 private func timelineMessage(
