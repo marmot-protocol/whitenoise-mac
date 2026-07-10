@@ -11577,6 +11577,54 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func archivedChatDeltaKeepsAlreadyArchivedSelection() async throws {
+        // Regression for #450: ordinary deltas for a chat that was already archived must update
+        // that row in place, not repeat the active-to-archived transition's auto-reselection.
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let archivedChatId = try #require(state.selectedChat?.id)
+        let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
+
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: archivedChatId,
+                title: "Marmot Design",
+                preview: "Archived",
+                sender: sender,
+                timelineAt: 1_700_000_000,
+                archived: true
+            ),
+            account: account,
+            shouldEnrich: false
+        )
+
+        // The genuine active-to-archived transition still leaves the removed conversation.
+        #expect(state.selection != .chat(archivedChatId))
+        #expect(!state.activeChats.contains { $0.id == archivedChatId })
+        #expect(state.archivedChats.first { $0.id == archivedChatId }?.preview == "Archived")
+
+        // Archived rows are selectable from the sidebar. A live preview delta for the selected
+        // archived chat must preserve that selection while applying the row update.
+        state.selection = .chat(archivedChatId)
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: archivedChatId,
+                title: "Marmot Design",
+                preview: "New message",
+                sender: sender,
+                timelineAt: 1_700_000_100,
+                archived: true
+            ),
+            account: account,
+            shouldEnrich: false
+        )
+
+        #expect(state.selection == .chat(archivedChatId))
+        #expect(state.selectedChat?.preview == "New message")
+        #expect(state.archivedChats.first { $0.id == archivedChatId }?.preview == "New message")
+    }
+
+    @MainActor
     @Test func archivedChatSearchFiltersArchivedSection() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -18337,11 +18385,12 @@ private func chatListRow(
     sender: String,
     timelineAt: UInt64,
     kind: UInt64 = 9,
-    selfMembership: SelfMembershipFfi = .member
+    selfMembership: SelfMembershipFfi = .member,
+    archived: Bool = false
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
-        archived: false,
+        archived: archived,
         pendingConfirmation: false,
         title: title,
         groupName: "",

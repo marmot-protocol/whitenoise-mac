@@ -274,7 +274,7 @@ extension WorkspaceState {
         guard activeAccountId == account.id else { return }
 
         if row.archived {
-            moveChatToArchived(row: row, account: account, shouldEnrich: shouldEnrich)
+            moveChatToArchived(row: row, account: account)
             if shouldEnrich {
                 startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
             }
@@ -315,29 +315,25 @@ extension WorkspaceState {
         }
     }
 
-    func moveChatToArchived(
-        row: ChatListRowFfi,
-        account: AccountItem,
-        shouldEnrich: Bool = true
-    ) {
+    func moveChatToArchived(row: ChatListRowFfi, account: AccountItem) {
         guard activeAccountId == account.id else { return }
 
         let groupIdHex = row.groupIdHex
-        let currentActive = chatItem(accountId: account.id, chatId: groupIdHex)
+        let current = chatItem(accountId: account.id, chatId: groupIdHex)
+        let wasActive = chatLookupByAccount[account.id]?[groupIdHex] != nil
         removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
 
         var chat = baseChatItem(from: row, account: account)
-        if !shouldEnrich, let currentActive {
-            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
-        } else if let currentActive {
-            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
+        if let current {
+            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: current)
         }
 
         upsertArchivedChat(chat, forAccountId: account.id)
         cancelVoiceRecordingIfSelectedMembershipEnded()
         ensureSelectedMessageTimelineStore()
 
-        guard case .chat(let selectedGroupId) = selection,
+        guard wasActive,
+            case .chat(let selectedGroupId) = selection,
             selectedGroupId == groupIdHex
         else { return }
 
