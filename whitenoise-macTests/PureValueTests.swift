@@ -597,6 +597,7 @@ struct PureValueTests {
             nostrGroupIdHex: "",
             avatarUrl: nil,
             avatarDim: nil,
+            imageHashHex: nil,
             avatarThumbhash: nil,
             encryptedMedia: AppGroupEncryptedMediaComponentFfi(
                 componentId: 0,
