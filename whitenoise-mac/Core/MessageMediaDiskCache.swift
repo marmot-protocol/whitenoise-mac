@@ -204,7 +204,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private var purgeSequence = 0
     private var purgeTasks: [Int: ActivePurge] = [:]
     private var didSweepStagingDirectories = false
-    // Updated under `fileMutationLock` on commit and eviction; reset or invalidated on purge.
+    // Updated under `fileMutationLock` on commit and eviction.
+    // Invalidated when read-path deletions or account purges remove an unknown subset.
     // Seeded with one full scan when nil so stores under the cap avoid re-walking the tree every time (#377).
     private var trackedFootprint: CacheFootprint?
 
@@ -259,8 +260,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             return nil
         }
 
-        let result = await Task.detached(priority: .utility) {
-            Self.readDownload(for: key, root: root, symmetricKey: symmetricKey)
+        let result = await Task.detached(priority: .utility) { [self] in
+            readDownload(for: key, root: root, symmetricKey: symmetricKey, start: start)
         }.value
 
         guard isCurrent(start) else { return nil }
@@ -540,7 +541,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
     }
 
-    private struct AccessHandle {
+    private struct AccessHandle: Sendable {
         let accountDigest: String
         let globalGeneration: Int
         let accountGeneration: Int
@@ -578,14 +579,15 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         case unavailable
     }
 
-    private static func readDownload(
+    private func readDownload(
         for key: MessageMediaDiskCacheKey,
         root: URL,
-        symmetricKey: SymmetricKey
+        symmetricKey: SymmetricKey,
+        start: AccessHandle
     ) -> MessageMediaDownload? {
-        let entryDirectory = entryDirectory(for: key, root: root)
-        let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
-        let payloadURL = entryDirectory.appendingPathComponent(payloadFileName)
+        let entryDirectory = Self.entryDirectory(for: key, root: root)
+        let metadataURL = entryDirectory.appendingPathComponent(Self.metadataFileName)
+        let payloadURL = entryDirectory.appendingPathComponent(Self.payloadFileName)
 
         let metadataData: Data
         do {
@@ -598,14 +600,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
         let metadata: Metadata
         do {
-            let metadataPlaintext = try open(
+            let metadataPlaintext = try Self.open(
                 metadataData,
                 using: symmetricKey,
-                authenticatedBy: metadataAAD(for: key.cacheID)
+                authenticatedBy: Self.metadataAAD(for: key.cacheID)
             )
             metadata = try JSONDecoder().decode(Metadata.self, from: metadataPlaintext)
         } catch {
-            try? FileManager.default.removeItem(at: entryDirectory)
+            removeEntryAfterFailedRead(entryDirectory: entryDirectory, root: root, start: start)
             return nil
         }
         guard metadata.version == 1,
@@ -613,7 +615,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             metadata.ciphertextSha256 == key.ciphertextSha256,
             metadata.plaintextSha256 == key.plaintextSha256
         else {
-            try? FileManager.default.removeItem(at: entryDirectory)
+            removeEntryAfterFailedRead(entryDirectory: entryDirectory, root: root, start: start)
             return nil
         }
 
@@ -627,10 +629,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
 
         do {
-            let plaintext = try open(
+            let plaintext = try Self.open(
                 payloadData,
                 using: symmetricKey,
-                authenticatedBy: payloadAAD(for: key.cacheID)
+                authenticatedBy: Self.payloadAAD(for: key.cacheID)
             )
             // AES-GCM `open` above already authenticates the payload against its key and
             // AAD, and the store path verifies the plaintext SHA-256 before writing, so the
@@ -646,8 +648,29 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 sizeBytes: metadata.sizeBytes
             )
         } catch {
-            try? FileManager.default.removeItem(at: entryDirectory)
+            removeEntryAfterFailedRead(entryDirectory: entryDirectory, root: root, start: start)
             return nil
+        }
+    }
+
+    private func removeEntryAfterFailedRead(entryDirectory: URL, root: URL, start: AccessHandle) {
+        fileMutationLock.lock()
+        defer { fileMutationLock.unlock() }
+
+        guard isCurrent(start), FileManager.default.fileExists(atPath: entryDirectory.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: entryDirectory)
+            // The read path can delete entries whose on-disk bytes may already have diverged
+            // from the tracked accountant (corruption, cache-buster metadata mismatch). Match
+            // account purges by invalidating and letting the next store re-seed from disk.
+            trackedFootprint = nil
+            Self.removeEmptyDirectory(entryDirectory.deletingLastPathComponent())
+            Self.removeEmptyDirectory(root)
+        } catch {
+            return
         }
     }
 
