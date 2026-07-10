@@ -1233,6 +1233,9 @@ final class WorkspaceState {
 
     func filteredChats(matching query: String) -> [ChatItem] {
         guard let activeAccountId else { return [] }
+        // Read the observed list before a cache-hit return so SwiftUI keeps invalidating the
+        // sidebar on incoming chat updates even when filtering work is memoized.
+        let chats = chatsByAccount[activeAccountId] ?? []
         let generation = chatListGenerationByAccount[activeAccountId] ?? 0
         if let cache = filteredChatsCache,
             cache.accountId == activeAccountId,
@@ -1242,7 +1245,7 @@ final class WorkspaceState {
             return cache.result
         }
 
-        let result = ChatFilter.filtered(chatsByAccount[activeAccountId] ?? [], query: query)
+        let result = ChatFilter.filtered(chats, query: query)
         filteredChatsCache = FilteredChatsCache(
             accountId: activeAccountId,
             generation: generation,
