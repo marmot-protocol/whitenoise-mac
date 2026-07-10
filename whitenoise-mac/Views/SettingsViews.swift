@@ -669,8 +669,8 @@ struct IdentityKeysSettingsView: View {
                                 .font(.headline)
                                 .lineLimit(1)
                             Text(accountSigningDescription(for: account))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
