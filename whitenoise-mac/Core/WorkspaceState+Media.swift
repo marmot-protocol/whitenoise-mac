@@ -438,16 +438,25 @@ extension WorkspaceState {
 
     func startVoiceRecording() async {
         guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else { return }
+        guard let draftKey = selectedComposerDraftKey else { return }
         guard canBeginMediaAttachmentSelection() else { return }
 
         isPreparingVoiceRecording = true
         defer { isPreparingVoiceRecording = false }
 
+        let preparationGeneration = voiceRecordingPreparationGeneration
+
         let hasPermission = await requestMicrophoneAccess()
         guard hasPermission else {
-            lastError = L10n.string("Microphone access is needed to record voice messages.")
+            if voiceRecordingPreparationGeneration == preparationGeneration,
+                canResumeVoiceRecording(for: draftKey)
+            {
+                lastError = L10n.string("Microphone access is needed to record voice messages.")
+            }
             return
         }
+        guard voiceRecordingPreparationGeneration == preparationGeneration else { return }
+        guard canResumeVoiceRecording(for: draftKey) else { return }
 
         do {
             let directory = try MediaPlaybackTempStore.voiceRecordingsDirectoryURL()
@@ -513,6 +522,7 @@ extension WorkspaceState {
     }
 
     func cancelVoiceRecording() {
+        voiceRecordingPreparationGeneration &+= 1
         resetVoiceRecording(deleteFile: true)
     }
 
@@ -521,11 +531,26 @@ extension WorkspaceState {
         // importers, paste, and recording shortcuts can still fire while the visible
         // composer is replaced, and collected media would otherwise accumulate
         // invisibly (the pending-media strip is hidden) and never be sent.
-        guard client != nil, selectedChat?.canUseComposer == true else { return false }
+        guard let draftKey = selectedComposerDraftKey else { return false }
+        guard composerSupportsMediaAttachmentSelection(for: draftKey) else { return false }
         guard remainingMediaAttachmentSlots > 0 else {
             presentMaxMediaAttachmentWarning()
             return false
         }
+        return true
+    }
+
+    /// Revalidates the composer draft captured before the mic-permission await. Unlike
+    /// `canBeginMediaAttachmentSelection()`, this never surfaces max-attachment warnings for a
+    /// stale captured context (#441).
+    private func canResumeVoiceRecording(for draftKey: ComposerDraftKey) -> Bool {
+        guard composerSupportsMediaAttachmentSelection(for: draftKey) else { return false }
+        return remainingMediaAttachmentSlots > 0
+    }
+
+    private func composerSupportsMediaAttachmentSelection(for draftKey: ComposerDraftKey) -> Bool {
+        guard selectedComposerDraftKey == draftKey else { return false }
+        guard client != nil, selectedChat?.canUseComposer == true else { return false }
         return true
     }
 
@@ -570,7 +595,7 @@ extension WorkspaceState {
         )
     }
 
-    func requestMicrophoneAccess() async -> Bool {
+    static func requestSystemMicrophoneAccess() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             return true
@@ -585,6 +610,10 @@ extension WorkspaceState {
         @unknown default:
             return false
         }
+    }
+
+    func requestMicrophoneAccess() async -> Bool {
+        await microphoneAccessProvider()
     }
 
     func startVoiceRecordingMetering() {

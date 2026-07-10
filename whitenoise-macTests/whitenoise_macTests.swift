@@ -37,6 +37,43 @@ private final class MutableFlag: @unchecked Sendable {
     }
 }
 
+private final class SuspendingMicrophoneAccessGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var permissionContinuation: CheckedContinuation<Bool, Never>?
+    private let requested = DispatchSemaphore(value: 0)
+
+    @MainActor
+    func provider() async -> Bool {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                permissionContinuation = continuation
+            }
+            requested.signal()
+        }
+    }
+
+    func waitUntilRequested(timeout: DispatchTime = .now() + 2) async -> Bool {
+        await waitForSemaphore(requested, timeout: timeout) == .success
+    }
+
+    func grantAccess() {
+        resumePermissionRequest(granted: true)
+    }
+
+    func denyAccess() {
+        resumePermissionRequest(granted: false)
+    }
+
+    private func resumePermissionRequest(granted: Bool) {
+        let continuation = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
+            let continuation = permissionContinuation
+            permissionContinuation = nil
+            return continuation
+        }
+        continuation?.resume(returning: granted)
+    }
+}
+
 private func waitForSemaphore(
     _ semaphore: DispatchSemaphore,
     timeout: DispatchTime
@@ -12905,6 +12942,57 @@ struct whitenoise_macTests {
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecorder == nil)
         #expect(state.voiceRecordingURL == nil)
+    }
+
+    @MainActor
+    @Test func startVoiceRecordingDoesNotResumeAfterNavigationDuringPermissionAwait() async throws {
+        // #441: a suspended mic-permission await must not resume after navigation tears down the
+        // composer, including when the user returns to the same chat before granting access.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup()])
+        let microphoneGate = SuspendingMicrophoneAccessGate()
+        let state = WorkspaceState(
+            microphoneAccessProvider: { await microphoneGate.provider() },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        guard let chat = state.activeChats.first(where: { $0.id == "group" }) else {
+            Issue.record("Expected group chat")
+            return
+        }
+        state.selectChat(chat)
+
+        let recordingTask = Task { await state.startVoiceRecording() }
+        #expect(await microphoneGate.waitUntilRequested())
+        #expect(state.isPreparingVoiceRecording)
+
+        state.showSettings(.profile)
+        state.selectChat(chat)
+
+        microphoneGate.grantAccess()
+        await recordingTask.value
+
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecorder == nil)
+        #expect(state.voiceRecordingURL == nil)
+        #expect(state.voiceRecordingMeterTask == nil)
+
+        state.lastError = nil
+        let deniedTask = Task { await state.startVoiceRecording() }
+        #expect(await microphoneGate.waitUntilRequested())
+        state.showSettings(.profile)
+        microphoneGate.denyAccess()
+        await deniedTask.value
+        #expect(state.lastError == nil)
     }
 
     /// Puts `state` into an in-progress voice-recording state (mic "hot", metering task running,
