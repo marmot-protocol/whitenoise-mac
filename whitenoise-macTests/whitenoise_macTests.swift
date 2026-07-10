@@ -2076,6 +2076,56 @@ struct whitenoise_macTests {
         #expect(fileManager.fileExists(atPath: entryDirectory.path))
     }
 
+    @Test func messageMediaDiskCachePlaintextHashMismatchDoesNotEvictValidEntry() async throws {
+        // #389: cacheID must include plaintextSha256 so a peer-crafted reference reusing a
+        // real ciphertext hash cannot share an entry directory and delete the valid cache on read.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("legitimate cached media bytes".utf8)
+        let sharedCiphertextSha256 = String(repeating: "cc", count: 32)
+        let validReference = mediaDiskCacheReference(
+            plaintext: plaintext,
+            ciphertextSha256: sharedCiphertextSha256
+        )
+        let bogusReference = mediaDiskCacheReference(
+            plaintext: Data("bogus plaintext claim".utf8),
+            ciphertextSha256: sharedCiphertextSha256
+        )
+        let validKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: validReference
+        )
+        let bogusKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: bogusReference
+        )
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "photo.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "network-download"
+        )
+
+        #expect(validKey.cacheID != bogusKey.cacheID)
+
+        await cache.store(download, for: validKey)
+        let validEntryDirectory = try #require(cache.entryDirectory(for: validKey))
+
+        #expect(await cache.cachedDownload(for: bogusKey) == nil)
+        #expect(fileManager.fileExists(atPath: validEntryDirectory.path))
+
+        let restored = try #require(await cache.cachedDownload(for: validKey))
+        #expect(restored.data == plaintext)
+        #expect(fileManager.fileExists(atPath: validEntryDirectory.path))
+    }
+
     @Test func messageMediaDiskCacheEvictsCorruptEntries() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -19011,11 +19061,13 @@ private func messageMediaDiskCache(
 
 private func mediaDiskCacheReference(
     plaintext: Data,
-    ciphertextByte: UInt8 = 0xcc
+    ciphertextByte: UInt8 = 0xcc,
+    ciphertextSha256: String? = nil
 ) -> MediaAttachmentReferenceFfi {
     MediaAttachmentReferenceFfi(
         locators: [],
-        ciphertextSha256: String(repeating: String(format: "%02x", ciphertextByte), count: 32),
+        ciphertextSha256: ciphertextSha256
+            ?? String(repeating: String(format: "%02x", ciphertextByte), count: 32),
         plaintextSha256: hexSHA256(plaintext),
         nonceHex: String(repeating: "00", count: 12),
         fileName: "cached.bin",
