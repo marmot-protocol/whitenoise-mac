@@ -2190,25 +2190,16 @@ struct whitenoise_macTests {
             evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
             timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
         )
-        let stalePlaintext = Data("stale media for replaced reference".utf8)
+        let storedPlaintext = Data("stored media that will fail validation on read".utf8)
         let corruptPlaintext = Data("corrupt metadata entry that should not be swept early".utf8)
         let replacementPlaintext = Data("replacement media after read-path deletion".utf8)
-        let staleReference = mediaDiskCacheReference(plaintext: stalePlaintext, ciphertextByte: 0xa1)
-        let invalidatingReference = mediaDiskCacheReference(
-            plaintext: Data("different plaintext digest for the same ciphertext".utf8),
-            ciphertextByte: 0xa1
-        )
+        let storedReference = mediaDiskCacheReference(plaintext: storedPlaintext, ciphertextByte: 0xa1)
         let corruptReference = mediaDiskCacheReference(plaintext: corruptPlaintext, ciphertextByte: 0xa2)
         let replacementReference = mediaDiskCacheReference(plaintext: replacementPlaintext, ciphertextByte: 0xa3)
-        let staleKey = MessageMediaDiskCacheKey(
+        let storedKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: staleReference
-        )
-        let invalidatingKey = MessageMediaDiskCacheKey(
-            accountId: "account-a",
-            groupIdHex: "group-a",
-            reference: invalidatingReference
+            reference: storedReference
         )
         let corruptKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
@@ -2221,18 +2212,15 @@ struct whitenoise_macTests {
             reference: replacementReference
         )
 
-        #expect(staleKey.cacheID == invalidatingKey.cacheID)
-        #expect(staleKey.plaintextSha256 != invalidatingKey.plaintextSha256)
-
         await cache.store(
             MessageMediaDownload(
-                data: stalePlaintext,
-                fileName: "stale.jpg",
+                data: storedPlaintext,
+                fileName: "stored.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(stalePlaintext.count),
-                payloadId: "stale"
+                sizeBytes: UInt64(storedPlaintext.count),
+                payloadId: "stored"
             ),
-            for: staleKey
+            for: storedKey
         )
         await cache.store(
             MessageMediaDownload(
@@ -2244,14 +2232,17 @@ struct whitenoise_macTests {
             ),
             for: corruptKey
         )
-        let staleEntryDirectory = try #require(cache.entryDirectory(for: staleKey))
+        let storedEntryDirectory = try #require(cache.entryDirectory(for: storedKey))
         let corruptEntryDirectory = try #require(cache.entryDirectory(for: corruptKey))
+        // Corrupt the stored entry under the same cacheID so the read path deletes it and
+        // invalidates trackedFootprint instead of leaving a stale accountant behind.
+        try Data("not sealed metadata".utf8).write(to: storedEntryDirectory.appendingPathComponent("metadata.bin"))
         // The corrupt unread entry is a sentinel for an unintended full cacheScan: a stale,
         // inflated trackedFootprint would force a scan on the next store and remove it early.
         try Data("not sealed metadata".utf8).write(to: corruptEntryDirectory.appendingPathComponent("metadata.bin"))
 
-        #expect(await cache.cachedDownload(for: invalidatingKey) == nil)
-        #expect(!fileManager.fileExists(atPath: staleEntryDirectory.path))
+        #expect(await cache.cachedDownload(for: storedKey) == nil)
+        #expect(!fileManager.fileExists(atPath: storedEntryDirectory.path))
 
         await cache.store(
             MessageMediaDownload(
@@ -6101,28 +6092,19 @@ struct whitenoise_macTests {
         let followUpAttachment = try #require(followUpMessage.mediaAttachments.first)
         let stalledStore = state.mediaDownloadStateStore(for: stalledMessage, attachment: stalledAttachment)
         let heldSlotCount = MediaAttachmentDownloadConcurrency.maxConcurrentDownloads - 1
-        for _ in 0..<heldSlotCount {
-            try await MediaAttachmentDownloadLimiter.shared.acquire()
-        }
-        defer {
-            Task {
-                for _ in 0..<heldSlotCount {
-                    await MediaAttachmentDownloadLimiter.shared.release()
-                }
-            }
-        }
+        try await acquireHeldMediaDownloadLimiterSlots(heldSlotCount)
 
         runtime.mediaDownloadGateEnabled = true
-        let stalledLoad = Task { await state.loadMediaAttachment(stalledAttachment, for: stalledMessage) }
-        for _ in 0..<100 {
-            if runtime.didReachMediaDownloadGate {
-                break
-            }
-            await Task.yield()
+        let stalledLoad = Task {
+            await state.loadMediaAttachment(stalledAttachment, for: stalledMessage)
+            runtime.finishMediaDownloadGateWaitWithoutReaching()
         }
-        guard runtime.didReachMediaDownloadGate else {
+        let gateReached = await runtime.waitForMediaDownloadGateReached()
+        guard gateReached else {
             stalledLoad.cancel()
             runtime.releaseMediaDownloadGate()
+            _ = await stalledLoad.result
+            await releaseHeldMediaDownloadLimiterSlots(heldSlotCount)
             Issue.record("Expected stalled attachment download to reach the fake download gate")
             return
         }
@@ -6130,12 +6112,22 @@ struct whitenoise_macTests {
             if case .failed = stalledStore.state {
                 break
             }
-            try await Task.sleep(nanoseconds: 25_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 25_000_000)
+            } catch {
+                stalledLoad.cancel()
+                runtime.releaseMediaDownloadGate()
+                _ = await stalledLoad.result
+                await releaseHeldMediaDownloadLimiterSlots(heldSlotCount)
+                throw error
+            }
         }
 
         guard case .failed(let stalledFailure) = stalledStore.state else {
             stalledLoad.cancel()
             runtime.releaseMediaDownloadGate()
+            _ = await stalledLoad.result
+            await releaseHeldMediaDownloadLimiterSlots(heldSlotCount)
             Issue.record("Expected stalled attachment download to fail after timeout")
             return
         }
@@ -6144,15 +6136,18 @@ struct whitenoise_macTests {
 
         runtime.releaseMediaDownloadGate()
         runtime.mediaDownloadGateEnabled = false
-        for _ in 0..<10 {
-            await Task.yield()
-        }
 
+        let followUpLoad = Task {
+            await state.loadMediaAttachment(followUpAttachment, for: followUpMessage)
+        }
         do {
             try await withMediaAttachmentDownloadTimeout(nanoseconds: 500_000_000) {
-                await state.loadMediaAttachment(followUpAttachment, for: followUpMessage)
+                await followUpLoad.value
             }
         } catch {
+            followUpLoad.cancel()
+            _ = await followUpLoad.result
+            await releaseHeldMediaDownloadLimiterSlots(heldSlotCount)
             Issue.record("Expected follow-up attachment download to acquire the released limiter slot, got \(error)")
             return
         }
@@ -6162,10 +6157,12 @@ struct whitenoise_macTests {
                 attachment: followUpAttachment
             )
         else {
+            await releaseHeldMediaDownloadLimiterSlots(heldSlotCount)
             Issue.record("Expected follow-up attachment download to succeed after timeout released the limiter slot")
             return
         }
         #expect(loaded.data == followUpPlaintext)
+        await releaseHeldMediaDownloadLimiterSlots(heldSlotCount)
     }
 
     @Test func messageAudioMetadataCacheHitPerformanceGuard() async throws {
@@ -16153,8 +16150,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var deleteMessageCallCount = 0
     private(set) var uploadMediaCallCount = 0
     private(set) var listMediaCallCount = 0
-    private(set) var downloadMediaCallCount = 0
-    private(set) var downloadedMediaReferences: [MediaAttachmentReferenceFfi] = []
+    private let mediaDownloadObservationLock = NSLock()
+    private var mediaDownloadObservationCallCount = 0
+    private var mediaDownloadObservationReferences: [MediaAttachmentReferenceFfi] = []
+    var downloadMediaCallCount: Int {
+        mediaDownloadObservationLock.withLock { mediaDownloadObservationCallCount }
+    }
+    var downloadedMediaReferences: [MediaAttachmentReferenceFfi] {
+        mediaDownloadObservationLock.withLock { mediaDownloadObservationReferences }
+    }
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
     private(set) var updateGroupAvatarUrlCallCount = 0
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
@@ -16234,6 +16238,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         mediaDownloadGateLock.withLock { mediaDownloadGateReached }
     }
     private var mediaDownloadGateContinuation: CheckedContinuation<Void, Never>?
+    private var mediaDownloadGateReachedObserverContinuation: CheckedContinuation<Bool, Never>?
+    private var mediaDownloadGateReachedObserverResult: Bool?
     private var mediaDownloadGateReleased = false
     /// Issue #286 reference-resolution cache-test support: when armed, the first synchronous
     /// `listMedia` call blocks on the FFI queue so overlapping attachment loads can join it.
@@ -17411,8 +17417,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
         -> MediaDownloadResultFfi
     {
-        downloadMediaCallCount += 1
-        downloadedMediaReferences.append(reference)
+        mediaDownloadObservationLock.withLock {
+            mediaDownloadObservationCallCount += 1
+            mediaDownloadObservationReferences.append(reference)
+        }
         guard let download = mediaDownloadsByPlaintextSha256[reference.plaintextSha256] else {
             throw FakeMarmotRuntimeError.unused
         }
@@ -17496,6 +17504,44 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         messageActionGateContinuation = nil
     }
 
+    /// Suspends until the armed media-download gate is reached, or returns immediately when it
+    /// already was. Returns `false` when the load finishes or the waiting task is cancelled first.
+    func waitForMediaDownloadGateReached() async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let immediateResult = mediaDownloadGateLock.withLock { () -> Bool? in
+                    if Task.isCancelled {
+                        return false
+                    }
+                    if mediaDownloadGateReached {
+                        return true
+                    }
+                    if let result = mediaDownloadGateReachedObserverResult {
+                        mediaDownloadGateReachedObserverResult = nil
+                        return result
+                    }
+                    precondition(mediaDownloadGateReachedObserverContinuation == nil)
+                    mediaDownloadGateReachedObserverContinuation = continuation
+                    return nil
+                }
+                if let immediateResult {
+                    continuation.resume(returning: immediateResult)
+                }
+            }
+        } onCancel: {
+            let continuation = mediaDownloadGateLock.withLock {
+                let continuation = mediaDownloadGateReachedObserverContinuation
+                mediaDownloadGateReachedObserverContinuation = nil
+                return continuation
+            }
+            continuation?.resume(returning: false)
+        }
+    }
+
+    func finishMediaDownloadGateWaitWithoutReaching() {
+        resumeMediaDownloadGateReachedObserver(returning: false)
+    }
+
     /// Suspends the first media download FFI call when the gate is armed, after the fake runtime
     /// has captured the bytes it will return. This models a network download completing after a
     /// user-initiated purge has already removed the account/cache.
@@ -17508,16 +17554,33 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             let resumeImmediately = mediaDownloadGateLock.withLock {
                 mediaDownloadGateContinuation = continuation
                 mediaDownloadGateReached = true
+                mediaDownloadGateReachedObserverResult = nil
                 if mediaDownloadGateReleased {
                     mediaDownloadGateContinuation = nil
                     return true
                 }
                 return false
             }
+            resumeMediaDownloadGateReachedObserver(returning: true)
             if resumeImmediately {
                 continuation.resume()
             }
         }
+    }
+
+    private func resumeMediaDownloadGateReachedObserver(returning value: Bool) {
+        let continuation = mediaDownloadGateLock.withLock {
+            if !value, mediaDownloadGateReached {
+                return nil
+            }
+            let continuation = mediaDownloadGateReachedObserverContinuation
+            mediaDownloadGateReachedObserverContinuation = nil
+            if continuation == nil, !value {
+                mediaDownloadGateReachedObserverResult = false
+            }
+            return continuation
+        }
+        continuation?.resume(returning: value)
     }
 
     func releaseMediaDownloadGate() {
@@ -19081,6 +19144,25 @@ private func mediaDiskCacheReference(
 
 private func hexSHA256(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+}
+
+private func acquireHeldMediaDownloadLimiterSlots(_ count: Int) async throws {
+    var acquiredCount = 0
+    do {
+        for _ in 0..<count {
+            try await MediaAttachmentDownloadLimiter.shared.acquire()
+            acquiredCount += 1
+        }
+    } catch {
+        await releaseHeldMediaDownloadLimiterSlots(acquiredCount)
+        throw error
+    }
+}
+
+private func releaseHeldMediaDownloadLimiterSlots(_ count: Int) async {
+    for _ in 0..<count {
+        await MediaAttachmentDownloadLimiter.shared.release()
+    }
 }
 
 private func dataContains(_ haystack: Data, _ needle: Data) -> Bool {
