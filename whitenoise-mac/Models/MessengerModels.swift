@@ -1665,6 +1665,39 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.metadataLabel = metadataParts.joined(separator: "  ")
     }
 
+    func applyingEdit(plaintext editedPlaintext: String) -> MessageItem {
+        let body = MessageItem.displayText(
+            presentation: presentation,
+            plaintext: editedPlaintext,
+            tags: [],
+            deleted: isDeleted,
+            invalidationStatus: invalidationStatus,
+            hasMediaAttachments: !mediaAttachments.isEmpty
+        )
+        return MessageItem(
+            id: id,
+            groupIdHex: groupIdHex,
+            sourceMessageIdHex: sourceMessageIdHex,
+            replyTargetIdHex: replyTargetIdHex,
+            senderAccountIdHex: senderAccountIdHex,
+            senderName: senderName,
+            senderPictureURL: senderPictureURL,
+            body: body,
+            contentMarkdown: nil,
+            sentAt: sentAt,
+            timelineAt: timelineAt,
+            timelineKind: timelineKind,
+            isDeleted: isDeleted,
+            invalidationStatus: invalidationStatus,
+            isEdited: true,
+            isOutgoing: isOutgoing,
+            reactions: reactions,
+            replyContext: replyContext,
+            mediaAttachments: mediaAttachments,
+            presentation: presentation
+        )
+    }
+
     nonisolated private static func partitionMediaAttachments(_ attachments: [MessageMediaAttachment]) -> (
         visual: [MessageMediaAttachment], nonvisual: [MessageMediaAttachment]
     ) {
