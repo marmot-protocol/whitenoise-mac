@@ -2858,6 +2858,76 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: root.path))
     }
 
+    @Test func messageMediaDiskCachePurgeAllReSeedsFootprintWhenRootRemovalFails() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-purge-fail-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cachedAtCounter = AtomicCounter()
+        let didAttemptRootRemoval = MutableFlag(false)
+        let didDeleteKey = MutableFlag(false)
+        let cache = messageMediaDiskCache(
+            root: root,
+            evictionPolicy: .init(maxEntryCount: 1, maxTotalBytes: UInt64.max),
+            timestampProvider: { TimeInterval(cachedAtCounter.increment()) },
+            rootRemover: { _ in
+                didAttemptRootRemoval.value = true
+                throw NSError(domain: "MessageMediaDiskCacheTests", code: 1)
+            },
+            keyDeleter: { didDeleteKey.value = true }
+        )
+        let firstPlaintext = Data("surviving cache entry after failed purge".utf8)
+        let secondPlaintext = Data("replacement entry after failed purge".utf8)
+        let firstKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: firstPlaintext, ciphertextByte: 0xc1)
+        )
+        let secondKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: secondPlaintext, ciphertextByte: 0xc2)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: firstPlaintext,
+                fileName: "first.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(firstPlaintext.count),
+                payloadId: "first"
+            ),
+            for: firstKey
+        )
+        let firstEntryDirectory = try #require(cache.entryDirectory(for: firstKey))
+        #expect(fileManager.fileExists(atPath: firstEntryDirectory.path))
+
+        await cache.purgeAll(removeEncryptionKey: true)
+
+        #expect(didAttemptRootRemoval.value)
+        #expect(didDeleteKey.value)
+        #expect(fileManager.fileExists(atPath: root.path))
+        #expect(fileManager.fileExists(atPath: firstEntryDirectory.path))
+        #expect(try #require(await cache.cachedDownload(for: firstKey)).data == firstPlaintext)
+
+        await cache.store(
+            MessageMediaDownload(
+                data: secondPlaintext,
+                fileName: "second.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(secondPlaintext.count),
+                payloadId: "second"
+            ),
+            for: secondKey
+        )
+
+        #expect(await cache.cachedDownload(for: firstKey) == nil)
+        #expect(try #require(await cache.cachedDownload(for: secondKey)).data == secondPlaintext)
+        let cacheFiles = try fileManager.subpathsOfDirectory(atPath: root.path)
+        #expect(cacheFiles.filter { $0.hasSuffix("payload.bin") }.count == 1)
+    }
+
     @Test func messageMediaDiskCachePurgesByAccountAndFullWipeDeletesKey() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -19047,10 +19117,12 @@ private func messageMediaDiskCache(
     evictionPolicy: MessageMediaDiskCache.EvictionPolicy = .standard,
     timestampProvider: @escaping MessageMediaDiskCache.TimestampProvider = { Date().timeIntervalSince1970 },
     sessionStartedAtUnixSeconds: TimeInterval = Date().timeIntervalSince1970,
+    rootRemover: @escaping MessageMediaDiskCache.RootRemover = { try FileManager.default.removeItem(at: $0) },
     keyDeleter: @escaping @Sendable () -> Void = {}
 ) -> MessageMediaDiskCache {
     MessageMediaDiskCache(
         directoryResolver: { root },
+        rootRemover: rootRemover,
         keyProvider: { SymmetricKey(data: keyData) },
         keyDeleter: keyDeleter,
         timestampProvider: timestampProvider,

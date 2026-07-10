@@ -147,6 +147,7 @@ nonisolated enum MessageMediaDiskCacheKeychain {
 
 nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     typealias DirectoryResolver = @Sendable () throws -> URL
+    typealias RootRemover = @Sendable (URL) throws -> Void
     typealias KeyProvider = @Sendable () throws -> SymmetricKey
     typealias KeyDeleter = @Sendable () -> Void
     typealias TimestampProvider = @Sendable () -> TimeInterval
@@ -178,6 +179,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private static let payloadFileName = "payload.bin"
 
     private let directoryResolver: DirectoryResolver
+    private let rootRemover: RootRemover
     private let keyProvider: KeyProvider
     private let keyDeleter: KeyDeleter
     private let timestampProvider: TimestampProvider
@@ -211,6 +213,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
     init(
         directoryResolver: @escaping DirectoryResolver = MessageMediaDiskCache.defaultDirectoryURL,
+        rootRemover: @escaping RootRemover = { try FileManager.default.removeItem(at: $0) },
         keyProvider: @escaping KeyProvider = MessageMediaDiskCacheKeychain.symmetricKey,
         keyDeleter: @escaping KeyDeleter = MessageMediaDiskCacheKeychain.deleteKey,
         timestampProvider: @escaping TimestampProvider = { Date().timeIntervalSince1970 },
@@ -218,6 +221,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         sessionStartedAtUnixSeconds: TimeInterval = Date().timeIntervalSince1970
     ) {
         self.directoryResolver = directoryResolver
+        self.rootRemover = rootRemover
         self.keyProvider = keyProvider
         self.keyDeleter = keyDeleter
         self.timestampProvider = timestampProvider
@@ -315,16 +319,28 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     func purgeAll(removeEncryptionKey: Bool = false) async {
-        let root = try? directoryResolver()
+        let root: URL?
+        do {
+            root = try directoryResolver()
+        } catch {
+            root = nil
+        }
+        let removeRoot = rootRemover
         let deleteKey = keyDeleter
         let task = beginPurge(scope: .all) { [self] in
             if let root {
-                try? FileManager.default.removeItem(at: root)
+                do {
+                    try removeRoot(root)
+                    trackedFootprint = CacheFootprint(entryCount: 0, byteCount: 0)
+                } catch {
+                    trackedFootprint = nil
+                }
+            } else {
+                trackedFootprint = nil
             }
             if removeEncryptionKey {
                 deleteKey()
             }
-            trackedFootprint = CacheFootprint(entryCount: 0, byteCount: 0)
         }
         await task.task.value
         finishPurge(task)
