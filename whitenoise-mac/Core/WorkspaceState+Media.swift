@@ -244,15 +244,26 @@ extension WorkspaceState {
         }
 
         do {
-            let download = try await withMediaAttachmentDownloadTimeout {
-                let reference = try await self.resolvedMediaReference(
-                    attachment.reference,
+            let reference = try await resolvedMediaReference(
+                attachment.reference,
+                accountId: accountId,
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                client: client
+            )
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
                     accountId: accountId,
-                    accountRef: accountRef,
-                    groupIdHex: groupIdHex,
-                    client: client
+                    groupIdHex: groupIdHex
                 )
-                return try await client.downloadMedia(
+            else {
+                stateStore.update(.idle)
+                return
+            }
+            let download = try await withMediaAttachmentDownloadTimeout {
+                try await client.downloadMedia(
                     accountRef: accountRef,
                     groupIdHex: groupIdHex,
                     reference: reference
