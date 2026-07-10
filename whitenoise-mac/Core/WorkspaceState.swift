@@ -576,6 +576,9 @@ final class WorkspaceState {
     var isRefreshing = false
     var isSending = false
     var isRecordingVoiceMessage = false
+    /// Synchronous guard for the mic-permission await in `startVoiceRecording()` so a second
+    /// tap cannot interleave and orphan a hot recorder (#391).
+    var isPreparingVoiceRecording = false
     var voiceRecordingSamples: [CGFloat] = []
     var voiceRecordingDurationSeconds: Double = 0
     /// Per-target reentrancy guards for message actions. `react`/`deleteMessage`

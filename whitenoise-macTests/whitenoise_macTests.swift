@@ -12558,6 +12558,20 @@ struct whitenoise_macTests {
         #expect(state.draftText == "half-written message")
     }
 
+    @MainActor
+    @Test func startVoiceRecordingIgnoresConcurrentInvocationWhilePreparing() async {
+        // #391: a second mic tap during the permission await must not start another recorder.
+        let state = WorkspaceState.preview()
+        state.isPreparingVoiceRecording = true
+
+        await state.startVoiceRecording()
+
+        #expect(state.isPreparingVoiceRecording)
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecorder == nil)
+        #expect(state.voiceRecordingURL == nil)
+    }
+
     /// Puts `state` into an in-progress voice-recording state (mic "hot", metering task running,
     /// plaintext temp file on disk) without needing real mic hardware, mirroring what
     /// `startVoiceRecording()` sets up. Returns the temp file URL so tests can assert the
