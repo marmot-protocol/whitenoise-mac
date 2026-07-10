@@ -17,7 +17,7 @@ nonisolated struct MessageMediaDiskCacheKey: Hashable, Sendable {
     }
 
     var cacheID: String {
-        Self.hexDigest("media-cache-v1", accountId, groupIdHex, ciphertextSha256)
+        Self.hexDigest("media-cache-v1", accountId, groupIdHex, ciphertextSha256, plaintextSha256)
     }
 
     var accountDigest: String {
