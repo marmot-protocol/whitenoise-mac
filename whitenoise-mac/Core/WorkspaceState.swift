@@ -321,13 +321,14 @@ final class MessageTimelineStore {
 
         // Recompute the head *after* removals: a delta that drops the current newest row lowers
         // the detached window's real head, and an upsert newer than that post-removal head must
-        // not grow a new head into a scrolled-back window.
-        let newestKey = messages.last.map(TimelineSortKey.init)
+        // not grow a new head into a scrolled-back window. Compare second-granular timelineAt
+        // only — runtime order within a second is not ascending id order (#451).
+        let newestTimelineAt = messages.last?.timelineAt
 
         for item in upserts {
             if let existingIndex = indexById[item.id] {
                 guard messages[existingIndex] != item else { continue }
-                if TimelineSortKey(messages[existingIndex]) == TimelineSortKey(item) {
+                if messages[existingIndex].timelineAt == item.timelineAt {
                     messages[existingIndex] = item
                     lookup[item.id] = item
                     didChange = true
@@ -339,7 +340,7 @@ final class MessageTimelineStore {
                 continue
             }
 
-            let isInsideDetachedWindow = newestKey.map { TimelineSortKey(item) <= $0 } ?? false
+            let isInsideDetachedWindow = newestTimelineAt.map { item.timelineAt <= $0 } ?? false
             guard anchoredToNewest || isInsideDetachedWindow else { continue }
             insertMessage(item, at: insertionIndex(for: item))
             didChange = true
@@ -407,35 +408,17 @@ final class MessageTimelineStore {
     }
 
     private func insertionIndex(for item: MessageItem) -> Int {
-        let key = TimelineSortKey(item)
         var lowerBound = messages.startIndex
         var upperBound = messages.endIndex
         while lowerBound < upperBound {
             let middle = lowerBound + (upperBound - lowerBound) / 2
-            if TimelineSortKey(messages[middle]) < key {
+            if messages[middle].timelineAt <= item.timelineAt {
                 lowerBound = middle + 1
             } else {
                 upperBound = middle
             }
         }
         return lowerBound
-    }
-
-    private struct TimelineSortKey: Comparable {
-        let timelineAt: UInt64
-        let id: String
-
-        init(_ message: MessageItem) {
-            timelineAt = message.timelineAt
-            id = message.id
-        }
-
-        static func < (lhs: TimelineSortKey, rhs: TimelineSortKey) -> Bool {
-            if lhs.timelineAt != rhs.timelineAt {
-                return lhs.timelineAt < rhs.timelineAt
-            }
-            return lhs.id < rhs.id
-        }
     }
 }
 
