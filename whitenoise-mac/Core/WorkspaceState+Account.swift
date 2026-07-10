@@ -427,13 +427,27 @@ extension WorkspaceState {
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
 
+        let preAwaitActiveAccountId = activeAccountId
         do {
             _ = try await client.signInAccount(accountRef: account.accountRef)
             accounts = try await accountItemsFromRuntime(client: client)
             if let refreshed = accounts.first(where: { $0.id == account.id }) {
-                switchActiveAccount(refreshed, finalSelection: .settings(.accounts))
-                try await configureObservabilityRuntime()
-                await loadSettingsData()
+                let currentActiveAccount = activeAccountId.flatMap { id in
+                    accounts.first { $0.id == id && !$0.signedOut }
+                }
+                // `activeAccountId` may have changed during the awaits above — e.g. the user
+                // selected another account while this sign-in was in flight (account switching
+                // is not gated by `isSigningOutAccount`). Only activate the just-signed-in
+                // account when no other valid signed-in account was raced to mid-flight.
+                let userRacedToDifferentAccount =
+                    currentActiveAccount != nil
+                    && activeAccountId != preAwaitActiveAccountId
+                    && currentActiveAccount?.id != account.id
+                if !userRacedToDifferentAccount {
+                    switchActiveAccount(refreshed, finalSelection: .settings(.accounts))
+                    try await configureObservabilityRuntime()
+                    await loadSettingsData()
+                }
             }
             await refreshAccountUnreadSummary()
         } catch {
