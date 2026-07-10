@@ -12174,6 +12174,38 @@ struct whitenoise_macTests {
         #expect(state.streamingDebugEnabled)
     }
 
+    @Test func nip05RedirectPolicyRejectsDisallowedTargets() throws {
+        let delegate = NIP05RedirectDelegate()
+        let publicRequest = URLRequest(
+            url: try #require(URL(string: "https://cdn.example.org/.well-known/nostr.json"))
+        )
+        let privateRequest = URLRequest(
+            url: try #require(URL(string: "https://127.0.0.1:8080/internal"))
+        )
+        let cleartextRequest = URLRequest(
+            url: try #require(URL(string: "http://example.org/.well-known/nostr.json"))
+        )
+
+        #expect(delegate.validatedRedirectRequest(publicRequest) != nil)
+        #expect(delegate.validatedRedirectRequest(privateRequest) == nil)
+        #expect(delegate.validatedRedirectRequest(cleartextRequest) == nil)
+    }
+
+    @Test func nip05RedirectPolicyCapsHopsPerRequest() throws {
+        let delegate = NIP05RedirectDelegate()
+        let request = URLRequest(
+            url: try #require(URL(string: "https://cdn.example.org/.well-known/nostr.json"))
+        )
+
+        for _ in 0..<NIP05RedirectDelegate.maxRedirectHops {
+            #expect(delegate.validatedRedirectRequest(request) != nil)
+        }
+        #expect(delegate.validatedRedirectRequest(request) == nil)
+
+        // Each lookup creates a delegate and therefore receives an independent redirect budget.
+        #expect(NIP05RedirectDelegate().validatedRedirectRequest(request) != nil)
+    }
+
     @Test func remoteImagePolicyAllowsOnlyHttpsWithHost() async throws {
         // Allowed: https with a real host.
         #expect(RemoteImageURLPolicy.isAllowed(URL(string: "https://example.com/avatar.png")!))

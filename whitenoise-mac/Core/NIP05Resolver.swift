@@ -45,7 +45,8 @@ struct NIP05Resolver: NIP05Resolving {
         var request = URLRequest(url: url)
         request.setValue("WhiteNoiseMac/1.0", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await session.data(for: request)
+        let redirectDelegate = NIP05RedirectDelegate()
+        let (data, response) = try await session.data(for: request, delegate: redirectDelegate)
         guard let http = response as? HTTPURLResponse else {
             throw NIP05ResolutionError.invalidResponse
         }
@@ -69,6 +70,37 @@ struct NIP05Resolver: NIP05Resolving {
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 15
         return configuration
+    }
+}
+
+/// Re-validates every NIP-05 redirect target so an allowed public endpoint cannot bounce the
+/// resolver into a private, loopback, link-local, or cleartext destination.
+nonisolated final class NIP05RedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let maxRedirectHops = 5
+
+    private let lock = NSLock()
+    private var redirectHopCount = 0
+
+    func validatedRedirectRequest(_ request: URLRequest) -> URLRequest? {
+        guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else {
+            return nil
+        }
+
+        let hopCount = lock.withLock {
+            redirectHopCount += 1
+            return redirectHopCount
+        }
+        return hopCount <= Self.maxRedirectHops ? request : nil
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(validatedRedirectRequest(request))
     }
 }
 
