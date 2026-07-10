@@ -409,8 +409,11 @@ extension WorkspaceState {
     }
 
     func startVoiceRecording() async {
-        guard !isRecordingVoiceMessage else { return }
+        guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else { return }
         guard canBeginMediaAttachmentSelection() else { return }
+
+        isPreparingVoiceRecording = true
+        defer { isPreparingVoiceRecording = false }
 
         let hasPermission = await requestMicrophoneAccess()
         guard hasPermission else {
