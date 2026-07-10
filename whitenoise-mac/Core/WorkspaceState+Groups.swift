@@ -77,9 +77,11 @@ extension WorkspaceState {
         defer { isExportingGroupTranscript = false }
 
         do {
+            let accountId = activeAccount.id
             let accountRef = activeAccount.accountRef
             let groupIdHex = snapshot.groupIdHex
             let groupName = snapshot.name
+            let detailsGeneration = groupDetailsLoadGeneration
             // Paginates the whole transcript via blocking FFI and JSON-encodes it; keep it
             // off the main thread so a large export does not freeze the UI.
             let export = try await runOffMainCancellable { checkCancellation -> (json: String, eventCount: Int) in
@@ -96,6 +98,12 @@ extension WorkspaceState {
                 )
                 return (try ConversationTranscriptExport.encodeJSONString(document), document.eventCount)
             }
+            guard !Task.isCancelled,
+                activeAccountId == accountId,
+                groupDetailsLoadGeneration == detailsGeneration,
+                isGroupDetailsPresented,
+                groupDetailsSnapshot == snapshot
+            else { return }
             copyText(export.json)
             groupTranscriptExportStatus = String(
                 format: L10n.string("Copied transcript JSON for %d events."),
