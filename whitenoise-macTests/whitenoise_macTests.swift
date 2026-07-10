@@ -1204,6 +1204,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1246,6 +1247,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -5819,7 +5821,7 @@ struct whitenoise_macTests {
         await withTaskGroup(of: Void.self) { group in
             for _ in 0..<8 {
                 group.addTask {
-                    await limiter.acquire()
+                    try? await limiter.acquire()
                     let current = inFlight.increment()
                     maxInFlight.record(current)
                     try? await Task.sleep(nanoseconds: 5_000_000)
@@ -5831,6 +5833,230 @@ struct whitenoise_macTests {
 
         #expect(maxInFlight.value <= 2)
         #expect(inFlight.value == 0)
+    }
+
+    @Test func mediaAttachmentDownloadLimiterDropsCancelledQueuedWaiter() async {
+        let limiter = MediaAttachmentDownloadLimiter(maxConcurrent: 1)
+        try? await limiter.acquire()
+
+        let cancelled = AtomicCounter()
+        let waitingTask = Task {
+            do {
+                try await limiter.acquire()
+                Issue.record("Cancelled queued waiter should not acquire a slot")
+            } catch is CancellationError {
+                cancelled.increment()
+            } catch {
+                Issue.record("Expected CancellationError, got \(error)")
+            }
+        }
+
+        for _ in 0..<100 {
+            if await limiter.queuedWaiterCount() == 1 {
+                break
+            }
+            await Task.yield()
+        }
+        #expect(await limiter.queuedWaiterCount() == 1)
+
+        waitingTask.cancel()
+        _ = await waitingTask.result
+        #expect(cancelled.value == 1)
+        #expect(await limiter.queuedWaiterCount() == 0)
+
+        let acquired = AtomicCounter()
+        let nextTask = Task {
+            try? await limiter.acquire()
+            acquired.increment()
+        }
+        for _ in 0..<50 where acquired.value == 0 {
+            await Task.yield()
+        }
+        #expect(acquired.value == 0)
+
+        await limiter.release()
+        for _ in 0..<50 where acquired.value == 0 {
+            await Task.yield()
+        }
+        #expect(acquired.value == 1)
+
+        await limiter.release()
+        _ = await nextTask.result
+    }
+
+    @MainActor
+    @Test func mediaAttachmentDownloadTimesOutAndReleasesLimiterSlot() async throws {
+        let previousTimeout = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds
+        defer { MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = previousTimeout }
+        MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = 50_000_000
+
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let stalledPlaintext = Data([0x01, 0x02, 0x03])
+        let stalledReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "stalled.png",
+            plaintextSha256: hexSHA256(stalledPlaintext)
+        )
+        let followUpPlaintext = Data([0x04, 0x05, 0x06])
+        let followUpReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "follow-up.png",
+            plaintextSha256: hexSHA256(followUpPlaintext)
+        )
+        let stalledDownload = MediaDownloadResultFfi(
+            plaintext: stalledPlaintext,
+            fileName: "stalled.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(stalledPlaintext.count)
+        )
+        let followUpDownload = MediaDownloadResultFfi(
+            plaintext: followUpPlaintext,
+            fileName: "follow-up.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(followUpPlaintext.count)
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "stalled-media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: stalledReference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: stalledDownload
+        )
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "follow-up-media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: followUpReference,
+                caption: nil,
+                recordedAt: 1_700_000_001,
+                receivedAt: 1_700_000_001
+            ),
+            download: followUpDownload
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let stalledMessage = MessageItem(
+            id: "stalled-media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "stalled-media-message#0#\(stalledReference.plaintextSha256)",
+                    reference: stalledReference
+                )
+            ]
+        )
+        let followUpMessage = MessageItem(
+            id: "follow-up-media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "follow-up-media-message#0#\(followUpReference.plaintextSha256)",
+                    reference: followUpReference
+                )
+            ]
+        )
+        let stalledAttachment = try #require(stalledMessage.mediaAttachments.first)
+        let followUpAttachment = try #require(followUpMessage.mediaAttachments.first)
+        let stalledStore = state.mediaDownloadStateStore(for: stalledMessage, attachment: stalledAttachment)
+        let heldSlotCount = MediaAttachmentDownloadConcurrency.maxConcurrentDownloads - 1
+        for _ in 0..<heldSlotCount {
+            try await MediaAttachmentDownloadLimiter.shared.acquire()
+        }
+        defer {
+            Task {
+                for _ in 0..<heldSlotCount {
+                    await MediaAttachmentDownloadLimiter.shared.release()
+                }
+            }
+        }
+
+        runtime.mediaDownloadGateEnabled = true
+        let stalledLoad = Task { await state.loadMediaAttachment(stalledAttachment, for: stalledMessage) }
+        for _ in 0..<100 {
+            if runtime.didReachMediaDownloadGate {
+                break
+            }
+            await Task.yield()
+        }
+        guard runtime.didReachMediaDownloadGate else {
+            stalledLoad.cancel()
+            runtime.releaseMediaDownloadGate()
+            Issue.record("Expected stalled attachment download to reach the fake download gate")
+            return
+        }
+        for _ in 0..<40 {
+            if case .failed = stalledStore.state {
+                break
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        guard case .failed(let stalledFailure) = stalledStore.state else {
+            stalledLoad.cancel()
+            runtime.releaseMediaDownloadGate()
+            Issue.record("Expected stalled attachment download to fail after timeout")
+            return
+        }
+        _ = await stalledLoad.result
+        #expect(stalledFailure == MediaAttachmentDownloadTimeoutError().localizedDescription)
+
+        runtime.releaseMediaDownloadGate()
+        runtime.mediaDownloadGateEnabled = false
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        do {
+            try await withMediaAttachmentDownloadTimeout(nanoseconds: 500_000_000) {
+                await state.loadMediaAttachment(followUpAttachment, for: followUpMessage)
+            }
+        } catch {
+            Issue.record("Expected follow-up attachment download to acquire the released limiter slot, got \(error)")
+            return
+        }
+        guard
+            case .loaded(let loaded) = state.mediaDownloadState(
+                for: followUpMessage,
+                attachment: followUpAttachment
+            )
+        else {
+            Issue.record("Expected follow-up attachment download to succeed after timeout released the limiter slot")
+            return
+        }
+        #expect(loaded.data == followUpPlaintext)
     }
 
     @Test func messageAudioMetadataCacheHitPerformanceGuard() async throws {
