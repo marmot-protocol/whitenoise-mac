@@ -17569,7 +17569,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     private func resumeMediaDownloadGateReachedObserver(returning value: Bool) {
-        let continuation = mediaDownloadGateLock.withLock {
+        let continuation = mediaDownloadGateLock.withLock { () -> CheckedContinuation<Bool, Never>? in
             if !value, mediaDownloadGateReached {
                 return nil
             }
