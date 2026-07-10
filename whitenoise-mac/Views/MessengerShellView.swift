@@ -390,6 +390,7 @@ private struct ConversationView: View {
                         pendingPrependAnchorId = nil
                         pendingAppendAnchorId = nil
                         isPinnedToBottom = true
+                        isActivelyScrolling = false
                         hoverSelectionCoordinator.reset()
                     }
                     .onChange(of: messageIDs.last) { _, newMessageId in
