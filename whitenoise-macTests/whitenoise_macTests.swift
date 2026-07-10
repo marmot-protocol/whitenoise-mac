@@ -1204,6 +1204,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
@@ -1246,6 +1247,7 @@ struct whitenoise_macTests {
             label: "Backup Account",
             accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
             localSigning: true,
+            externalSigning: false,
             signedOut: false,
             running: true
         )
