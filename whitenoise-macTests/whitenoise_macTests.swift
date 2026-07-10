@@ -5984,6 +5984,32 @@ struct whitenoise_macTests {
         _ = await nextTask.result
     }
 
+    @Test func mediaDownloadGateObserverReturnsFalseWhenLoadCompletesBeforeGateAndObserver() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.mediaDownloadGateEnabled = true
+
+        runtime.finishMediaDownloadGateWaitWithoutReaching()
+        // Cancellation releases the underlying download before its late gate arrival. Releasing
+        // first keeps the ordering deterministic while still driving the real gate-entry path.
+        runtime.releaseMediaDownloadGate()
+        await runtime.reachMediaDownloadGateForTesting()
+
+        let gateReached = await runtime.waitForMediaDownloadGateReached()
+        #expect(gateReached == false)
+    }
+
+    @Test func mediaDownloadGateObserverReturnsTrueWhenGateArrivesBeforeLoadCompletion() async {
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.mediaDownloadGateEnabled = true
+
+        runtime.releaseMediaDownloadGate()
+        await runtime.reachMediaDownloadGateForTesting()
+        runtime.finishMediaDownloadGateWaitWithoutReaching()
+
+        let gateReached = await runtime.waitForMediaDownloadGateReached()
+        #expect(gateReached == true)
+    }
+
     @MainActor
     @Test func mediaAttachmentDownloadTimesOutAndReleasesLimiterSlot() async throws {
         let previousTimeout = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds
@@ -17510,15 +17536,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 let immediateResult = mediaDownloadGateLock.withLock { () -> Bool? in
-                    if Task.isCancelled {
-                        return false
+                    if let result = mediaDownloadGateReachedObserverResult {
+                        return result
                     }
                     if mediaDownloadGateReached {
+                        mediaDownloadGateReachedObserverResult = true
                         return true
                     }
-                    if let result = mediaDownloadGateReachedObserverResult {
-                        mediaDownloadGateReachedObserverResult = nil
-                        return result
+                    if Task.isCancelled {
+                        mediaDownloadGateReachedObserverResult = false
+                        return false
                     }
                     precondition(mediaDownloadGateReachedObserverContinuation == nil)
                     mediaDownloadGateReachedObserverContinuation = continuation
@@ -17529,12 +17556,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                 }
             }
         } onCancel: {
-            let continuation = mediaDownloadGateLock.withLock {
-                let continuation = mediaDownloadGateReachedObserverContinuation
-                mediaDownloadGateReachedObserverContinuation = nil
-                return continuation
-            }
-            continuation?.resume(returning: false)
+            resumeMediaDownloadGateReachedObserver(returning: false)
         }
     }
 
@@ -17542,45 +17564,64 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         resumeMediaDownloadGateReachedObserver(returning: false)
     }
 
+    /// Regression-test support: reach the armed media-download gate without a full `downloadMedia` call.
+    func reachMediaDownloadGateForTesting() async {
+        await passMediaDownloadGateIfArmed()
+    }
+
     /// Suspends the first media download FFI call when the gate is armed, after the fake runtime
     /// has captured the bytes it will return. This models a network download completing after a
     /// user-initiated purge has already removed the account/cache.
+    private enum MediaDownloadGateClaim {
+        case skip
+        case wonSuspend
+        case wonResumeNow
+    }
+
     private func passMediaDownloadGateIfArmed() async {
-        let shouldSuspend = mediaDownloadGateLock.withLock {
-            mediaDownloadGateEnabled && mediaDownloadGateContinuation == nil && !mediaDownloadGateReached
-        }
-        guard shouldSuspend else { return }
         await withCheckedContinuation { continuation in
-            let resumeImmediately = mediaDownloadGateLock.withLock {
-                mediaDownloadGateContinuation = continuation
-                mediaDownloadGateReached = true
-                mediaDownloadGateReachedObserverResult = nil
-                if mediaDownloadGateReleased {
-                    mediaDownloadGateContinuation = nil
-                    return true
+            let claim = mediaDownloadGateLock.withLock { () -> MediaDownloadGateClaim in
+                guard
+                    mediaDownloadGateEnabled,
+                    mediaDownloadGateContinuation == nil,
+                    !mediaDownloadGateReached
+                else {
+                    return .skip
                 }
-                return false
+                mediaDownloadGateReached = true
+                if mediaDownloadGateReleased {
+                    return .wonResumeNow
+                }
+                mediaDownloadGateContinuation = continuation
+                return .wonSuspend
             }
-            resumeMediaDownloadGateReachedObserver(returning: true)
-            if resumeImmediately {
+            switch claim {
+            case .skip:
                 continuation.resume()
+            case .wonResumeNow:
+                resumeMediaDownloadGateReachedObserver(returning: true)
+                continuation.resume()
+            case .wonSuspend:
+                resumeMediaDownloadGateReachedObserver(returning: true)
             }
         }
     }
 
     private func resumeMediaDownloadGateReachedObserver(returning value: Bool) {
-        let continuation = mediaDownloadGateLock.withLock { () -> CheckedContinuation<Bool, Never>? in
-            if !value, mediaDownloadGateReached {
-                return nil
+        let (continuation, resumeValue) = mediaDownloadGateLock.withLock {
+            () -> (CheckedContinuation<Bool, Never>?, Bool) in
+            if let latched = mediaDownloadGateReachedObserverResult {
+                let continuation = mediaDownloadGateReachedObserverContinuation
+                mediaDownloadGateReachedObserverContinuation = nil
+                return (continuation, latched)
             }
+            let resolved = mediaDownloadGateReached ? true : value
+            mediaDownloadGateReachedObserverResult = resolved
             let continuation = mediaDownloadGateReachedObserverContinuation
             mediaDownloadGateReachedObserverContinuation = nil
-            if continuation == nil, !value {
-                mediaDownloadGateReachedObserverResult = false
-            }
-            return continuation
+            return (continuation, resolved)
         }
-        continuation?.resume(returning: value)
+        continuation?.resume(returning: resumeValue)
     }
 
     func releaseMediaDownloadGate() {
