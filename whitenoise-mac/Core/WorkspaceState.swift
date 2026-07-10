@@ -1524,6 +1524,9 @@ final class WorkspaceState {
 
     private func bumpArchivedChatListGeneration(forAccountId accountId: String) {
         archivedChatListGenerationByAccount[accountId, default: 0] += 1
+        if activeAccountId == accountId {
+            selectedChatRevision += 1
+        }
         if filteredArchivedChatsCache?.accountId == accountId {
             filteredArchivedChatsCache = nil
         }

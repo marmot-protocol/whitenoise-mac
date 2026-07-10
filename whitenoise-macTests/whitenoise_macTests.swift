@@ -10234,6 +10234,75 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func selectedChatObservationInvalidatesOnSelectedArchivedChatMetadataDelta() async throws {
+        // Regression for #449: archived chats resolve through ignored O(1) indexes too, so live
+        // archived-list deltas must bump the same observed token as active-list updates.
+        let account = AccountItem.samples[0]
+        let selected = ChatItem(
+            id: "selected-archived-chat",
+            title: "Original archived group",
+            subtitle: "Group message",
+            preview: "before",
+            updatedAt: Date(timeIntervalSince1970: 100),
+            avatarSeed: "selected-archived-chat",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let background = ChatItem(
+            id: "background-archived-chat",
+            title: "Background archived group",
+            subtitle: "Group message",
+            preview: "background",
+            updatedAt: Date(timeIntervalSince1970: 90),
+            avatarSeed: "background-archived-chat",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [:],
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.setArchivedChats([selected, background], forAccountId: account.id)
+        state.selection = .chat(selected.id)
+
+        #expect(state.selectedChat?.title == "Original archived group")
+        #expect(state.selectedChat?.isNoLongerMember == false)
+
+        let invalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.selectedChat?.title
+            _ = state.selectedChat?.isNoLongerMember
+        } onChange: {
+            invalidated.markInvalidated()
+        }
+
+        state.upsertArchivedChat(
+            ChatItem(
+                id: selected.id,
+                title: "Renamed archived group",
+                subtitle: selected.subtitle,
+                preview: "after",
+                updatedAt: selected.updatedAt,
+                avatarSeed: "renamed-archived-avatar",
+                pictureURL: selected.pictureURL,
+                unreadCount: selected.unreadCount,
+                unreadMentionCount: selected.unreadMentionCount,
+                isDirect: selected.isDirect,
+                pendingConfirmation: selected.pendingConfirmation,
+                selfMembership: .removed
+            ),
+            forAccountId: account.id
+        )
+
+        #expect(invalidated.value)
+        #expect(state.selectedChat?.title == "Renamed archived group")
+        #expect(state.selectedChat?.avatarSeed == "renamed-archived-avatar")
+        #expect(state.selectedChat?.isNoLongerMember == true)
+    }
+
+    @MainActor
     @Test func filteredChatsObservationInvalidatesOnChatListDeltaAfterCacheHit() async throws {
         // Regression for #390: `filteredChats` is memoized through ignored cache state, but each
         // body pass still has to read the observed chat list. Otherwise a cache-hit pass drops the
