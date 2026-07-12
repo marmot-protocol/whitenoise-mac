@@ -75,8 +75,8 @@ struct ConversationMessageRow: View, Equatable {
     /// Keep the debug toggle as a row input so `.equatable()` still updates rows when the
     /// diagnostics presentation changes, while hover/selection churn is scoped below the row.
     var showsDebugMetadata = false
-    var timestampReferenceDate = Date()
-    var timestampLocale = AppLanguage.currentLocale
+    let timestampReferenceDate: Date
+    let timestampLocale: Locale
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     // Receives the resolved MessageItem by value (not via a shared @Observable lookup),

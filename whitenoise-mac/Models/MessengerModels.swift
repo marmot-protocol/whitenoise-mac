@@ -121,9 +121,6 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let isDirect: Bool
     let pendingConfirmation: Bool
     let selfMembership: ChatSelfMembership
-    /// Precomputed once from `updatedAt` (which is immutable for a given value) to
-    /// avoid re-formatting the date on every chat-row render.
-    let timestampLabel: String
 
     /// Whether this chat has at least one unread @-mention of the active account.
     var hasMention: Bool { unreadMentionCount > 0 }
@@ -133,17 +130,6 @@ nonisolated struct ChatItem: Identifiable, Hashable {
 
     /// True when the local account can use the outbound composer for this chat.
     var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember }
-
-    /// Re-derives the relative spelling against a wall-clock reference date. Views use
-    /// this when the calendar day changes; `timestampLabel` remains the cheap mapping-time
-    /// value used during ordinary renders.
-    nonisolated func timestampLabel(
-        at now: Date,
-        locale: Locale = AppLanguage.currentLocale
-    ) -> String {
-        guard let updatedAt else { return "" }
-        return DisplayText.relativeTimestamp(for: updatedAt, now: now, locale: locale)
-    }
 
     init(
         id: String,
@@ -174,11 +160,6 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.isDirect = isDirect
         self.pendingConfirmation = pendingConfirmation
         self.selfMembership = selfMembership
-        if let updatedAt {
-            self.timestampLabel = DisplayText.relativeTimestamp(for: updatedAt)
-        } else {
-            self.timestampLabel = ""
-        }
     }
 }
 
@@ -1575,9 +1556,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let nonvisualMediaAttachments: [MessageMediaAttachment]
     let hasBubbleContent: Bool
     let presentation: MessagePresentation
-    let timeLabel: String
     let statusLabel: String?
-    let metadataLabel: String
 
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
@@ -1677,8 +1656,6 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.nonvisualMediaAttachments = partitionedAttachments.nonvisual
         self.hasBubbleContent = replyContext != nil || !trimmedBody.isEmpty
         self.presentation = presentation
-        let timeLabel = DisplayText.messageTimestamp(for: sentAt)
-        self.timeLabel = timeLabel
         let statusLabel: String?
         if presentation.isChatBubble {
             if invalidationStatus != nil {
@@ -1690,14 +1667,6 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             statusLabel = nil
         }
         self.statusLabel = statusLabel
-        var metadataParts = [timeLabel]
-        if isEdited {
-            metadataParts.append(L10n.string("Edited"))
-        }
-        if let statusLabel {
-            metadataParts.append(statusLabel)
-        }
-        self.metadataLabel = metadataParts.joined(separator: "  ")
     }
 
     nonisolated private static func partitionMediaAttachments(_ attachments: [MessageMediaAttachment]) -> (
@@ -1790,8 +1759,7 @@ extension MessageItem {
     // while avoiding an O(AST) traversal on every comparison. That traversal otherwise
     // ran for each row whenever SwiftUI diffed the transcript (and on any Set/Dictionary
     // use), adding up across a live-update burst. The remaining fields are the
-    // independent inputs; rendered labels are compared too because they are cheap and
-    // directly displayed by the row. The rest of the stored properties (`trimmedBody`, the
+    // independent inputs. The rest of the stored properties (`trimmedBody`, the
     // media partitions, `hasBubbleContent`) are pure functions of these, so comparing them
     // too would be redundant.
     nonisolated static func == (lhs: MessageItem, rhs: MessageItem) -> Bool {
@@ -1814,9 +1782,7 @@ extension MessageItem {
             && lhs.replyContext == rhs.replyContext
             && lhs.mediaAttachments == rhs.mediaAttachments
             && lhs.presentation == rhs.presentation
-            && lhs.timeLabel == rhs.timeLabel
             && lhs.statusLabel == rhs.statusLabel
-            && lhs.metadataLabel == rhs.metadataLabel
     }
 
     // Hashes a cheap, well-distributed subset of the equality fields. Hashing only a

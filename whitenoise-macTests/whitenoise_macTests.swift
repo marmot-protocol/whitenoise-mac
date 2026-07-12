@@ -191,13 +191,17 @@ private final class AtomicMax: @unchecked Sendable {
 
 private struct TranscriptPerformanceRows: View {
     let messages: [MessageItem]
+    private let timestampReferenceDate = Date()
+    private let timestampLocale = AppLanguage.currentLocale
 
     var body: some View {
         VStack(spacing: 12) {
             ForEach(messages) { message in
                 ConversationMessageRow(
                     message: message,
-                    showsDebugMetadata: false
+                    showsDebugMetadata: false,
+                    timestampReferenceDate: timestampReferenceDate,
+                    timestampLocale: timestampLocale
                 ) { _ in }
                 .equatable()
             }
@@ -2999,7 +3003,8 @@ struct whitenoise_macTests {
     @MainActor
     @Test func timestampLabelsRefreshForReferenceDay() async throws {
         let calendar = Calendar.autoupdatingCurrent
-        let dayStart = calendar.startOfDay(for: Date())
+        let weekStart = try #require(calendar.dateInterval(of: .weekOfYear, for: Date())?.start)
+        let dayStart = try #require(calendar.date(byAdding: .day, value: 1, to: weekStart))
         let sentAt = try #require(calendar.date(byAdding: .hour, value: 15, to: dayStart))
         let sameDayNow = try #require(calendar.date(byAdding: .hour, value: 16, to: dayStart))
         let nextDayNow = try #require(calendar.date(byAdding: .day, value: 1, to: sameDayNow))
@@ -3009,6 +3014,9 @@ struct whitenoise_macTests {
         )
         let expectedDateTime = sentAt.formatted(
             Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale)
+        )
+        let expectedWeekday = sentAt.formatted(
+            Date.FormatStyle.dateTime.weekday(.abbreviated).locale(locale)
         )
 
         #expect(DisplayText.messageTimestamp(for: sentAt, now: sameDayNow, locale: locale) == expectedTime)
@@ -3033,8 +3041,9 @@ struct whitenoise_macTests {
             isOutgoing: false
         )
 
-        #expect(chat.timestampLabel(at: sameDayNow, locale: locale) == expectedTime)
-        #expect(chat.timestampLabel(at: nextDayNow, locale: locale) != expectedTime)
+        let chatTimestamp = try #require(chat.updatedAt)
+        #expect(DisplayText.relativeTimestamp(for: chatTimestamp, now: sameDayNow, locale: locale) == expectedTime)
+        #expect(DisplayText.relativeTimestamp(for: chatTimestamp, now: nextDayNow, locale: locale) == expectedWeekday)
         #expect(message.timeLabel(at: nextDayNow, locale: locale) == expectedDateTime)
         #expect(
             message.metadataLabel(at: nextDayNow, locale: locale)
@@ -3297,7 +3306,7 @@ struct whitenoise_macTests {
             isOutgoing: false
         )
 
-        #expect(!outgoing.timeLabel.isEmpty)
+        #expect(!outgoing.timeLabel(at: outgoing.sentAt).isEmpty)
         #expect(outgoing.statusLabel == "Sent")
         #expect(incoming.statusLabel == nil)
     }
@@ -3452,7 +3461,7 @@ struct whitenoise_macTests {
         #expect(message.timelineKind == 9)
         #expect(message.body == "Edited twice")
         #expect(message.isEdited)
-        #expect(message.metadataLabel.contains("Edited"))
+        #expect(message.metadataLabel(at: message.sentAt).contains("Edited"))
         #expect(message.contentMarkdown == nil)
     }
 
@@ -3488,7 +3497,7 @@ struct whitenoise_macTests {
         #expect(message.id == "target")
         #expect(message.body == "Original")
         #expect(!message.isEdited)
-        #expect(!message.metadataLabel.contains("Edited"))
+        #expect(!message.metadataLabel(at: message.sentAt).contains("Edited"))
     }
 
     @MainActor
