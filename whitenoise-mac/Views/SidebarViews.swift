@@ -472,8 +472,8 @@ struct ChatRowContent: View {
                         locale: locale
                     )
                     .equatable()
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 Text(chat.preview)
                     .font(.caption)
