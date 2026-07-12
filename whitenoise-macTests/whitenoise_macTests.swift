@@ -13128,6 +13128,46 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func bulkChatRowsPreserveConversationStateAcrossArchiveTransitions() async throws {
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let chat = try #require(state.selectedChat)
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        state.draftTextByConversation[draftKey] = "see you at 6"
+        state.storeGroupMembers([], for: chat.id)
+
+        func row(archived: Bool) -> ChatListRowFfi {
+            chatListRow(
+                groupIdHex: chat.id,
+                title: chat.title,
+                preview: chat.preview,
+                sender: "alice",
+                timelineAt: 1_700_000_000,
+                archived: archived
+            )
+        }
+
+        await state.applyChatRows([row(archived: true)], account: account)
+
+        #expect(state.activeChats.isEmpty)
+        #expect(state.archivedChats.map(\.id) == [chat.id])
+        #expect(state.draftTextByConversation[draftKey] == "see you at 6")
+        #expect(state.groupMemberDetailsCache[chat.id] != nil)
+
+        await state.applyChatRows([row(archived: false)], account: account)
+
+        #expect(state.activeChats.map(\.id) == [chat.id])
+        #expect(state.archivedChats.isEmpty)
+        #expect(state.draftTextByConversation[draftKey] == "see you at 6")
+        #expect(state.groupMemberDetailsCache[chat.id] != nil)
+
+        await state.applyChatRows([], account: account)
+
+        #expect(state.draftTextByConversation[draftKey] == nil)
+        #expect(state.groupMemberDetailsCache[chat.id] == nil)
+    }
+
+    @MainActor
     @Test func startingNewChatCreatesAndSelectsConversation() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -18336,12 +18376,13 @@ private func chatListRow(
     preview: String,
     sender: String,
     timelineAt: UInt64,
+    archived: Bool = false,
     kind: UInt64 = 9,
     selfMembership: SelfMembershipFfi = .member
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
-        archived: false,
+        archived: archived,
         pendingConfirmation: false,
         title: title,
         groupName: "",
