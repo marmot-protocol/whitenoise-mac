@@ -8,14 +8,27 @@
 import AppKit
 import SwiftUI
 
+private struct TimestampReferenceDateKey: EnvironmentKey {
+    static let defaultValue = Date()
+}
+
+extension EnvironmentValues {
+    var timestampReferenceDate: Date {
+        get { self[TimestampReferenceDateKey.self] }
+        set { self[TimestampReferenceDateKey.self] = newValue }
+    }
+}
+
 struct ContentView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var timestampReferenceDate = Date()
 
     var body: some View {
         MessengerShellView()
             .frame(minWidth: 940, minHeight: 620)
             .preferredColorScheme(workspace.preferredColorScheme)
             .environment(\.locale, workspace.preferredLocale)
+            .environment(\.timestampReferenceDate, timestampReferenceDate)
             .environment(
                 \.openURL,
                 OpenURLAction { url in
@@ -41,10 +54,16 @@ struct ContentView: View {
                 workspace.refreshSystemLanguageIfNeeded()
             }
             .onReceive(
+                NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+            ) { _ in
+                timestampReferenceDate = Date()
+            }
+            .onReceive(
                 NotificationCenter.default.publisher(
                     for: NSApplication.didBecomeActiveNotification
                 )
             ) { _ in
+                refreshTimestampReferenceDateIfNeeded()
                 workspace.refreshSystemLanguageIfNeeded()
                 // The app just regained focus. Flush any read-marking that was deferred
                 // while it was in the background so the selected chat clears its unread
@@ -69,6 +88,11 @@ struct ContentView: View {
 
     private func applyAppearance(_ preference: AppearancePreference) {
         NativeAppearanceController.apply(preference)
+    }
+
+    private func refreshTimestampReferenceDateIfNeeded(now: Date = Date()) {
+        guard !Calendar.autoupdatingCurrent.isDate(timestampReferenceDate, inSameDayAs: now) else { return }
+        timestampReferenceDate = now
     }
 }
 

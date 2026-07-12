@@ -276,6 +276,8 @@ func timelineNewestMessageScrollAction(
 
 private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.locale) private var locale
+    @Environment(\.timestampReferenceDate) private var timestampReferenceDate
     /// The top message captured before an older-history prepend, so its on-screen position
     /// can be restored afterward; also gates re-triggering `loadOlder` until the prepend lands.
     @State private var pendingPrependAnchorId: String?
@@ -338,7 +340,9 @@ private struct ConversationView: View {
                                 ForEach(messages) { message in
                                     ConversationMessageRow(
                                         message: message,
-                                        showsDebugMetadata: workspace.streamingDebugEnabled
+                                        showsDebugMetadata: workspace.streamingDebugEnabled,
+                                        timestampReferenceDate: timestampReferenceDate,
+                                        timestampLocale: locale
                                     ) { gallery in
                                         imageGallery = gallery
                                     }
