@@ -1483,7 +1483,7 @@ struct whitenoise_macTests {
         #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == 3)
     }
 
-    @Test func deleteAllLocalDataThrowsAndPreservesStorageWhenAccountRemovalFails() async throws {
+    @Test func deleteAllLocalDataThrowsAndPreservesStorageWhenAccountKeychainPurgeFails() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
@@ -1492,31 +1492,24 @@ struct whitenoise_macTests {
         try Data("private key material".utf8).write(to: secretFile)
         defer { try? fileManager.removeItem(at: root) }
 
-        var removedRefs: [String] = []
         var didShutdown = false
+        let purgeError = MarmotAccountKeychainPurgeError.deleteFailed(-50)
 
-        await #expect(throws: FakeMarmotRuntimeError.unused) {
+        await #expect(throws: MarmotAccountKeychainPurgeError.deleteFailed(-50)) {
             try await MarmotClient.deleteAllLocalData(
-                listAccountRefs: { ["Desktop Account", "Relay-Failing Account", "Backup Account"] },
-                removeAccount: { accountRef in
-                    removedRefs.append(accountRef)
-                    if accountRef == "Relay-Failing Account" {
-                        throw FakeMarmotRuntimeError.unused
-                    }
-                },
+                purgeAccountKeychain: { throw purgeError },
                 shutdown: { didShutdown = true },
                 rootPath: root.path,
                 fileManager: fileManager
             )
         }
 
-        #expect(removedRefs == ["Desktop Account", "Relay-Failing Account"])
         #expect(!didShutdown)
         #expect(fileManager.fileExists(atPath: root.path))
         #expect(fileManager.fileExists(atPath: secretFile.path))
     }
 
-    @Test func deleteAllLocalDataThrowsAndPreservesStorageWhenAccountListingFails() async throws {
+    @Test func deleteAllLocalDataPurgesKeychainBeforeShutdownAndStorageWipe() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
@@ -1525,23 +1518,69 @@ struct whitenoise_macTests {
         try Data("mls group state".utf8).write(to: secretFile)
         defer { try? fileManager.removeItem(at: root) }
 
-        var didAttemptRemove = false
-        var didShutdown = false
+        var operationOrder: [String] = []
 
-        await #expect(throws: FakeMarmotRuntimeError.unused) {
-            try await MarmotClient.deleteAllLocalData(
-                listAccountRefs: { throw FakeMarmotRuntimeError.unused },
-                removeAccount: { _ in didAttemptRemove = true },
-                shutdown: { didShutdown = true },
-                rootPath: root.path,
-                fileManager: fileManager
-            )
-        }
+        try await MarmotClient.deleteAllLocalData(
+            purgeAccountKeychain: { operationOrder.append("purge") },
+            shutdown: { operationOrder.append("shutdown") },
+            rootPath: root.path,
+            fileManager: fileManager
+        )
 
-        #expect(!didAttemptRemove)
-        #expect(!didShutdown)
+        #expect(operationOrder == ["purge", "shutdown"])
         #expect(fileManager.fileExists(atPath: root.path))
-        #expect(fileManager.fileExists(atPath: secretFile.path))
+        #expect(!fileManager.fileExists(atPath: secretFile.path))
+    }
+
+    @Test func deleteAllLocalDataSucceedsWhenOrphanedKeychainCredentialRemainsAfterTombstone() async throws {
+        // MDK remove_account tombstones before Keychain deletion; a failed removal leaves an
+        // orphaned credential that later enumeration cannot retry. Service purge must clear it
+        // without listing accounts.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
+        let secretFile = root.appendingPathComponent("orphaned-keychain-credential")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("disk state survives tombstone".utf8).write(to: secretFile)
+        defer { try? fileManager.removeItem(at: root) }
+
+        var didPurgeOrphanedCredential = false
+
+        try await MarmotClient.deleteAllLocalData(
+            purgeAccountKeychain: { didPurgeOrphanedCredential = true },
+            shutdown: {},
+            rootPath: root.path,
+            fileManager: fileManager
+        )
+
+        #expect(didPurgeOrphanedCredential)
+        #expect(fileManager.fileExists(atPath: root.path))
+        #expect(!fileManager.fileExists(atPath: secretFile.path))
+    }
+
+    @Test func deleteAllLocalDataSucceedsWhenHiddenKeychainCredentialWouldBeSkippedByEnumeration() async throws {
+        // MDK AccountHome::accounts() silently skips unreadable records. Service purge must
+        // remove hidden credentials without depending on a complete account list.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
+        let secretFile = root.appendingPathComponent("partial-enumeration-disk-state")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("visible account disk state".utf8).write(to: secretFile)
+        defer { try? fileManager.removeItem(at: root) }
+
+        var didPurgeHiddenCredential = false
+
+        try await MarmotClient.deleteAllLocalData(
+            purgeAccountKeychain: { didPurgeHiddenCredential = true },
+            shutdown: {},
+            rootPath: root.path,
+            fileManager: fileManager
+        )
+
+        #expect(didPurgeHiddenCredential)
+        #expect(fileManager.fileExists(atPath: root.path))
+        #expect(!fileManager.fileExists(atPath: secretFile.path))
     }
 
     @MainActor
