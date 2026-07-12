@@ -5846,6 +5846,39 @@ struct whitenoise_macTests {
         #expect(tileSource.contains("Task { await workspace.loadMediaAttachment(attachment, for: message) }"))
     }
 
+    @Test func automaticMediaDownloadCancelsWhenTileLeavesViewport() throws {
+        // AutomaticMediaDownloadModifier is SwiftUI lifecycle wiring, so exercise its source
+        // contract directly: the task must be retained and cancelled both on scroll-out and
+        // when SwiftUI removes the tile entirely.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let modifierStart = try #require(
+            source.range(of: "private struct AutomaticMediaDownloadModifier: ViewModifier {")
+        )
+        let rest = source[modifierStart.upperBound...]
+        let modifierEnd = try #require(rest.range(of: "\n/// The chat-bubble shape:")?.lowerBound)
+        let modifierSource = String(source[modifierStart.lowerBound..<modifierEnd])
+
+        #expect(modifierSource.contains("@State private var automaticDownloadTask: Task<Void, Never>?"))
+        #expect(
+            modifierSource.contains(
+                "} else {\n                            cancelAutomaticDownload()"
+            )
+        )
+        #expect(
+            modifierSource.contains(
+                ".onDisappear {\n            cancelAutomaticDownload()\n        }"
+            )
+        )
+        #expect(modifierSource.contains("automaticDownloadTask?.cancel()"))
+    }
+
     @MainActor
     @Test func loadMediaAttachmentRetriesFromFailedState() async throws {
         let account = AccountSummaryFfi(
