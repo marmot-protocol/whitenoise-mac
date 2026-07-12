@@ -75,6 +75,8 @@ struct ConversationMessageRow: View, Equatable {
     /// Keep the debug toggle as a row input so `.equatable()` still updates rows when the
     /// diagnostics presentation changes, while hover/selection churn is scoped below the row.
     var showsDebugMetadata = false
+    var timestampReferenceDate = Date()
+    var timestampLocale = AppLanguage.currentLocale
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     // Receives the resolved MessageItem by value (not via a shared @Observable lookup),
@@ -85,16 +87,25 @@ struct ConversationMessageRow: View, Equatable {
             MessageBubble(
                 message: message,
                 showsDebugMetadata: showsDebugMetadata,
+                timestampReferenceDate: timestampReferenceDate,
+                timestampLocale: timestampLocale,
                 onOpenImageGallery: onOpenImageGallery
             )
         } else {
-            TimelineNoticeRow(message: message, showsDebugMetadata: showsDebugMetadata)
+            TimelineNoticeRow(
+                message: message,
+                showsDebugMetadata: showsDebugMetadata,
+                timestampReferenceDate: timestampReferenceDate,
+                timestampLocale: timestampLocale
+            )
         }
     }
 
     static func == (lhs: ConversationMessageRow, rhs: ConversationMessageRow) -> Bool {
         lhs.message == rhs.message
             && lhs.showsDebugMetadata == rhs.showsDebugMetadata
+            && lhs.timestampReferenceDate == rhs.timestampReferenceDate
+            && lhs.timestampLocale == rhs.timestampLocale
     }
 }
 
@@ -102,6 +113,8 @@ struct TimelineNoticeRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     let showsDebugMetadata: Bool
+    let timestampReferenceDate: Date
+    let timestampLocale: Locale
 
     var body: some View {
         HStack {
@@ -118,7 +131,7 @@ struct TimelineNoticeRow: View {
                         .lineLimit(3)
                         .multilineTextAlignment(.center)
 
-                    Text(message.timeLabel)
+                    Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
                 }
@@ -155,6 +168,8 @@ struct MessageBubble: View {
     @State private var isSelectable = false
     let message: MessageItem
     let showsDebugMetadata: Bool
+    let timestampReferenceDate: Date
+    let timestampLocale: Locale
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     var body: some View {
@@ -195,7 +210,7 @@ struct MessageBubble: View {
                 bubbleContent
             }
 
-            Text(message.metadataLabel)
+            Text(message.metadataLabel(at: timestampReferenceDate, locale: timestampLocale))
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 5)
