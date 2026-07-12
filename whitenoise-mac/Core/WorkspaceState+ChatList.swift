@@ -274,7 +274,7 @@ extension WorkspaceState {
         guard activeAccountId == account.id else { return }
 
         if row.archived {
-            moveChatToArchived(row: row, account: account, shouldEnrich: shouldEnrich)
+            moveChatToArchived(row: row, account: account)
             if shouldEnrich {
                 startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
             }
@@ -315,11 +315,7 @@ extension WorkspaceState {
         }
     }
 
-    func moveChatToArchived(
-        row: ChatListRowFfi,
-        account: AccountItem,
-        shouldEnrich: Bool = true
-    ) {
+    func moveChatToArchived(row: ChatListRowFfi, account: AccountItem) {
         guard activeAccountId == account.id else { return }
 
         let groupIdHex = row.groupIdHex
@@ -327,9 +323,7 @@ extension WorkspaceState {
         removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
 
         var chat = baseChatItem(from: row, account: account)
-        if !shouldEnrich, let currentActive {
-            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
-        } else if let currentActive {
+        if let currentActive {
             chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
         }
 
