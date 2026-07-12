@@ -203,18 +203,15 @@ extension WorkspaceState {
         let activeItems = activeRows.map { baseChatItem(from: $0, account: account) }
         let archivedItems = archivedRows.map { baseChatItem(from: $0, account: account) }
 
-        let previousActiveChatIds = Set((chatsByAccount[account.id] ?? []).map(\.id))
-        let nextActiveChatIds = Set(activeItems.map(\.id))
-        let removedActiveChatIds = previousActiveChatIds.subtracting(nextActiveChatIds)
+        let previousChatIds = Set((chatsByAccount[account.id] ?? []).map(\.id))
+            .union((archivedChatsByAccount[account.id] ?? []).map(\.id))
+        let nextChatIds = Set(activeItems.map(\.id)).union(archivedItems.map(\.id))
+        let removedChatIds = previousChatIds.subtracting(nextChatIds)
 
-        let previousArchivedChatIds = Set((archivedChatsByAccount[account.id] ?? []).map(\.id))
-        let nextArchivedChatIds = Set(archivedItems.map(\.id))
-        let removedArchivedChatIds = previousArchivedChatIds.subtracting(nextArchivedChatIds)
-
-        for groupId in removedActiveChatIds.union(removedArchivedChatIds) {
+        for groupId in removedChatIds {
             invalidateGroupMembers(for: groupId)
         }
-        clearComposerDrafts(for: Array(removedActiveChatIds.union(removedArchivedChatIds)), accountId: account.id)
+        clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
         setChats(sortedChatItems(activeItems), forAccountId: account.id)
         setArchivedChats(sortedChatItems(archivedItems), forAccountId: account.id)
         dismissGroupImagePickerIfSelectedChatUnavailable()
