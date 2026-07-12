@@ -237,9 +237,9 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         rootPath: String,
         fileManager: FileManager = .default
     ) async throws {
-        let accountRefs = (try? listAccountRefs()) ?? []
+        let accountRefs = try listAccountRefs()
         for accountRef in accountRefs {
-            try? await removeAccount(accountRef)
+            try await removeAccount(accountRef)
         }
         await shutdown()
 

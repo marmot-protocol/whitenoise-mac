@@ -1483,7 +1483,7 @@ struct whitenoise_macTests {
         #expect(state.unreadCount(forAccountIdHex: primary.accountIdHex) == 3)
     }
 
-    @Test func deleteAllLocalDataWipesStorageWhenAccountCleanupFails() async throws {
+    @Test func deleteAllLocalDataThrowsAndPreservesStorageWhenAccountRemovalFails() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
@@ -1495,27 +1495,28 @@ struct whitenoise_macTests {
         var removedRefs: [String] = []
         var didShutdown = false
 
-        try await MarmotClient.deleteAllLocalData(
-            listAccountRefs: { ["Desktop Account", "Relay-Failing Account", "Backup Account"] },
-            removeAccount: { accountRef in
-                removedRefs.append(accountRef)
-                if accountRef == "Relay-Failing Account" {
-                    throw FakeMarmotRuntimeError.unused
-                }
-            },
-            shutdown: { didShutdown = true },
-            rootPath: root.path,
-            fileManager: fileManager
-        )
+        await #expect(throws: FakeMarmotRuntimeError.unused) {
+            try await MarmotClient.deleteAllLocalData(
+                listAccountRefs: { ["Desktop Account", "Relay-Failing Account", "Backup Account"] },
+                removeAccount: { accountRef in
+                    removedRefs.append(accountRef)
+                    if accountRef == "Relay-Failing Account" {
+                        throw FakeMarmotRuntimeError.unused
+                    }
+                },
+                shutdown: { didShutdown = true },
+                rootPath: root.path,
+                fileManager: fileManager
+            )
+        }
 
-        #expect(removedRefs == ["Desktop Account", "Relay-Failing Account", "Backup Account"])
-        #expect(didShutdown)
+        #expect(removedRefs == ["Desktop Account", "Relay-Failing Account"])
+        #expect(!didShutdown)
         #expect(fileManager.fileExists(atPath: root.path))
-        #expect(!fileManager.fileExists(atPath: secretFile.path))
-        #expect(try fileManager.contentsOfDirectory(atPath: root.path).isEmpty)
+        #expect(fileManager.fileExists(atPath: secretFile.path))
     }
 
-    @Test func deleteAllLocalDataWipesStorageWhenAccountListingFails() async throws {
+    @Test func deleteAllLocalDataThrowsAndPreservesStorageWhenAccountListingFails() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-delete-all-data-\(UUID().uuidString)", isDirectory: true)
@@ -1527,19 +1528,20 @@ struct whitenoise_macTests {
         var didAttemptRemove = false
         var didShutdown = false
 
-        try await MarmotClient.deleteAllLocalData(
-            listAccountRefs: { throw FakeMarmotRuntimeError.unused },
-            removeAccount: { _ in didAttemptRemove = true },
-            shutdown: { didShutdown = true },
-            rootPath: root.path,
-            fileManager: fileManager
-        )
+        await #expect(throws: FakeMarmotRuntimeError.unused) {
+            try await MarmotClient.deleteAllLocalData(
+                listAccountRefs: { throw FakeMarmotRuntimeError.unused },
+                removeAccount: { _ in didAttemptRemove = true },
+                shutdown: { didShutdown = true },
+                rootPath: root.path,
+                fileManager: fileManager
+            )
+        }
 
         #expect(!didAttemptRemove)
-        #expect(didShutdown)
+        #expect(!didShutdown)
         #expect(fileManager.fileExists(atPath: root.path))
-        #expect(!fileManager.fileExists(atPath: secretFile.path))
-        #expect(try fileManager.contentsOfDirectory(atPath: root.path).isEmpty)
+        #expect(fileManager.fileExists(atPath: secretFile.path))
     }
 
     @MainActor
