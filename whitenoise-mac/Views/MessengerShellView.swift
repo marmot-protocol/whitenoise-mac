@@ -244,6 +244,22 @@ nonisolated enum TimelineNewestMessageScrollAction: Equatable {
     case scrollToBottom
 }
 
+nonisolated enum TimelineOldestMessageScrollAction: Equatable {
+    case none
+    case clearPendingPrependAnchor
+    case restorePendingPrependAnchor(String)
+}
+
+func timelineOldestMessageScrollAction(
+    messageIDs: [String],
+    pendingPrependAnchorId: String?
+) -> TimelineOldestMessageScrollAction {
+    guard let pendingPrependAnchorId else { return .none }
+    return messageIDs.contains(pendingPrependAnchorId)
+        ? .restorePendingPrependAnchor(pendingPrependAnchorId)
+        : .clearPendingPrependAnchor
+}
+
 func timelineNewestMessageScrollAction(
     messageIDs: [String],
     newMessageIsOutgoing: Bool,
@@ -427,24 +443,36 @@ private struct ConversationView: View {
                         }
                     }
                     .onChange(of: messageIDs.first) { _, _ in
-                        guard let anchorId = pendingPrependAnchorId,
-                            workspace.selectedTimelineContainsMessage(anchorId)
-                        else { return }
-                        DispatchQueue.main.async {
-                            // Re-validate against live state: the user may have switched
-                            // chats (which clears pendingPrependAnchorId) or another prepend
-                            // may have landed between scheduling and execution of this block.
-                            // Without re-checking, proxy.scrollTo would run against the new
-                            // conversation using a stale anchor, and the unconditional clear
-                            // would drop restoration for a subsequent legitimate prepend.
-                            guard workspace.selectedChat?.id == chat.id,
-                                pendingPrependAnchorId == anchorId,
-                                workspace.selectedTimelineContainsMessage(anchorId)
-                            else { return }
-                            TimelineSignpost.scroll.interval("restorePrependAnchor") {
-                                proxy.scrollTo(anchorId, anchor: .top)
+                        switch timelineOldestMessageScrollAction(
+                            messageIDs: messageIDs,
+                            pendingPrependAnchorId: pendingPrependAnchorId
+                        ) {
+                        case .restorePendingPrependAnchor(let anchorId):
+                            DispatchQueue.main.async {
+                                guard pendingPrependAnchorId == anchorId else { return }
+                                guard workspace.selectedChat?.id == chat.id else {
+                                    pendingPrependAnchorId = nil
+                                    return
+                                }
+                                switch timelineOldestMessageScrollAction(
+                                    messageIDs: workspace.selectedMessageIDs,
+                                    pendingPrependAnchorId: pendingPrependAnchorId
+                                ) {
+                                case .restorePendingPrependAnchor(let anchorId):
+                                    TimelineSignpost.scroll.interval("restorePrependAnchor") {
+                                        proxy.scrollTo(anchorId, anchor: .top)
+                                    }
+                                    pendingPrependAnchorId = nil
+                                case .clearPendingPrependAnchor:
+                                    pendingPrependAnchorId = nil
+                                case .none:
+                                    break
+                                }
                             }
+                        case .clearPendingPrependAnchor:
                             pendingPrependAnchorId = nil
+                        case .none:
+                            return
                         }
                     }
                 }
@@ -659,8 +687,15 @@ private struct ConversationView: View {
         Task {
             await workspace.loadOlderMessages(groupIdHex: chat.id)
             // Fallback clear when no restoration occurs (e.g. already at the oldest message,
-            // so `messageIDs.first` never changes and the `.first` onChange won't fire).
-            if pendingPrependAnchorId == anchorId, workspace.selectedMessageIDs.first == anchorId {
+            // so `messageIDs.first` never changes and the `.first` onChange won't fire), or
+            // when a concurrent live append evicted the anchor from the capped window before
+            // restore could run.
+            guard pendingPrependAnchorId == anchorId else { return }
+            let messageIDs = workspace.selectedMessageIDs
+            if timelineOldestMessageScrollAction(
+                messageIDs: messageIDs,
+                pendingPrependAnchorId: anchorId
+            ) == .clearPendingPrependAnchor || messageIDs.first == anchorId {
                 pendingPrependAnchorId = nil
             }
         }

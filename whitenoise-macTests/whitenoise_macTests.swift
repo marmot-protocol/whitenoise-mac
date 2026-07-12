@@ -8167,6 +8167,24 @@ struct whitenoise_macTests {
             ) == .scrollToBottom)
     }
 
+    @Test func olderTimelinePagingClearsEvictedPrependAnchor() {
+        #expect(
+            timelineOldestMessageScrollAction(
+                messageIDs: ["message-150", "message-249"],
+                pendingPrependAnchorId: "message-100"
+            ) == .clearPendingPrependAnchor)
+        #expect(
+            timelineOldestMessageScrollAction(
+                messageIDs: ["message-050", "message-100", "message-150"],
+                pendingPrependAnchorId: "message-100"
+            ) == .restorePendingPrependAnchor("message-100"))
+        #expect(
+            timelineOldestMessageScrollAction(
+                messageIDs: ["message-150", "message-249"],
+                pendingPrependAnchorId: nil
+            ) == .none)
+    }
+
     @Test func newestMessageAutoScrollUsesBottomProximityNotOlderHistoryAvailability() {
         let longLiveEdgePaging = TimelinePagingState(
             hasMoreBefore: true,
