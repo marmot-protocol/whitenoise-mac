@@ -105,18 +105,21 @@ extension ChatItem {
             presentation.isChatBubble
             && sourceTextIsEmpty
             && text == L10n.string("Unsupported message")
-        guard !text.isEmpty, !isMediaOnlyChat else {
-            return presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
+        let body: String
+        if !text.isEmpty, !isMediaOnlyChat {
+            body = text
+        } else {
+            body = presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
         }
         guard presentation.isChatBubble,
             preview.sender != activeAccountIdHex,
             let senderName = preview.senderDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
             !senderName.isEmpty
         else {
-            return text
+            return body
         }
 
-        return "\(senderName): \(text)"
+        return "\(senderName): \(body)"
     }
 }
 

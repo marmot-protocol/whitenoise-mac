@@ -4047,7 +4047,7 @@ struct whitenoise_macTests {
         )
 
         let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
-        #expect(directChat.preview == "Attachment")
+        #expect(directChat.preview == "Alice: Attachment")
 
         let groupRow = ChatListRowFfi(
             groupIdHex: "group",
@@ -4079,7 +4079,9 @@ struct whitenoise_macTests {
         )
 
         let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
-        #expect(groupChat.preview == "Attachment")
+        // Regression for whitenoise-mac#471: media-only incoming previews must pass
+        // through the same sender-attribution path as incoming text previews.
+        #expect(groupChat.preview == "Alice: Attachment")
     }
 
     @MainActor
