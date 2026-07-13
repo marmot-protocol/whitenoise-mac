@@ -205,16 +205,19 @@ extension WorkspaceState {
 
         let previousActiveChatIds = Set((chatsByAccount[account.id] ?? []).map(\.id))
         let nextActiveChatIds = Set(activeItems.map(\.id))
-        let removedActiveChatIds = previousActiveChatIds.subtracting(nextActiveChatIds)
-
         let previousArchivedChatIds = Set((archivedChatsByAccount[account.id] ?? []).map(\.id))
         let nextArchivedChatIds = Set(archivedItems.map(\.id))
-        let removedArchivedChatIds = previousArchivedChatIds.subtracting(nextArchivedChatIds)
 
-        for groupId in removedActiveChatIds.union(removedArchivedChatIds) {
+        // A chat that merely moves active↔archived is missing from one "next" list but present in
+        // the other, so per-list subtraction would wrongly flag it as removed. Only chats gone from
+        // both lists are truly removed — clearing drafts for a moved chat drops its composer draft.
+        let removedChatIds = previousActiveChatIds.union(previousArchivedChatIds)
+            .subtracting(nextActiveChatIds.union(nextArchivedChatIds))
+
+        for groupId in removedChatIds {
             invalidateGroupMembers(for: groupId)
         }
-        clearComposerDrafts(for: Array(removedActiveChatIds.union(removedArchivedChatIds)), accountId: account.id)
+        clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
         setChats(sortedChatItems(activeItems), forAccountId: account.id)
         setArchivedChats(sortedChatItems(archivedItems), forAccountId: account.id)
         dismissGroupImagePickerIfSelectedChatUnavailable()
