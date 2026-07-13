@@ -108,7 +108,9 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         configureHandlers(for: textView, coordinator: context.coordinator)
 
         scrollView.documentView = textView
-        context.coordinator.updateMeasuredHeight(for: textView)
+        DispatchQueue.main.async {
+            context.coordinator.updateMeasuredHeight(for: textView)
+        }
         return scrollView
     }
 
@@ -124,7 +126,6 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
-        context.coordinator.updateMeasuredHeight(for: textView)
         DispatchQueue.main.async {
             context.coordinator.updateMeasuredHeight(for: textView)
         }
