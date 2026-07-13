@@ -13122,6 +13122,64 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func archivingChatPreservesComposerDraftAcrossSnapshotReload() async throws {
+        // #466: a chat moved active→archived through the full-snapshot reload (`applyChatRows`)
+        // must not be treated as removed — its per-conversation composer draft has to survive.
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let chatId = "draft-survives-archive"
+        let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
+
+        await state.applyChatRows(
+            [chatListRow(groupIdHex: chatId, title: "Planning", preview: "hi", sender: sender, timelineAt: 1)],
+            account: account
+        )
+        let activeChat = try #require(state.chatsByAccount[account.id]?.first { $0.id == chatId })
+        state.selectChat(activeChat)
+        state.draftText = "see you at 6"
+        let draftKey = WorkspaceState.ComposerDraftKey(accountId: account.id, chatId: chatId)
+        #expect(state.draftTextByConversation[draftKey] == "see you at 6")
+
+        // Same chat, now archived, via a fresh snapshot.
+        await state.applyChatRows(
+            [
+                ChatListRowFfi(
+                    groupIdHex: chatId,
+                    archived: true,
+                    pendingConfirmation: false,
+                    title: "Planning",
+                    groupName: "",
+                    avatarUrl: nil,
+                    avatar: nil,
+                    lastMessage: ChatListMessagePreviewFfi(
+                        messageIdHex: "preview",
+                        sender: sender,
+                        senderDisplayName: nil,
+                        plaintext: "hi",
+                        contentTokens: emptyMarkdownDocument(),
+                        kind: 9,
+                        timelineAt: 1,
+                        deleted: false
+                    ),
+                    unreadCount: 0,
+                    hasUnread: false,
+                    unreadMentionCount: 0,
+                    unreadMention: false,
+                    firstUnreadMessageIdHex: nil,
+                    lastReadMessageIdHex: nil,
+                    lastReadTimelineAt: nil,
+                    updatedAt: 1,
+                    selfMembership: .member
+                )
+            ],
+            account: account
+        )
+
+        #expect(state.archivedChatsByAccount[account.id]?.contains { $0.id == chatId } == true)
+        #expect(state.draftTextByConversation[draftKey] == "see you at 6")
+    }
+
+    @MainActor
     @Test func startingNewChatCreatesAndSelectsConversation() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -13257,6 +13315,40 @@ struct whitenoise_macTests {
 
         #expect(state.resolvedNewChatRecipient?.title == "Desktop Account")
         #expect(state.resolvedNewChatRecipient?.pictureURL == "https://example.com/avatar.png")
+    }
+
+    @Test func nip05RedirectPolicyRevalidatesRedirectTargets() throws {
+        // #448: the resolver's session must re-check every redirect hop against the SSRF host
+        // policy, so a public well-known host cannot 3xx the lookup to a private/loopback/
+        // non-https target.
+        let policy = NIP05RedirectPolicy()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.dataTask(with: URL(string: "https://example.com/.well-known/nostr.json")!)
+        let redirectResponse = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 302, httpVersion: nil, headerFields: nil
+        )!
+
+        func followedRequest(to target: String) -> URLRequest? {
+            var decided: URLRequest?
+            policy.urlSession(
+                session,
+                task: task,
+                willPerformHTTPRedirection: redirectResponse,
+                newRequest: URLRequest(url: URL(string: target)!)
+            ) { decided = $0 }
+            return decided
+        }
+
+        // Blocked: loopback, link-local, private, IPv6 loopback, and scheme downgrade.
+        #expect(followedRequest(to: "https://127.0.0.1:8080/x") == nil)
+        #expect(followedRequest(to: "https://169.254.169.254/x") == nil)
+        #expect(followedRequest(to: "https://10.0.0.5/x") == nil)
+        #expect(followedRequest(to: "https://[::1]/x") == nil)
+        #expect(followedRequest(to: "http://example.com/x") == nil)
+        // Allowed: a public https target is followed unchanged.
+        let allowed = followedRequest(to: "https://relay.example.com/x")
+        #expect(allowed?.url?.absoluteString == "https://relay.example.com/x")
     }
 
     @MainActor
