@@ -341,6 +341,7 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
     let message: MessageItem
     let requiresScrollVisibility: Bool
     @State private var isVisibleInScrollView = false
+    @State private var automaticDownloadTask: Task<Void, Never>?
 
     func body(content: Content) -> some View {
         Group {
@@ -352,6 +353,8 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
                         isVisibleInScrollView = isVisible
                         if isVisible {
                             startAutomaticDownloadIfNeeded()
+                        } else {
+                            cancelAutomaticDownload()
                         }
                     }
             } else {
@@ -362,6 +365,7 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
             }
         }
         .onChange(of: attachment.id) { _, _ in
+            cancelAutomaticDownload()
             if shouldStartForCurrentVisibility {
                 startAutomaticDownloadIfNeeded()
             }
@@ -371,6 +375,9 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
                 startAutomaticDownloadIfNeeded()
             }
         }
+        .onDisappear {
+            cancelAutomaticDownload()
+        }
     }
 
     private var shouldStartForCurrentVisibility: Bool {
@@ -379,7 +386,15 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
 
     private func startAutomaticDownloadIfNeeded() {
         guard downloadState.shouldStartAutomaticDownload else { return }
-        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+        automaticDownloadTask?.cancel()
+        automaticDownloadTask = Task {
+            await workspace.loadMediaAttachment(attachment, for: message)
+        }
+    }
+
+    private func cancelAutomaticDownload() {
+        automaticDownloadTask?.cancel()
+        automaticDownloadTask = nil
     }
 }
 
