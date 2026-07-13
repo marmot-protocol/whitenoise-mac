@@ -1,5 +1,6 @@
 import Foundation
 import MarmotKit
+import Security
 
 // The project defaults to `@MainActor` isolation, but every MarmotRuntime method is a
 // thread-safe bridge into the Rust core. Marking the protocol `nonisolated` lets these
@@ -223,24 +224,18 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func deleteAllLocalData() async throws {
         try await Self.deleteAllLocalData(
-            listAccountRefs: { try marmot.listAccounts().map(\.label) },
-            removeAccount: { try await marmot.removeAccount(accountRef: $0) },
             shutdown: { await marmot.shutdown() },
             rootPath: rootPath
         )
     }
 
     static func deleteAllLocalData(
-        listAccountRefs: () throws -> [String],
-        removeAccount: (String) async throws -> Void,
+        purgeAccountKeychain: () throws -> Void = MarmotAccountKeychain.purgeAllAccountKeys,
         shutdown: () async -> Void,
         rootPath: String,
         fileManager: FileManager = .default
     ) async throws {
-        let accountRefs = (try? listAccountRefs()) ?? []
-        for accountRef in accountRefs {
-            try? await removeAccount(accountRef)
-        }
+        try purgeAccountKeychain()
         await shutdown()
 
         if fileManager.fileExists(atPath: rootPath) {
@@ -516,6 +511,32 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
         try await marmot.secureDeleteExpired(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+}
+
+nonisolated enum MarmotAccountKeychainPurgeError: LocalizedError, Equatable {
+    case deleteFailed(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .deleteFailed(let status):
+            "Unable to delete Marmot account keys from Keychain (\(status))."
+        }
+    }
+}
+
+nonisolated enum MarmotAccountKeychain {
+    private static let service = "com.marmot.whitenoise"
+
+    static func purgeAllAccountKeys() throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw MarmotAccountKeychainPurgeError.deleteFailed(status)
+        }
     }
 }
 
