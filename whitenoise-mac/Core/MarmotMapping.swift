@@ -38,9 +38,9 @@ extension ChatItem {
         directPeer: ChatPeerProfile? = nil,
         groupAvatarURL: String? = nil
     ) {
-        let groupName = row.groupName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let peerName = directPeer?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let projectedTitle = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let groupName = PeerDisplayText.sanitize(row.groupName) ?? ""
+        let peerName = PeerDisplayText.sanitize(directPeer?.displayName)
+        let projectedTitle = PeerDisplayText.sanitize(row.title) ?? ""
         let title: String
         if let peerName, !peerName.isEmpty {
             title = peerName
@@ -115,13 +115,13 @@ extension ChatItem {
         }
         guard presentation.isChatBubble,
             preview.sender != activeAccountIdHex,
-            let senderName = preview.senderDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+            let senderName = PeerDisplayText.sanitize(preview.senderDisplayName),
             !senderName.isEmpty
         else {
             return body
         }
 
-        return "\(senderName): \(body)"
+        return "\(PeerDisplayText.templateFragment(senderName)): \(body)"
     }
 }
 
@@ -401,7 +401,7 @@ nonisolated extension MessageItem {
             break
         }
 
-        return nonBlank(event.text) ?? groupSystemFallback(event.systemType)
+        return PeerDisplayText.sanitize(event.text) ?? groupSystemFallback(event.systemType)
     }
 
     private static func memberAddedText(
@@ -595,25 +595,35 @@ nonisolated extension MessageItem {
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile]
     ) -> String? {
-        guard let name = nonBlank(event.name) else { return nil }
+        guard let name = PeerDisplayText.sanitize(event.name) else { return nil }
         let actorName = systemAccountName(
             event.actorAccountIdHex,
             activeAccountIdHex: activeAccountIdHex,
             senderProfiles: senderProfiles,
             position: .subject
         )
-        let oldName = nonBlank(event.oldName)
+        let oldName = PeerDisplayText.sanitize(event.oldName)
+        let isolatedName = PeerDisplayText.templateFragment(name)
 
         if let actorName, let oldName {
-            return String(format: L10n.string("%@ renamed the group from \"%@\" to \"%@\""), actorName, oldName, name)
+            return String(
+                format: L10n.string("%@ renamed the group from \"%@\" to \"%@\""),
+                actorName,
+                PeerDisplayText.templateFragment(oldName),
+                isolatedName
+            )
         }
         if let actorName {
-            return String(format: L10n.string("%@ renamed the group to \"%@\""), actorName, name)
+            return String(format: L10n.string("%@ renamed the group to \"%@\""), actorName, isolatedName)
         }
         if let oldName {
-            return String(format: L10n.string("The group was renamed from \"%@\" to \"%@\""), oldName, name)
+            return String(
+                format: L10n.string("The group was renamed from \"%@\" to \"%@\""),
+                PeerDisplayText.templateFragment(oldName),
+                isolatedName
+            )
         }
-        return String(format: L10n.string("The group was renamed to \"%@\""), name)
+        return String(format: L10n.string("The group was renamed to \"%@\""), isolatedName)
     }
 
     private static func groupAvatarChangedText(
@@ -685,7 +695,9 @@ nonisolated extension MessageItem {
                 return L10n.string("you")
             }
         }
-        return displayName(for: accountIdHex, profile: senderProfiles[accountIdHex])
+        return PeerDisplayText.templateFragment(
+            displayName(for: accountIdHex, profile: senderProfiles[accountIdHex])
+        )
     }
 
     private enum SystemAccountNamePosition {
@@ -834,11 +846,11 @@ nonisolated extension MessageItem {
             return L10n.string("Agent operation")
         case .groupSystem:
             let payload = TimelinePayload.decode(from: body)
-            if let text = firstNonBlank([payload?.text]) {
+            if let text = PeerDisplayText.sanitize(payload?.text) {
                 return text
             }
-            if payload == nil, !body.isEmpty {
-                return body
+            if payload == nil, let text = PeerDisplayText.sanitize(body) {
+                return text
             }
             return groupSystemFallback(payload?.systemType ?? tagValue("system", in: tags))
         case .unsupported:
@@ -887,7 +899,7 @@ nonisolated extension MessageItem {
     }
 
     private static func displayName(for sender: String, profile: ChatPeerProfile?) -> String {
-        firstNonBlank([profile?.displayName]) ?? DisplayText.short(sender)
+        PeerDisplayText.sanitize(profile?.displayName) ?? DisplayText.short(sender)
     }
 
     private static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {

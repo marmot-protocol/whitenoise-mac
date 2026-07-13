@@ -202,7 +202,7 @@ struct GroupMemberItem: Identifiable, Hashable {
         if isSelf {
             return L10n.string("You")
         }
-        if let accountLabel, !accountLabel.isEmpty {
+        if let accountLabel = PeerDisplayText.sanitize(accountLabel) {
             return accountLabel
         }
         return DisplayText.short(npub, head: 12, tail: 8)
@@ -2204,17 +2204,13 @@ struct NewChatRecipient: Equatable {
         self.memberRef = memberRef
         self.accountIdHex = accountIdHex
         self.npub = npub
-        self.displayName = displayName
+        self.displayName = PeerDisplayText.sanitize(displayName)
         self.pictureURL = pictureURL
         self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
     }
 
     var title: String {
-        guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-            !displayName.isEmpty
-        else { return DisplayText.short(accountIdHex) }
-
-        return displayName
+        displayName ?? DisplayText.short(accountIdHex)
     }
 
     var subtitle: String {

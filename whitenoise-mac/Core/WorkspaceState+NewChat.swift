@@ -80,9 +80,9 @@ extension WorkspaceState {
             )
         }
         let displayName = firstNonBlank([
-            resolved?.profileDisplayName,
-            resolved?.profileName,
-            resolved?.directoryDisplayName,
+            PeerDisplayText.sanitize(resolved?.profileDisplayName),
+            PeerDisplayText.sanitize(resolved?.profileName),
+            PeerDisplayText.sanitize(resolved?.directoryDisplayName),
         ])
         return NewChatRecipient(
             sourceQuery: query,
