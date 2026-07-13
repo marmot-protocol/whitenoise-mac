@@ -583,6 +583,78 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func groupDetailsSnapshotSanitizesPeerControlledNames() async throws {
+        let rtlOverride = "\u{202E}"
+        let ltrIsolate = "\u{2066}"
+        let memberIdHex = "member1234567890member1234567890member1234567890member1234"
+        let group = AppGroupRecordFfi(
+            groupIdHex: "group",
+            endpoint: "",
+            name: "\(rtlOverride)Ops Team\(ltrIsolate)",
+            description: "",
+            admins: [memberIdHex],
+            relays: [],
+            nostrGroupIdHex: "",
+            avatarUrl: nil,
+            avatarDim: nil,
+            avatarThumbhash: nil,
+            imageHashHex: nil,
+            encryptedMedia: AppGroupEncryptedMediaComponentFfi(
+                componentId: 0,
+                component: "",
+                required: false,
+                mediaFormat: "",
+                allowedLocatorKinds: [],
+                defaultBlobEndpoints: []
+            ),
+            disappearingMessageSecs: 0,
+            archived: false,
+            pendingConfirmation: false,
+            selfMembership: .member,
+            welcomerAccountIdHex: nil,
+            viaWelcomeMessageIdHex: nil
+        )
+        let details = GroupDetailsFfi(
+            group: group,
+            members: [
+                GroupMemberDetailsFfi(
+                    memberIdHex: memberIdHex,
+                    account: "\(rtlOverride)member@example.test\(ltrIsolate)",
+                    local: false,
+                    isAdmin: true,
+                    isSelf: false,
+                    npub: "npub1member",
+                    displayName: "\(ltrIsolate)Trusted Admin\(rtlOverride)"
+                )
+            ]
+        )
+        let managementState = GroupManagementStateFfi(
+            myAccountIdHex: memberIdHex,
+            isSelfAdmin: true,
+            isLastAdmin: false,
+            canInvite: true,
+            canLeave: true,
+            requiresSelfDemoteBeforeLeave: false,
+            memberActions: []
+        )
+
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        let snapshot = state.groupDetailsSnapshot(from: details, managementState: managementState)
+        let member = try #require(snapshot.members.first { $0.id == memberIdHex })
+
+        #expect(snapshot.name == "Ops Team")
+        #expect(member.displayName == "Trusted Admin")
+        #expect(member.detailLabel == "member@example.test")
+        #expect(!snapshot.name.unicodeScalars.contains { $0.properties.generalCategory == .format })
+        #expect(!member.displayName.unicodeScalars.contains { $0.properties.generalCategory == .format })
+        #expect(!member.detailLabel.unicodeScalars.contains { $0.properties.generalCategory == .format })
+    }
+
+    @MainActor
     @Test func groupDetailsSnapshotMapsSelfMembershipVariants() async throws {
         let variants: [(SelfMembershipFfi, ChatSelfMembership)] = [
             (.member, .member),

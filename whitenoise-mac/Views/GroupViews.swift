@@ -577,7 +577,7 @@ struct GroupMemberRow: View {
             .disabled(workspace.hasInFlightGroupDetailsMutation)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes \(member.displayName) from the group.")
+            Text("This removes \(PeerDisplayText.templateFragment(member.displayName)) from the group.")
         }
     }
 }
