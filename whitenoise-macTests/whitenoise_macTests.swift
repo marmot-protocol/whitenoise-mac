@@ -13353,7 +13353,8 @@ struct whitenoise_macTests {
         #expect(followedRequest(to: "https://[::1]/x") == nil)
         #expect(followedRequest(to: "http://example.com/x") == nil)
         // Allowed: a public https target is followed unchanged.
-        #expect(followedRequest(to: "https://relay.example.com/x")?.url?.absoluteString == "https://relay.example.com/x")
+        let allowed = followedRequest(to: "https://relay.example.com/x")
+        #expect(allowed?.url?.absoluteString == "https://relay.example.com/x")
     }
 
     @MainActor
