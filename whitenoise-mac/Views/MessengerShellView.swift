@@ -390,6 +390,9 @@ private struct ConversationView: View {
                         pendingPrependAnchorId = nil
                         pendingAppendAnchorId = nil
                         isPinnedToBottom = true
+                        // The fresh ScrollView starts idle without emitting a phase transition, so
+                        // clear the gate here or the new transcript stays non-interactive until a scroll.
+                        isActivelyScrolling = false
                         hoverSelectionCoordinator.reset()
                     }
                     .onChange(of: messageIDs.last) { _, newMessageId in

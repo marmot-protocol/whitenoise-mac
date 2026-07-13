@@ -23,7 +23,13 @@ enum NIP05ResolutionError: Error {
 struct NIP05Resolver: NIP05Resolving {
     private let session: URLSession
 
-    init(session: URLSession = URLSession(configuration: Self.makeSessionConfiguration())) {
+    init(
+        session: URLSession = URLSession(
+            configuration: Self.makeSessionConfiguration(),
+            delegate: NIP05RedirectPolicy(),
+            delegateQueue: nil
+        )
+    ) {
         self.session = session
     }
 
@@ -69,6 +75,27 @@ struct NIP05Resolver: NIP05Resolving {
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 15
         return configuration
+    }
+}
+
+/// Re-validates each redirect target against the SSRF host policy — URLSession auto-follows
+/// redirects, so without this a public well-known host could 3xx the lookup to a private/
+/// loopback/link-local address the up-front guard blocks. Mirrors the avatar path's
+/// CappedImageDownloadDelegate.
+final class NIP05RedirectPolicy: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else {
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        completionHandler(request)
     }
 }
 
