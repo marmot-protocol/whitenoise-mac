@@ -318,7 +318,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let root = try? directoryResolver()
         let deleteKey = keyDeleter
         let task = beginPurge(scope: .all) { [self] in
-            var removalSucceeded = true
+            var removalSucceeded = root != nil
             if let root, FileManager.default.fileExists(atPath: root.path) {
                 do {
                     try FileManager.default.removeItem(at: root)
@@ -329,8 +329,9 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             if removeEncryptionKey {
                 deleteKey()
             }
-            // On a failed removal, entries survive on disk — a zero footprint would be a false
-            // zero the incremental accountant never reconciles, so nil it to force a re-seed.
+            // An unresolved root or a failed removal can leave entries on disk — a zero footprint
+            // would be a false zero the incremental accountant never reconciles, so nil it instead
+            // to force a re-seed.
             trackedFootprint = removalSucceeded ? CacheFootprint(entryCount: 0, byteCount: 0) : nil
         }
         await task.task.value
