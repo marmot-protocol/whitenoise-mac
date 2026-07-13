@@ -2179,6 +2179,12 @@ struct whitenoise_macTests {
     }
 
     @Test func messageMediaDiskCacheReadDeletionMaintainsTrackedFootprint() async throws {
+        // Since #444 isolates entries by (ciphertext, plaintext) hash, the read path no longer
+        // deletes a colliding stale entry — but it still deletes an entry whose sealed metadata
+        // cannot be opened, and must invalidate the tracked footprint when it does. Otherwise
+        // the next store sees an inflated count, runs a full eviction scan, and that scan sweeps
+        // an untouched corrupt sentinel early. The sentinel surviving proves the read deletion
+        // kept the footprint honest (no spurious scan).
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
@@ -2190,68 +2196,54 @@ struct whitenoise_macTests {
             evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
             timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
         )
-        let stalePlaintext = Data("stale media for replaced reference".utf8)
-        let corruptPlaintext = Data("corrupt metadata entry that should not be swept early".utf8)
-        let replacementPlaintext = Data("replacement media after read-path deletion".utf8)
-        let staleReference = mediaDiskCacheReference(plaintext: stalePlaintext, ciphertextByte: 0xa1)
-        let invalidatingReference = mediaDiskCacheReference(
-            plaintext: Data("different plaintext digest for the same ciphertext".utf8),
-            ciphertextByte: 0xa1
-        )
-        let corruptReference = mediaDiskCacheReference(plaintext: corruptPlaintext, ciphertextByte: 0xa2)
-        let replacementReference = mediaDiskCacheReference(plaintext: replacementPlaintext, ciphertextByte: 0xa3)
-        let staleKey = MessageMediaDiskCacheKey(
+        let victimPlaintext = Data("entry whose metadata is corrupted before read".utf8)
+        let sentinelPlaintext = Data("corrupt sentinel that only a full scan would sweep".utf8)
+        let replacementPlaintext = Data("replacement media stored after the read deletion".utf8)
+        let victimKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: staleReference
+            reference: mediaDiskCacheReference(plaintext: victimPlaintext, ciphertextByte: 0xa1)
         )
-        let invalidatingKey = MessageMediaDiskCacheKey(
+        let sentinelKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: invalidatingReference
-        )
-        let corruptKey = MessageMediaDiskCacheKey(
-            accountId: "account-a",
-            groupIdHex: "group-a",
-            reference: corruptReference
+            reference: mediaDiskCacheReference(plaintext: sentinelPlaintext, ciphertextByte: 0xa2)
         )
         let replacementKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: replacementReference
+            reference: mediaDiskCacheReference(plaintext: replacementPlaintext, ciphertextByte: 0xa3)
         )
-
-        #expect(staleKey.cacheID == invalidatingKey.cacheID)
-        #expect(staleKey.plaintextSha256 != invalidatingKey.plaintextSha256)
 
         await cache.store(
             MessageMediaDownload(
-                data: stalePlaintext,
-                fileName: "stale.jpg",
+                data: victimPlaintext,
+                fileName: "victim.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(stalePlaintext.count),
-                payloadId: "stale"
+                sizeBytes: UInt64(victimPlaintext.count),
+                payloadId: "victim"
             ),
-            for: staleKey
+            for: victimKey
         )
         await cache.store(
             MessageMediaDownload(
-                data: corruptPlaintext,
-                fileName: "corrupt.jpg",
+                data: sentinelPlaintext,
+                fileName: "sentinel.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(corruptPlaintext.count),
-                payloadId: "corrupt"
+                sizeBytes: UInt64(sentinelPlaintext.count),
+                payloadId: "sentinel"
             ),
-            for: corruptKey
+            for: sentinelKey
         )
-        let staleEntryDirectory = try #require(cache.entryDirectory(for: staleKey))
-        let corruptEntryDirectory = try #require(cache.entryDirectory(for: corruptKey))
-        // The corrupt unread entry is a sentinel for an unintended full cacheScan: a stale,
-        // inflated trackedFootprint would force a scan on the next store and remove it early.
-        try Data("not sealed metadata".utf8).write(to: corruptEntryDirectory.appendingPathComponent("metadata.bin"))
+        let victimEntryDirectory = try #require(cache.entryDirectory(for: victimKey))
+        let sentinelEntryDirectory = try #require(cache.entryDirectory(for: sentinelKey))
+        // Corrupt both sealed metadata blobs: reading the victim must delete it (exercising the
+        // read-path deletion), while the sentinel is only ever removed by a full eviction scan.
+        try Data("not sealed metadata".utf8).write(to: victimEntryDirectory.appendingPathComponent("metadata.bin"))
+        try Data("not sealed metadata".utf8).write(to: sentinelEntryDirectory.appendingPathComponent("metadata.bin"))
 
-        #expect(await cache.cachedDownload(for: invalidatingKey) == nil)
-        #expect(!fileManager.fileExists(atPath: staleEntryDirectory.path))
+        #expect(await cache.cachedDownload(for: victimKey) == nil)
+        #expect(!fileManager.fileExists(atPath: victimEntryDirectory.path))
 
         await cache.store(
             MessageMediaDownload(
@@ -2264,7 +2256,7 @@ struct whitenoise_macTests {
             for: replacementKey
         )
 
-        #expect(fileManager.fileExists(atPath: corruptEntryDirectory.path))
+        #expect(fileManager.fileExists(atPath: sentinelEntryDirectory.path))
         #expect(try #require(await cache.cachedDownload(for: replacementKey)).data == replacementPlaintext)
     }
 
@@ -4187,6 +4179,8 @@ struct whitenoise_macTests {
         // Regression for whitenoise-mac#175: `ChatListMessagePreviewFfi` carries no media
         // payload, so a media-only chat message arrives with empty plaintext. The chat-list
         // preview must fall back to "Attachment" rather than "Unsupported message".
+        // An incoming chat-bubble preview from another member is attributed with the sender
+        // name, so the media fallback reads "Alice: Attachment" — consistent with text previews.
         let directRow = ChatListRowFfi(
             groupIdHex: "direct-group",
             archived: false,
@@ -4217,7 +4211,7 @@ struct whitenoise_macTests {
         )
 
         let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
-        #expect(directChat.preview == "Attachment")
+        #expect(directChat.preview == "Alice: Attachment")
 
         let groupRow = ChatListRowFfi(
             groupIdHex: "group",
@@ -4249,7 +4243,7 @@ struct whitenoise_macTests {
         )
 
         let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
-        #expect(groupChat.preview == "Attachment")
+        #expect(groupChat.preview == "Alice: Attachment")
     }
 
     @MainActor
@@ -13298,6 +13292,64 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func archivingChatPreservesComposerDraftAcrossSnapshotReload() async throws {
+        // #466: a chat moved active→archived through the full-snapshot reload (`applyChatRows`)
+        // must not be treated as removed — its per-conversation composer draft has to survive.
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let chatId = "draft-survives-archive"
+        let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
+
+        await state.applyChatRows(
+            [chatListRow(groupIdHex: chatId, title: "Planning", preview: "hi", sender: sender, timelineAt: 1)],
+            account: account
+        )
+        let activeChat = try #require(state.chatsByAccount[account.id]?.first { $0.id == chatId })
+        state.selectChat(activeChat)
+        state.draftText = "see you at 6"
+        let draftKey = WorkspaceState.ComposerDraftKey(accountId: account.id, chatId: chatId)
+        #expect(state.draftTextByConversation[draftKey] == "see you at 6")
+
+        // Same chat, now archived, via a fresh snapshot.
+        await state.applyChatRows(
+            [
+                ChatListRowFfi(
+                    groupIdHex: chatId,
+                    archived: true,
+                    pendingConfirmation: false,
+                    title: "Planning",
+                    groupName: "",
+                    avatarUrl: nil,
+                    avatar: nil,
+                    lastMessage: ChatListMessagePreviewFfi(
+                        messageIdHex: "preview",
+                        sender: sender,
+                        senderDisplayName: nil,
+                        plaintext: "hi",
+                        contentTokens: emptyMarkdownDocument(),
+                        kind: 9,
+                        timelineAt: 1,
+                        deleted: false
+                    ),
+                    unreadCount: 0,
+                    hasUnread: false,
+                    unreadMentionCount: 0,
+                    unreadMention: false,
+                    firstUnreadMessageIdHex: nil,
+                    lastReadMessageIdHex: nil,
+                    lastReadTimelineAt: nil,
+                    updatedAt: 1,
+                    selfMembership: .member
+                )
+            ],
+            account: account
+        )
+
+        #expect(state.archivedChatsByAccount[account.id]?.contains { $0.id == chatId } == true)
+        #expect(state.draftTextByConversation[draftKey] == "see you at 6")
+    }
+
+    @MainActor
     @Test func startingNewChatCreatesAndSelectsConversation() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -13433,6 +13485,40 @@ struct whitenoise_macTests {
 
         #expect(state.resolvedNewChatRecipient?.title == "Desktop Account")
         #expect(state.resolvedNewChatRecipient?.pictureURL == "https://example.com/avatar.png")
+    }
+
+    @Test func nip05RedirectPolicyRevalidatesRedirectTargets() throws {
+        // #448: the resolver's session must re-check every redirect hop against the SSRF host
+        // policy, so a public well-known host cannot 3xx the lookup to a private/loopback/
+        // non-https target.
+        let policy = NIP05RedirectPolicy()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.dataTask(with: URL(string: "https://example.com/.well-known/nostr.json")!)
+        let redirectResponse = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 302, httpVersion: nil, headerFields: nil
+        )!
+
+        func followedRequest(to target: String) -> URLRequest? {
+            var decided: URLRequest?
+            policy.urlSession(
+                session,
+                task: task,
+                willPerformHTTPRedirection: redirectResponse,
+                newRequest: URLRequest(url: URL(string: target)!)
+            ) { decided = $0 }
+            return decided
+        }
+
+        // Blocked: loopback, link-local, private, IPv6 loopback, and scheme downgrade.
+        #expect(followedRequest(to: "https://127.0.0.1:8080/x") == nil)
+        #expect(followedRequest(to: "https://169.254.169.254/x") == nil)
+        #expect(followedRequest(to: "https://10.0.0.5/x") == nil)
+        #expect(followedRequest(to: "https://[::1]/x") == nil)
+        #expect(followedRequest(to: "http://example.com/x") == nil)
+        // Allowed: a public https target is followed unchanged.
+        let allowed = followedRequest(to: "https://relay.example.com/x")
+        #expect(allowed?.url?.absoluteString == "https://relay.example.com/x")
     }
 
     @MainActor

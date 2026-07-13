@@ -105,18 +105,23 @@ extension ChatItem {
             presentation.isChatBubble
             && sourceTextIsEmpty
             && text == L10n.string("Unsupported message")
-        guard !text.isEmpty, !isMediaOnlyChat else {
-            return presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
+        // Resolve the body first so the sender prefix applies to media-only previews too, not
+        // just text — otherwise a group attachment shows up unattributed.
+        let body: String
+        if text.isEmpty || isMediaOnlyChat {
+            body = presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
+        } else {
+            body = text
         }
         guard presentation.isChatBubble,
             preview.sender != activeAccountIdHex,
             let senderName = preview.senderDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines),
             !senderName.isEmpty
         else {
-            return text
+            return body
         }
 
-        return "\(senderName): \(text)"
+        return "\(senderName): \(body)"
     }
 }
 
