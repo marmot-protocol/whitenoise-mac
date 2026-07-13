@@ -280,6 +280,7 @@ extension WorkspaceState {
         }
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
 
+        let editMutations = MessageEditOverlay.mutations(from: page.messages)
         let currentPaging = timelinePagingByChat[groupIdHex]
         TimelineSignpost.store.interval("replaceMessages", count: mappedMessages.count) {
             replaceMessages(
@@ -290,7 +291,8 @@ extension WorkspaceState {
                     hasMoreAfter: page.hasMoreAfter,
                     isLoadingBefore: currentPaging?.isLoadingBefore ?? false,
                     isLoadingAfter: currentPaging?.isLoadingAfter ?? false
-                )
+                ),
+                editMutations: editMutations
             )
         }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
@@ -354,7 +356,8 @@ extension WorkspaceState {
                 }
             }
         }
-        guard !upsertRecords.isEmpty || !removalIds.isEmpty else { return }
+        let editMutations = MessageEditOverlay.mutations(from: upsertRecords)
+        guard !upsertRecords.isEmpty || !removalIds.isEmpty || !editMutations.isEmpty else { return }
 
         // Resolve senders for just the changed records (the common case is an all-cached
         // lookup) and map only those records — not the entire window.
@@ -419,6 +422,7 @@ extension WorkspaceState {
             timelineStore.applyProjection(
                 upserts: mappedUpserts,
                 removals: removalIds,
+                editMutations: editMutations,
                 anchoredToNewest: anchored,
                 windowLimit: Self.timelineWindowLimit
             )
@@ -764,7 +768,8 @@ extension WorkspaceState {
     func replaceMessages(
         _ messages: [MessageItem],
         groupIdHex: String,
-        paging: TimelinePagingState? = nil
+        paging: TimelinePagingState? = nil,
+        editMutations: [MessageEditMutation] = []
     ) {
         // The window is already ordered, deduped, and capped by the runtime subscription,
         // so render it as-is. The per-chat id/lookup caches live on the store
@@ -779,7 +784,11 @@ extension WorkspaceState {
 
         cachedMessageChatIds = [groupIdHex]
         messageTimelineStores = [groupIdHex: timelineStore]
-        timelineStore.replace(with: messages)
+        timelineStore.replace(
+            with: messages,
+            editMutations: editMutations,
+            windowLimit: Self.timelineWindowLimit
+        )
         if timelinePagingByChat.count == 1, timelinePagingByChat[groupIdHex] != nil {
             timelinePagingByChat[groupIdHex] = nextPaging
         } else {

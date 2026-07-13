@@ -456,6 +456,410 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func messageTimelineStoreAppliesEditOverlaysToTargets() async throws {
+        // Regression for whitenoise-mac#419: standalone edit overlays patch materialized targets,
+        // reject forged senders, and stay pending until the target is inserted or replaced.
+        let overlay = makeEditOverlay(
+            editId: "edit-new",
+            plaintext: "Edited body",
+            timelineAt: 1_800_000_060
+        )
+
+        let materialized = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)
+        ])
+        let applied = materialized.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editUpsert(overlay)],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(applied.didChange)
+        let patched = try #require(materialized.lookup["target"])
+        #expect(patched.body == "Edited body")
+        #expect(patched.isEdited)
+        #expect(patched.metadataLabel.contains("Edited"))
+
+        let forged = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)
+        ])
+        let rejected = forged.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(
+                        editId: "mallory-edit",
+                        sender: "mallory",
+                        plaintext: "Forged",
+                        timelineAt: 1_800_000_030
+                    )
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(!rejected.didChange)
+        let untouched = try #require(forged.lookup["target"])
+        #expect(untouched.body == "Original")
+        #expect(!untouched.isEdited)
+
+        let pending = MessageTimelineStore()
+        let pendingOnly = pending.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editUpsert(overlay)],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(!pendingOnly.didChange)
+        #expect(pending.messages.isEmpty)
+
+        let inserted = pending.applyProjection(
+            upserts: [chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(inserted.didChange)
+        let deferred = try #require(pending.lookup["target"])
+        #expect(deferred.body == "Edited body")
+        #expect(deferred.isEdited)
+
+        let poisoned = MessageTimelineStore()
+        _ = poisoned.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(
+                        editId: "alice-edit",
+                        plaintext: "Legitimate",
+                        timelineAt: 1_800_000_030
+                    )
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        let forgedFlood = (0..<200).map { index in
+            editUpsert(
+                makeEditOverlay(
+                    editId: "mallory-edit-\(index)",
+                    sender: "mallory",
+                    plaintext: "Forged \(index)",
+                    timelineAt: 1_800_000_060 + UInt64(index)
+                )
+            )
+        }
+        _ = poisoned.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: forgedFlood,
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        _ = poisoned.applyProjection(
+            upserts: [chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        let unpoisoned = try #require(poisoned.lookup["target"])
+        #expect(unpoisoned.body == "Legitimate")
+        #expect(unpoisoned.isEdited)
+
+        let replacedStore = MessageTimelineStore()
+        replacedStore.replace(
+            with: [chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)],
+            editMutations: [editUpsert(overlay)]
+        )
+        let replaced = try #require(replacedStore.lookup["target"])
+        #expect(replaced.body == "Edited body")
+        #expect(replaced.isEdited)
+    }
+
+    @MainActor
+    @Test func messageTimelineStoreReplaceReappliesStoredEditsAcrossWindowChanges() async throws {
+        // Regression for whitenoise-mac#419: replace() rebuilds indexes before validating targets,
+        // and stored overlays survive authoritative replaces that omit the edit record.
+        let overlay = makeEditOverlay(
+            editId: "edit-new",
+            plaintext: "Edited",
+            timelineAt: 300
+        )
+
+        let staleIndexStore = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", sender: "mallory", body: "Wrong row", timelineAt: 100),
+            chatMessage(id: "other", sender: "bob", body: "Other", timelineAt: 200),
+        ])
+        staleIndexStore.replace(
+            with: [
+                chatMessage(id: "a", sender: "alice", body: "A", timelineAt: 10),
+                chatMessage(id: "target", sender: "alice", body: "Original", timelineAt: 20),
+            ],
+            editMutations: [editUpsert(overlay)]
+        )
+        let reindexed = try #require(staleIndexStore.lookup["target"])
+        #expect(reindexed.body == "Edited")
+        #expect(reindexed.isEdited)
+
+        let crossWindowStore = MessageTimelineStore()
+        _ = crossWindowStore.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(editId: "edit-new", plaintext: "Edited later", timelineAt: 1_800_000_060)
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(crossWindowStore.messages.isEmpty)
+
+        crossWindowStore.replace(
+            with: [chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)],
+            editMutations: []
+        )
+        let reapplied = try #require(crossWindowStore.lookup["target"])
+        #expect(reapplied.body == "Edited later")
+        #expect(reapplied.isEdited)
+    }
+
+    @MainActor
+    @Test func messageTimelineStoreEditFallbackOnCandidateRetraction() async throws {
+        // Regression for whitenoise-mac#419: removing the newest edit event falls back to the
+        // next-newest valid candidate, then to the unedited base.
+        let store = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)
+        ])
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(editId: "edit-old", plaintext: "Edited older", timelineAt: 1_800_000_030)
+                ),
+                editUpsert(
+                    makeEditOverlay(editId: "edit-new", plaintext: "Edited newer", timelineAt: 1_800_000_060)
+                ),
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(store.lookup["target"]?.body == "Edited newer")
+
+        let removedNewest = store.applyProjection(
+            upserts: [],
+            removals: ["edit-new"],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(removedNewest.didChange)
+        #expect(store.lookup["target"]?.body == "Edited older")
+        #expect(store.lookup["target"]?.isEdited == true)
+
+        let removedOlder = store.applyProjection(
+            upserts: [],
+            removals: ["edit-old"],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(removedOlder.didChange)
+        let restored = try #require(store.lookup["target"])
+        #expect(restored.body == "Original")
+        #expect(!restored.isEdited)
+
+        let reprojected = store.applyProjection(
+            upserts: [chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(editId: "edit-new", plaintext: "Edited newer", timelineAt: 1_800_000_060)
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(reprojected.didChange)
+        let afterReupsert = try #require(store.lookup["target"])
+        #expect(afterReupsert.body == "Edited newer")
+        #expect(afterReupsert.isEdited)
+    }
+
+    @MainActor
+    @Test func messageTimelineStoreEditOverlayLifecycleAndRetention() async throws {
+        let pendingEdit = makeEditOverlay(
+            editId: "edit-new",
+            plaintext: "Edited later",
+            timelineAt: 1_800_000_060
+        )
+
+        let cleared = MessageTimelineStore()
+        _ = cleared.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editUpsert(pendingEdit)],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        cleared.clear()
+        _ = cleared.applyProjection(
+            upserts: [chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        let afterClear = try #require(cleared.lookup["target"])
+        #expect(afterClear.body == "Original")
+        #expect(!afterClear.isEdited)
+
+        let removed = MessageTimelineStore()
+        _ = removed.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editUpsert(pendingEdit)],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        _ = removed.applyProjection(
+            upserts: [],
+            removals: ["target"],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        _ = removed.applyProjection(
+            upserts: [chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        let afterRemoval = try #require(removed.lookup["target"])
+        #expect(afterRemoval.body == "Original")
+        #expect(!afterRemoval.isEdited)
+
+        let invalidTarget = MessageTimelineStore()
+        _ = invalidTarget.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editUpsert(pendingEdit)],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        _ = invalidTarget.applyProjection(
+            upserts: [chatMessage(id: "target", sender: "mallory", body: "Original", timelineAt: 1_800_000_000)],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        let mismatched = try #require(invalidTarget.lookup["target"])
+        #expect(mismatched.body == "Original")
+        #expect(!mismatched.isEdited)
+
+        let invalidated = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)
+        ])
+        _ = invalidated.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editUpsert(pendingEdit)],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        let retractInvalid = invalidated.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editRetract("edit-new")],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(retractInvalid.didChange)
+        let afterInvalidation = try #require(invalidated.lookup["target"])
+        #expect(afterInvalidation.body == "Original")
+        #expect(!afterInvalidation.isEdited)
+
+        let trimmed = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 0),
+            chatMessage(id: "m1", timelineAt: 1),
+        ])
+        _ = trimmed.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(makeEditOverlay(editId: "edit-new", plaintext: "Edited later", timelineAt: 2))
+            ],
+            anchoredToNewest: true,
+            windowLimit: 2
+        )
+        #expect(trimmed.lookup["target"]?.body == "Edited later")
+        _ = trimmed.applyProjection(
+            upserts: [chatMessage(id: "m2", timelineAt: 2)],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 2
+        )
+        #expect(!trimmed.containsMessage(id: "target"))
+        trimmed.replace(
+            with: [
+                chatMessage(id: "target", body: "Original", timelineAt: 0),
+                chatMessage(id: "m1", timelineAt: 1),
+            ],
+            editMutations: []
+        )
+        let afterTrim = try #require(trimmed.lookup["target"])
+        #expect(afterTrim.body == "Edited later")
+        #expect(afterTrim.isEdited)
+    }
+
+    @MainActor
+    @Test func messageTimelineStoreEditBodyNormalizationMatchesDisplayText() async throws {
+        let unsupported = L10n.string("Unsupported message")
+        let store = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)
+        ])
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(editId: "edit-trim", plaintext: "  trimmed  ", timelineAt: 1_800_000_010)
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(store.lookup["target"]?.body == "trimmed")
+
+        let whitespaceOnly = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)
+        ])
+        _ = whitespaceOnly.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(editId: "edit-empty", plaintext: "   ", timelineAt: 1_800_000_010)
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(whitespaceOnly.lookup["target"]?.body == unsupported)
+        #expect(whitespaceOnly.lookup["target"]?.isEdited == true)
+    }
+
+    @MainActor
     @Test func workspaceChatSnapshotsDeduplicateDuplicateChatIds() async throws {
         // Regression for whitenoise-mac#309: full-list chat snapshots must not leave duplicate
         // ChatItem.id values in the observed arrays that feed SwiftUI ForEach and later
@@ -1315,6 +1719,48 @@ struct PureValueTests {
             #expect(String(attributed.characters) == testCase.displayText)
             #expect(links(in: attributed).map(\.absoluteString) == ["nostr:\(testCase.reference)"])
         }
+    }
+
+    @MainActor
+    private func chatMessage(
+        id: String,
+        sender: String = "alice",
+        body: String? = nil,
+        timelineAt: UInt64
+    ) -> MessageItem {
+        MessageItem(
+            id: id,
+            senderAccountIdHex: sender,
+            senderName: sender,
+            body: body ?? (id == "target" ? "Original" : id),
+            sentAt: Date(timeIntervalSince1970: TimeInterval(timelineAt)),
+            timelineAt: timelineAt,
+            isOutgoing: false
+        )
+    }
+
+    private func makeEditOverlay(
+        target: String = "target",
+        editId: String,
+        sender: String = "alice",
+        plaintext: String,
+        timelineAt: UInt64
+    ) -> MessageEditOverlay {
+        MessageEditOverlay(
+            targetMessageIdHex: target,
+            editMessageIdHex: editId,
+            sender: sender,
+            plaintext: plaintext,
+            timelineAt: timelineAt
+        )
+    }
+
+    private func editUpsert(_ overlay: MessageEditOverlay) -> MessageEditMutation {
+        .upsert(overlay)
+    }
+
+    private func editRetract(_ editMessageIdHex: String) -> MessageEditMutation {
+        .retract(editMessageIdHex: editMessageIdHex)
     }
 
     private func groupImageResult(imageURL: String, thumbnailURL: String?) -> GroupImageSearchResult {
