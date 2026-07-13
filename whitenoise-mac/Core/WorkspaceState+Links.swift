@@ -41,11 +41,35 @@ extension WorkspaceState {
     }
 
     /// Shared destination for every profile reference the app consumes in-app (nostr autolinks,
-    /// marmot profile autolinks, and OS-level marmot:// deep links): open the New Chat composer
-    /// against the referenced profile via the FFI `normalizeMemberRef` path.
+    /// marmot profile autolinks, and OS-level marmot:// deep links): open or augment the New Chat
+    /// composer against the referenced profile via the FFI `normalizeMemberRef` path.
     func openProfileReference(_ reference: String) async {
-        showNewChat()
-        newChatQuery = "nostr:\(reference)"
-        _ = await resolveNewChatQuery()
+        let query = "nostr:\(reference)"
+        if isNewChatComposerVisible {
+            leaveActiveConversation()
+            lastError = nil
+            if hasInProgressNewChatComposition {
+                await appendProfileReferenceToCurrentNewChat(query: query)
+            } else {
+                invalidateNewChatLookup()
+                newChatRecipient = nil
+                newChatQuery = query
+                _ = await resolveNewChatQuery()
+            }
+        } else {
+            showNewChat()
+            newChatQuery = query
+            _ = await resolveNewChatQuery()
+        }
+    }
+
+    private func appendProfileReferenceToCurrentNewChat(query: String) async {
+        do {
+            if let recipient = try await resolveNewChatRecipient(for: query) {
+                _ = appendNewChatRecipient(recipient)
+            }
+        } catch {
+            lastError = L10n.string("Enter a valid npub, profile link, or hex public key.")
+        }
     }
 }

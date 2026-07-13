@@ -13456,6 +13456,132 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func openingProfileLinkPreservesInProgressNewChatComposition() async throws {
+        // Issue #421: profile autolinks/deep links must not wipe an in-progress New Chat
+        // draft (recipients, group name, description) when the composer is already visible.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
+        let carolId = "carol1234567890carol1234567890carol1234567890carol1234567890"
+        let nprofile = "nprofile1bob"
+        let query = "nostr:\(nprofile)"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: query, accountIdHex: bobId, npub: "npub1bob")
+        runtime.installNormalizedMemberRef(query: "npub1carol", accountIdHex: carolId, npub: "npub1carol")
+        runtime.installProfile(
+            accountIdHex: bobId,
+            profile: UserProfileMetadataFfi(
+                name: "bob",
+                displayName: "Bob Link",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1alice"
+        _ = await state.addCurrentNewChatRecipient()
+        state.newChatName = "Project Room"
+        state.newChatDescription = "planning space"
+        state.newChatQuery = "npub1carol"
+        await state.resolveNewChatQuery()
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
+
+        _ = state.handleMessageLinkOpen(URL(string: query)!)
+        let added = await waitFor {
+            state.newChatRecipients.contains { $0.accountIdHex == bobId }
+        }
+
+        #expect(added)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId, bobId])
+        #expect(state.newChatName == "Project Room")
+        #expect(state.newChatDescription == "planning space")
+        #expect(state.newChatQuery == "npub1carol")
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
+    }
+
+    @MainActor
+    @Test func profileLinkAppendDoesNotOverwriteMidLookupComposerEdits() async throws {
+        // Regression for the #421 review finding: appending a profile link into an existing
+        // draft must not borrow `newChatQuery` as scratch state and later restore stale input
+        // over user edits made while the link lookup was in flight.
+        let account = desktopAccount()
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
+        let carolId = "carol1234567890carol1234567890carol1234567890carol1234567890"
+        let daveId = "dave1234567890dave1234567890dave1234567890dave1234567890"
+        let bobReference = "nprofile1bob"
+        let bobQuery = "nostr:\(bobReference)"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: bobQuery, accountIdHex: bobId, npub: "npub1bob")
+        runtime.installNormalizedMemberRef(query: "npub1carol", accountIdHex: carolId, npub: "npub1carol")
+        runtime.installNormalizedMemberRef(query: "npub1dave", accountIdHex: daveId, npub: "npub1dave")
+        runtime.profileRefreshDelaysByAccountId[bobId] = 200_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatName = "Project Room"
+        state.newChatQuery = "npub1carol"
+        await state.resolveNewChatQuery()
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
+
+        async let appendProfileLink: Void = state.openProfileReference(bobReference)
+        let bobLookupStarted = await waitFor {
+            runtime.refreshedProfileIds.contains(bobId)
+        }
+        #expect(bobLookupStarted)
+
+        state.newChatQuery = "npub1dave"
+        state.newChatRecipient = nil
+        await state.resolveNewChatQuery()
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == daveId)
+
+        _ = await appendProfileLink
+
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [bobId])
+        #expect(state.newChatName == "Project Room")
+        #expect(state.newChatQuery == "npub1dave")
+        #expect(state.resolvedNewChatRecipient?.accountIdHex == daveId)
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkPreservesInProgressNewChatComposition() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
+        let routedQuery = "nostr:npub1bob"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: bobId, npub: "npub1bob")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1alice"
+        _ = await state.addCurrentNewChatRecipient()
+        state.newChatName = "Project Room"
+        state.newChatDescription = "planning space"
+
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1bob?from=qr")!)
+        let added = await waitFor {
+            state.newChatRecipients.contains { $0.accountIdHex == bobId }
+        }
+
+        #expect(added)
+        #expect(state.isNewChatComposerVisible)
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId, bobId])
+        #expect(state.newChatName == "Project Room")
+        #expect(state.newChatDescription == "planning space")
+    }
+
+    @MainActor
     @Test func openingMarmotProfileAutolinkShowsNewChatComposerAndResolvesRecipient() async throws {
         // Kit-emitted marmot://profile/... autolinks in message text route through the same
         // in-app profile flow as nostr: links (mdk#725 / #340); the FFI receives the
