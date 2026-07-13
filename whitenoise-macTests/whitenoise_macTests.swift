@@ -2179,6 +2179,12 @@ struct whitenoise_macTests {
     }
 
     @Test func messageMediaDiskCacheReadDeletionMaintainsTrackedFootprint() async throws {
+        // Since #444 isolates entries by (ciphertext, plaintext) hash, the read path no longer
+        // deletes a colliding stale entry — but it still deletes an entry whose sealed metadata
+        // cannot be opened, and must invalidate the tracked footprint when it does. Otherwise
+        // the next store sees an inflated count, runs a full eviction scan, and that scan sweeps
+        // an untouched corrupt sentinel early. The sentinel surviving proves the read deletion
+        // kept the footprint honest (no spurious scan).
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
@@ -2190,68 +2196,54 @@ struct whitenoise_macTests {
             evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
             timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
         )
-        let stalePlaintext = Data("stale media for replaced reference".utf8)
-        let corruptPlaintext = Data("corrupt metadata entry that should not be swept early".utf8)
-        let replacementPlaintext = Data("replacement media after read-path deletion".utf8)
-        let staleReference = mediaDiskCacheReference(plaintext: stalePlaintext, ciphertextByte: 0xa1)
-        let invalidatingReference = mediaDiskCacheReference(
-            plaintext: Data("different plaintext digest for the same ciphertext".utf8),
-            ciphertextByte: 0xa1
-        )
-        let corruptReference = mediaDiskCacheReference(plaintext: corruptPlaintext, ciphertextByte: 0xa2)
-        let replacementReference = mediaDiskCacheReference(plaintext: replacementPlaintext, ciphertextByte: 0xa3)
-        let staleKey = MessageMediaDiskCacheKey(
+        let victimPlaintext = Data("entry whose metadata is corrupted before read".utf8)
+        let sentinelPlaintext = Data("corrupt sentinel that only a full scan would sweep".utf8)
+        let replacementPlaintext = Data("replacement media stored after the read deletion".utf8)
+        let victimKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: staleReference
+            reference: mediaDiskCacheReference(plaintext: victimPlaintext, ciphertextByte: 0xa1)
         )
-        let invalidatingKey = MessageMediaDiskCacheKey(
+        let sentinelKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: invalidatingReference
-        )
-        let corruptKey = MessageMediaDiskCacheKey(
-            accountId: "account-a",
-            groupIdHex: "group-a",
-            reference: corruptReference
+            reference: mediaDiskCacheReference(plaintext: sentinelPlaintext, ciphertextByte: 0xa2)
         )
         let replacementKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: replacementReference
+            reference: mediaDiskCacheReference(plaintext: replacementPlaintext, ciphertextByte: 0xa3)
         )
-
-        #expect(staleKey.cacheID == invalidatingKey.cacheID)
-        #expect(staleKey.plaintextSha256 != invalidatingKey.plaintextSha256)
 
         await cache.store(
             MessageMediaDownload(
-                data: stalePlaintext,
-                fileName: "stale.jpg",
+                data: victimPlaintext,
+                fileName: "victim.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(stalePlaintext.count),
-                payloadId: "stale"
+                sizeBytes: UInt64(victimPlaintext.count),
+                payloadId: "victim"
             ),
-            for: staleKey
+            for: victimKey
         )
         await cache.store(
             MessageMediaDownload(
-                data: corruptPlaintext,
-                fileName: "corrupt.jpg",
+                data: sentinelPlaintext,
+                fileName: "sentinel.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(corruptPlaintext.count),
-                payloadId: "corrupt"
+                sizeBytes: UInt64(sentinelPlaintext.count),
+                payloadId: "sentinel"
             ),
-            for: corruptKey
+            for: sentinelKey
         )
-        let staleEntryDirectory = try #require(cache.entryDirectory(for: staleKey))
-        let corruptEntryDirectory = try #require(cache.entryDirectory(for: corruptKey))
-        // The corrupt unread entry is a sentinel for an unintended full cacheScan: a stale,
-        // inflated trackedFootprint would force a scan on the next store and remove it early.
-        try Data("not sealed metadata".utf8).write(to: corruptEntryDirectory.appendingPathComponent("metadata.bin"))
+        let victimEntryDirectory = try #require(cache.entryDirectory(for: victimKey))
+        let sentinelEntryDirectory = try #require(cache.entryDirectory(for: sentinelKey))
+        // Corrupt both sealed metadata blobs: reading the victim must delete it (exercising the
+        // read-path deletion), while the sentinel is only ever removed by a full eviction scan.
+        try Data("not sealed metadata".utf8).write(to: victimEntryDirectory.appendingPathComponent("metadata.bin"))
+        try Data("not sealed metadata".utf8).write(to: sentinelEntryDirectory.appendingPathComponent("metadata.bin"))
 
-        #expect(await cache.cachedDownload(for: invalidatingKey) == nil)
-        #expect(!fileManager.fileExists(atPath: staleEntryDirectory.path))
+        #expect(await cache.cachedDownload(for: victimKey) == nil)
+        #expect(!fileManager.fileExists(atPath: victimEntryDirectory.path))
 
         await cache.store(
             MessageMediaDownload(
@@ -2264,7 +2256,7 @@ struct whitenoise_macTests {
             for: replacementKey
         )
 
-        #expect(fileManager.fileExists(atPath: corruptEntryDirectory.path))
+        #expect(fileManager.fileExists(atPath: sentinelEntryDirectory.path))
         #expect(try #require(await cache.cachedDownload(for: replacementKey)).data == replacementPlaintext)
     }
 
