@@ -327,9 +327,9 @@ extension WorkspaceState {
         removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
 
         var chat = baseChatItem(from: row, account: account)
-        if !shouldEnrich, let currentActive {
-            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
-        } else if let currentActive {
+        // Preserve enrichment-resolved metadata across the archive move regardless of
+        // shouldEnrich — when enrichment does run, startChatListEnrichment corrects it.
+        if let currentActive {
             chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
         }
 
