@@ -4017,6 +4017,8 @@ struct whitenoise_macTests {
         // Regression for whitenoise-mac#175: `ChatListMessagePreviewFfi` carries no media
         // payload, so a media-only chat message arrives with empty plaintext. The chat-list
         // preview must fall back to "Attachment" rather than "Unsupported message".
+        // An incoming chat-bubble preview from another member is attributed with the sender
+        // name, so the media fallback reads "Alice: Attachment" — consistent with text previews.
         let directRow = ChatListRowFfi(
             groupIdHex: "direct-group",
             archived: false,
@@ -4047,7 +4049,7 @@ struct whitenoise_macTests {
         )
 
         let directChat = ChatItem(row: directRow, activeAccountIdHex: "self")
-        #expect(directChat.preview == "Attachment")
+        #expect(directChat.preview == "Alice: Attachment")
 
         let groupRow = ChatListRowFfi(
             groupIdHex: "group",
@@ -4079,7 +4081,7 @@ struct whitenoise_macTests {
         )
 
         let groupChat = ChatItem(row: groupRow, activeAccountIdHex: "self")
-        #expect(groupChat.preview == "Attachment")
+        #expect(groupChat.preview == "Alice: Attachment")
     }
 
     @MainActor
