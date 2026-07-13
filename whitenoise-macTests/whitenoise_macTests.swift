@@ -3361,7 +3361,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func timelineMappingFoldsKind1009EditsIntoTargetChatRows() async throws {
+    @Test func timelineStoreFoldsKind1009EditsIntoTargetChatRows() async throws {
         let originalTokens = MarkdownDocumentFfi(
             blocks: [.paragraph(inlines: [.strong(children: [.text(content: "Original")])])],
             truncated: false
@@ -3400,9 +3400,18 @@ struct whitenoise_macTests {
         )
 
         let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
-
         #expect(messages.count == 1)
-        let message = try #require(messages.first)
+        #expect(messages[0].body == "**Original**")
+        #expect(!messages[0].isEdited)
+
+        let editMutations = MessageEditOverlay.mutations(from: page.messages)
+        #expect(editMutations.filter { if case .upsert = $0 { true } else { false } }.count == 2)
+
+        let store = MessageTimelineStore.loaded(with: messages)
+        store.replace(with: messages, editMutations: editMutations)
+
+        #expect(store.messages.count == 1)
+        let message = try #require(store.messages.first)
         #expect(message.id == "target")
         #expect(message.timelineKind == 9)
         #expect(message.body == "Edited twice")
@@ -3412,7 +3421,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func timelineMappingIgnoresKind1009EditsFromDifferentAuthors() async throws {
+    @Test func timelineStoreIgnoresKind1009EditsFromDifferentAuthors() async throws {
         let page = TimelinePageFfi(
             messages: [
                 timelineMessage(
@@ -3437,13 +3446,174 @@ struct whitenoise_macTests {
         )
 
         let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let editMutations = MessageEditOverlay.mutations(from: page.messages)
+        let store = MessageTimelineStore.loaded(with: messages)
+        store.replace(with: messages, editMutations: editMutations)
 
-        #expect(messages.count == 1)
-        let message = try #require(messages.first)
+        #expect(store.messages.count == 1)
+        let message = try #require(store.messages.first)
         #expect(message.id == "target")
         #expect(message.body == "Original")
         #expect(!message.isEdited)
         #expect(!message.metadataLabel.contains("Edited"))
+    }
+
+    @MainActor
+    @Test func messageEditRecordInvalidationAndDeletionRetractCandidates() async throws {
+        func editRecord(
+            id: String,
+            plaintext: String,
+            recordedAt: UInt64,
+            deleted: Bool = false,
+            invalidationStatus: String? = nil
+        ) -> TimelineMessageRecordFfi {
+            timelineMessage(
+                id: id,
+                groupIdHex: "group",
+                sender: "alice",
+                plaintext: plaintext,
+                kind: 1_009,
+                tags: [MessageTagFfi(values: ["e", "target"])],
+                recordedAt: recordedAt,
+                deleted: deleted,
+                invalidationStatus: invalidationStatus
+            )
+        }
+
+        let oldEdit = editRecord(id: "edit-old", plaintext: "Older", recordedAt: 1_800_000_030)
+        let newEdit = editRecord(id: "edit-new", plaintext: "Newer", recordedAt: 1_800_000_060)
+        let store = MessageTimelineStore.loaded(with: [
+            MessageItem(
+                id: "target",
+                groupIdHex: "group",
+                senderAccountIdHex: "alice",
+                senderName: "alice",
+                body: "Original",
+                sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+                timelineAt: 1_800_000_000,
+                isOutgoing: false
+            )
+        ])
+
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: MessageEditOverlay.mutations(from: [oldEdit, newEdit]),
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(store.lookup["target"]?.body == "Newer")
+
+        let invalidatedNew = editRecord(
+            id: "edit-new",
+            plaintext: "Newer",
+            recordedAt: 1_800_000_060,
+            invalidationStatus: "losing-branch"
+        )
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: MessageEditOverlay.mutations(from: [invalidatedNew]),
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(store.lookup["target"]?.body == "Older")
+
+        let deletedOld = editRecord(
+            id: "edit-old",
+            plaintext: "Older",
+            recordedAt: 1_800_000_030,
+            deleted: true
+        )
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: MessageEditOverlay.mutations(from: [deletedOld]),
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        let restored = try #require(store.lookup["target"])
+        #expect(restored.body == "Original")
+        #expect(!restored.isEdited)
+    }
+
+    @MainActor
+    @Test func timelineProjectionAppliesStandaloneEditOverlayToExistingTarget() async throws {
+        // Regression for whitenoise-mac#419: edit-only projection deltas must patch an existing
+        // materialized target instead of mapping to an empty upsert list.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let accountItem = AccountItem(summary: account)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let chat = ChatItem(
+            id: "group",
+            title: "Test Group",
+            subtitle: "Group message",
+            preview: "Original",
+            updatedAt: nil,
+            avatarSeed: "group",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let state = WorkspaceState(
+            accounts: [accountItem],
+            chatsByAccount: [accountItem.id: [chat]],
+            messagesByChat: [
+                "group": [
+                    MessageItem(
+                        id: "target",
+                        groupIdHex: "group",
+                        senderAccountIdHex: "alice",
+                        senderName: "alice",
+                        body: "Original",
+                        sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+                        timelineAt: 1_800_000_000,
+                        isOutgoing: false
+                    )
+                ]
+            ],
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = accountItem.id
+        state.selection = .chat("group")
+
+        await state.applyTimelineProjection(
+            TimelineProjectionUpdateFfi(
+                groupIdHex: "group",
+                messages: [],
+                changes: [
+                    .upsert(
+                        trigger: .messageEditedOrReprojected,
+                        message: timelineMessage(
+                            id: "edit-new",
+                            groupIdHex: "group",
+                            sender: "alice",
+                            plaintext: "Edited via projection",
+                            kind: 1_009,
+                            tags: [MessageTagFfi(values: ["e", "target"])],
+                            recordedAt: 1_800_000_060
+                        ))
+                ],
+                chatListRow: nil,
+                chatListTrigger: .newLastMessage
+            ),
+            groupIdHex: "group",
+            account: accountItem,
+            client: runtime
+        )
+
+        let message = try #require(state.ensureMessageTimelineStore(for: "group").lookup["target"])
+        #expect(message.body == "Edited via projection")
+        #expect(message.isEdited)
+        #expect(state.ensureMessageTimelineStore(for: "group").messages.count == 1)
     }
 
     @MainActor

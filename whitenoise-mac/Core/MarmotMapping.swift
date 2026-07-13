@@ -125,6 +125,62 @@ extension ChatItem {
     }
 }
 
+nonisolated enum MessageEditMutation: Equatable, Sendable {
+    case upsert(MessageEditOverlay)
+    case retract(editMessageIdHex: String)
+}
+
+nonisolated struct MessageEditOverlay: Equatable, Sendable {
+    let targetMessageIdHex: String
+    let editMessageIdHex: String
+    let sender: String
+    let plaintext: String
+    let timelineAt: UInt64
+
+    static func mutations(from records: [TimelineMessageRecordFfi]) -> [MessageEditMutation] {
+        records.compactMap { record in
+            guard record.kind == MarmotTimelineKind.messageEdit else { return nil }
+            if record.deleted || record.invalidationStatus != nil {
+                return .retract(editMessageIdHex: record.messageIdHex)
+            }
+            guard let targetId = editTargetMessageId(in: record.tags) else {
+                return .retract(editMessageIdHex: record.messageIdHex)
+            }
+            return .upsert(
+                MessageEditOverlay(
+                    targetMessageIdHex: targetId,
+                    editMessageIdHex: record.messageIdHex,
+                    sender: record.sender,
+                    plaintext: record.plaintext,
+                    timelineAt: record.timelineAt
+                )
+            )
+        }
+    }
+
+    static func shouldPrefer(_ candidate: MessageEditOverlay, over existing: MessageEditOverlay?) -> Bool {
+        guard let existing else { return true }
+        if candidate.timelineAt != existing.timelineAt {
+            return candidate.timelineAt > existing.timelineAt
+        }
+        return candidate.editMessageIdHex > existing.editMessageIdHex
+    }
+
+    fileprivate static func editTargetMessageId(in tags: [MessageTagFfi]) -> String? {
+        var target: String?
+        for tag in tags where tag.values.first == "e" {
+            guard tag.values.count == 2,
+                let candidate = tag.values.dropFirst().first?.nilIfBlank,
+                target == nil
+            else {
+                return nil
+            }
+            target = candidate
+        }
+        return target
+    }
+}
+
 // The whole timeline record → view-model transformation is pure (it only reads the
 // `Sendable` FFI record and the resolved sender-profile map) and is deliberately run
 // off the main actor while mapping a window/projection so the attributed-string /
@@ -211,99 +267,22 @@ nonisolated extension MessageItem {
         // MarmotKit returns an authoritative timeline window. Keep that order
         // intact: `timelineAt` is second-granular, and re-sorting in the client
         // can reshuffle records that the runtime/database already tie-broke.
-        return displayRecords(from: page.messages).map { displayRecord in
-            MessageItem(
-                record: displayRecord.record,
+        return page.messages.compactMap { record in
+            guard record.kind != MarmotTimelineKind.messageEdit else { return nil }
+            return MessageItem(
+                record: record,
                 activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles,
-                editedPlaintext: displayRecord.editedPlaintext,
-                isEdited: displayRecord.isEdited,
                 reactions: MessageReaction.summarize(
-                    displayRecord.record.reactions,
+                    record.reactions,
                     activeAccountIdHex: activeAccountIdHex
                 ),
                 replyContext: MessageItem.replyContext(
-                    for: displayRecord.record.replyPreview,
+                    for: record.replyPreview,
                     senderProfiles: senderProfiles
                 )
             )
         }
-    }
-
-    private struct TimelineDisplayRecord {
-        let record: TimelineMessageRecordFfi
-        let editedPlaintext: String?
-
-        var isEdited: Bool { editedPlaintext != nil }
-    }
-
-    private struct MessageEditOverlay {
-        let plaintext: String
-        let timelineAt: UInt64
-        let messageIdHex: String
-    }
-
-    private static func displayRecords(from records: [TimelineMessageRecordFfi]) -> [TimelineDisplayRecord] {
-        guard records.contains(where: { $0.kind == MarmotTimelineKind.messageEdit }) else {
-            return records.map { TimelineDisplayRecord(record: $0, editedPlaintext: nil) }
-        }
-
-        let recordsById = records.reduce(into: [String: TimelineMessageRecordFfi]()) { result, record in
-            result[record.messageIdHex] = record
-        }
-        var editsByTarget = [String: MessageEditOverlay]()
-
-        for record in records where record.kind == MarmotTimelineKind.messageEdit {
-            guard record.invalidationStatus == nil,
-                let targetId = editTargetMessageId(in: record.tags),
-                let target = recordsById[targetId],
-                target.kind == MarmotTimelineKind.chat,
-                target.sender == record.sender,
-                !target.deleted,
-                target.invalidationStatus == nil
-            else {
-                continue
-            }
-
-            let overlay = MessageEditOverlay(
-                plaintext: record.plaintext,
-                timelineAt: record.timelineAt,
-                messageIdHex: record.messageIdHex
-            )
-            if shouldUseEdit(overlay, over: editsByTarget[targetId]) {
-                editsByTarget[targetId] = overlay
-            }
-        }
-
-        return records.compactMap { record in
-            guard record.kind != MarmotTimelineKind.messageEdit else { return nil }
-            return TimelineDisplayRecord(
-                record: record,
-                editedPlaintext: editsByTarget[record.messageIdHex]?.plaintext
-            )
-        }
-    }
-
-    private static func shouldUseEdit(_ candidate: MessageEditOverlay, over existing: MessageEditOverlay?) -> Bool {
-        guard let existing else { return true }
-        if candidate.timelineAt != existing.timelineAt {
-            return candidate.timelineAt > existing.timelineAt
-        }
-        return candidate.messageIdHex > existing.messageIdHex
-    }
-
-    private static func editTargetMessageId(in tags: [MessageTagFfi]) -> String? {
-        var target: String?
-        for tag in tags where tag.values.first == "e" {
-            guard tag.values.count == 2,
-                let candidate = tag.values.dropFirst().first?.nilIfBlank,
-                target == nil
-            else {
-                return nil
-            }
-            target = candidate
-        }
-        return target
     }
 
     fileprivate static func presentation(for kind: UInt64) -> MessagePresentation {
@@ -788,7 +767,7 @@ nonisolated extension MessageItem {
         return parsedText == displayedBody
     }
 
-    fileprivate static func displayText(
+    static func displayText(
         presentation: MessagePresentation,
         plaintext: String,
         tags: [MessageTagFfi],
