@@ -13265,6 +13265,39 @@ struct whitenoise_macTests {
         #expect(state.resolvedNewChatRecipient?.pictureURL == "https://example.com/avatar.png")
     }
 
+    @Test func nip05RedirectPolicyRevalidatesRedirectTargets() throws {
+        // #448: the resolver's session must re-check every redirect hop against the SSRF host
+        // policy, so a public well-known host cannot 3xx the lookup to a private/loopback/
+        // non-https target.
+        let policy = NIP05RedirectPolicy()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.dataTask(with: URL(string: "https://example.com/.well-known/nostr.json")!)
+        let redirectResponse = HTTPURLResponse(
+            url: URL(string: "https://example.com")!, statusCode: 302, httpVersion: nil, headerFields: nil
+        )!
+
+        func followedRequest(to target: String) -> URLRequest? {
+            var decided: URLRequest?
+            policy.urlSession(
+                session,
+                task: task,
+                willPerformHTTPRedirection: redirectResponse,
+                newRequest: URLRequest(url: URL(string: target)!)
+            ) { decided = $0 }
+            return decided
+        }
+
+        // Blocked: loopback, link-local, private, IPv6 loopback, and scheme downgrade.
+        #expect(followedRequest(to: "https://127.0.0.1:8080/x") == nil)
+        #expect(followedRequest(to: "https://169.254.169.254/x") == nil)
+        #expect(followedRequest(to: "https://10.0.0.5/x") == nil)
+        #expect(followedRequest(to: "https://[::1]/x") == nil)
+        #expect(followedRequest(to: "http://example.com/x") == nil)
+        // Allowed: a public https target is followed unchanged.
+        #expect(followedRequest(to: "https://relay.example.com/x")?.url?.absoluteString == "https://relay.example.com/x")
+    }
+
     @MainActor
     @Test func resolvingNewChatRecipientUsesNIP05() async throws {
         let account = desktopAccount()
