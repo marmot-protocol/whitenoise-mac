@@ -8530,6 +8530,180 @@ struct whitenoise_macTests {
         #expect(state.messagesByChat["direct-group"]?.first?.id != scrolledBackFirst)
     }
 
+    @MainActor
+    @Test func staleTimelinePaginationApplyDoesNotClobberReplacementSubscriptionWindow() async throws {
+        // Issue #529 follow-up: the subscription identity guard must survive `applyTimelineWindow`
+        // suspension during sender resolution and off-main mapping, not only the paginate await.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let activeAccount = try #require(state.activeAccount)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-005")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+
+        state.timelineApplyMapGateEnabled = true
+        async let staleBack: Void = state.loadOlderMessages(groupIdHex: "direct-group")
+        let didSuspendApply = await waitFor {
+            state.selectedTimelinePaging.isLoadingBefore && state.didReachTimelineApplyMapGate
+        }
+        guard didSuspendApply else {
+            state.timelineApplyMapGateEnabled = false
+            state.releaseTimelineApplyMapGate()
+            _ = await staleBack
+            Issue.record("Expected backwards pagination apply to reach the map gate")
+            return
+        }
+
+        let replacementMessages = (0..<105).map { index in
+            timelineMessage(
+                id: String(format: "fresh-apply-%03d", index),
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Fresh apply \(index)",
+                recordedAt: baseTime + UInt64(index)
+            )
+        }
+        let replacement = FakeTimelineMessagesSubscription(
+            messages: replacementMessages,
+            limit: 100,
+            windowCap: 200
+        )
+        state.activeTimelineSubscription = replacement
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            replacement.snapshot() ?? emptyTimelinePage(),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-apply-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-apply-104")
+
+        state.releaseTimelineApplyMapGate()
+        _ = await staleBack
+
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-apply-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-apply-104")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+    }
+
+    @MainActor
+    @Test func staleTimelinePaginationErrorDoesNotSurfaceAfterSubscriptionReplacement() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let activeAccount = try #require(state.activeAccount)
+        let staleSubscription = try #require(state.activeTimelineSubscription as? FakeTimelineMessagesSubscription)
+        state.lastError = nil
+
+        staleSubscription.paginationGateEnabled = true
+        staleSubscription.throwsAfterPaginationGate = true
+        async let staleBack: Void = state.loadOlderMessages(groupIdHex: "direct-group")
+        let didSuspendBack = await waitFor {
+            state.selectedTimelinePaging.isLoadingBefore && staleSubscription.didReachPaginationGate
+        }
+        guard didSuspendBack else {
+            staleSubscription.paginationGateEnabled = false
+            staleSubscription.throwsAfterPaginationGate = false
+            staleSubscription.releasePaginationGate()
+            _ = await staleBack
+            Issue.record("Expected backwards pagination to reach the test gate")
+            return
+        }
+
+        let replacement = FakeTimelineMessagesSubscription(
+            messages: [
+                timelineMessage(
+                    id: "fresh-error-000",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Fresh error",
+                    recordedAt: baseTime
+                ),
+            ],
+            limit: 100,
+            windowCap: 200
+        )
+        state.activeTimelineSubscription = replacement
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            replacement.snapshot() ?? emptyTimelinePage(),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+
+        staleSubscription.releasePaginationGate()
+        _ = await staleBack
+
+        #expect(state.lastError == nil)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-error-000")
+    }
+
     @Test func newerTimelinePagingRestoresAnchorInsteadOfScrollingToBottom() {
         let historicalPaging = TimelinePagingState(
             hasMoreBefore: true,
@@ -18443,6 +18617,10 @@ private final class FakeChatListSubscription: ChatListSubscription {
 // `paginateBackwards`/`paginateForwards` and mutated by live `next()` updates. Mirrors the
 // marmot-app windowing contract closely enough for client-level tests; the exact math is
 // unit-tested in Rust.
+private enum FakeTimelinePaginationError: Error {
+    case staleSubscription
+}
+
 private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscription {
     private var fullSet: TimelinePageFfi
     private let limit: Int
@@ -18460,6 +18638,8 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     var paginationGateEnabled = false
     private(set) var didReachPaginationGate = false
     private var paginationGateContinuation: CheckedContinuation<Void, Never>?
+    /// When set with `paginationGateEnabled`, the paginate call throws after the gate releases.
+    var throwsAfterPaginationGate = false
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.fullSet = emptyTimelinePage()
@@ -18516,6 +18696,9 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     override func paginateBackwards(count: UInt32) async throws -> TimelinePageFfi {
         paginateBackwardsCount += 1
         await passPaginationGateIfArmed()
+        if throwsAfterPaginationGate {
+            throw FakeTimelinePaginationError.staleSubscription
+        }
         lo = max(0, lo - Int(count))
         if hi - lo > windowCap { hi = lo + windowCap }
         return windowPage()
@@ -18524,6 +18707,9 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     override func paginateForwards(count: UInt32) async throws -> TimelinePageFfi {
         paginateForwardsCount += 1
         await passPaginationGateIfArmed()
+        if throwsAfterPaginationGate {
+            throw FakeTimelinePaginationError.staleSubscription
+        }
         hi = min(fullSet.messages.count, hi + Int(count))
         if hi - lo > windowCap { lo = hi - windowCap }
         return windowPage()
