@@ -299,6 +299,11 @@ extension WorkspaceState {
     }
 
     func memberRefCandidate(for query: String) async throws -> String {
+        // A query carrying a nostr marker must never resolve as NIP-05 — an embedded `@domain`
+        // would fire a request at that host before the authoritative FFI parse runs.
+        if MarkdownLinkPolicy.containsNostrReferenceMarker(query) {
+            return query
+        }
         if NIP05Identifier(query) != nil {
             return try await nip05Resolver.accountReference(for: query)
         }

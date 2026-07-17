@@ -209,6 +209,13 @@ private final class ComposerPasteInterceptingTextView: NSTextView {
             return
         }
 
+        // While a composition is marked, Return belongs to the input context — it commits the
+        // pending candidate, so forwarding it must win over the send shortcut.
+        if hasMarkedText() {
+            super.keyDown(with: event)
+            return
+        }
+
         switch ComposerKeyboardShortcutPolicy.returnKeyAction(for: event.modifierFlags) {
         case .send:
             returnKeySendHandler?()

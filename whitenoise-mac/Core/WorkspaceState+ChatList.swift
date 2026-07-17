@@ -277,7 +277,7 @@ extension WorkspaceState {
         guard activeAccountId == account.id else { return }
 
         if row.archived {
-            moveChatToArchived(row: row, account: account, shouldEnrich: shouldEnrich)
+            moveChatToArchived(row: row, account: account)
             if shouldEnrich {
                 startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
             }
@@ -318,29 +318,31 @@ extension WorkspaceState {
         }
     }
 
-    func moveChatToArchived(
-        row: ChatListRowFfi,
-        account: AccountItem,
-        shouldEnrich: Bool = true
-    ) {
+    func moveChatToArchived(row: ChatListRowFfi, account: AccountItem) {
         guard activeAccountId == account.id else { return }
 
         let groupIdHex = row.groupIdHex
-        let currentActive = chatItem(accountId: account.id, chatId: groupIdHex)
+        // The transition test must consult the active-only index — `chatItem` also
+        // resolves already-archived chats.
+        let wasActive = chatLookupByAccount[account.id]?[groupIdHex] != nil
+        let current = chatItem(accountId: account.id, chatId: groupIdHex)
         removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
 
         var chat = baseChatItem(from: row, account: account)
-        // Preserve enrichment-resolved metadata across the archive move regardless of
-        // shouldEnrich — when enrichment does run, startChatListEnrichment corrects it.
-        if let currentActive {
-            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: currentActive)
+        // Preserve enrichment-resolved metadata across the archive move — when
+        // enrichment does run, startChatListEnrichment corrects it.
+        if let current {
+            chat = ChatListOrdering.preservingResolvedMetadata(in: chat, from: current)
         }
 
         upsertArchivedChat(chat, forAccountId: account.id)
         cancelVoiceRecordingIfSelectedMembershipEnded()
         ensureSelectedMessageTimelineStore()
 
-        guard case .chat(let selectedGroupId) = selection,
+        // Deselection belongs to the active→archived transition only — a delta for an
+        // already-archived selected chat must not eject the user from it.
+        guard wasActive,
+            case .chat(let selectedGroupId) = selection,
             selectedGroupId == groupIdHex
         else { return }
 

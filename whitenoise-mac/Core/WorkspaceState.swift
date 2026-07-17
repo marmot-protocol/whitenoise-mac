@@ -946,6 +946,10 @@ final class WorkspaceState {
     /// bumps on every active-account transition, so an older A request cannot commit after a rapid
     /// A→B→A re-entry or after a newer notification load/toggle for the same account.
     var notificationSettingsGeneration: UInt64 = 0
+    /// Monotonic token for privacy/security settings writes. Each setter bumps it on entry, so a
+    /// load whose FFI read resolved before the save committed abandons its stale snapshot instead
+    /// of reverting the just-saved toggle.
+    var privacySecuritySettingsGeneration: UInt64 = 0
     var timelineTask: Task<Void, Never>?
     var timelineTaskGroupId: String?
     /// Single-owner coalescing for initial timeline loads (issue #332). `loadMessages` can be
@@ -1691,6 +1695,9 @@ final class WorkspaceState {
 
     private func bumpArchivedChatListGeneration(forAccountId accountId: String) {
         archivedChatListGenerationByAccount[accountId, default: 0] += 1
+        if activeAccountId == accountId {
+            selectedChatRevision += 1
+        }
         if filteredArchivedChatsCache?.accountId == accountId {
             filteredArchivedChatsCache = nil
         }

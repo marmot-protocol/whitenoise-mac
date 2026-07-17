@@ -84,6 +84,57 @@ private final class BlockingFfiGate: @unchecked Sendable {
     }
 }
 
+/// Async twin of `BlockingFfiGate`: suspends the first armed call on a continuation, with all
+/// gate state lock-guarded so arming, polling, and releasing from other threads cannot race the
+/// suspension — a release that wins the race resumes the parked call immediately.
+private final class AsyncFfiGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enabled = false
+    private var reached = false
+    private var released = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    var isEnabled: Bool {
+        get { lock.withLock { enabled } }
+        set { lock.withLock { enabled = newValue } }
+    }
+
+    var didReach: Bool {
+        lock.withLock { reached }
+    }
+
+    func passIfArmed() async {
+        let shouldSuspend = lock.withLock {
+            enabled && continuation == nil && !reached
+        }
+        guard shouldSuspend else { return }
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                self.continuation = continuation
+                reached = true
+                if released {
+                    self.continuation = nil
+                    return true
+                }
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            let continuation = self.continuation
+            self.continuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+}
+
 private final class OneShotKeyProviderGate: @unchecked Sendable {
     private let lock = NSLock()
     private let reached = DispatchSemaphore(value: 0)
@@ -1282,7 +1333,7 @@ struct whitenoise_macTests {
 
         state.groupProfileDraftName = "Private group name"
         state.groupProfileDraftDescription = "Private group description"
-        state.groupInviteMemberQuery = "npub1privateinvite"
+        state.groupInviteMemberQuery = "npub1pryvateynvyte"
         state.groupTranscriptExportStatus = "Copied transcript JSON for 1 events."
         let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
 
@@ -1382,7 +1433,7 @@ struct whitenoise_macTests {
 
         state.groupProfileDraftName = "Private group name"
         state.groupProfileDraftDescription = "Private group description"
-        state.groupInviteMemberQuery = "npub1privateinvite"
+        state.groupInviteMemberQuery = "npub1pryvateynvyte"
         state.isGroupImagePickerPresented = true
         state.groupImageSearchQuery = "private avatar"
         state.groupImageResults = [
@@ -1400,14 +1451,14 @@ struct whitenoise_macTests {
             )
         ]
         let recipient = NewChatRecipient(
-            sourceQuery: "npub1recipient",
-            memberRef: "npub1recipient",
+            sourceQuery: "npub1recypyent",
+            memberRef: "npub1recypyent",
             accountIdHex: "recipient1234567890recipient1234567890recipient1234567890recip1",
-            npub: "npub1recipient",
+            npub: "npub1recypyent",
             displayName: "Private Recipient",
             pictureURL: "https://example.com/recipient.png"
         )
-        state.newChatQuery = "npub1recipient"
+        state.newChatQuery = "npub1recypyent"
         state.newChatName = "Private chat"
         state.newChatDescription = "Private chat description"
         state.newChatRecipient = recipient
@@ -11605,9 +11656,9 @@ struct whitenoise_macTests {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         runtime.installNormalizedMemberRef(
-            query: "npub1newmember",
+            query: "npub1newmemzer",
             accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
-            npub: "npub1newmember"
+            npub: "npub1newmemzer"
         )
         let state = WorkspaceState(clientFactory: { runtime })
 
@@ -11640,12 +11691,12 @@ struct whitenoise_macTests {
         #expect(state.groupDetailsSnapshot?.name == "Renamed Group")
         #expect(state.activeChats.first?.title == "Renamed Group")
 
-        state.groupInviteMemberQuery = "npub1newmember"
+        state.groupInviteMemberQuery = "npub1newmemzer"
         await state.inviteMemberToSelectedGroup()
 
-        #expect(runtime.invitedMemberRefs == ["npub1newmember"])
+        #expect(runtime.invitedMemberRefs == ["npub1newmemzer"])
         #expect(state.groupInviteMemberQuery.isEmpty)
-        #expect(state.groupDetailsSnapshot?.members.contains { $0.npub == "npub1newmember" } == true)
+        #expect(state.groupDetailsSnapshot?.members.contains { $0.npub == "npub1newmemzer" } == true)
     }
 
     @MainActor
@@ -11719,7 +11770,7 @@ struct whitenoise_macTests {
         }
 
         await state.promoteGroupMember(member)
-        #expect(runtime.promotedAdminRef == "npub1alice")
+        #expect(runtime.promotedAdminRef == "npub1alyce")
         #expect(state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id })?.isAdmin == true)
 
         guard let promotedMember = state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id }) else {
@@ -11727,7 +11778,7 @@ struct whitenoise_macTests {
             return
         }
         await state.demoteGroupMember(promotedMember)
-        #expect(runtime.demotedAdminRef == "npub1alice")
+        #expect(runtime.demotedAdminRef == "npub1alyce")
         #expect(state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id })?.isAdmin == false)
 
         guard let demotedMember = state.groupDetailsSnapshot?.members.first(where: { $0.id == member.id }) else {
@@ -11735,7 +11786,7 @@ struct whitenoise_macTests {
             return
         }
         await state.removeGroupMember(demotedMember)
-        #expect(runtime.removedMemberRefs == ["npub1alice"])
+        #expect(runtime.removedMemberRefs == ["npub1alyce"])
         #expect(state.groupDetailsSnapshot?.members.contains { $0.id == member.id } == false)
     }
 
@@ -11947,13 +11998,13 @@ struct whitenoise_macTests {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         runtime.installNormalizedMemberRef(
-            query: "npub1newmember",
+            query: "npub1newmemzer",
             accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
-            npub: "npub1newmember"
+            npub: "npub1newmemzer"
         )
         let state = try await openInstalledGroupDetails(runtime: runtime)
 
-        state.groupInviteMemberQuery = "npub1newmember"
+        state.groupInviteMemberQuery = "npub1newmemzer"
         runtime.groupMutationGateEnabled = true
 
         async let firstInvite: Void = state.inviteMemberToSelectedGroup()
@@ -11977,9 +12028,9 @@ struct whitenoise_macTests {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         runtime.installNormalizedMemberRef(
-            query: "npub1newmember",
+            query: "npub1newmemzer",
             accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
-            npub: "npub1newmember"
+            npub: "npub1newmemzer"
         )
         let state = try await openInstalledGroupDetails(runtime: runtime)
         let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
@@ -11990,7 +12041,7 @@ struct whitenoise_macTests {
             await Task.yield()
         }
 
-        state.groupInviteMemberQuery = "npub1newmember"
+        state.groupInviteMemberQuery = "npub1newmemzer"
         await state.inviteMemberToSelectedGroup()
         #expect(runtime.inviteMembersDetailedCallCount == 0)
 
@@ -12004,14 +12055,14 @@ struct whitenoise_macTests {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         runtime.installNormalizedMemberRef(
-            query: "npub1newmember",
+            query: "npub1newmemzer",
             accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
-            npub: "npub1newmember"
+            npub: "npub1newmemzer"
         )
         let state = try await openInstalledGroupDetails(runtime: runtime)
         let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
 
-        state.groupInviteMemberQuery = "npub1newmember"
+        state.groupInviteMemberQuery = "npub1newmemzer"
         runtime.groupMutationGateEnabled = true
         async let firstInvite: Void = state.inviteMemberToSelectedGroup()
         while !(state.isInvitingGroupMember && runtime.didReachGroupMutationGate) {
@@ -13444,12 +13495,12 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatQuery = "npub1alice"
+        state.newChatQuery = "npub1alyce"
         state.newChatName = "Project Room"
         state.newChatDescription = "planning space"
         await state.createNewChat()
 
-        #expect(runtime.createdGroupMemberRefs == ["npub1alice"])
+        #expect(runtime.createdGroupMemberRefs == ["npub1alyce"])
         #expect(runtime.createdGroupName == "Project Room")
         #expect(runtime.createdGroupDescription == "planning space")
         #expect(state.selection == .chat("created-group"))
@@ -13466,24 +13517,24 @@ struct whitenoise_macTests {
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
-        runtime.installNormalizedMemberRef(query: "npub1bob", accountIdHex: bobId, npub: "npub1bob")
+        runtime.installNormalizedMemberRef(query: "npub1alyce", accountIdHex: aliceId, npub: "npub1alyce")
+        runtime.installNormalizedMemberRef(query: "npub1p0p", accountIdHex: bobId, npub: "npub1p0p")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         state.showNewChat()
 
         // Commit the first member the normal way (this clears the input).
-        state.newChatQuery = "npub1alice"
+        state.newChatQuery = "npub1alyce"
         _ = await state.addCurrentNewChatRecipient()
         #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId])
         #expect(state.newChatQuery.isEmpty)
 
         // Leave the second pubkey pending in the input, then create directly.
-        state.newChatQuery = "npub1bob"
+        state.newChatQuery = "npub1p0p"
         await state.createNewChat()
 
-        #expect(runtime.createdGroupMemberRefs == ["npub1alice", "npub1bob"])
+        #expect(runtime.createdGroupMemberRefs == ["npub1alyce", "npub1p0p"])
         #expect(state.selection == .chat("created-group"))
     }
 
@@ -13517,7 +13568,7 @@ struct whitenoise_macTests {
         #expect(state.activeAccountId == "Desktop Account")
 
         state.showNewChat()
-        state.newChatQuery = "npub1alice"
+        state.newChatQuery = "npub1alyce"
         state.newChatName = "Project Room"
 
         // Arm the gate so the create suspends in-flight inside `createGroup`.
@@ -13560,7 +13611,7 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatQuery = "npub1alice"
+        state.newChatQuery = "npub1alyce"
         await state.resolveNewChatQuery()
 
         #expect(state.resolvedNewChatRecipient?.title == "Desktop Account")
@@ -13574,12 +13625,14 @@ struct whitenoise_macTests {
         let policy = NIP05RedirectPolicy()
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
-        let task = session.dataTask(with: URL(string: "https://example.com/.well-known/nostr.json")!)
         let redirectResponse = HTTPURLResponse(
             url: URL(string: "https://example.com")!, statusCode: 302, httpVersion: nil, headerFields: nil
         )!
 
+        // A fresh task per decision — each target is an independent host-revalidation check, not a
+        // hop of one lookup, so they must not share the per-task redirect-hop budget.
         func followedRequest(to target: String) -> URLRequest? {
+            let task = session.dataTask(with: URL(string: "https://example.com/.well-known/nostr.json")!)
             var decided: URLRequest?
             policy.urlSession(
                 session,
@@ -13601,12 +13654,51 @@ struct whitenoise_macTests {
         #expect(allowed?.url?.absoluteString == "https://relay.example.com/x")
     }
 
+    @Test func nip05ResolverStreamingCapRejectsOversizedBodyWithoutContentLength() async {
+        // No advertised length, so the streaming cap (not the pre-check) is what must fire.
+        NIP05URLProtocolStub.configure(body: Data(repeating: 0x20, count: 512 * 1024), sendContentLength: false)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [NIP05URLProtocolStub.self]
+        let resolver = NIP05Resolver(session: URLSession(configuration: config))
+        do {
+            _ = try await resolver.accountReference(for: "alyce@relay.example.com")
+            Issue.record("expected responseTooLarge")
+        } catch NIP05ResolutionError.responseTooLarge {
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func nip05ResolverPreCheckRejectsOversizedContentLength() async {
+        NIP05URLProtocolStub.configure(body: Data(repeating: 0x20, count: 512 * 1024), sendContentLength: true)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [NIP05URLProtocolStub.self]
+        let resolver = NIP05Resolver(session: URLSession(configuration: config))
+        do {
+            _ = try await resolver.accountReference(for: "alyce@relay.example.com")
+            Issue.record("expected responseTooLarge")
+        } catch NIP05ResolutionError.responseTooLarge {
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
+    @Test func nip05ResolverStreamsAndDecodesSmallBody() async throws {
+        let hex = String(repeating: "a", count: 64)
+        NIP05URLProtocolStub.configure(body: Data("{\"names\":{\"alyce\":\"\(hex)\"}}".utf8), sendContentLength: true)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [NIP05URLProtocolStub.self]
+        let resolver = NIP05Resolver(session: URLSession(configuration: config))
+        let reference = try await resolver.accountReference(for: "alyce@relay.example.com")
+        #expect(reference == hex)
+    }
+
     @MainActor
     @Test func resolvingNewChatRecipientUsesNIP05() async throws {
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: aliceId, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: aliceId, accountIdHex: aliceId, npub: "npub1alyce")
         runtime.installProfile(
             accountIdHex: aliceId,
             profile: UserProfileMetadataFfi(
@@ -13631,7 +13723,7 @@ struct whitenoise_macTests {
         #expect(state.looksLikeMemberRef("alice@example.com"))
         #expect(state.resolvedNewChatRecipient?.sourceQuery == "alice@example.com")
         #expect(state.resolvedNewChatRecipient?.accountIdHex == aliceId)
-        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alyce")
         #expect(state.resolvedNewChatRecipient?.title == "Alice NIP-05")
         #expect(state.resolvedNewChatRecipient?.pictureURL == "https://example.com/alice.png")
     }
@@ -13641,7 +13733,7 @@ struct whitenoise_macTests {
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: aliceId, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: aliceId, accountIdHex: aliceId, npub: "npub1alyce")
         runtime.installProfile(
             accountIdHex: aliceId,
             profile: UserProfileMetadataFfi(
@@ -13672,10 +13764,10 @@ struct whitenoise_macTests {
     @Test func openingNostrProfileLinkShowsNewChatComposerAndResolvesRecipient() async throws {
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
-        let nprofile = "nprofile1alice"
+        let nprofile = "nprofile1alyce"
         let query = "nostr:\(nprofile)"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: query, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: query, accountIdHex: aliceId, npub: "npub1alyce")
         runtime.installProfile(
             accountIdHex: aliceId,
             profile: UserProfileMetadataFfi(
@@ -13701,7 +13793,7 @@ struct whitenoise_macTests {
         #expect(state.isNewChatComposerVisible)
         #expect(state.newChatQuery == query)
         #expect(state.newChatName.isEmpty)
-        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alyce")
         #expect(state.resolvedNewChatRecipient?.title == "Alice Link")
     }
 
@@ -13713,12 +13805,12 @@ struct whitenoise_macTests {
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
         let carolId = "carol1234567890carol1234567890carol1234567890carol1234567890"
-        let nprofile = "nprofile1bob"
+        let nprofile = "nprofile1p0p"
         let query = "nostr:\(nprofile)"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
-        runtime.installNormalizedMemberRef(query: query, accountIdHex: bobId, npub: "npub1bob")
-        runtime.installNormalizedMemberRef(query: "npub1carol", accountIdHex: carolId, npub: "npub1carol")
+        runtime.installNormalizedMemberRef(query: "npub1alyce", accountIdHex: aliceId, npub: "npub1alyce")
+        runtime.installNormalizedMemberRef(query: query, accountIdHex: bobId, npub: "npub1p0p")
+        runtime.installNormalizedMemberRef(query: "npub1car0l", accountIdHex: carolId, npub: "npub1car0l")
         runtime.installProfile(
             accountIdHex: bobId,
             profile: UserProfileMetadataFfi(
@@ -13734,11 +13826,11 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatQuery = "npub1alice"
+        state.newChatQuery = "npub1alyce"
         _ = await state.addCurrentNewChatRecipient()
         state.newChatName = "Project Room"
         state.newChatDescription = "planning space"
-        state.newChatQuery = "npub1carol"
+        state.newChatQuery = "npub1car0l"
         await state.resolveNewChatQuery()
         #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
 
@@ -13752,7 +13844,7 @@ struct whitenoise_macTests {
         #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId, bobId])
         #expect(state.newChatName == "Project Room")
         #expect(state.newChatDescription == "planning space")
-        #expect(state.newChatQuery == "npub1carol")
+        #expect(state.newChatQuery == "npub1car0l")
         #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
     }
 
@@ -13765,11 +13857,11 @@ struct whitenoise_macTests {
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
         let carolId = "carol1234567890carol1234567890carol1234567890carol1234567890"
         let daveId = "dave1234567890dave1234567890dave1234567890dave1234567890"
-        let bobReference = "nprofile1bob"
+        let bobReference = "nprofile1p0p"
         let bobQuery = "nostr:\(bobReference)"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: bobQuery, accountIdHex: bobId, npub: "npub1bob")
-        runtime.installNormalizedMemberRef(query: "npub1carol", accountIdHex: carolId, npub: "npub1carol")
+        runtime.installNormalizedMemberRef(query: bobQuery, accountIdHex: bobId, npub: "npub1p0p")
+        runtime.installNormalizedMemberRef(query: "npub1car0l", accountIdHex: carolId, npub: "npub1car0l")
         runtime.installNormalizedMemberRef(query: "npub1dave", accountIdHex: daveId, npub: "npub1dave")
         runtime.profileRefreshDelaysByAccountId[bobId] = 200_000_000
         let state = WorkspaceState(clientFactory: { runtime })
@@ -13777,7 +13869,7 @@ struct whitenoise_macTests {
         await state.bootstrap()
         state.showNewChat()
         state.newChatName = "Project Room"
-        state.newChatQuery = "npub1carol"
+        state.newChatQuery = "npub1car0l"
         await state.resolveNewChatQuery()
         #expect(state.resolvedNewChatRecipient?.accountIdHex == carolId)
 
@@ -13806,20 +13898,20 @@ struct whitenoise_macTests {
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
-        let routedQuery = "nostr:npub1bob"
+        let routedQuery = "nostr:npub1p0p"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
-        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: bobId, npub: "npub1bob")
+        runtime.installNormalizedMemberRef(query: "npub1alyce", accountIdHex: aliceId, npub: "npub1alyce")
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: bobId, npub: "npub1p0p")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatQuery = "npub1alice"
+        state.newChatQuery = "npub1alyce"
         _ = await state.addCurrentNewChatRecipient()
         state.newChatName = "Project Room"
         state.newChatDescription = "planning space"
 
-        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1bob?from=qr")!)
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1p0p?from=qr")!)
         let added = await waitFor {
             state.newChatRecipients.contains { $0.accountIdHex == bobId }
         }
@@ -13838,29 +13930,29 @@ struct whitenoise_macTests {
         // extracted reference in nostr: form.
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
-        let routedQuery = "nostr:nprofile1alice"
+        let routedQuery = "nostr:nprofile1alyce"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alyce")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
-        _ = state.handleMessageLinkOpen(URL(string: "marmot://profile/nprofile1alice")!)
+        _ = state.handleMessageLinkOpen(URL(string: "marmot://profile/nprofile1alyce")!)
         let resolved = await waitFor {
             state.resolvedNewChatRecipient?.sourceQuery == routedQuery
         }
 
         #expect(resolved)
         #expect(state.isNewChatComposerVisible)
-        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alyce")
     }
 
     @MainActor
     @Test func marmotDeepLinkWhenReadyOpensComposerAndResolvesRecipient() async throws {
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
-        let routedQuery = "nostr:npub1alice"
+        let routedQuery = "nostr:npub1alyce"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alyce")
         let activationRecorder = AppActivationRecorder()
         let state = WorkspaceState(
             appActivationHandler: activationRecorder.record,
@@ -13868,7 +13960,7 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alyce?from=qr")!)
         let resolved = await waitFor {
             state.resolvedNewChatRecipient?.sourceQuery == routedQuery
         }
@@ -13876,7 +13968,7 @@ struct whitenoise_macTests {
         #expect(resolved)
         #expect(state.isNewChatComposerVisible)
         #expect(state.pendingDeepLinkProfileReference == nil)
-        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alyce")
         #expect(activationRecorder.requests == [false])
     }
 
@@ -13890,10 +13982,10 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alyce?from=qr")!)
 
         #expect(state.phase == .onboarding)
-        #expect(state.pendingDeepLinkProfileReference == "npub1alice")
+        #expect(state.pendingDeepLinkProfileReference == "npub1alyce")
         #expect(state.backgroundStatus == "Sign in to start a chat from this link.")
         #expect(!state.isNewChatComposerVisible)
         #expect(activationRecorder.requests.isEmpty)
@@ -13905,17 +13997,17 @@ struct whitenoise_macTests {
         // queued and flushed by activateReadyState().
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
-        let routedQuery = "nostr:npub1alice"
+        let routedQuery = "nostr:npub1alyce"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: aliceId, npub: "npub1alyce")
         let activationRecorder = AppActivationRecorder()
         let state = WorkspaceState(
             appActivationHandler: activationRecorder.record,
             clientFactory: { runtime }
         )
 
-        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alice?from=qr")!)
-        #expect(state.pendingDeepLinkProfileReference == "npub1alice")
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1alyce?from=qr")!)
+        #expect(state.pendingDeepLinkProfileReference == "npub1alyce")
         #expect(state.resolvedNewChatRecipient == nil)
         #expect(activationRecorder.requests.isEmpty)
 
@@ -13953,20 +14045,20 @@ struct whitenoise_macTests {
         // bindings parse it since the mdk#725 bump (clean break: darkmatter:// is dead).
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
-        let pasted = "marmot://profile/npub1alice?from=qr"
+        let pasted = "marmot://profile/npub1alyce?from=qr"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: pasted, accountIdHex: aliceId, npub: "npub1alice")
+        runtime.installNormalizedMemberRef(query: pasted, accountIdHex: aliceId, npub: "npub1alyce")
         let state = WorkspaceState(clientFactory: { runtime })
 
         await state.bootstrap()
         #expect(state.looksLikeMemberRef(pasted))
-        #expect(!state.looksLikeMemberRef("darkmatter://profile/npub1alice"))
+        #expect(!state.looksLikeMemberRef("darkmatter://profile/npub1alyce"))
 
         state.showNewChat()
         state.newChatQuery = pasted
         await state.resolveNewChatQuery()
 
-        #expect(state.resolvedNewChatRecipient?.npub == "npub1alice")
+        #expect(state.resolvedNewChatRecipient?.npub == "npub1alyce")
     }
 
     @MainActor
@@ -13982,7 +14074,7 @@ struct whitenoise_macTests {
         let slowId = "1111111111111111111111111111111111111111111111111111111111111111"
         let fastId = "2222222222222222222222222222222222222222222222222222222222222222"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: "npub1slow", accountIdHex: slowId, npub: "npub1slow")
+        runtime.installNormalizedMemberRef(query: "npub1sl0w", accountIdHex: slowId, npub: "npub1sl0w")
         runtime.installNormalizedMemberRef(query: "npub1fast", accountIdHex: fastId, npub: "npub1fast")
         runtime.installProfile(
             accountIdHex: slowId,
@@ -14011,7 +14103,7 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatQuery = "npub1slow"
+        state.newChatQuery = "npub1sl0w"
         let slowLookup = Task { @MainActor in
             await state.resolveNewChatQueryIfReady()
         }
@@ -14040,7 +14132,7 @@ struct whitenoise_macTests {
         )
         let slowId = "1111111111111111111111111111111111111111111111111111111111111111"
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installNormalizedMemberRef(query: "npub1slow", accountIdHex: slowId, npub: "npub1slow")
+        runtime.installNormalizedMemberRef(query: "npub1sl0w", accountIdHex: slowId, npub: "npub1sl0w")
         runtime.installProfile(
             accountIdHex: slowId,
             profile: UserProfileMetadataFfi(
@@ -14057,7 +14149,7 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         state.showNewChat()
-        state.newChatQuery = "npub1slow"
+        state.newChatQuery = "npub1sl0w"
         let slowLookup = Task { @MainActor in
             await state.resolveNewChatQueryIfReady()
         }
@@ -14071,7 +14163,7 @@ struct whitenoise_macTests {
         // lookup still owns the generation, so when it resumes its defer must clear
         // the spinner (keyed on generation ownership) even though the stricter
         // generation+query commit guard now fails and blocks the stale result.
-        state.newChatQuery = "npub1edited"
+        state.newChatQuery = "npub1edyted"
         await slowLookup.value
 
         #expect(!state.isResolvingNewChat)
@@ -16614,9 +16706,18 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var reactToMessageCallCount = 0
     private(set) var deleteMessageCallCount = 0
     private(set) var uploadMediaCallCount = 0
-    private(set) var listMediaCallCount = 0
-    private(set) var downloadMediaCallCount = 0
-    private(set) var downloadedMediaReferences: [MediaAttachmentReferenceFfi] = []
+    var listMediaCallCount: Int {
+        recordedStateLock.withLock { _listMediaCallCount }
+    }
+    private var _listMediaCallCount = 0
+    var downloadMediaCallCount: Int {
+        recordedStateLock.withLock { _downloadMediaCallCount }
+    }
+    private var _downloadMediaCallCount = 0
+    var downloadedMediaReferences: [MediaAttachmentReferenceFfi] {
+        recordedStateLock.withLock { _downloadedMediaReferences }
+    }
+    private var _downloadedMediaReferences: [MediaAttachmentReferenceFfi] = []
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
     private(set) var updateGroupAvatarUrlCallCount = 0
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
@@ -16646,7 +16747,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var lastPublishedProfileBootstrapRelays: [String] = []
     private(set) var lastSetInboxBootstrapRelays: [String] = []
     private(set) var lastSetNip65BootstrapRelays: [String] = []
-    private(set) var refreshedProfileIds: [String] = []
+    var refreshedProfileIds: [String] {
+        recordedStateLock.withLock { _refreshedProfileIds }
+    }
+    private var _refreshedProfileIds: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
     /// Number of times `userProfile` was queried — used to assert settings-load coalescing
@@ -16656,13 +16760,31 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var accountRelayListsCallCount = 0
     /// Per-group call count for `groupDetails`, used to assert chat-list enrichment runs
     /// through the incremental per-row path (issue #40 regression).
-    private(set) var groupDetailsCallCounts: [String: Int] = [:]
+    var groupDetailsCallCounts: [String: Int] {
+        recordedStateLock.withLock { _groupDetailsCallCounts }
+    }
+    private var _groupDetailsCallCounts: [String: Int] = [:]
     var groupDetailsFailureGroupIds = Set<String>()
-    private(set) var chatListSubscriptionCount = 0
-    private(set) var notificationSubscriptionCount = 0
-    private(set) var timelineSubscriptionCount = 0
-    private(set) var timelineSubscriptionAccountRefs: [String] = []
-    private(set) var lastTimelineSubscription: FakeTimelineMessagesSubscription?
+    var chatListSubscriptionCount: Int {
+        recordedStateLock.withLock { _chatListSubscriptionCount }
+    }
+    private var _chatListSubscriptionCount = 0
+    var notificationSubscriptionCount: Int {
+        recordedStateLock.withLock { _notificationSubscriptionCount }
+    }
+    private var _notificationSubscriptionCount = 0
+    var timelineSubscriptionCount: Int {
+        recordedStateLock.withLock { _timelineSubscriptionCount }
+    }
+    private var _timelineSubscriptionCount = 0
+    var timelineSubscriptionAccountRefs: [String] {
+        recordedStateLock.withLock { _timelineSubscriptionAccountRefs }
+    }
+    private var _timelineSubscriptionAccountRefs: [String] = []
+    var lastTimelineSubscription: FakeTimelineMessagesSubscription? {
+        recordedStateLock.withLock { _lastTimelineSubscription }
+    }
+    private var _lastTimelineSubscription: FakeTimelineMessagesSubscription?
     var chatListStreamEndsAfterUpdates = false
     /// Simulates async relay/runtime latency before a chat-list subscription is ready.
     var chatListSubscriptionDelayNanoseconds: UInt64 = 0
@@ -16674,6 +16796,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var timelineMessagesHandler: ((TimelineMessageQueryFfi) -> TimelinePageFfi)?
     private let syncCallThreadLock = NSLock()
     private var syncCallThreads: [String: [Bool]] = [:]
+    /// Guards recorded-call state mutated by concurrent runtime calls while tests poll it mid-flight.
+    private let recordedStateLock = NSLock()
     /// When set, `subscribeNotifications()` throws this error, simulating a background
     /// notification-listener failure for routing tests.
     var subscribeNotificationsError: Error?
@@ -16684,19 +16808,24 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// (`sendText`/`replyToMessage`/`reactToMessage`/`deleteMessage`) suspends until
     /// `releaseMessageActionGate()` is invoked, holding the first invocation in-flight so a
     /// test can issue an overlapping second call and assert the WorkspaceState guard dropped it.
-    var messageActionGateEnabled = false
-    private(set) var didReachMessageActionGate = false
-    private var messageActionGateContinuation: CheckedContinuation<Void, Never>?
+    private let messageActionGate = AsyncFfiGate()
+    var messageActionGateEnabled: Bool {
+        get { messageActionGate.isEnabled }
+        set { messageActionGate.isEnabled = newValue }
+    }
+    var didReachMessageActionGate: Bool {
+        messageActionGate.didReach
+    }
     /// Issue #230 media-cache teardown-test support: when armed, the first `downloadMedia`
     /// call suspends after capturing the download bytes so a purge can complete before it returns.
-    private let mediaDownloadGateLock = NSLock()
-    var mediaDownloadGateEnabled = false
-    private var mediaDownloadGateReached = false
-    var didReachMediaDownloadGate: Bool {
-        mediaDownloadGateLock.withLock { mediaDownloadGateReached }
+    private let mediaDownloadGate = AsyncFfiGate()
+    var mediaDownloadGateEnabled: Bool {
+        get { mediaDownloadGate.isEnabled }
+        set { mediaDownloadGate.isEnabled = newValue }
     }
-    private var mediaDownloadGateContinuation: CheckedContinuation<Void, Never>?
-    private var mediaDownloadGateReleased = false
+    var didReachMediaDownloadGate: Bool {
+        mediaDownloadGate.didReach
+    }
     /// Issue #286 reference-resolution cache-test support: when armed, the first synchronous
     /// `listMedia` call blocks on the FFI queue so overlapping attachment loads can join it.
     private let listMediaGate = BlockingFfiGate()
@@ -16710,37 +16839,62 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// Issue #134 reentrancy-test support: when armed, the first group-avatar update FFI call
     /// suspends until `releaseGroupAvatarUpdateGate()` is invoked, holding the first invocation
     /// in-flight so a test can issue an overlapping clear/set action and assert the guard dropped it.
-    var groupAvatarUpdateGateEnabled = false
-    private(set) var didReachGroupAvatarUpdateGate = false
-    private var groupAvatarUpdateGateContinuation: CheckedContinuation<Void, Never>?
+    private let groupAvatarUpdateGate = AsyncFfiGate()
+    var groupAvatarUpdateGateEnabled: Bool {
+        get { groupAvatarUpdateGate.isEnabled }
+        set { groupAvatarUpdateGate.isEnabled = newValue }
+    }
+    var didReachGroupAvatarUpdateGate: Bool {
+        groupAvatarUpdateGate.didReach
+    }
     /// Issue #310 reentrancy-test support: when armed, the first group mutation FFI call suspends
     /// until `releaseGroupMutationGate()` is invoked, holding the first invocation in-flight so a
     /// test can issue an overlapping duplicate and assert the WorkspaceState guard dropped it.
-    var groupMutationGateEnabled = false
-    private(set) var didReachGroupMutationGate = false
-    private var groupMutationGateContinuation: CheckedContinuation<Void, Never>?
+    private let groupMutationGate = AsyncFfiGate()
+    var groupMutationGateEnabled: Bool {
+        get { groupMutationGate.isEnabled }
+        set { groupMutationGate.isEnabled = newValue }
+    }
+    var didReachGroupMutationGate: Bool {
+        groupMutationGate.didReach
+    }
     /// Issue #135 last-request-wins-test support: when armed, the first `groupDetails` FFI call
     /// suspends until `releaseGroupDetailsGate()` is invoked, holding the older `loadGroupDetails`
     /// in-flight so a test can run a newer overlapping load to completion and then assert the stale
     /// older completion does not clobber the newer snapshot or drop the shared spinner.
-    var groupDetailsGateEnabled = false
-    private(set) var didReachGroupDetailsGate = false
-    private var groupDetailsGateContinuation: CheckedContinuation<Void, Never>?
+    private let groupDetailsGate = AsyncFfiGate()
+    var groupDetailsGateEnabled: Bool {
+        get { groupDetailsGate.isEnabled }
+        set { groupDetailsGate.isEnabled = newValue }
+    }
+    var didReachGroupDetailsGate: Bool {
+        groupDetailsGate.didReach
+    }
     /// Issue #207 last-request-wins-test support: when armed, the first `accountKeyPackages` FFI
     /// call suspends until `releaseAccountKeyPackagesGate()` is invoked, holding an older
     /// `loadKeyPackages()` in-flight so a test can switch the active account, run a newer load to
     /// completion, then assert the stale older completion does not overwrite (or, on error, blank)
     /// the newer account's key-package list.
-    var accountKeyPackagesGateEnabled = false
-    private(set) var didReachAccountKeyPackagesGate = false
-    private var accountKeyPackagesGateContinuation: CheckedContinuation<Void, Never>?
+    private let accountKeyPackagesGate = AsyncFfiGate()
+    var accountKeyPackagesGateEnabled: Bool {
+        get { accountKeyPackagesGate.isEnabled }
+        set { accountKeyPackagesGate.isEnabled = newValue }
+    }
+    var didReachAccountKeyPackagesGate: Bool {
+        accountKeyPackagesGate.didReach
+    }
     /// Issue #229 stale-account-test support: when armed, the first `createGroup` FFI call suspends
     /// until `releaseCreateGroupGate()` is invoked, holding `createNewChat()` in-flight so a test can
     /// switch the active account before the create resolves and assert the freshly created group is
     /// not grafted onto / selected under the switched-to account.
-    var createGroupGateEnabled = false
-    private(set) var didReachCreateGroupGate = false
-    private var createGroupGateContinuation: CheckedContinuation<Void, Never>?
+    private let createGroupGate = AsyncFfiGate()
+    var createGroupGateEnabled: Bool {
+        get { createGroupGate.isEnabled }
+        set { createGroupGate.isEnabled = newValue }
+    }
+    var didReachCreateGroupGate: Bool {
+        createGroupGate.didReach
+    }
     /// Issue #228 last-request-wins support for synchronous notification FFI reads: when armed,
     /// the first `notificationSettings` call blocks on the FFI queue until released, holding an
     /// older account's result while the test switches accounts and loads the newer snapshot.
@@ -16798,15 +16952,25 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// suspends until `releasePublishUserProfileGate()` is invoked, holding `saveProfile()` in-flight
     /// so a test can switch the active account before the publish resolves and assert the just-saved
     /// profile is not misattributed to the switched-to account.
-    var publishUserProfileGateEnabled = false
-    private(set) var didReachPublishUserProfileGate = false
-    private var publishUserProfileGateContinuation: CheckedContinuation<Void, Never>?
+    private let publishUserProfileGate = AsyncFfiGate()
+    var publishUserProfileGateEnabled: Bool {
+        get { publishUserProfileGate.isEnabled }
+        set { publishUserProfileGate.isEnabled = newValue }
+    }
+    var didReachPublishUserProfileGate: Bool {
+        publishUserProfileGate.didReach
+    }
     /// Issue #287 equivalent gate for the `setAccountNip65Relays` / `setAccountInboxRelays` FFI
     /// writes: when armed, the first relay-save call suspends until `releaseSetAccountRelaysGate()`,
     /// holding `saveRelaySettings()` in-flight across an account switch.
-    var setAccountRelaysGateEnabled = false
-    private(set) var didReachSetAccountRelaysGate = false
-    private var setAccountRelaysGateContinuation: CheckedContinuation<Void, Never>?
+    private let setAccountRelaysGate = AsyncFfiGate()
+    var setAccountRelaysGateEnabled: Bool {
+        get { setAccountRelaysGate.isEnabled }
+        set { setAccountRelaysGate.isEnabled = newValue }
+    }
+    var didReachSetAccountRelaysGate: Bool {
+        setAccountRelaysGate.didReach
+    }
     /// Per-account key packages keyed by `accountRef`. Falls back to the default `keyPackages`
     /// fixture when an account has no explicit install, so existing single-account tests are
     /// unaffected.
@@ -16941,19 +17105,19 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return MemberRefFfi(
             memberRef: memberRef,
             accountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
-            npub: "npub1alice"
+            npub: "npub1alyce"
         )
     }
 
     func refreshProfile(accountIdHex: String, relays: [String]) async throws {
-        refreshedProfileIds.append(accountIdHex)
+        recordedStateLock.withLock { _refreshedProfileIds.append(accountIdHex) }
         if let delay = profileRefreshDelaysByAccountId[accountIdHex] {
             try await Task.sleep(nanoseconds: delay)
         }
     }
 
     func clearRefreshedProfileIds() {
-        refreshedProfileIds = []
+        recordedStateLock.withLock { _refreshedProfileIds = [] }
     }
 
     func clearTimelineMessageQueries() {
@@ -17024,7 +17188,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                     local: false,
                     isAdmin: false,
                     isSelf: false,
-                    npub: "npub1alice",
+                    npub: "npub1alyce",
                     displayName: otherDisplayName
                 ),
             ]
@@ -17139,23 +17303,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         lastPublishedProfileDefaultRelays = defaultRelays
         lastPublishedProfileBootstrapRelays = bootstrapRelays
         self.profile = profile
-        await passPublishUserProfileGateIfArmed()
+        await publishUserProfileGate.passIfArmed()
         return profile
     }
 
-    private func passPublishUserProfileGateIfArmed() async {
-        guard publishUserProfileGateEnabled, publishUserProfileGateContinuation == nil,
-            !didReachPublishUserProfileGate
-        else { return }
-        didReachPublishUserProfileGate = true
-        await withCheckedContinuation { continuation in
-            publishUserProfileGateContinuation = continuation
-        }
-    }
-
     func releasePublishUserProfileGate() {
-        publishUserProfileGateContinuation?.resume()
-        publishUserProfileGateContinuation = nil
+        publishUserProfileGate.release()
     }
 
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi {
@@ -17178,7 +17331,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         // Snapshot the result *before* the gate so a held older load returns its account's packages
         // and a later switch/mutation cannot retroactively change them (issue #207).
         let result = keyPackagesByAccountRef[accountRef] ?? keyPackages
-        await passAccountKeyPackagesGateIfArmed()
+        await accountKeyPackagesGate.passIfArmed()
         return result
     }
 
@@ -17186,19 +17339,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         keyPackagesByAccountRef[accountRef] = packages
     }
 
-    private func passAccountKeyPackagesGateIfArmed() async {
-        guard accountKeyPackagesGateEnabled, accountKeyPackagesGateContinuation == nil,
-            !didReachAccountKeyPackagesGate
-        else { return }
-        didReachAccountKeyPackagesGate = true
-        await withCheckedContinuation { continuation in
-            accountKeyPackagesGateContinuation = continuation
-        }
-    }
-
     func releaseAccountKeyPackagesGate() {
-        accountKeyPackagesGateContinuation?.resume()
-        accountKeyPackagesGateContinuation = nil
+        accountKeyPackagesGate.release()
     }
 
     func auditLogFiles() throws -> [AuditLogFileFfi] {
@@ -17392,21 +17534,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             groupDetailsById[group.groupIdHex] = details
             groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
         }
-        await passCreateGroupGateIfArmed()
+        await createGroupGate.passIfArmed()
         return "created-group"
     }
 
-    private func passCreateGroupGateIfArmed() async {
-        guard createGroupGateEnabled, createGroupGateContinuation == nil, !didReachCreateGroupGate else { return }
-        didReachCreateGroupGate = true
-        await withCheckedContinuation { continuation in
-            createGroupGateContinuation = continuation
-        }
-    }
-
     func releaseCreateGroupGate() {
-        createGroupGateContinuation?.resume()
-        createGroupGateContinuation = nil
+        createGroupGate.release()
     }
 
     func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi {
@@ -17439,7 +17572,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func groupDetails(accountRef: String, groupIdHex: String) async throws -> GroupDetailsFfi {
-        groupDetailsCallCounts[groupIdHex, default: 0] += 1
+        recordedStateLock.withLock { _groupDetailsCallCounts[groupIdHex, default: 0] += 1 }
         if groupDetailsFailureGroupIds.contains(groupIdHex) {
             throw FakeMarmotRuntimeError.unused
         }
@@ -17453,21 +17586,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         } else {
             throw FakeMarmotRuntimeError.unused
         }
-        await passGroupDetailsGateIfArmed()
+        await groupDetailsGate.passIfArmed()
         return result
     }
 
-    private func passGroupDetailsGateIfArmed() async {
-        guard groupDetailsGateEnabled, groupDetailsGateContinuation == nil, !didReachGroupDetailsGate else { return }
-        didReachGroupDetailsGate = true
-        await withCheckedContinuation { continuation in
-            groupDetailsGateContinuation = continuation
-        }
-    }
-
     func releaseGroupDetailsGate() {
-        groupDetailsGateContinuation?.resume()
-        groupDetailsGateContinuation = nil
+        groupDetailsGate.release()
     }
 
     func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi {
@@ -17484,7 +17608,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         -> GroupMutationResultFfi
     {
         inviteMembersDetailedCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         invitedMemberRefs = memberRefs
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -17515,7 +17639,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
         leaveGroupCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         leftGroupIdHex = groupIdHex
         groups.removeAll { $0.groupIdHex == groupIdHex }
         groupDetailsById[groupIdHex] = nil
@@ -17527,7 +17651,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         -> GroupMutationResultFfi
     {
         promoteAdminDetailedCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         promotedAdminRef = memberRef
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = true
@@ -17539,7 +17663,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         -> GroupMutationResultFfi
     {
         demoteAdminDetailedCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         demotedAdminRef = memberRef
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = false
@@ -17551,7 +17675,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         -> GroupMutationResultFfi
     {
         removeMembersDetailedCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         removedMemberRefs = memberRefs
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -17566,7 +17690,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
         selfDemoteAdminDetailedCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         selfDemotedGroupIdHex = groupIdHex
         guard var details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -17581,7 +17705,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi {
         setGroupArchivedCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         archivedGroup = ArchivedGroup(groupIdHex: groupIdHex, archived: archived)
         guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
             throw FakeMarmotRuntimeError.unused
@@ -17598,7 +17722,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         async throws -> SendSummaryFfi
     {
         updateGroupAvatarUrlCallCount += 1
-        await passGroupAvatarUpdateGateIfArmed()
+        await groupAvatarUpdateGate.passIfArmed()
 
         updatedGroupAvatar = UpdatedGroupAvatar(groupIdHex: groupIdHex, url: url, dim: dim, thumbhash: thumbhash)
 
@@ -17618,43 +17742,19 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["group-avatar"])
     }
 
-    private func passGroupAvatarUpdateGateIfArmed() async {
-        guard groupAvatarUpdateGateEnabled,
-            groupAvatarUpdateGateContinuation == nil,
-            !didReachGroupAvatarUpdateGate
-        else { return }
-        didReachGroupAvatarUpdateGate = true
-        await withCheckedContinuation { continuation in
-            groupAvatarUpdateGateContinuation = continuation
-        }
-    }
-
     func releaseGroupAvatarUpdateGate() {
-        groupAvatarUpdateGateContinuation?.resume()
-        groupAvatarUpdateGateContinuation = nil
-    }
-
-    private func passGroupMutationGateIfArmed() async {
-        guard groupMutationGateEnabled,
-            groupMutationGateContinuation == nil,
-            !didReachGroupMutationGate
-        else { return }
-        didReachGroupMutationGate = true
-        await withCheckedContinuation { continuation in
-            groupMutationGateContinuation = continuation
-        }
+        groupAvatarUpdateGate.release()
     }
 
     func releaseGroupMutationGate() {
-        groupMutationGateContinuation?.resume()
-        groupMutationGateContinuation = nil
+        groupMutationGate.release()
     }
 
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
         -> SendSummaryFfi
     {
         updateGroupProfileCallCount += 1
-        await passGroupMutationGateIfArmed()
+        await groupMutationGate.passIfArmed()
         updatedGroupProfile = UpdatedGroupProfile(groupIdHex: groupIdHex, name: name, description: description)
 
         if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
@@ -17686,7 +17786,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         relayLists.inbox = RelayListFfi(kind: relayLists.inbox.kind, relays: relays)
         // Snapshot before the gate so a held older save returns its account's lists.
         let result = relayLists
-        await passSetAccountRelaysGateIfArmed()
+        await setAccountRelaysGate.passIfArmed()
         return result
     }
 
@@ -17696,27 +17796,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         lastSetNip65BootstrapRelays = bootstrapRelays
         relayLists.nip65 = RelayListFfi(kind: relayLists.nip65.kind, relays: relays)
         let result = relayLists
-        await passSetAccountRelaysGateIfArmed()
+        await setAccountRelaysGate.passIfArmed()
         return result
     }
 
-    private func passSetAccountRelaysGateIfArmed() async {
-        guard setAccountRelaysGateEnabled, setAccountRelaysGateContinuation == nil,
-            !didReachSetAccountRelaysGate
-        else { return }
-        didReachSetAccountRelaysGate = true
-        await withCheckedContinuation { continuation in
-            setAccountRelaysGateContinuation = continuation
-        }
-    }
-
     func releaseSetAccountRelaysGate() {
-        setAccountRelaysGateContinuation?.resume()
-        setAccountRelaysGateContinuation = nil
+        setAccountRelaysGate.release()
     }
 
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
-        chatListSubscriptionCount += 1
+        recordedStateLock.withLock { _chatListSubscriptionCount += 1 }
         if chatListSubscriptionDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: chatListSubscriptionDelayNanoseconds)
         }
@@ -17793,7 +17882,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
-        notificationSubscriptionCount += 1
+        recordedStateLock.withLock { _notificationSubscriptionCount += 1 }
         if let subscribeNotificationsError {
             throw subscribeNotificationsError
         }
@@ -17820,8 +17909,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws
         -> TimelineMessagesSubscription
     {
-        timelineSubscriptionCount += 1
-        timelineSubscriptionAccountRefs.append(accountRef)
+        recordedStateLock.withLock {
+            _timelineSubscriptionCount += 1
+            _timelineSubscriptionAccountRefs.append(accountRef)
+        }
         if timelineSubscriptionDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: timelineSubscriptionDelayNanoseconds)
         }
@@ -17842,7 +17933,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                 self?.recordSyncCall("timelineMessagesSubscription.snapshot")
             }
         )
-        lastTimelineSubscription = subscription
+        recordedStateLock.withLock { _lastTimelineSubscription = subscription }
         return subscription
     }
 
@@ -17859,7 +17950,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi] {
-        listMediaCallCount += 1
+        recordedStateLock.withLock { _listMediaCallCount += 1 }
         listMediaGate.passIfArmed()
         let records = mediaRecordsByGroupId[groupIdHex] ?? []
         guard let limit else { return records }
@@ -17873,12 +17964,14 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
         -> MediaDownloadResultFfi
     {
-        downloadMediaCallCount += 1
-        downloadedMediaReferences.append(reference)
+        recordedStateLock.withLock {
+            _downloadMediaCallCount += 1
+            _downloadedMediaReferences.append(reference)
+        }
         guard let download = mediaDownloadsByPlaintextSha256[reference.plaintextSha256] else {
             throw FakeMarmotRuntimeError.unused
         }
-        await passMediaDownloadGateIfArmed()
+        await mediaDownloadGate.passIfArmed()
         return download
     }
 
@@ -17887,7 +17980,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     {
         uploadMediaCallCount += 1
         uploadedMedia = UploadedMedia(groupIdHex: groupIdHex, request: request)
-        await passMessageActionGateIfArmed()
+        await messageActionGate.passIfArmed()
         let attachments = request.attachments.enumerated().map { index, attachment in
             MediaUploadAttachmentResultFfi(
                 reference: MediaAttachmentReferenceFfi(
@@ -17914,7 +18007,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {
         sendTextCallCount += 1
         sentText = SentText(groupIdHex: groupIdHex, text: text)
-        await passMessageActionGateIfArmed()
+        await messageActionGate.passIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["text"])
     }
 
@@ -17923,7 +18016,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     {
         replyToMessageCallCount += 1
         repliedMessage = SentReply(groupIdHex: groupIdHex, targetMessageId: targetMessageId, text: text)
-        await passMessageActionGateIfArmed()
+        await messageActionGate.passIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["reply"])
     }
 
@@ -17932,64 +18025,23 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     {
         reactToMessageCallCount += 1
         reactedMessage = SentReaction(groupIdHex: groupIdHex, targetMessageId: targetMessageId, emoji: emoji)
-        await passMessageActionGateIfArmed()
+        await messageActionGate.passIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["reaction"])
     }
 
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi {
         deleteMessageCallCount += 1
         deletedMessage = DeletedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId)
-        await passMessageActionGateIfArmed()
+        await messageActionGate.passIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["delete"])
     }
 
-    /// Suspends the first message-action FFI call when the gate is armed, recording arrival so a
-    /// test can spin until the first invocation is in-flight, then issue the overlapping second call.
-    private func passMessageActionGateIfArmed() async {
-        guard messageActionGateEnabled, messageActionGateContinuation == nil, !didReachMessageActionGate else { return }
-        didReachMessageActionGate = true
-        await withCheckedContinuation { continuation in
-            messageActionGateContinuation = continuation
-        }
-    }
-
     func releaseMessageActionGate() {
-        messageActionGateContinuation?.resume()
-        messageActionGateContinuation = nil
-    }
-
-    /// Suspends the first media download FFI call when the gate is armed, after the fake runtime
-    /// has captured the bytes it will return. This models a network download completing after a
-    /// user-initiated purge has already removed the account/cache.
-    private func passMediaDownloadGateIfArmed() async {
-        let shouldSuspend = mediaDownloadGateLock.withLock {
-            mediaDownloadGateEnabled && mediaDownloadGateContinuation == nil && !mediaDownloadGateReached
-        }
-        guard shouldSuspend else { return }
-        await withCheckedContinuation { continuation in
-            let resumeImmediately = mediaDownloadGateLock.withLock {
-                mediaDownloadGateContinuation = continuation
-                mediaDownloadGateReached = true
-                if mediaDownloadGateReleased {
-                    mediaDownloadGateContinuation = nil
-                    return true
-                }
-                return false
-            }
-            if resumeImmediately {
-                continuation.resume()
-            }
-        }
+        messageActionGate.release()
     }
 
     func releaseMediaDownloadGate() {
-        let continuation = mediaDownloadGateLock.withLock {
-            mediaDownloadGateReleased = true
-            let continuation = mediaDownloadGateContinuation
-            mediaDownloadGateContinuation = nil
-            return continuation
-        }
-        continuation?.resume()
+        mediaDownloadGate.release()
     }
 
     // MARK: - darkmatter 745959e FFI additions
@@ -18005,9 +18057,14 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var updateMessageRetentionCallCount = 0
     var lastRetentionSecs: UInt64?
     var secureDeleteExpiredCallCount = 0
-    var secureDeleteExpiredGateEnabled = false
-    private(set) var didReachSecureDeleteExpiredGate = false
-    private var secureDeleteExpiredGateContinuation: CheckedContinuation<Void, Never>?
+    private let secureDeleteExpiredGate = AsyncFfiGate()
+    var secureDeleteExpiredGateEnabled: Bool {
+        get { secureDeleteExpiredGate.isEnabled }
+        set { secureDeleteExpiredGate.isEnabled = newValue }
+    }
+    var didReachSecureDeleteExpiredGate: Bool {
+        secureDeleteExpiredGate.didReach
+    }
     var accountUnreadSummaryRows: [AccountUnreadFfi] = []
 
     func parseMarkdown(text: String) -> MarkdownDocumentFfi {
@@ -18083,23 +18140,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
         secureDeleteExpiredCallCount += 1
-        await passSecureDeleteExpiredGateIfArmed()
+        await secureDeleteExpiredGate.passIfArmed()
         return SecureDeleteExpiredResultFfi(prunedMessages: 0, mediaCiphertextSha256: [])
     }
 
-    private func passSecureDeleteExpiredGateIfArmed() async {
-        guard secureDeleteExpiredGateEnabled, secureDeleteExpiredGateContinuation == nil,
-            !didReachSecureDeleteExpiredGate
-        else { return }
-        didReachSecureDeleteExpiredGate = true
-        await withCheckedContinuation { continuation in
-            secureDeleteExpiredGateContinuation = continuation
-        }
-    }
-
     func releaseSecureDeleteExpiredGate() {
-        secureDeleteExpiredGateContinuation?.resume()
-        secureDeleteExpiredGateContinuation = nil
+        secureDeleteExpiredGate.release()
     }
 
     private func chatListRow(for group: AppGroupRecordFfi) -> ChatListRowFfi {
@@ -19027,6 +19073,41 @@ private final class RemoteImageURLProtocolStub: URLProtocol {
     }
 }
 
+/// Serves a fixed body for NIP-05 well-known lookups, optionally advertising Content-Length so
+/// tests can drive either the cheap pre-check or the streaming byte cap.
+private final class NIP05URLProtocolStub: URLProtocol {
+    private static let lock = NSLock()
+    private static var body = Data()
+    private static var sendContentLength = true
+
+    static func configure(body: Data, sendContentLength: Bool) {
+        lock.lock()
+        self.body = body
+        self.sendContentLength = sendContentLength
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let data = Self.body
+        let withLength = Self.sendContentLength
+        Self.lock.unlock()
+
+        let headers = withLength ? ["Content-Length": "\(data.count)"] : [:]
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: nil, headerFields: headers
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 private func telemetryBuildConfig(
     telemetryToken: String? = "otlp-token",
     auditToken: String? = "audit-token",
@@ -19166,7 +19247,7 @@ private func groupDetailsFixture(
                 local: false,
                 isAdmin: otherIsAdmin,
                 isSelf: false,
-                npub: "npub1alice",
+                npub: "npub1alyce",
                 displayName: "Alice"
             ),
             GroupMemberDetailsFfi(
@@ -19175,7 +19256,7 @@ private func groupDetailsFixture(
                 local: false,
                 isAdmin: false,
                 isSelf: false,
-                npub: "npub1bob",
+                npub: "npub1p0p",
                 displayName: "Bob"
             ),
         ]
