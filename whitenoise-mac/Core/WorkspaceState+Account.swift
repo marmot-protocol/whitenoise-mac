@@ -501,8 +501,11 @@ extension WorkspaceState {
                 MediaPlaybackTempStore.purge()
                 OutgoingMediaMetadataTempStore.purge()
             }
-            await mediaDiskCache.purgeAll(removeEncryptionKey: true)
+            await mediaDiskCache.purgeAll()
             try await client.deleteAllLocalData()
+            // Destroy the cache encryption key only once the delete succeeded — a session
+            // recovered after a failed delete must keep its surviving media decryptable.
+            await mediaDiskCache.purgeAll(removeEncryptionKey: true)
             self.client = nil
             observabilityRuntimeConfiguration = nil
             resetToNewInstallState(storageRootPath: client.storageRootPath)

@@ -430,9 +430,15 @@ private struct ConversationView: View {
                         }
                     }
                     .onChange(of: messageIDs.first) { _, _ in
-                        guard let anchorId = pendingPrependAnchorId,
+                        guard let anchorId = pendingPrependAnchorId else { return }
+                        guard workspace.selectedChat?.id == chat.id,
                             workspace.selectedTimelineContainsMessage(anchorId)
-                        else { return }
+                        else {
+                            // Anchor evicted or chat changed — release the gate, or every
+                            // later older-history load stays silently blocked.
+                            pendingPrependAnchorId = nil
+                            return
+                        }
                         DispatchQueue.main.async {
                             // Re-validate against live state: the user may have switched
                             // chats (which clears pendingPrependAnchorId) or another prepend
@@ -440,10 +446,13 @@ private struct ConversationView: View {
                             // Without re-checking, proxy.scrollTo would run against the new
                             // conversation using a stale anchor, and the unconditional clear
                             // would drop restoration for a subsequent legitimate prepend.
+                            guard pendingPrependAnchorId == anchorId else { return }
                             guard workspace.selectedChat?.id == chat.id,
-                                pendingPrependAnchorId == anchorId,
                                 workspace.selectedTimelineContainsMessage(anchorId)
-                            else { return }
+                            else {
+                                pendingPrependAnchorId = nil
+                                return
+                            }
                             TimelineSignpost.scroll.interval("restorePrependAnchor") {
                                 proxy.scrollTo(anchorId, anchor: .top)
                             }

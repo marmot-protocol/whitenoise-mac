@@ -457,6 +457,10 @@ extension WorkspaceState {
             privacySecuritySettings = .defaults
             return
         }
+        // An in-flight save owns the published snapshot, a read here could resolve
+        // before its commit and revert the toggle the user just saved.
+        guard !isSavingPrivacySecurity else { return }
+        let generation = privacySecuritySettingsGeneration
 
         do {
             try await configureObservabilityRuntime()
@@ -466,6 +470,8 @@ extension WorkspaceState {
                     try client.auditLogSettings()
                 )
             }
+            // A save that started mid-load supersedes this snapshot.
+            guard privacySecuritySettingsGeneration == generation else { return }
             let config = telemetryBuildConfig
             privacySecuritySettings = PrivacySecuritySettingsSnapshot(
                 relayTelemetryEnabled: telemetry.exportEnabled,
@@ -477,6 +483,7 @@ extension WorkspaceState {
             )
             await loadAuditLogFiles()
         } catch {
+            guard privacySecuritySettingsGeneration == generation else { return }
             privacySecuritySettings = .defaults
             auditLogFiles = []
             lastError = error.localizedDescription
@@ -493,6 +500,7 @@ extension WorkspaceState {
 
         lastError = nil
         isSavingPrivacySecurity = true
+        privacySecuritySettingsGeneration &+= 1
         defer { isSavingPrivacySecurity = false }
 
         do {
@@ -523,6 +531,7 @@ extension WorkspaceState {
 
         lastError = nil
         isSavingPrivacySecurity = true
+        privacySecuritySettingsGeneration &+= 1
         defer { isSavingPrivacySecurity = false }
 
         do {
@@ -547,6 +556,7 @@ extension WorkspaceState {
 
         lastError = nil
         isSavingPrivacySecurity = true
+        privacySecuritySettingsGeneration &+= 1
         defer { isSavingPrivacySecurity = false }
 
         do {
