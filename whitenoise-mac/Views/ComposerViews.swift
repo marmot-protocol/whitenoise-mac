@@ -13,8 +13,14 @@ import AppKit
 import ImageIO
 import SwiftUI
 
+struct ComposerEmojiInsertion: Equatable {
+    let id = UUID()
+    let emoji: String
+}
+
 struct ComposerMessageInputView: View {
     @Binding var text: String
+    let emojiInsertion: ComposerEmojiInsertion?
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
@@ -25,6 +31,7 @@ struct ComposerMessageInputView: View {
             ComposerMessageTextViewRepresentable(
                 text: $text,
                 measuredHeight: $measuredHeight,
+                emojiInsertion: emojiInsertion,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend
             )
@@ -72,6 +79,7 @@ nonisolated enum ComposerKeyboardShortcutPolicy {
 private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var measuredHeight: CGFloat
+    let emojiInsertion: ComposerEmojiInsertion?
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
@@ -126,6 +134,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+        context.coordinator.insertEmojiIfNeeded(emojiInsertion, into: textView)
         DispatchQueue.main.async {
             context.coordinator.updateMeasuredHeight(for: textView)
         }
@@ -146,6 +155,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var measuredHeight: Binding<CGFloat>
         var onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
         var onSend: () -> Void
+        private var lastEmojiInsertionID: UUID?
 
         init(
             text: Binding<String>,
@@ -157,6 +167,16 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             self.measuredHeight = measuredHeight
             self.onPasteMedia = onPasteMedia
             self.onSend = onSend
+        }
+
+        func insertEmojiIfNeeded(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
+            guard let insertion, insertion.id != lastEmojiInsertionID else { return }
+            lastEmojiInsertionID = insertion.id
+            let selectedRange = textView.selectedRange()
+            textView.insertText(insertion.emoji, replacementRange: selectedRange)
+            text.wrappedValue = textView.string
+            updateMeasuredHeight(for: textView)
+            textView.window?.makeFirstResponder(textView)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -683,6 +703,41 @@ struct ReplyComposerContextView: View {
             }
             .nativeGlassCircleButtonStyle()
             .help("Cancel reply")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .glassCard()
+    }
+}
+
+struct EditComposerContextView: View {
+    let context: MessageEditContext
+    let cancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pencil")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MessagesPalette.sentBubble)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Editing message")
+                    .font(.caption.weight(.semibold))
+                Text(context.originalBody)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            Button(action: cancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 24, height: 24)
+            }
+            .nativeGlassCircleButtonStyle()
+            .help("Cancel edit")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

@@ -186,6 +186,24 @@ extension WorkspaceState {
         let isDirect = recipients.count == 1
 
         do {
+            if isDirect,
+                let existing = await existingDirectChat(
+                    with: primary.accountIdHex,
+                    account: activeAccount,
+                    client: client
+                )
+            {
+                if existing.isArchived {
+                    await setChatArchived(existing.chat, archived: false)
+                }
+                guard activeAccountId == accountId else { return }
+                selection = .chat(existing.chat.id)
+                closeNewChatComposer()
+                beginTimelineInitialLoadIfNeeded(groupIdHex: existing.chat.id)
+                await loadMessages(groupIdHex: existing.chat.id)
+                return
+            }
+
             let trimmedName = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDescription = newChatDescription.trimmingCharacters(in: .whitespacesAndNewlines)
             let fallbackTitle =
@@ -215,6 +233,32 @@ extension WorkspaceState {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    private func existingDirectChat(
+        with targetAccountIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async -> (chat: ChatItem, isArchived: Bool)? {
+        let target = targetAccountIdHex.lowercased()
+        let expectedMembers = Set([account.accountIdHex.lowercased(), target])
+        let candidates = activeChats.map { ($0, false) } + archivedChats.map { ($0, true) }
+
+        for (chat, isArchived) in candidates where chat.isDirect {
+            guard !Task.isCancelled else { return nil }
+            guard
+                let members = await cachedGroupMembers(
+                    groupIdHex: chat.id,
+                    account: account,
+                    client: client
+                )
+            else { continue }
+            let memberIds = Set(members.map { $0.memberIdHex.lowercased() })
+            if memberIds == expectedMembers {
+                return (chat, isArchived)
+            }
+        }
+        return nil
     }
 
     var hasInProgressNewChatComposition: Bool {

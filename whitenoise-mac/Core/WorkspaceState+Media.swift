@@ -23,6 +23,7 @@ extension WorkspaceState {
     func clearAllComposerDrafts() {
         draftTextByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
+        editingMessageContextByConversation.removeAll()
         pendingMediaAttachmentsByConversation.removeAll()
         pendingMediaUploadStatesByConversation.removeAll()
     }
@@ -32,6 +33,7 @@ extension WorkspaceState {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             draftTextByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
+            editingMessageContextByConversation[key] = nil
             pendingMediaAttachmentsByConversation[key] = nil
             pendingMediaUploadStatesByConversation[key] = nil
         }
@@ -43,6 +45,9 @@ extension WorkspaceState {
         }
         for key in replyDraftContextByConversation.keys.filter({ $0.accountId == accountId }) {
             replyDraftContextByConversation[key] = nil
+        }
+        for key in editingMessageContextByConversation.keys.filter({ $0.accountId == accountId }) {
+            editingMessageContextByConversation[key] = nil
         }
         for key in pendingMediaAttachmentsByConversation.keys.filter({ $0.accountId == accountId }) {
             pendingMediaAttachmentsByConversation[key] = nil

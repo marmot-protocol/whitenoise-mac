@@ -199,20 +199,99 @@ private struct DetailPaneView: View {
             case .failed(let message):
                 FailureView(message: message)
             case .ready:
-                switch workspace.selection {
-                case .chat:
-                    if let chat = workspace.selectedChat {
-                        ConversationView(chat: chat)
-                    } else {
+                if workspace.activeAccount == nil {
+                    SignedOutAccountsView()
+                } else {
+                    switch workspace.selection {
+                    case .chat:
+                        if let chat = workspace.selectedChat {
+                            ConversationView(chat: chat)
+                        } else {
+                            EmptyDetailView()
+                        }
+                    case .settings:
+                        SettingsPanelView()
+                    case nil:
                         EmptyDetailView()
                     }
-                case .settings:
-                    SettingsPanelView()
-                case nil:
-                    EmptyDetailView()
                 }
             }
         }
+    }
+}
+
+private struct SignedOutAccountsView: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    private var signedOutAccounts: [AccountItem] {
+        workspace.accounts.filter(\.signedOut)
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image("WhiteNoiseLogo")
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 80, height: 80)
+
+            VStack(spacing: 5) {
+                Text("Choose an account")
+                    .font(.title2.weight(.semibold))
+                Text("Sign in to continue with an account stored on this Mac.")
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 10) {
+                ForEach(signedOutAccounts) { account in
+                    Button {
+                        Task { await workspace.signInAccount(account) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            ProfileImageAvatarView(
+                                seed: account.accountIdHex,
+                                initials: account.initials,
+                                sanitizedPictureURL: account.sanitizedPictureURL,
+                                size: 40,
+                                isSelected: false
+                            )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(account.displayName)
+                                    .font(.headline)
+                                Text(DisplayText.short(account.npub ?? account.accountIdHex))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 20)
+                            Text("Sign In")
+                                .font(.callout.weight(.semibold))
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .glassCard(cornerRadius: 12)
+                    .disabled(workspace.isSigningOutAccount)
+                }
+            }
+            .frame(maxWidth: 440)
+
+            Button("Use another account") {
+                workspace.showAccountOnboarding()
+            }
+            .nativeGlassButtonStyle()
+            .disabled(workspace.isSigningOutAccount)
+
+            if let lastError = workspace.lastError {
+                Text(lastError)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -287,6 +366,8 @@ private struct ConversationView: View {
     @State private var isPinnedToBottom = true
     @State private var isFileImporterPresented = false
     @State private var isFileDropTargeted = false
+    @State private var isComposerEmojiPickerPresented = false
+    @State private var composerEmojiInsertion: ComposerEmojiInsertion?
     @State private var imageGallery: MessageImageGalleryPresentation?
     /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
     /// register local `isSelectable` state so hover only updates the previous and active row
@@ -341,6 +422,10 @@ private struct ConversationView: View {
                                         showsDebugMetadata: workspace.streamingDebugEnabled
                                     ) { gallery in
                                         imageGallery = gallery
+                                    } onNavigateToMessage: { targetMessageId in
+                                        Task {
+                                            await revealMessage(targetMessageId, using: proxy)
+                                        }
                                     }
                                     .equatable()
                                 }
@@ -551,7 +636,11 @@ private struct ConversationView: View {
     private var composerControls: some View {
         @Bindable var workspace = workspace
 
-        if let replyDraftContext = workspace.replyDraftContext {
+        if let editingMessageContext = workspace.editingMessageContext {
+            EditComposerContextView(context: editingMessageContext) {
+                workspace.cancelEditingMessage()
+            }
+        } else if let replyDraftContext = workspace.replyDraftContext {
             ReplyComposerContextView(context: replyDraftContext) {
                 workspace.cancelReply()
             }
@@ -578,6 +667,26 @@ private struct ConversationView: View {
         } else {
             HStack(alignment: .bottom, spacing: 8) {
                 Button {
+                    isComposerEmojiPickerPresented.toggle()
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 30, height: 30)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(workspace.isSending)
+                .help("Emoji")
+                .popover(isPresented: $isComposerEmojiPickerPresented, arrowEdge: .bottom) {
+                    ChatEmojiPicker { emoji in
+                        composerEmojiInsertion = ComposerEmojiInsertion(emoji: emoji)
+                        isComposerEmojiPickerPresented = false
+                    }
+                }
+
+                Button {
                     isFileImporterPresented = true
                 } label: {
                     Image(systemName: "paperclip")
@@ -588,12 +697,14 @@ private struct ConversationView: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .disabled(workspace.isSending)
+                .disabled(workspace.isSending || workspace.editingMessageContext != nil)
                 .help("Attach files")
 
                 ComposerMessageInputView(
                     text: $workspace.draftText,
+                    emojiInsertion: composerEmojiInsertion,
                     onPasteMedia: { attachments in
+                        guard workspace.editingMessageContext == nil else { return }
                         Task { await workspace.addPastedMediaAttachments(attachments) }
                     },
                     onSend: {
@@ -619,7 +730,7 @@ private struct ConversationView: View {
                         }
                 }
                 .buttonStyle(.plain)
-                .disabled(workspace.isSending)
+                .disabled(workspace.isSending || workspace.editingMessageContext != nil)
                 .help("Voice message")
 
                 Button {
@@ -632,7 +743,7 @@ private struct ConversationView: View {
                                 .tint(.white)
                                 .scaleEffect(0.72)
                         } else {
-                            Image(systemName: "paperplane.fill")
+                            Image(systemName: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark")
                                 .font(.system(size: 14, weight: .semibold))
                         }
                     }
@@ -643,13 +754,34 @@ private struct ConversationView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!workspace.canSend)
-                .help("Send")
+                .help(workspace.editingMessageContext == nil ? "Send" : "Save edit")
             }
         }
     }
 
     private var bottomAnchorId: String {
         "conversation-bottom-\(chat.id)"
+    }
+
+    private func revealMessage(_ messageId: String, using proxy: ScrollViewProxy) async {
+        var attempts = 0
+        while !workspace.selectedTimelineContainsMessage(messageId),
+            workspace.selectedTimelinePaging.hasMoreBefore,
+            attempts < 12
+        {
+            let previousFirstId = workspace.selectedMessageIDs.first
+            await workspace.loadOlderMessages(groupIdHex: chat.id)
+            attempts += 1
+            guard workspace.selectedChat?.id == chat.id,
+                workspace.selectedMessageIDs.first != previousFirstId
+            else { break }
+        }
+        guard workspace.selectedChat?.id == chat.id,
+            workspace.selectedTimelineContainsMessage(messageId)
+        else { return }
+        withAnimation(.smooth(duration: 0.2)) {
+            proxy.scrollTo(messageId, anchor: .center)
+        }
     }
 
     /// Prefetch older history when the user scrolls near the top. `pendingPrependAnchorId`

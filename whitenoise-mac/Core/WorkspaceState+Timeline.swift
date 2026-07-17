@@ -536,6 +536,35 @@ extension WorkspaceState {
         replyDraftContext = nil
     }
 
+    func startEditingMessage(_ message: MessageItem) {
+        guard message.canEdit, let draftKey = selectedComposerDraftKey else { return }
+        cancelVoiceRecording()
+        let preservedDraft = draftTextByConversation[draftKey] ?? ""
+        editingMessageContextByConversation[draftKey] = MessageEditContext(
+            targetMessageId: message.id,
+            senderName: message.senderName,
+            originalBody: message.body,
+            preservedDraft: preservedDraft,
+            preservedMediaAttachments: pendingMediaAttachmentsByConversation[draftKey] ?? [],
+            preservedMediaUploadStates: pendingMediaUploadStatesByConversation[draftKey] ?? [:]
+        )
+        replyDraftContextByConversation[draftKey] = nil
+        pendingMediaAttachmentsByConversation[draftKey] = nil
+        pendingMediaUploadStatesByConversation[draftKey] = nil
+        draftTextByConversation[draftKey] = message.body
+    }
+
+    func cancelEditingMessage() {
+        guard let draftKey = selectedComposerDraftKey,
+            let edit = editingMessageContextByConversation.removeValue(forKey: draftKey)
+        else { return }
+        draftTextByConversation[draftKey] = edit.preservedDraft.isEmpty ? nil : edit.preservedDraft
+        pendingMediaAttachmentsByConversation[draftKey] =
+            edit.preservedMediaAttachments.isEmpty ? nil : edit.preservedMediaAttachments
+        pendingMediaUploadStatesByConversation[draftKey] =
+            edit.preservedMediaUploadStates.isEmpty ? nil : edit.preservedMediaUploadStates
+    }
+
     func copyText(of message: MessageItem) {
         guard message.canCopyText else { return }
         copyText(message.body)
@@ -630,6 +659,42 @@ extension WorkspaceState {
             // or once the local account left/was removed (`invalid_transition`).
             selectedChat.canUseComposer,
             let draftKey = selectedComposerDraftKey,
+            let editContext = editingMessageContextByConversation[draftKey],
+            !text.isEmpty || !mediaAttachments.isEmpty,
+            !isSending
+        else {
+            await sendNewDraftIfPossible(text: text, mediaAttachments: mediaAttachments)
+            return
+        }
+        isSending = true
+        defer { isSending = false }
+
+        do {
+            _ = try await client.editMessage(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: selectedChat.id,
+                targetMessageId: editContext.targetMessageId,
+                content: text
+            )
+            editingMessageContextByConversation[draftKey] = nil
+            draftTextByConversation[draftKey] = editContext.preservedDraft.isEmpty ? nil : editContext.preservedDraft
+            pendingMediaAttachmentsByConversation[draftKey] =
+                editContext.preservedMediaAttachments.isEmpty ? nil : editContext.preservedMediaAttachments
+            pendingMediaUploadStatesByConversation[draftKey] =
+                editContext.preservedMediaUploadStates.isEmpty ? nil : editContext.preservedMediaUploadStates
+            await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func sendNewDraftIfPossible(text: String, mediaAttachments: [PendingMediaAttachment]) async {
+        guard let client,
+            let activeAccount,
+            let selectedChat,
+            selectedChat.canUseComposer,
+            let draftKey = selectedComposerDraftKey,
+            editingMessageContextByConversation[draftKey] == nil,
             !text.isEmpty || !mediaAttachments.isEmpty,
             !isSending
         else { return }

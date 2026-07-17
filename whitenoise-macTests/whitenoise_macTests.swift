@@ -259,7 +259,9 @@ private struct TranscriptPerformanceRows: View {
                 ConversationMessageRow(
                     message: message,
                     showsDebugMetadata: false
-                ) { _ in }
+                ) { _ in
+                } onNavigateToMessage: { _ in
+                }
                 .equatable()
             }
         }
@@ -878,7 +880,7 @@ struct whitenoise_macTests {
         await state.signOutAccount(desktopAccount)
 
         #expect(runtime.signedOutAccountRefs == [primary.label])
-        #expect(state.phase == .onboarding)
+        #expect(state.phase == .ready)
         #expect(state.activeAccountId == nil)
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecorder == nil)
@@ -10171,6 +10173,60 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func editingMessageUsesComposerAndRestoresPreservedDraft() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.draftText = "Preserved draft"
+        state.startEditingMessage(
+            MessageItem(
+                id: "message-to-edit",
+                senderName: "You",
+                body: "Original text",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: true
+            ))
+
+        #expect(state.editingMessageContext?.targetMessageId == "message-to-edit")
+        #expect(state.draftText == "Original text")
+
+        state.draftText = "Updated text"
+        await state.sendDraft()
+
+        #expect(
+            runtime.editedMessage
+                == EditedMessage(
+                    groupIdHex: "direct-group",
+                    targetMessageId: "message-to-edit",
+                    content: "Updated text"
+                ))
+        #expect(state.editingMessageContext == nil)
+        #expect(state.draftText == "Preserved draft")
+    }
+
+    @MainActor
     @Test func replyContextAndPendingMediaAreMutuallyExclusive() async throws {
         // Issue #399: FFI media uploads carry no reply target. The composer must never
         // keep both a visible reply banner and pending media, regardless of which one
@@ -14666,6 +14722,38 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func startingDirectChatReusesExistingConversation() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1alice"
+        await state.createNewChat()
+
+        #expect(runtime.createdGroupMemberRefs.isEmpty)
+        #expect(state.selection == .chat("direct-group"))
+        #expect(!state.isNewChatComposerVisible)
+    }
+
+    @MainActor
     @Test func createNewChatIncludesPendingQueryAlongsideAddedMembers() async throws {
         // Regression: a pubkey typed into the input but not yet committed via
         // return/+ must not be silently dropped when confirmed members already
@@ -18027,6 +18115,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var repliedMessage: SentReply?
     private(set) var reactedMessage: SentReaction?
     private(set) var deletedMessage: DeletedMessage?
+    private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
     private(set) var uploadedMedia: UploadedMedia?
     // Issue #78 reentrancy-test support: count message-action FFI calls so a test can prove
@@ -18035,6 +18124,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var replyToMessageCallCount = 0
     private(set) var reactToMessageCallCount = 0
     private(set) var deleteMessageCallCount = 0
+    private(set) var editMessageCallCount = 0
     private(set) var uploadMediaCallCount = 0
     var listMediaCallCount: Int {
         recordedStateLock.withLock { _listMediaCallCount }
@@ -19366,6 +19456,14 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["delete"])
     }
 
+    func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
+        -> SendSummaryFfi
+    {
+        editMessageCallCount += 1
+        editedMessage = EditedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId, content: content)
+        await messageActionGate.passIfArmed()
+        return SendSummaryFfi(published: 1, messageIds: ["edit"])
+    }
     func releaseMessageActionGate() {
         messageActionGate.release()
     }
@@ -19562,6 +19660,12 @@ private struct SentReaction: Equatable {
 private struct DeletedMessage: Equatable {
     let groupIdHex: String
     let targetMessageId: String
+}
+
+private struct EditedMessage: Equatable {
+    let groupIdHex: String
+    let targetMessageId: String
+    let content: String
 }
 
 private struct UpdatedGroupAvatar: Equatable {

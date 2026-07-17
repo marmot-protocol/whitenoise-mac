@@ -276,6 +276,15 @@ nonisolated struct MessageReplyContext: Hashable {
     let body: String
 }
 
+nonisolated struct MessageEditContext: Hashable {
+    let targetMessageId: String
+    let senderName: String
+    let originalBody: String
+    let preservedDraft: String
+    let preservedMediaAttachments: [PendingMediaAttachment]
+    let preservedMediaUploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]
+}
+
 nonisolated enum MessageMediaKind: Hashable, Sendable {
     case image
     case audio
@@ -481,7 +490,7 @@ enum MediaDownloadState: Equatable {
     case failed(String)
 }
 
-nonisolated enum PendingMediaUploadState: Equatable, Sendable {
+nonisolated enum PendingMediaUploadState: Hashable, Sendable {
     case uploading
     case uploaded
 }
@@ -1774,6 +1783,10 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     var canDelete: Bool {
         isActionableChatBubble && isOutgoing
+    }
+
+    var canEdit: Bool {
+        isActionableChatBubble && isOutgoing && hasCopyableBody && mediaAttachments.isEmpty
     }
 }
 

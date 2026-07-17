@@ -76,6 +76,7 @@ struct ConversationMessageRow: View, Equatable {
     /// diagnostics presentation changes, while hover/selection churn is scoped below the row.
     var showsDebugMetadata = false
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+    let onNavigateToMessage: (String) -> Void
 
     // Receives the resolved MessageItem by value (not via a shared @Observable lookup),
     // so SwiftUI diffs each row by value and only re-runs the rows that actually changed
@@ -85,7 +86,8 @@ struct ConversationMessageRow: View, Equatable {
             MessageBubble(
                 message: message,
                 showsDebugMetadata: showsDebugMetadata,
-                onOpenImageGallery: onOpenImageGallery
+                onOpenImageGallery: onOpenImageGallery,
+                onNavigateToMessage: onNavigateToMessage
             )
         } else {
             TimelineNoticeRow(message: message, showsDebugMetadata: showsDebugMetadata)
@@ -153,9 +155,11 @@ struct MessageBubble: View {
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
     @State private var isSelectable = false
+    @State private var isReactionSummaryPresented = false
     let message: MessageItem
     let showsDebugMetadata: Bool
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
+    let onNavigateToMessage: (String) -> Void
 
     var body: some View {
         // Alignment is done with a fill-frame + opposite-side padding rather than the old
@@ -195,14 +199,14 @@ struct MessageBubble: View {
                 bubbleContent
             }
 
-            Text(message.metadataLabel)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 5)
+            if !message.hasBubbleContent {
+                compactMetadata
+                    .padding(.horizontal, 5)
+            }
 
             if message.supportsChatActions && !message.reactions.isEmpty {
                 HStack(spacing: 5) {
-                    ForEach(message.reactions) { reaction in
+                    ForEach(Array(message.reactions.prefix(5))) { reaction in
                         Button {
                             Task {
                                 if reaction.canRemoveOwnReaction {
@@ -228,6 +232,37 @@ struct MessageBubble: View {
                         .help(
                             reaction.canRemoveOwnReaction
                                 ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
+                    }
+                    if message.reactions.count > 5 {
+                        Button("+\(message.reactions.count - 5)") {
+                            isReactionSummaryPresented = true
+                        }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background { GlassCapsuleBackground() }
+                        .popover(isPresented: $isReactionSummaryPresented, arrowEdge: .bottom) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Reactions")
+                                    .font(.headline)
+                                ForEach(message.reactions) { reaction in
+                                    HStack {
+                                        Text(reaction.emoji)
+                                        Text("\(reaction.count)")
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        if reaction.canRemoveOwnReaction {
+                                            Text("You")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(14)
+                            .frame(width: 220)
+                        }
                     }
                 }
                 .padding(.horizontal, 4)
@@ -277,20 +312,28 @@ struct MessageBubble: View {
     }
 
     private var bubbleContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if showsDebugMetadata {
-                MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
+        VStack(alignment: .trailing, spacing: 5) {
+            VStack(alignment: .leading, spacing: 8) {
+                if showsDebugMetadata {
+                    MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
+                }
+
+                if let replyContext = message.replyContext {
+                    MessageReplyContextView(
+                        context: replyContext,
+                        isOutgoing: message.isOutgoing,
+                        onOpen: { onNavigateToMessage(replyContext.targetMessageId) }
+                    )
+                }
+
+                if !message.trimmedBody.isEmpty {
+                    MarkdownMessageView(message: message)
+                        .font(.system(size: 15.5))
+                        .foregroundStyle(message.isOutgoing ? .white : .primary)
+                }
             }
 
-            if let replyContext = message.replyContext {
-                MessageReplyContextView(context: replyContext, isOutgoing: message.isOutgoing)
-            }
-
-            if !message.trimmedBody.isEmpty {
-                MarkdownMessageView(message: message)
-                    .font(.system(size: 15.5))
-                    .foregroundStyle(message.isOutgoing ? .white : .primary)
-            }
+            compactMetadata
         }
         // One hover-gated selection gate for the whole bubble: `.textSelection(.enabled)`
         // propagates through the environment to the body + reply-quote Text, so only the
@@ -301,6 +344,28 @@ struct MessageBubble: View {
         .padding(.vertical, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
+    }
+
+    private var compactMetadata: some View {
+        HStack(spacing: 4) {
+            if message.isEdited {
+                Text("Edited")
+            }
+            Text(message.timeLabel)
+                .monospacedDigit()
+            if message.invalidationStatus != nil {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.red)
+            } else if message.isOutgoing {
+                Image(systemName: "checkmark")
+            }
+        }
+        .font(.system(size: 10.5, weight: .medium))
+        .foregroundStyle(
+            message.isOutgoing && message.hasBubbleContent
+                ? Color.white.opacity(0.68) : Color.secondary.opacity(0.72)
+        )
+        .accessibilityLabel(message.metadataLabel)
     }
 }
 
@@ -1551,38 +1616,8 @@ struct MessageInlineActionIcon: View {
 struct MessageEmojiPickerPopover: View {
     let onPick: (String) -> Void
 
-    private let columns = Array(repeating: GridItem(.fixed(34), spacing: 8), count: 8)
-    private let emojis = [
-        "👍", "👎", "❤️", "🔥", "🎉", "😂", "🤣", "😅",
-        "😊", "😍", "😎", "🤔", "🙏", "👏", "🙌", "💪",
-        "🤝", "👀", "😮", "😯", "😢", "😭", "😡", "🤯",
-        "🥳", "😴", "🥲", "💯", "✅", "❌", "⭐️", "✨",
-        "🚀", "👋", "🤙", "🫡", "🫶", "😬", "😇", "🤩",
-        "🥹", "😆", "😁", "😄", "😋", "😌", "😐", "🙃",
-        "😉", "😏", "😤", "😮‍💨", "🤗", "🤪", "🤨", "🧐",
-        "💙", "💚", "💛", "🧡", "💜", "🤍", "🖤", "💔",
-    ]
-
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(emojis, id: \.self) { emoji in
-                    Button {
-                        onPick(emoji)
-                    } label: {
-                        Text(emoji)
-                            .font(.system(size: 24))
-                            .frame(width: 34, height: 34)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(12)
-        }
-        .frame(width: 360, height: 304)
-        .presentationBackground(.regularMaterial)
-        .glassCard(material: .regularMaterial)
+        ChatEmojiPicker(onPick: onPick)
     }
 }
 
@@ -1592,7 +1627,7 @@ struct MessageEmojiPickerPopover: View {
 /// (`MessageOverflowPopover`) — share one source of truth for which actions exist and what
 /// they do, while each keeps its own button styling.
 struct MessageRowAction: Identifiable {
-    enum Kind { case copy, delete }
+    enum Kind { case edit, copy, delete }
 
     let kind: Kind
     let title: LocalizedStringKey
@@ -1609,6 +1644,13 @@ struct MessageRowAction: Identifiable {
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
         var actions: [MessageRowAction] = []
+        if message.canEdit {
+            actions.append(
+                MessageRowAction(kind: .edit, title: "Edit", systemImage: "pencil", role: nil) {
+                    workspace.startEditingMessage(message)
+                    dismiss()
+                })
+        }
         if message.canCopyText {
             actions.append(
                 MessageRowAction(kind: .copy, title: "Copy Text", systemImage: "doc.on.doc", role: nil) {
@@ -1674,7 +1716,7 @@ struct MessageContextMenuItems: View {
 
     /// A short list of common reactions offered inline in the context menu; the hover bar's
     /// popover remains the path to the full emoji grid.
-    private static let quickReactionEmojis = ["👍", "❤️", "😂", "🎉", "🙏", "🔥"]
+    private static let quickReactionEmojis = ChatReactionDefaults.quick
 
     var body: some View {
         let actions = MessageRowAction.all(for: message, workspace: workspace)
@@ -1716,25 +1758,30 @@ struct MessageContextMenuItems: View {
 struct MessageReplyContextView: View {
     let context: MessageReplyContext
     let isOutgoing: Bool
+    let onOpen: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(isOutgoing ? Color.white.opacity(0.72) : MessagesPalette.sentBubble.opacity(0.68))
-                .frame(width: 3)
+        Button(action: onOpen) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(isOutgoing ? Color.white.opacity(0.72) : MessagesPalette.sentBubble.opacity(0.68))
+                    .frame(width: 3)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(context.senderName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : MessagesPalette.sentBubble)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(context.senderName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : MessagesPalette.sentBubble)
+                        .lineLimit(1)
 
-                Text(context.body)
-                    .font(.caption)
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.78) : Color.secondary)
-                    .lineLimit(2)
+                    Text(context.body)
+                        .font(.caption)
+                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.78) : Color.secondary)
+                        .lineLimit(2)
+                }
             }
         }
+        .buttonStyle(.plain)
+        .help("Show replied-to message")
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background {

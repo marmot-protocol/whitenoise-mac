@@ -44,6 +44,7 @@ extension WorkspaceState {
             accounts = try await accountItemsFromRuntime(client: runtime)
             restoreOrSelectFirstAccount()
             try await activateReadyState()
+            await refreshAccountProfiles()
         } catch {
             phase = .failed(error.localizedDescription)
             lastError = error.localizedDescription
@@ -51,6 +52,7 @@ extension WorkspaceState {
     }
 
     func selectAccount(_ account: AccountItem) {
+        guard !account.signedOut, !isSigningOutAccount else { return }
         switchActiveAccount(
             account,
             finalSelection: chatsByAccount[account.id]?.first.map { WorkspaceSelection.chat($0.id) }
@@ -58,6 +60,7 @@ extension WorkspaceState {
     }
 
     func selectAccountFromSettings(_ account: AccountItem) {
+        guard !account.signedOut, !isSigningOutAccount else { return }
         switchActiveAccount(account, finalSelection: .settings(.accounts))
     }
 
@@ -126,6 +129,13 @@ extension WorkspaceState {
         authenticationMode = .login
         clearEnteredLoginIdentity()
         lastError = nil
+    }
+
+    func showAccountOnboarding() {
+        authenticationMode = .landing
+        clearEnteredLoginIdentity()
+        lastError = nil
+        phase = .onboarding
     }
 
     func cancelLogin() {
@@ -411,7 +421,7 @@ extension WorkspaceState {
                 invalidateNotificationSettingsOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 selection = nil
-                phase = .onboarding
+                phase = .ready
                 notificationSettings = .defaults
                 privacySecuritySettings = .defaults
             }
@@ -540,14 +550,39 @@ extension WorkspaceState {
     }
 
     func restoreOrSelectFirstAccount() {
-        if let activeAccountId, accounts.contains(where: { $0.id == activeAccountId }) {
+        if let activeAccountId,
+            accounts.contains(where: { $0.id == activeAccountId && !$0.signedOut })
+        {
             return
         }
-        activeAccountId = accounts.first?.id
+        activeAccountId = accounts.first(where: { !$0.signedOut })?.id
         invalidateNotificationSettingsOperations()
         if let activeAccountId {
             UserDefaults.standard.set(activeAccountId, forKey: Self.activeAccountKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
         }
+    }
+
+    /// Refresh public profile metadata after the local account snapshot is usable.
+    /// This keeps launch fast while replacing stale fallback identifiers as soon as
+    /// relay-backed profile data arrives.
+    func refreshAccountProfiles() async {
+        guard let client, !isRefreshingAccountProfiles, !accounts.isEmpty else { return }
+        isRefreshingAccountProfiles = true
+        defer { isRefreshingAccountProfiles = false }
+
+        let accountIds = accounts.map(\.accountIdHex)
+        for accountIdHex in accountIds {
+            try? await client.refreshProfile(
+                accountIdHex: accountIdHex,
+                relays: MarmotClient.seedRelays
+            )
+        }
+
+        guard let refreshed = try? await accountItemsFromRuntime(client: client) else { return }
+        accounts = refreshed
+        restoreOrSelectFirstAccount()
     }
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
