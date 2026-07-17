@@ -2058,9 +2058,10 @@ private func markdownDisplayNodeCount(_ document: MarkdownDisplayDocument) -> In
                 partial + 1 + countBlocks(item.blocks)
             }
         case .table(let header, let rows):
-            return header.count + rows.reduce(0) { partial, row in
-                partial + 1 + row.cells.count
-            }
+            return header.count
+                + rows.reduce(0) { partial, row in
+                    partial + 1 + row.cells.count
+                }
         default:
             return 0
         }
