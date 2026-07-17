@@ -6560,6 +6560,39 @@ struct whitenoise_macTests {
         #expect(modifierSource.contains("automaticDownloadTask?.cancel()"))
     }
 
+    @Test func videoPlayerReclaimsScratchFileWhenTileLeavesViewport() throws {
+        // MessageVideoAttachmentPlayer lives inside the deliberately eager transcript VStack,
+        // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
+        // must cancel any in-flight materialization and run the same teardown that removes the
+        // decrypted playback scratch file.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let playerStart = try #require(source.range(of: "struct MessageVideoAttachmentPlayer: View {"))
+        let rest = source[playerStart.upperBound...]
+        let playerEnd = try #require(rest.range(of: "\nenum MessageMediaPlaybackFileStore {")?.lowerBound)
+        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+
+        let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(
+            normalizedSource.contains(
+                ".onScrollVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}tearDownPlayback()}"
+            )
+        )
+        #expect(
+            normalizedSource.contains(
+                "privatefunctearDownPlayback(){playbackTask?.cancel()playbackTask=nilstopPlayback()}"
+            )
+        )
+        #expect(normalizedSource.contains("MessageMediaPlaybackFileStore.remove(at:url)"))
+    }
+
     @MainActor
     @Test func loadMediaAttachmentRetriesFromFailedState() async throws {
         let account = AccountSummaryFfi(
