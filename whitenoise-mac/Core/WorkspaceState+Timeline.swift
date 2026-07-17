@@ -204,9 +204,24 @@ extension WorkspaceState {
             let page = try await TimelineSignpost.pagination.asyncInterval("paginateBackwards") {
                 try await subscription.paginateBackwards(count: Self.timelinePageLimit)
             }
-            guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
-            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
+            guard activeAccountId == activeAccount.id,
+                selectedChat?.id == groupIdHex,
+                activeTimelineGroupId == groupIdHex,
+                activeTimelineSubscription === subscription
+            else { return }
+            await applyTimelineWindow(
+                page,
+                groupIdHex: groupIdHex,
+                account: activeAccount,
+                client: client,
+                expectedTimelineSubscription: subscription
+            )
         } catch {
+            guard activeAccountId == activeAccount.id,
+                selectedChat?.id == groupIdHex,
+                activeTimelineGroupId == groupIdHex,
+                activeTimelineSubscription === subscription
+            else { return }
             lastError = error.localizedDescription
         }
     }
@@ -233,9 +248,24 @@ extension WorkspaceState {
             let page = try await TimelineSignpost.pagination.asyncInterval("paginateForwards") {
                 try await subscription.paginateForwards(count: Self.timelinePageLimit)
             }
-            guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
-            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
+            guard activeAccountId == activeAccount.id,
+                selectedChat?.id == groupIdHex,
+                activeTimelineGroupId == groupIdHex,
+                activeTimelineSubscription === subscription
+            else { return }
+            await applyTimelineWindow(
+                page,
+                groupIdHex: groupIdHex,
+                account: activeAccount,
+                client: client,
+                expectedTimelineSubscription: subscription
+            )
         } catch {
+            guard activeAccountId == activeAccount.id,
+                selectedChat?.id == groupIdHex,
+                activeTimelineGroupId == groupIdHex,
+                activeTimelineSubscription === subscription
+            else { return }
             lastError = error.localizedDescription
         }
     }
@@ -247,9 +277,16 @@ extension WorkspaceState {
         _ page: TimelinePageFfi,
         groupIdHex: String,
         account: AccountItem,
-        client: any MarmotRuntime
+        client: any MarmotRuntime,
+        expectedTimelineSubscription: TimelineMessagesSubscription? = nil
     ) async {
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                expectedTimelineSubscription: expectedTimelineSubscription
+            )
+        else { return }
         let senderProfiles = await TimelineSignpost.mapping.asyncInterval(
             "resolveSenders.window", count: page.messages.count
         ) {
@@ -260,7 +297,24 @@ extension WorkspaceState {
                 client: client
             )
         }
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                expectedTimelineSubscription: expectedTimelineSubscription
+            )
+        else { return }
+
+        #if DEBUG
+            await passTimelineApplyMapGateIfArmed()
+            guard
+                canApplyTimelineWindow(
+                    groupIdHex: groupIdHex,
+                    accountId: account.id,
+                    expectedTimelineSubscription: expectedTimelineSubscription
+                )
+            else { return }
+        #endif
 
         // Maps every record in the window and builds each bubble's Markdown display model
         // (attributed strings + block ids) eagerly — historically the dominant scroll-back
@@ -278,7 +332,13 @@ extension WorkspaceState {
                 senderProfiles: senderProfiles
             )
         }
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                expectedTimelineSubscription: expectedTimelineSubscription
+            )
+        else { return }
 
         let editMutations = MessageEditOverlay.mutations(from: page.messages)
         let currentPaging = timelinePagingByChat[groupIdHex]
@@ -296,6 +356,20 @@ extension WorkspaceState {
             )
         }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
+    }
+
+    private func canApplyTimelineWindow(
+        groupIdHex: String,
+        accountId: String,
+        expectedTimelineSubscription: TimelineMessagesSubscription?
+    ) -> Bool {
+        guard activeAccountId == accountId, selectedChat?.id == groupIdHex else { return false }
+        if let expectedTimelineSubscription {
+            guard activeTimelineGroupId == groupIdHex,
+                activeTimelineSubscription === expectedTimelineSubscription
+            else { return false }
+        }
+        return true
     }
 
     /// Route a live timeline subscription update to the right apply path.
