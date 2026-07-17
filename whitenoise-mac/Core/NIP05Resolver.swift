@@ -260,10 +260,14 @@ struct NIP05Identifier: Equatable {
     }
 
     private static func hasUndecodedALabel(encodedHost: String, decodedHost: String) -> Bool {
-        guard encodedHost != decodedHost else {
-            return encodedHost.split(separator: ".").contains { $0.hasPrefix("xn--") }
+        let encodedLabels = encodedHost.split(separator: ".", omittingEmptySubsequences: false)
+        let decodedLabels = decodedHost.split(separator: ".", omittingEmptySubsequences: false)
+        guard encodedLabels.count == decodedLabels.count else {
+            return true
         }
-        return false
+        return zip(encodedLabels, decodedLabels).contains { encoded, decoded in
+            encoded.hasPrefix("xn--") && encoded == decoded
+        }
     }
 
     private static func isValidLDHHost(_ host: String) -> Bool {

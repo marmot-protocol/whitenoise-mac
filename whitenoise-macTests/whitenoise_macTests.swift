@@ -14500,6 +14500,9 @@ struct whitenoise_macTests {
         #expect(NIP05Identifier("alice@xn--a.com") == nil)
         #expect(NIP05Identifier("alice@xn--abc.com") == nil)
         #expect(NIP05Identifier("alice@xn--mnchen-3ya.de")?.domain == "xn--mnchen-3ya.de")
+        // Malformed A-labels must be rejected even when another label decodes via IDNA.
+        #expect(NIP05Identifier("alice@münchen.xn--a.com") == nil)
+        #expect(NIP05Identifier("alice@xn--mnchen-3ya.xn--a.com") == nil)
     }
 
     @Test func nip05IdentifierRejectsMalformedDomains() {
