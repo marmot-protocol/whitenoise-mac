@@ -17,10 +17,14 @@ enum NIP05ResolutionError: Error {
     case invalidURL
     case invalidResponse
     case requestFailed(statusCode: Int)
+    case responseTooLarge
     case notFound
 }
 
 struct NIP05Resolver: NIP05Resolving {
+    /// A well-known identity document is a small name map, anything past this is hostile.
+    private static let maxResponseBytes = 256 * 1024
+
     private let session: URLSession
 
     init(
@@ -51,12 +55,27 @@ struct NIP05Resolver: NIP05Resolving {
         var request = URLRequest(url: url)
         request.setValue("WhiteNoiseMac/1.0", forHTTPHeaderField: "User-Agent")
 
-        let (data, response) = try await session.data(for: request)
+        let (bytes, response) = try await session.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw NIP05ResolutionError.invalidResponse
         }
         guard (200..<300).contains(http.statusCode) else {
             throw NIP05ResolutionError.requestFailed(statusCode: http.statusCode)
+        }
+        // Cheap pre-check only — the advertised length can be omitted or spoofed, so the
+        // streaming cap below is the enforcement that actually bounds the allocation.
+        guard http.expectedContentLength <= Int64(Self.maxResponseBytes) else {
+            throw NIP05ResolutionError.responseTooLarge
+        }
+
+        // Byte-granular iteration is fine here, the cap bounds it to a trivial step count.
+        var data = Data()
+        data.reserveCapacity(min(Int(max(http.expectedContentLength, 0)), Self.maxResponseBytes))
+        for try await byte in bytes {
+            data.append(byte)
+            guard data.count <= Self.maxResponseBytes else {
+                throw NIP05ResolutionError.responseTooLarge
+            }
         }
 
         let decoded = try JSONDecoder().decode(NIP05WellKnownResponse.self, from: data)
@@ -80,9 +99,16 @@ struct NIP05Resolver: NIP05Resolving {
 
 /// Re-validates each redirect target against the SSRF host policy — URLSession auto-follows
 /// redirects, so without this a public well-known host could 3xx the lookup to a private/
-/// loopback/link-local address the up-front guard blocks. Mirrors the avatar path's
-/// CappedImageDownloadDelegate.
+/// loopback/link-local address the up-front guard blocks. Also caps the redirect-hop count so a
+/// malicious host cannot loop the lookup between public hosts until the resource timeout fires.
+/// Mirrors the avatar path's CappedImageDownloadDelegate.
 final class NIP05RedirectPolicy: NSObject, URLSessionTaskDelegate {
+    private static let maxRedirectHops = 5
+
+    // One instance serves every lookup on the session, so hop budgets are tracked per task.
+    private let lock = NSLock()
+    private var redirectHopCountsByTask: [Int: Int] = [:]
+
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -90,6 +116,16 @@ final class NIP05RedirectPolicy: NSObject, URLSessionTaskDelegate {
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
+        let hopCount = lock.withLock {
+            let count = (redirectHopCountsByTask[task.taskIdentifier] ?? 0) + 1
+            redirectHopCountsByTask[task.taskIdentifier] = count
+            return count
+        }
+        if hopCount > Self.maxRedirectHops {
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
         guard let url = request.url, RemoteImageURLPolicy.isAllowed(url) else {
             completionHandler(nil)
             task.cancel()
@@ -97,26 +133,37 @@ final class NIP05RedirectPolicy: NSObject, URLSessionTaskDelegate {
         }
         completionHandler(request)
     }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.withLock { redirectHopCountsByTask[task.taskIdentifier] = nil }
+    }
 }
 
 struct NIP05Identifier: Equatable {
+    /// Mailbox-length ceiling, generous for any legitimate identifier.
+    private static let maxLength = 254
+    /// The spec-legal local part, accepted case-insensitively and stored lowercased. Anything
+    /// wider (`:`, `/`, …) lets a full profile ref or URL masquerade as a name.
+    private static let localPartAlphabet = Set("abcdefghijklmnopqrstuvwxyz0123456789-_.")
+
     let name: String
     let domain: String
 
     init?(_ rawValue: String) {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
+            trimmed.count <= Self.maxLength,
             trimmed.firstIndex(of: "@") == trimmed.lastIndex(of: "@"),
             let separator = trimmed.firstIndex(of: "@")
         else {
             return nil
         }
 
-        let name = String(trimmed[..<separator])
+        let name = String(trimmed[..<separator]).lowercased()
         let domain = String(trimmed[trimmed.index(after: separator)...]).lowercased()
         guard !name.isEmpty,
             !domain.isEmpty,
-            name.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+            name.allSatisfy(Self.localPartAlphabet.contains),
             domain.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
             domain.rangeOfCharacter(from: CharacterSet(charactersIn: "/:?#[]@\\")) == nil,
             domain.contains("."),

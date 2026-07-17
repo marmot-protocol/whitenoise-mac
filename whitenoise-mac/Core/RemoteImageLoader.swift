@@ -119,14 +119,16 @@ nonisolated enum RemoteImageURLPolicy {
     }
 
     /// Rejects IPv6 literals in non-public ranges: unspecified `::`, loopback `::1`,
-    /// ULA `fc00::/7`, link-local `fe80::/10`, and IPv4-mapped `::ffff:0:0/96` /
-    /// IPv4-compatible addresses whose embedded IPv4 is itself private.
+    /// ULA `fc00::/7`, link-local `fe80::/10`, multicast `ff00::/8`, and the IPv4-embedding
+    /// forms (mapped `::ffff:a.b.c.d`, translated `::ffff:0:a.b.c.d`, NAT64 `64:ff9b::a.b.c.d`,
+    /// and IPv4-compatible `::a.b.c.d`) whose embedded IPv4 is itself private.
     private static func isPrivateIPv6(_ groups: [UInt16]) -> Bool {
         guard groups.count == 8 else { return true }  // be conservative on anything unparseable
 
-        // Unspecified `::` and loopback `::1`.
-        if groups[0...6].allSatisfy({ $0 == 0 }) {
-            return groups[7] <= 1
+        // Unspecified `::` and loopback `::1` only — `::2`–`::ffff` are IPv4-compatible forms
+        // of `0.0.0.0/8` and must fall through to the embedded-IPv4 re-check below.
+        if groups[0...6].allSatisfy({ $0 == 0 }), groups[7] <= 1 {
+            return true
         }
 
         let first = groups[0]
@@ -134,10 +136,20 @@ nonisolated enum RemoteImageURLPolicy {
         if (first & 0xFE00) == 0xFC00 { return true }
         // Link-local fe80::/10 — top 10 bits == 1111111010.
         if (first & 0xFFC0) == 0xFE80 { return true }
+        // Multicast ff00::/8, mirroring the IPv4 `224.0.0.0/4` rejection.
+        if (first & 0xFF00) == 0xFF00 { return true }
 
         // IPv4-mapped `::ffff:a.b.c.d` (and IPv4-compatible `::a.b.c.d`): re-check the
         // embedded IPv4 against the private ranges so `[::ffff:192.168.0.1]` is rejected too.
         if groups[0...4].allSatisfy({ $0 == 0 }), groups[5] == 0xFFFF {
+            return isPrivateIPv4(embeddedIPv4(groups))
+        }
+        // IPv4-translated `::ffff:0:a.b.c.d`.
+        if groups[0...3].allSatisfy({ $0 == 0 }), groups[4] == 0xFFFF, groups[5] == 0 {
+            return isPrivateIPv4(embeddedIPv4(groups))
+        }
+        // NAT64 well-known prefix `64:ff9b::a.b.c.d`.
+        if groups[0] == 0x64, groups[1] == 0xFF9B, groups[2...5].allSatisfy({ $0 == 0 }) {
             return isPrivateIPv4(embeddedIPv4(groups))
         }
         if groups[0...5].allSatisfy({ $0 == 0 }), groups[6] != 0 || groups[7] != 0 {
@@ -764,6 +776,10 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return await delegate.download(url, using: session)
     }
 
+    /// Decoded-pixel ceiling for one source image — a small compressed body can declare
+    /// enormous dimensions, and the thumbnail pass materializes the full-size bitmap first.
+    private static let maxSourceImagePixels = 64_000_000
+
     private static func downsample(data: Data, maxPixelSize: CGFloat) -> NSImage? {
         // Stamped with the encoded byte count so a slow decode is correlatable with the
         // source image's weight. Runs off-main (`Task.detached(.utility)`), but if it
@@ -771,6 +787,16 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         TimelineSignpost.decode.interval("downsample", count: data.count) {
             let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
             guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+            // Header-only dimension read, rejecting decompression bombs before any decode.
+            guard
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, sourceOptions)
+                    as? [CFString: Any],
+                let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                width > 0, height > 0,
+                // Division form, a hostile header can carry dimensions whose product overflows.
+                height <= maxSourceImagePixels / width
+            else { return nil }
             let options =
                 [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,

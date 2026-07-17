@@ -1477,12 +1477,12 @@ struct PureValueTests {
         )
         #expect(nostrURL?.scheme == "nostr")
 
-        let nprofileURL = MarkdownLinkPolicy.sanitizedURL(from: "nostr:nprofile1alice")
-        #expect(nprofileURL?.absoluteString == "nostr:nprofile1alice")
-        #expect(MarkdownLinkPolicy.isResolvableProfileReference("npub1alice"))
-        #expect(MarkdownLinkPolicy.isResolvableProfileReference("nprofile1alice"))
-        #expect(MarkdownLinkPolicy.isProfileReferenceInput("nostr:nprofile1alice"))
-        #expect(!MarkdownLinkPolicy.isResolvableProfileReference("note1alice"))
+        let nprofileURL = MarkdownLinkPolicy.sanitizedURL(from: "nostr:nprofile1alyce")
+        #expect(nprofileURL?.absoluteString == "nostr:nprofile1alyce")
+        #expect(MarkdownLinkPolicy.isResolvableProfileReference("npub1alyce"))
+        #expect(MarkdownLinkPolicy.isResolvableProfileReference("nprofile1alyce"))
+        #expect(MarkdownLinkPolicy.isProfileReferenceInput("nostr:nprofile1alyce"))
+        #expect(!MarkdownLinkPolicy.isResolvableProfileReference("note1alyce"))
 
         for raw in [
             "",
@@ -1524,10 +1524,10 @@ struct PureValueTests {
         // Accepted: strict marmot://profile/<npub|nprofile>, query ignored, case-insensitive
         // scheme/host. These flow in from OS deep links and kit-emitted message autolinks.
         for raw in [
-            "marmot://profile/npub1alice",
-            "marmot://profile/npub1alice?from=qr",
-            "marmot://profile/nprofile1alice",
-            "MARMOT://PROFILE/npub1alice",
+            "marmot://profile/npub1alyce",
+            "marmot://profile/npub1alyce?from=qr",
+            "marmot://profile/nprofile1alyce",
+            "MARMOT://PROFILE/npub1alyce",
         ] {
             let url = try #require(URL(string: raw))
             #expect(
@@ -1540,10 +1540,10 @@ struct PureValueTests {
                 "expected sanitizedURL acceptance for \(String(reflecting: raw))"
             )
         }
-        let plain = try #require(URL(string: "marmot://profile/npub1alice"))
-        #expect(MarmotProfileLink.profileReference(from: plain) == "npub1alice")
-        let withQuery = try #require(URL(string: "marmot://profile/npub1alice?from=qr"))
-        #expect(MarmotProfileLink.profileReference(from: withQuery) == "npub1alice")
+        let plain = try #require(URL(string: "marmot://profile/npub1alyce"))
+        #expect(MarmotProfileLink.profileReference(from: plain) == "npub1alyce")
+        let withQuery = try #require(URL(string: "marmot://profile/npub1alyce?from=qr"))
+        #expect(MarmotProfileLink.profileReference(from: withQuery) == "npub1alyce")
 
         // Rejected: every other marmot:// shape. The scheme is not exclusive to this app,
         // so inbound URLs are untrusted; nothing here may reach LaunchServices either.
@@ -1554,7 +1554,7 @@ struct PureValueTests {
             "marmot://profile/note1abc",
             "marmot://profile/npub1x/extra",
             "marmot://x-callback-url/run",
-            "marmot://profile/../npub1alice",
+            "marmot://profile/../npub1alyce",
         ] {
             if let url = URL(string: raw) {
                 #expect(
@@ -1570,19 +1570,162 @@ struct PureValueTests {
         }
 
         // The retired darkmatter:// scheme is a clean break (mdk#725): no longer recognized.
-        #expect(MarkdownLinkPolicy.sanitizedURL(from: "darkmatter://profile/npub1alice") == nil)
+        #expect(MarkdownLinkPolicy.sanitizedURL(from: "darkmatter://profile/npub1alyce") == nil)
 
         // QR payload emits the canonical link form and round-trips through the parser.
-        let payload = MarmotProfileLink.qrPayload(npub: "npub1alice")
-        #expect(payload == "marmot://profile/npub1alice?from=qr")
+        let payload = MarmotProfileLink.qrPayload(npub: "npub1alyce")
+        #expect(payload == "marmot://profile/npub1alyce?from=qr")
         let payloadURL = try #require(URL(string: payload))
-        #expect(MarmotProfileLink.profileReference(from: payloadURL) == "npub1alice")
+        #expect(MarmotProfileLink.profileReference(from: payloadURL) == "npub1alyce")
 
         // Paste pre-check prefix helper.
-        #expect(MarmotProfileLink.hasProfileLinkPrefix("  marmot://profile/npub1alice?from=qr "))
-        #expect(MarmotProfileLink.hasProfileLinkPrefix("MARMOT://PROFILE/npub1alice"))
-        #expect(!MarmotProfileLink.hasProfileLinkPrefix("darkmatter://profile/npub1alice"))
+        #expect(MarmotProfileLink.hasProfileLinkPrefix("  marmot://profile/npub1alyce?from=qr "))
+        #expect(MarmotProfileLink.hasProfileLinkPrefix("MARMOT://PROFILE/npub1alyce"))
+        #expect(!MarmotProfileLink.hasProfileLinkPrefix("darkmatter://profile/npub1alyce"))
         #expect(!MarmotProfileLink.hasProfileLinkPrefix("marmot://group/abc"))
+    }
+
+    @Test func profileReferenceGrammarRejectsEmbeddedHostPayloads() async throws {
+        // A resolvable ref must stay inside the bech32 alphabet after its prefix. Prefix-only
+        // matching let refs with an embedded `@domain` reach the NIP-05 resolver and beacon the
+        // viewer's IP to an attacker-chosen host on click.
+        for reference in [
+            "npub1qqq@evil.example",
+            "nprofile1qqq@evil.example",
+            "npub1x.y",
+            "npub1qqq:8080",
+            "npub1qqq/path",
+            "npub1qqq?name=x",
+            "npub1qqq evil",
+            "npub1bio",  // `b`, `i`, and `o` sit outside the bech32 alphabet
+            "npub1",  // a bare prefix carries no payload
+        ] {
+            #expect(
+                !MarkdownLinkPolicy.isResolvableProfileReference(reference),
+                "expected rejection for \(String(reflecting: reference))"
+            )
+        }
+        #expect(MarkdownLinkPolicy.isResolvableProfileReference("npub1alyce"))
+        #expect(
+            MarkdownLinkPolicy.isResolvableProfileReference(
+                "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
+            )
+        )
+
+        // The nostr autolink form extracts the same ref and stays unresolvable.
+        let nostrURL = try #require(URL(string: "nostr:npub1x.y"))
+        let extracted = try #require(MarkdownLinkPolicy.nostrReference(from: nostrURL))
+        #expect(!MarkdownLinkPolicy.isResolvableProfileReference(extracted))
+
+        // The profile deep-link form is gated on the same grammar, including the
+        // percent-encoded spelling that decodes back into an `@`.
+        for raw in [
+            "marmot://profile/npub1qqq@evil.example",
+            "marmot://profile/npub1qqq%40evil.example",
+            "marmot://profile/npub1x.y",
+        ] {
+            if let url = URL(string: raw) {
+                #expect(
+                    MarmotProfileLink.profileReference(from: url) == nil,
+                    "expected rejection for \(String(reflecting: raw))"
+                )
+            }
+            #expect(
+                MarkdownLinkPolicy.sanitizedURL(from: raw) == nil,
+                "expected sanitizedURL rejection for \(String(reflecting: raw))"
+            )
+        }
+    }
+
+    @Test func nostrMarkerStringsAreNeverNIP05Candidates() async throws {
+        // `memberRefCandidate` refuses NIP-05 resolution for anything carrying a nostr marker,
+        // so a ref like `nostr:npub1…@host` can only ever reach the authoritative FFI parse.
+        for value in [
+            "nostr:npub1qqq@evil.example",
+            "npub1qqq@evil.example",
+            "NPUB1QQQ@EVIL.EXAMPLE",
+            "nprofile1qqq@evil.example",
+            "marmot://profile/npub1qqq",
+            "prefix nostr:npub1qqq suffix",
+        ] {
+            #expect(
+                MarkdownLinkPolicy.containsNostrReferenceMarker(value),
+                "expected marker in \(String(reflecting: value))"
+            )
+        }
+        for value in ["alice@example.com", "npub@example.com", "note1qqq", ""] {
+            #expect(
+                !MarkdownLinkPolicy.containsNostrReferenceMarker(value),
+                "expected no marker in \(String(reflecting: value))"
+            )
+        }
+    }
+
+    @Test func nip05IdentifierRestrictsLocalPartCharsetAndLength() async throws {
+        // Local parts are the spec-legal lowercase set, accepted case-insensitively.
+        let mixedCase = try #require(NIP05Identifier("Alice.Smith_9-a@Example.COM"))
+        #expect(mixedCase.name == "alice.smith_9-a")
+        #expect(mixedCase.domain == "example.com")
+
+        for raw in [
+            "nostr:npub1qqq@evil.example",  // `:` can no longer smuggle a full ref into the name
+            "npub1qqq/x@evil.example",
+            "name!bang@example.com",
+            "na me@example.com",
+            "átila@example.com",
+            "@example.com",
+            "name@",
+            String(repeating: "a", count: 250) + "@example.com",  // over the total-length bound
+        ] {
+            #expect(NIP05Identifier(raw) == nil, "expected rejection for \(String(reflecting: raw))")
+        }
+
+        // A bare `npub1…@host` is still a charset-legal identifier, the marker guard above is
+        // the layer that keeps it away from the resolver.
+        #expect(NIP05Identifier("npub1qqq@evil.example") != nil)
+    }
+
+    @Test func nip05RedirectPolicyCapsRedirectHopsPerTask() async throws {
+        // Delegate methods are exercised directly, no task is ever resumed so nothing touches
+        // the network.
+        let policy = NIP05RedirectPolicy()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let origin = try #require(URL(string: "https://identity.example/.well-known/nostr.json"))
+        let response = try #require(
+            HTTPURLResponse(url: origin, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: nil)
+        )
+        let target = URLRequest(url: try #require(URL(string: "https://next.example/hop")))
+
+        let task = session.dataTask(with: origin)
+        var results: [URLRequest?] = []
+        for _ in 0..<6 {
+            policy.urlSession(session, task: task, willPerformHTTPRedirection: response, newRequest: target) {
+                results.append($0)
+            }
+        }
+        #expect(results.count == 6)
+        #expect(results[4]?.url == target.url)  // five hops pass, matching the avatar downloader
+        #expect(results[5] == nil)  // the sixth is cancelled
+
+        // Budgets are per task — one looping lookup must not starve the next.
+        let freshTask = session.dataTask(with: origin)
+        var freshResult: URLRequest?
+        policy.urlSession(session, task: freshTask, willPerformHTTPRedirection: response, newRequest: target) {
+            freshResult = $0
+        }
+        #expect(freshResult?.url == target.url)
+
+        // A disallowed redirect target is still refused on the first hop.
+        let disallowed = URLRequest(url: try #require(URL(string: "http://next.example/hop")))
+        let plainTask = session.dataTask(with: origin)
+        var disallowedResult: URLRequest? = target
+        policy.urlSession(
+            session, task: plainTask, willPerformHTTPRedirection: response, newRequest: disallowed
+        ) {
+            disallowedResult = $0
+        }
+        #expect(disallowedResult == nil)
     }
 
     @Test func markdownLinkPolicyRejectsPrivateAndLoopbackHosts() async throws {
@@ -1613,7 +1756,30 @@ struct PureValueTests {
         // Public http/https hosts and internal nostr links still pass.
         #expect(MarkdownLinkPolicy.sanitizedURL(from: "https://example.com/path") != nil)
         #expect(MarkdownLinkPolicy.sanitizedURL(from: "http://cdn.example.com/a") != nil)
-        #expect(MarkdownLinkPolicy.sanitizedURL(from: "nostr:nprofile1alice") != nil)
+        #expect(MarkdownLinkPolicy.sanitizedURL(from: "nostr:nprofile1alyce") != nil)
+    }
+
+    @Test func remoteImagePolicyRejectsMulticastAndEmbeddedPrivateIPv6() async throws {
+        for raw in [
+            "https://[ff02::1]/x.png",  // multicast, mirroring the IPv4 `224.0.0.0/4` rejection
+            "https://[ff05::1:3]/x.png",
+            "https://[::ffff:0:c0a8:1]/x.png",  // translated prefix around 192.168.0.1
+            "https://[::ffff:0:192.168.0.1]/x.png",
+            "https://[64:ff9b::c0a8:1]/x.png",  // NAT64 well-known prefix around 192.168.0.1
+            "https://[64:ff9b::192.168.0.1]/x.png",
+            "https://[64:ff9b::7f00:1]/x.png",  // NAT64 around 127.0.0.1
+            "https://[::2]/x.png",  // IPv4-compatible 0.0.0.2, inside 0.0.0.0/8
+            "https://[::ffff]/x.png",  // IPv4-compatible 0.0.255.255
+        ] {
+            #expect(
+                RemoteImageURLPolicy.sanitizedURL(from: raw) == nil,
+                "expected rejection for \(String(reflecting: raw))"
+            )
+        }
+
+        // Embedded-public NAT64 and plain public IPv6 destinations keep loading.
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b::808:808]/x.png") != nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[2001:db8::5]/x.png") != nil)
     }
 
     @Test func markdownInlineBuilderDropsUnsafeMarkdownLinks() async throws {
