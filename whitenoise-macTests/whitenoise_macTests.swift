@@ -8683,7 +8683,7 @@ struct whitenoise_macTests {
                     sender: aliceId,
                     plaintext: "Fresh error",
                     recordedAt: baseTime
-                ),
+                )
             ],
             limit: 100,
             windowCap: 200

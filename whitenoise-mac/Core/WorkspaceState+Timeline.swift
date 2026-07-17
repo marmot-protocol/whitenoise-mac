@@ -280,11 +280,13 @@ extension WorkspaceState {
         client: any MarmotRuntime,
         expectedTimelineSubscription: TimelineMessagesSubscription? = nil
     ) async {
-        guard canApplyTimelineWindow(
-            groupIdHex: groupIdHex,
-            accountId: account.id,
-            expectedTimelineSubscription: expectedTimelineSubscription
-        ) else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                expectedTimelineSubscription: expectedTimelineSubscription
+            )
+        else { return }
         let senderProfiles = await TimelineSignpost.mapping.asyncInterval(
             "resolveSenders.window", count: page.messages.count
         ) {
@@ -295,19 +297,23 @@ extension WorkspaceState {
                 client: client
             )
         }
-        guard canApplyTimelineWindow(
-            groupIdHex: groupIdHex,
-            accountId: account.id,
-            expectedTimelineSubscription: expectedTimelineSubscription
-        ) else { return }
-
-        #if DEBUG
-            await passTimelineApplyMapGateIfArmed()
-            guard canApplyTimelineWindow(
+        guard
+            canApplyTimelineWindow(
                 groupIdHex: groupIdHex,
                 accountId: account.id,
                 expectedTimelineSubscription: expectedTimelineSubscription
-            ) else { return }
+            )
+        else { return }
+
+        #if DEBUG
+            await passTimelineApplyMapGateIfArmed()
+            guard
+                canApplyTimelineWindow(
+                    groupIdHex: groupIdHex,
+                    accountId: account.id,
+                    expectedTimelineSubscription: expectedTimelineSubscription
+                )
+            else { return }
         #endif
 
         // Maps every record in the window and builds each bubble's Markdown display model
@@ -326,11 +332,13 @@ extension WorkspaceState {
                 senderProfiles: senderProfiles
             )
         }
-        guard canApplyTimelineWindow(
-            groupIdHex: groupIdHex,
-            accountId: account.id,
-            expectedTimelineSubscription: expectedTimelineSubscription
-        ) else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                expectedTimelineSubscription: expectedTimelineSubscription
+            )
+        else { return }
 
         let editMutations = MessageEditOverlay.mutations(from: page.messages)
         let currentPaging = timelinePagingByChat[groupIdHex]
