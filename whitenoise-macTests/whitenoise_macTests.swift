@@ -6826,6 +6826,16 @@ struct whitenoise_macTests {
         }
         await load.value
 
+        // `loadMediaAttachment` releases its actor-isolated slot from a deferred task. Reacquiring
+        // every slot waits for that deferred release before this serialized test yields the shared
+        // limiter to the next test.
+        for _ in 0..<MediaAttachmentDownloadConcurrency.maxConcurrentDownloads {
+            try await MediaAttachmentDownloadLimiter.shared.acquire()
+        }
+        for _ in 0..<MediaAttachmentDownloadConcurrency.maxConcurrentDownloads {
+            await MediaAttachmentDownloadLimiter.shared.release()
+        }
+
         guard case .loaded(let download) = state.mediaDownloadState(for: message, attachment: attachment) else {
             Issue.record("Expected attachment download to complete after reference resolution")
             return
