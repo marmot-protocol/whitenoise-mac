@@ -12483,15 +12483,19 @@ struct whitenoise_macTests {
             #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
         }
 
-        // IPv6 loopback / unspecified / ULA / link-local / IPv4-mapped private.
+        // IPv6 loopback / unspecified / ULA / link-local / multicast / embedded-private IPv4.
         let blockedV6 = [
             "https://[::1]/x.png",
             "https://[::]/x.png",
             "https://[fc00::1]/x.png",
             "https://[fd12:3456::1]/x.png",
             "https://[fe80::1]/x.png",
-            "https://[::ffff:192.168.0.1]/x.png",
+            "https://[ff00::1]/x.png",  // multicast ff00::/8 (low edge)
+            "https://[ffff::1]/x.png",  // multicast ff00::/8 (high edge)
+            "https://[::ffff:192.168.0.1]/x.png",  // IPv4-mapped
             "https://[::ffff:127.0.0.1]/x.png",
+            "https://[::ffff:0:192.168.0.1]/x.png",  // IPv4-translated ::ffff:0:0:0/96
+            "https://[64:ff9b::192.168.0.1]/x.png",  // NAT64 well-known prefix
         ]
         for s in blockedV6 {
             #expect(!RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected SSRF rejection for \(s)")
@@ -12517,6 +12521,8 @@ struct whitenoise_macTests {
             "https://223.255.255.255/x.png",  // just below multicast 224.0.0.0/4
             "https://[2606:4700:4700::1111]/x.png",  // public IPv6 (Cloudflare)
             "https://[::ffff:8.8.8.8]/x.png",  // IPv4-mapped public address
+            "https://[::ffff:0:8.8.8.8]/x.png",  // IPv4-translated public address
+            "https://[64:ff9b::8.8.8.8]/x.png",  // NAT64 embedding of public address
         ]
         for s in allowed {
             #expect(RemoteImageURLPolicy.isAllowed(URL(string: s)!), "expected allow for \(s)")

@@ -119,8 +119,8 @@ nonisolated enum RemoteImageURLPolicy {
     }
 
     /// Rejects IPv6 literals in non-public ranges: unspecified `::`, loopback `::1`,
-    /// ULA `fc00::/7`, link-local `fe80::/10`, and IPv4-mapped `::ffff:0:0/96` /
-    /// IPv4-compatible addresses whose embedded IPv4 is itself private.
+    /// ULA `fc00::/7`, link-local `fe80::/10`, multicast `ff00::/8`, and well-known
+    /// IPv4-embedding prefixes whose embedded IPv4 is itself private.
     private static func isPrivateIPv6(_ groups: [UInt16]) -> Bool {
         guard groups.count == 8 else { return true }  // be conservative on anything unparseable
 
@@ -134,13 +134,19 @@ nonisolated enum RemoteImageURLPolicy {
         if (first & 0xFE00) == 0xFC00 { return true }
         // Link-local fe80::/10 — top 10 bits == 1111111010.
         if (first & 0xFFC0) == 0xFE80 { return true }
+        // Multicast ff00::/8.
+        if (first & 0xFF00) == 0xFF00 { return true }
 
-        // IPv4-mapped `::ffff:a.b.c.d` (and IPv4-compatible `::a.b.c.d`): re-check the
-        // embedded IPv4 against the private ranges so `[::ffff:192.168.0.1]` is rejected too.
-        if groups[0...4].allSatisfy({ $0 == 0 }), groups[5] == 0xFFFF {
-            return isPrivateIPv4(embeddedIPv4(groups))
-        }
-        if groups[0...5].allSatisfy({ $0 == 0 }), groups[6] != 0 || groups[7] != 0 {
+        let isIPv4Mapped = groups[0...4].allSatisfy({ $0 == 0 }) && groups[5] == 0xFFFF
+        let isIPv4Compatible = groups[0...5].allSatisfy({ $0 == 0 })
+        let isIPv4Translated =
+            groups[0...3].allSatisfy({ $0 == 0 }) && groups[4] == 0xFFFF && groups[5] == 0
+        let isWellKnownNAT64 =
+            groups[0] == 0x0064 && groups[1] == 0xFF9B && groups[2...5].allSatisfy({ $0 == 0 })
+
+        // Re-check the low 32 bits for standardized IPv4 embeddings. Public embedded addresses
+        // remain allowed, while private/loopback/link-local/reserved IPv4 destinations are blocked.
+        if isIPv4Mapped || isIPv4Compatible || isIPv4Translated || isWellKnownNAT64 {
             return isPrivateIPv4(embeddedIPv4(groups))
         }
 
