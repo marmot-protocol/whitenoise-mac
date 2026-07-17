@@ -494,15 +494,16 @@ extension WorkspaceState {
             stopChatListListener()
             stopTimelineListener()
 
-            // Marmot only owns its storage root; plaintext media scratch directories and
-            // the encrypted media cache live outside it, so purge them before the
-            // potentially throwing Marmot deletion call when wiping local data.
+            // Marmot only owns its storage root. Purge plaintext media scratch directories before
+            // the potentially throwing deletion so a wipe attempt removes exposed media immediately.
+            // Keep the encrypted cache and its key intact until Marmot deletion succeeds; otherwise
+            // failure recovery would restore messages whose cached attachments can no longer decrypt.
             try? await runOffMain {
                 MediaPlaybackTempStore.purge()
                 OutgoingMediaMetadataTempStore.purge()
             }
-            await mediaDiskCache.purgeAll(removeEncryptionKey: true)
             try await client.deleteAllLocalData()
+            await mediaDiskCache.purgeAll(removeEncryptionKey: true)
             self.client = nil
             observabilityRuntimeConfiguration = nil
             resetToNewInstallState(storageRootPath: client.storageRootPath)

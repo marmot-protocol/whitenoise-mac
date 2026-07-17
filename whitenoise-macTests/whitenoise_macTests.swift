@@ -1009,7 +1009,15 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [primary])
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
-        let state = WorkspaceState(clientFactory: { runtime })
+        let fileManager = FileManager.default
+        let mediaCacheRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-successful-delete-media-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: mediaCacheRoot) }
+        let didDeleteMediaEncryptionKey = MutableFlag(false)
+        let mediaDiskCache = messageMediaDiskCache(root: mediaCacheRoot) {
+            didDeleteMediaEncryptionKey.value = true
+        }
+        let state = WorkspaceState(mediaDiskCache: mediaDiskCache, clientFactory: { runtime })
 
         await state.bootstrap()
         state.showSettings(.privacySecurity)
@@ -1027,6 +1035,7 @@ struct whitenoise_macTests {
         await state.deleteAllData()
 
         #expect(runtime.didDeleteAllLocalData)
+        #expect(didDeleteMediaEncryptionKey.value)
         let accounts = try runtime.listAccounts()
         #expect(accounts.isEmpty)
         #expect(state.phase == .onboarding)
@@ -1055,7 +1064,32 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
-        let state = WorkspaceState(clientFactory: { runtime })
+
+        let fileManager = FileManager.default
+        let mediaCacheRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-failed-delete-media-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: mediaCacheRoot) }
+        let didDeleteMediaEncryptionKey = MutableFlag(false)
+        let mediaDiskCache = messageMediaDiskCache(root: mediaCacheRoot) {
+            didDeleteMediaEncryptionKey.value = true
+        }
+        let cachedMediaPlaintext = Data("media that must survive a failed wipe".utf8)
+        let cachedMediaKey = MessageMediaDiskCacheKey(
+            accountId: account.label,
+            groupIdHex: "group",
+            reference: mediaDiskCacheReference(plaintext: cachedMediaPlaintext)
+        )
+        await mediaDiskCache.store(
+            MessageMediaDownload(
+                data: cachedMediaPlaintext,
+                fileName: "surviving-photo.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(cachedMediaPlaintext.count),
+                payloadId: "failed-wipe-media"
+            ),
+            for: cachedMediaKey
+        )
+        let state = WorkspaceState(mediaDiskCache: mediaDiskCache, clientFactory: { runtime })
 
         await state.bootstrap()
         let didStartNotifications = await waitFor {
@@ -1087,6 +1121,8 @@ struct whitenoise_macTests {
         #expect(runtime.chatListSubscriptionCount >= chatListSubscriptionBaseline + 1)
         #expect(runtime.timelineSubscriptionCount >= timelineSubscriptionBaseline + 1)
         #expect(state.lastError == "Unused fake runtime error.")
+        #expect(!didDeleteMediaEncryptionKey.value)
+        #expect(try #require(await mediaDiskCache.cachedDownload(for: cachedMediaKey)).data == cachedMediaPlaintext)
     }
 
     @MainActor
