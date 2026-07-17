@@ -347,7 +347,7 @@ struct MessageBubble: View {
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
-        .frame(maxWidth: 540, alignment: .leading)
+        .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
     }
 
     private var showsInlineMetadata: Bool {
