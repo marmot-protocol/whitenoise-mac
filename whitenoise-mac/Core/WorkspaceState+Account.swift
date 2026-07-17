@@ -239,7 +239,7 @@ extension WorkspaceState {
     /// in-memory message/profile caches are cleared and a remaining account is reselected
     /// (or the app returns to onboarding when none remain).
     func removeAccount(_ account: AccountItem) async {
-        guard let client, !isRemovingAccount else { return }
+        guard let client, !isAccountMutationInProgress else { return }
 
         lastError = nil
         isRemovingAccount = true
@@ -370,7 +370,7 @@ extension WorkspaceState {
     /// it (and cleans up its relay key packages). If it was the active account, the
     /// UI switches to another signed-in account, or onboarding when none remain.
     func signOutAccount(_ account: AccountItem) async {
-        guard let client, !isSigningOutAccount else { return }
+        guard let client, !isAccountMutationInProgress else { return }
         lastError = nil
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
@@ -422,7 +422,7 @@ extension WorkspaceState {
 
     /// Re-activate a previously signed-out account and make it the active one.
     func signInAccount(_ account: AccountItem) async {
-        guard let client, !isSigningOutAccount else { return }
+        guard let client, !isAccountMutationInProgress else { return }
         lastError = nil
         isSigningOutAccount = true
         defer { isSigningOutAccount = false }
