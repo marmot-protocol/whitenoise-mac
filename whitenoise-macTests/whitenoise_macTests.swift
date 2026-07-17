@@ -13567,6 +13567,121 @@ struct whitenoise_macTests {
         #expect(state.resolvedNewChatRecipient?.pictureURL == "https://example.com/avatar.png")
     }
 
+    @Test func nip05IdentifierAcceptsCanonicalASCIIDomains() {
+        // #527: domains must be stored as canonical lowercase ASCII hostnames.
+        let alice = NIP05Identifier("alice@example.com")
+        #expect(alice?.name == "alice")
+        #expect(alice?.domain == "example.com")
+        #expect(NIP05Identifier("bob@EXAMPLE.COM")?.domain == "example.com")
+    }
+
+    @Test func nip05IdentifierNormalizesInternationalDomainsToASCII() throws {
+        // #527: valid IDNs must be converted to Foundation's canonical punycode host form.
+        let identifier = NIP05Identifier("alice@münchen.de")
+        #expect(identifier?.name == "alice")
+        #expect(try #require(identifier?.domain) == "xn--mnchen-3ya.de")
+    }
+
+    @Test func nip05IdentifierCanonicalizesHomographDomains() throws {
+        // #527: U+0261 is not mapped to LATIN SMALL LETTER G under UTS #46, so punycode is stable.
+        let scriptG = "\u{0261}"
+        let identifier = NIP05Identifier("alice@\(scriptG)oogle.com")
+        #expect(identifier?.name == "alice")
+        #expect(try #require(identifier?.domain) == "xn--oogle-qmc.com")
+    }
+
+    @Test func nip05IdentifierCanonicalizesUnicodeLabelSeparators() {
+        // #527: UTS #46 label separators must IDNA-map to canonical ASCII dots.
+        #expect(NIP05Identifier("alice@example\u{3002}com")?.domain == "example.com")
+        #expect(NIP05Identifier("alice@example\u{FF0E}com")?.domain == "example.com")
+        #expect(NIP05Identifier("alice@example\u{FF61}com")?.domain == "example.com")
+    }
+
+    @Test func nip05IdentifierCanonicalizesSingleTrailingRootSeparator() {
+        // #527: at most one terminal root separator may be accepted and stripped.
+        #expect(NIP05Identifier("alice@example.com.")?.domain == "example.com")
+        #expect(NIP05Identifier("alice@example.com\u{3002}")?.domain == "example.com")
+    }
+
+    @Test func nip05IdentifierRejectsMultipleTrailingRootSeparators() {
+        // #527: multiple terminal empty labels must be rejected.
+        #expect(NIP05Identifier("alice@example.com..") == nil)
+        #expect(NIP05Identifier("alice@example.com\u{3002}.") == nil)
+        #expect(NIP05Identifier("alice@example.com.\u{FF0E}") == nil)
+    }
+
+    @Test func nip05IdentifierValidatesALabelRoundTrip() {
+        // #527: reserved xn-- labels must decode/re-encode; malformed A-labels are rejected.
+        #expect(NIP05Identifier("alice@xn--a.com") == nil)
+        #expect(NIP05Identifier("alice@xn--abc.com") == nil)
+        #expect(NIP05Identifier("alice@xn--mnchen-3ya.de")?.domain == "xn--mnchen-3ya.de")
+    }
+
+    @Test func nip05IdentifierRejectsMalformedDomains() {
+        // #527: malformed or non-LDH DNS hostnames must be rejected.
+        #expect(NIP05Identifier("alice@foo..bar.com") == nil)
+        #expect(NIP05Identifier("alice@-example.com") == nil)
+        #expect(NIP05Identifier("alice@ex_ample.com") == nil)
+        #expect(NIP05Identifier("alice@.example.com") == nil)
+        #expect(NIP05Identifier("alice@example") == nil)
+    }
+
+    @Test func nip05IdentifierEnforcesLengthBounds() {
+        // #527: overlong local names, labels, and domains must be rejected.
+        let validName = String(repeating: "a", count: 64)
+        let overlongName = String(repeating: "a", count: 65)
+        #expect(validName.utf8.count == 64)
+        #expect(NIP05Identifier("\(validName)@example.com") != nil)
+        #expect(NIP05Identifier("\(overlongName)@example.com") == nil)
+
+        let validMultibyteName = String(repeating: "\u{00E9}", count: 32)
+        #expect(validMultibyteName.utf8.count == 64)
+        #expect(NIP05Identifier("\(validMultibyteName)@example.com") != nil)
+
+        let validLabel = String(repeating: "a", count: 63)
+        let overlongLabel = String(repeating: "a", count: 64)
+        #expect(NIP05Identifier("alice@\(validLabel).com") != nil)
+        #expect(NIP05Identifier("alice@\(overlongLabel).com") == nil)
+
+        let maxDomain =
+            Array(repeating: String(repeating: "a", count: 42), count: 5).joined(separator: ".")
+            + "." + String(repeating: "b", count: 38)
+        #expect(maxDomain.count == 253)
+        #expect(NIP05Identifier("alice@\(maxDomain)") != nil)
+        #expect(NIP05Identifier("alice@\(maxDomain)x") == nil)
+    }
+
+    @Test func nip05IdentifierRejectsNamesExceedingUTF8ByteLimit() {
+        // #527: character count alone must not bound local names; UTF-8 octets must.
+        let multibyteOverflow = String(repeating: "\u{00E9}", count: 33)
+        #expect(multibyteOverflow.count == 33)
+        #expect(multibyteOverflow.utf8.count == 66)
+        #expect(NIP05Identifier("\(multibyteOverflow)@example.com") == nil)
+    }
+
+    @Test func nip05IdentifierRejectsQueryMetacharactersInName() {
+        // #527: local names must not be able to inject extra query parameters.
+        #expect(NIP05Identifier("x&foo=bar@example.com") == nil)
+        #expect(NIP05Identifier("x=1@example.com") == nil)
+        #expect(NIP05Identifier("x+1@example.com") == nil)
+        #expect(NIP05Identifier("x%41@example.com") == nil)
+        #expect(NIP05Identifier("x/y@example.com") == nil)
+        #expect(NIP05Identifier("x?y@example.com") == nil)
+    }
+
+    @Test func nip05WellKnownRequestURLUsesSingleStrictlyEncodedQueryItem() throws {
+        // #527: the well-known lookup URL must contain exactly one strictly encoded name item.
+        let identifier = try #require(NIP05Identifier("álîçé@example.com"))
+        let url = try #require(identifier.wellKnownRequestURL())
+        #expect(url.host == "example.com")
+        #expect(url.path == "/.well-known/nostr.json")
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(components.percentEncodedQuery == "name=%C3%A1l%C3%AE%C3%A7%C3%A9")
+        #expect(components.queryItems?.count == 1)
+        #expect(components.queryItems?.first?.name == "name")
+        #expect(components.queryItems?.first?.value == "álîçé")
+    }
+
     @Test func nip05RedirectPolicyRevalidatesRedirectTargets() throws {
         // #448: the resolver's session must re-check every redirect hop against the SSRF host
         // policy, so a public well-known host cannot 3xx the lookup to a private/loopback/
