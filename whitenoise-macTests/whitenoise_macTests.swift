@@ -6815,7 +6815,7 @@ struct whitenoise_macTests {
             if runtime.didReachListMediaGate {
                 break
             }
-            await Task.yield()
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
 
         #expect(runtime.didReachListMediaGate)
@@ -6960,7 +6960,7 @@ struct whitenoise_macTests {
             if runtime.didReachMediaDownloadGate {
                 break
             }
-            await Task.yield()
+            try await Task.sleep(nanoseconds: 10_000_000)
         }
         guard runtime.didReachMediaDownloadGate else {
             stalledLoad.cancel()
