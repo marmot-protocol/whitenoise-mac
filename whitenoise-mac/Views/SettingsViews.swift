@@ -170,6 +170,7 @@ private func removeAccountConfirmationTitle(for account: AccountItem?) -> String
 private struct RemoveAccountConfirmationModifier: ViewModifier {
     let account: AccountItem?
     @Binding var isPresented: Bool
+    let isRemoveDisabled: Bool
     let onRemove: () -> Void
 
     func body(content: Content) -> some View {
@@ -181,6 +182,7 @@ private struct RemoveAccountConfirmationModifier: ViewModifier {
             Button("Remove Account", role: .destructive) {
                 onRemove()
             }
+            .disabled(isRemoveDisabled)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(removeAccountConfirmationMessage)
@@ -192,12 +194,14 @@ private extension View {
     func removeAccountConfirmation(
         account: AccountItem?,
         isPresented: Binding<Bool>,
+        isRemoveDisabled: Bool,
         onRemove: @escaping () -> Void
     ) -> some View {
         modifier(
             RemoveAccountConfirmationModifier(
                 account: account,
                 isPresented: isPresented,
+                isRemoveDisabled: isRemoveDisabled,
                 onRemove: onRemove
             )
         )
@@ -222,7 +226,7 @@ struct AccountsSettingsView: View {
                         account: account,
                         isActive: account.id == workspace.activeAccountId,
                         isRemoving: workspace.isRemovingAccount,
-                        isSigningOut: workspace.isSigningOutAccount,
+                        isAccountMutationInProgress: workspace.isAccountMutationInProgress,
                         onSelect: {
                             workspace.selectAccountFromSettings(account)
                         },
@@ -288,7 +292,11 @@ struct AccountsSettingsView: View {
             }
 
         }
-        .removeAccountConfirmation(account: accountPendingRemoval, isPresented: removeConfirmationBinding) {
+        .removeAccountConfirmation(
+            account: accountPendingRemoval,
+            isPresented: removeConfirmationBinding,
+            isRemoveDisabled: workspace.isAccountMutationInProgress
+        ) {
             guard let account = accountPendingRemoval else { return }
             accountPendingRemoval = nil
             Task { await workspace.removeAccount(account) }
@@ -309,7 +317,7 @@ struct AccountSettingsRow: View {
     let account: AccountItem
     let isActive: Bool
     let isRemoving: Bool
-    let isSigningOut: Bool
+    let isAccountMutationInProgress: Bool
     let onSelect: () -> Void
     let onRemove: () -> Void
     let onSignOut: () -> Void
@@ -353,7 +361,7 @@ struct AccountSettingsRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(isRemoving)
+            .disabled(isRemoving || (account.signedOut && isAccountMutationInProgress))
 
             PublicIdentityQRCodeButton(
                 accountIdHex: account.accountIdHex,
@@ -366,14 +374,14 @@ struct AccountSettingsRow: View {
                     Image(systemName: "person.crop.circle.badge.checkmark")
                 }
                 .buttonStyle(.borderless)
-                .disabled(isSigningOut)
+                .disabled(isAccountMutationInProgress)
                 .help(L10n.string("Sign in to this account"))
             } else {
                 Button(action: onSignOut) {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
                 }
                 .buttonStyle(.borderless)
-                .disabled(isSigningOut)
+                .disabled(isAccountMutationInProgress)
                 .help(L10n.string("Sign out of this account on this Mac"))
             }
 
@@ -382,7 +390,7 @@ struct AccountSettingsRow: View {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.red)
-            .disabled(isRemoving)
+            .disabled(isAccountMutationInProgress)
             .help(L10n.string("Remove this account from this Mac"))
             .accessibilityLabel(Text(String(format: L10n.string("Remove %@"), account.displayName)))
         }
@@ -737,7 +745,7 @@ struct IdentityKeysSettingsView: View {
                             workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"),
                             systemImage: "person.crop.circle.badge.minus")
                     }
-                    .disabled(workspace.isRemovingAccount)
+                    .disabled(workspace.isAccountMutationInProgress)
                 }
             } else {
                 Section {
@@ -749,7 +757,8 @@ struct IdentityKeysSettingsView: View {
         }
         .removeAccountConfirmation(
             account: workspace.activeAccount,
-            isPresented: $showRemoveAccountConfirmation
+            isPresented: $showRemoveAccountConfirmation,
+            isRemoveDisabled: workspace.isAccountMutationInProgress
         ) {
             Task { await workspace.removeActiveAccount() }
         }
