@@ -8355,6 +8355,181 @@ struct whitenoise_macTests {
         #expect(runtime.lastTimelineSubscription?.paginateForwardsCount == 1)
     }
 
+    @MainActor
+    @Test func staleTimelinePaginationDoesNotClobberReplacementSubscriptionWindow() async throws {
+        // Issue #529: `loadOlderMessages` / `loadNewerMessages` capture the active subscription,
+        // await pagination, then must re-check subscription identity. A mid-paginate listener
+        // reconnect for the same account/group replaces `activeTimelineSubscription` without
+        // changing selection; the stale page must not overwrite the replacement window.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let activeAccount = try #require(state.activeAccount)
+        let staleSubscription = try #require(state.activeTimelineSubscription as? FakeTimelineMessagesSubscription)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-005")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+
+        staleSubscription.paginationGateEnabled = true
+        async let staleBack: Void = state.loadOlderMessages(groupIdHex: "direct-group")
+        let didSuspendBack = await waitFor {
+            state.selectedTimelinePaging.isLoadingBefore && staleSubscription.didReachPaginationGate
+        }
+        guard didSuspendBack else {
+            staleSubscription.paginationGateEnabled = false
+            staleSubscription.releasePaginationGate()
+            _ = await staleBack
+            Issue.record("Expected backwards pagination to reach the test gate")
+            return
+        }
+
+        let replacementBackMessages = (0..<105).map { index in
+            timelineMessage(
+                id: String(format: "fresh-back-%03d", index),
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Fresh back \(index)",
+                recordedAt: baseTime + UInt64(index)
+            )
+        }
+        let replacementBack = FakeTimelineMessagesSubscription(
+            messages: replacementBackMessages,
+            limit: 100,
+            windowCap: 200
+        )
+        state.activeTimelineSubscription = replacementBack
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            replacementBack.snapshot() ?? emptyTimelinePage(),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-back-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-back-104")
+
+        staleSubscription.releasePaginationGate()
+        _ = await staleBack
+
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-back-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-back-104")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+
+        let replacementFwdMessages = (0..<450).map { index in
+            timelineMessage(
+                id: String(format: "fresh-fwd-%03d", index),
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Fresh fwd \(index)",
+                recordedAt: baseTime + UInt64(index)
+            )
+        }
+        let replacementFwd = FakeTimelineMessagesSubscription(
+            messages: replacementFwdMessages,
+            limit: 100,
+            windowCap: 200
+        )
+        _ = try await replacementFwd.paginateBackwards(count: 100)
+        _ = try await replacementFwd.paginateBackwards(count: 100)
+        _ = try await replacementFwd.paginateBackwards(count: 100)
+        let scrolledBackWindow = try #require(replacementFwd.snapshot())
+        #expect(scrolledBackWindow.hasMoreAfter)
+
+        state.activeTimelineSubscription = replacementFwd
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            scrolledBackWindow,
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        let scrolledBackFirst = try #require(state.messagesByChat["direct-group"]?.first?.id)
+        #expect(state.selectedTimelinePaging.hasMoreAfter)
+
+        replacementFwd.paginationGateEnabled = true
+        async let staleForward: Void = state.loadNewerMessages(groupIdHex: "direct-group")
+        let didSuspendForward = await waitFor {
+            state.selectedTimelinePaging.isLoadingAfter && replacementFwd.didReachPaginationGate
+        }
+        guard didSuspendForward else {
+            replacementFwd.paginationGateEnabled = false
+            replacementFwd.releasePaginationGate()
+            _ = await staleForward
+            Issue.record("Expected forwards pagination to reach the test gate")
+            return
+        }
+
+        let replacementForwardMessages = (0..<450).map { index in
+            timelineMessage(
+                id: String(format: "fresh-forward-%03d", index),
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Fresh forward \(index)",
+                recordedAt: baseTime + UInt64(index)
+            )
+        }
+        let replacementForward = FakeTimelineMessagesSubscription(
+            messages: replacementForwardMessages,
+            limit: 100,
+            windowCap: 200
+        )
+        _ = try? await replacementForward.paginateBackwards(count: 100)
+        _ = try? await replacementForward.paginateBackwards(count: 100)
+        let replacementForwardWindow = replacementForward.snapshot() ?? emptyTimelinePage()
+
+        state.activeTimelineSubscription = replacementForward
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            replacementForwardWindow,
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        let replacementForwardFirst = state.messagesByChat["direct-group"]?.first?.id
+        let replacementForwardLast = state.messagesByChat["direct-group"]?.last?.id
+        #expect(replacementForwardFirst != nil)
+        #expect(replacementForwardLast != nil)
+        #expect(replacementForwardFirst != scrolledBackFirst)
+
+        replacementFwd.releasePaginationGate()
+        _ = await staleForward
+
+        #expect(state.messagesByChat["direct-group"]?.first?.id == replacementForwardFirst)
+        #expect(state.messagesByChat["direct-group"]?.last?.id == replacementForwardLast)
+        #expect(state.messagesByChat["direct-group"]?.first?.id != scrolledBackFirst)
+    }
+
     @Test func newerTimelinePagingRestoresAnchorInsteadOfScrollingToBottom() {
         let historicalPaging = TimelinePagingState(
             hasMoreBefore: true,
@@ -18280,6 +18455,11 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
     private let recordSnapshot: () -> Void
     private(set) var paginateBackwardsCount = 0
     private(set) var paginateForwardsCount = 0
+    /// Issue #529 regression support: when armed, the first `paginateBackwards` or
+    /// `paginateForwards` call suspends until `releasePaginationGate()` is invoked.
+    var paginationGateEnabled = false
+    private(set) var didReachPaginationGate = false
+    private var paginationGateContinuation: CheckedContinuation<Void, Never>?
 
     required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
         self.fullSet = emptyTimelinePage()
@@ -18335,6 +18515,7 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
 
     override func paginateBackwards(count: UInt32) async throws -> TimelinePageFfi {
         paginateBackwardsCount += 1
+        await passPaginationGateIfArmed()
         lo = max(0, lo - Int(count))
         if hi - lo > windowCap { hi = lo + windowCap }
         return windowPage()
@@ -18342,9 +18523,23 @@ private final class FakeTimelineMessagesSubscription: TimelineMessagesSubscripti
 
     override func paginateForwards(count: UInt32) async throws -> TimelinePageFfi {
         paginateForwardsCount += 1
+        await passPaginationGateIfArmed()
         hi = min(fullSet.messages.count, hi + Int(count))
         if hi - lo > windowCap { lo = hi - windowCap }
         return windowPage()
+    }
+
+    private func passPaginationGateIfArmed() async {
+        guard paginationGateEnabled, paginationGateContinuation == nil, !didReachPaginationGate else { return }
+        didReachPaginationGate = true
+        await withCheckedContinuation { continuation in
+            paginationGateContinuation = continuation
+        }
+    }
+
+    func releasePaginationGate() {
+        paginationGateContinuation?.resume()
+        paginationGateContinuation = nil
     }
 
     /// Dequeue the next queued signal, mutate the fake's server-side `fullSet` and

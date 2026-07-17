@@ -204,7 +204,11 @@ extension WorkspaceState {
             let page = try await TimelineSignpost.pagination.asyncInterval("paginateBackwards") {
                 try await subscription.paginateBackwards(count: Self.timelinePageLimit)
             }
-            guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
+            guard activeAccountId == activeAccount.id,
+                selectedChat?.id == groupIdHex,
+                activeTimelineGroupId == groupIdHex,
+                activeTimelineSubscription === subscription
+            else { return }
             await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
         } catch {
             lastError = error.localizedDescription
@@ -233,7 +237,11 @@ extension WorkspaceState {
             let page = try await TimelineSignpost.pagination.asyncInterval("paginateForwards") {
                 try await subscription.paginateForwards(count: Self.timelinePageLimit)
             }
-            guard activeAccountId == activeAccount.id, selectedChat?.id == groupIdHex else { return }
+            guard activeAccountId == activeAccount.id,
+                selectedChat?.id == groupIdHex,
+                activeTimelineGroupId == groupIdHex,
+                activeTimelineSubscription === subscription
+            else { return }
             await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
         } catch {
             lastError = error.localizedDescription
