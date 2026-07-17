@@ -138,8 +138,10 @@ private final class AsyncFfiGate: @unchecked Sendable {
 private final class OneShotKeyProviderGate: @unchecked Sendable {
     private let lock = NSLock()
     private let reached = DispatchSemaphore(value: 0)
+    private let secondCallReached = DispatchSemaphore(value: 0)
     private let release = DispatchSemaphore(value: 0)
     private let keyData: Data
+    private var callCount = 0
     private var shouldBlock = true
 
     init(keyData: Data = Data(repeating: 0x42, count: 32)) {
@@ -147,10 +149,14 @@ private final class OneShotKeyProviderGate: @unchecked Sendable {
     }
 
     func symmetricKey() throws -> SymmetricKey {
-        let shouldWait = lock.withLock {
-            let value = shouldBlock
+        let (shouldWait, isSecondCall) = lock.withLock {
+            callCount += 1
+            let shouldWait = shouldBlock
             shouldBlock = false
-            return value
+            return (shouldWait, callCount == 2)
+        }
+        if isSecondCall {
+            secondCallReached.signal()
         }
         if shouldWait {
             reached.signal()
@@ -161,6 +167,10 @@ private final class OneShotKeyProviderGate: @unchecked Sendable {
 
     func waitUntilReached() {
         reached.wait()
+    }
+
+    func waitForSecondCall(timeout: DispatchTime) async -> DispatchTimeoutResult {
+        await waitForSemaphore(secondCallReached, timeout: timeout)
     }
 
     func releaseGate() {
@@ -2623,6 +2633,181 @@ struct whitenoise_macTests {
         #expect(await cache.cachedDownload(for: key) == nil)
         let cacheFiles = (try? fileManager.subpathsOfDirectory(atPath: root.path)) ?? []
         #expect(!cacheFiles.contains { $0.hasSuffix("payload.bin") })
+    }
+
+    @Test func messageMediaDiskCacheEvictionReclaimsUnavailableEntriesBeforeReadableEntries() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(
+            root: root,
+            evictionPolicy: .init(maxEntryCount: 1, maxTotalBytes: UInt64.max)
+        )
+        let unavailablePlaintext = Data("temporarily unavailable cached media".utf8)
+        let readablePlaintext = Data("readable cached media".utf8)
+        let unavailableKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: unavailablePlaintext, ciphertextByte: 0xa1)
+        )
+        let readableKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: readablePlaintext, ciphertextByte: 0xa2)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: unavailablePlaintext,
+                fileName: "unavailable.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(unavailablePlaintext.count),
+                payloadId: "unavailable"
+            ),
+            for: unavailableKey
+        )
+        let unavailableEntryDirectory = try #require(cache.entryDirectory(for: unavailableKey))
+        let unavailableMetadataURL = unavailableEntryDirectory.appendingPathComponent("metadata.bin")
+        try fileManager.removeItem(at: unavailableMetadataURL)
+        try fileManager.createDirectory(at: unavailableMetadataURL, withIntermediateDirectories: false)
+
+        await cache.store(
+            MessageMediaDownload(
+                data: readablePlaintext,
+                fileName: "readable.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(readablePlaintext.count),
+                payloadId: "readable"
+            ),
+            for: readableKey
+        )
+
+        #expect(!fileManager.fileExists(atPath: unavailableEntryDirectory.path))
+        #expect(try #require(await cache.cachedDownload(for: readableKey)).data == readablePlaintext)
+    }
+
+    @Test func messageMediaDiskCacheCountsInSessionStagingBytesAgainstByteLimit() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stagedPayload = Data(repeating: 0xab, count: 128 * 1_024)
+        let stagingDirectory =
+            root
+            .appendingPathComponent("staging", isDirectory: true)
+            .appendingPathComponent("active-store", isDirectory: true)
+        let stagingPayloadURL = stagingDirectory.appendingPathComponent("payload.bin")
+        try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        try stagedPayload.write(to: stagingPayloadURL)
+
+        let cache = messageMediaDiskCache(
+            root: root,
+            evictionPolicy: .init(maxEntryCount: 10, maxTotalBytes: UInt64(stagedPayload.count)),
+            sessionStartedAtUnixSeconds: 0
+        )
+        let plaintext = Data("committed media that does not fit beside active staging".utf8)
+        let key = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: plaintext)
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: plaintext,
+                fileName: "committed.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(plaintext.count),
+                payloadId: "committed"
+            ),
+            for: key
+        )
+
+        #expect(fileManager.fileExists(atPath: stagingPayloadURL.path))
+        #expect(await cache.cachedDownload(for: key) == nil)
+    }
+
+    @Test func messageMediaDiskCacheSerializesConcurrentStorePreparation() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyProviderGate = OneShotKeyProviderGate()
+        let directoryResolutionCount = AtomicCounter()
+        let secondStoreResolvedDirectory = DispatchSemaphore(value: 0)
+        let cache = MessageMediaDiskCache(
+            directoryResolver: {
+                if directoryResolutionCount.increment() == 2 {
+                    secondStoreResolvedDirectory.signal()
+                }
+                return root
+            },
+            keyProvider: keyProviderGate.symmetricKey,
+            keyDeleter: {}
+        )
+        let firstPlaintext = Data("first concurrently stored media".utf8)
+        let secondPlaintext = Data("second concurrently stored media".utf8)
+        let firstKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: firstPlaintext, ciphertextByte: 0xa1)
+        )
+        let secondKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: secondPlaintext, ciphertextByte: 0xa2)
+        )
+
+        let firstStore = Task {
+            await cache.store(
+                MessageMediaDownload(
+                    data: firstPlaintext,
+                    fileName: "first.jpg",
+                    mediaType: "image/jpeg",
+                    sizeBytes: UInt64(firstPlaintext.count),
+                    payloadId: "first"
+                ),
+                for: firstKey
+            )
+        }
+        await Task.detached {
+            keyProviderGate.waitUntilReached()
+        }.value
+
+        let secondStore = Task {
+            await cache.store(
+                MessageMediaDownload(
+                    data: secondPlaintext,
+                    fileName: "second.jpg",
+                    mediaType: "image/jpeg",
+                    sizeBytes: UInt64(secondPlaintext.count),
+                    payloadId: "second"
+                ),
+                for: secondKey
+            )
+        }
+
+        #expect(
+            await waitForSemaphore(
+                secondStoreResolvedDirectory,
+                timeout: .now() + .seconds(1)
+            ) == .success
+        )
+        #expect(
+            await keyProviderGate.waitForSecondCall(timeout: .now() + .milliseconds(200)) == .timedOut
+        )
+        keyProviderGate.releaseGate()
+        await firstStore.value
+        await secondStore.value
+        #expect(
+            await keyProviderGate.waitForSecondCall(timeout: .now() + .seconds(1)) == .success
+        )
+        #expect(try #require(await cache.cachedDownload(for: firstKey)).data == firstPlaintext)
+        #expect(try #require(await cache.cachedDownload(for: secondKey)).data == secondPlaintext)
     }
 
     @Test func messageMediaDiskCacheAccountPurgeCleansUnreadableEntriesAfterAccountPass() async throws {
