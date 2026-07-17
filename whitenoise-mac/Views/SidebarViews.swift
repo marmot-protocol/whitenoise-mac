@@ -158,17 +158,24 @@ struct ChatListDrawerView: View {
             if isShowingSettings {
                 SettingsListDrawerView()
             } else if workspace.isNewChatComposerVisible {
-                NewChatColumnView()
+                switch workspace.composePane {
+                case .newChat:
+                    NewChatPanelView()
+                case .chooseMembers:
+                    ChooseMembersPanelView()
+                case .nameGroup:
+                    NameGroupPanelView()
+                }
             } else {
-                let isShowingArchived = workspace.chatListFilter == .archived
-                let visibleChats = isShowingArchived ? workspace.filteredArchivedChats : workspace.filteredChats
+                let filter = workspace.chatListFilter
+                let isShowingArchived = filter == .archived
+                let visibleChats = visibleChats(for: filter)
 
                 VStack(spacing: 10) {
                     HStack(spacing: 8) {
-                        Text(workspace.chatListFilter.title)
-                            .font(.title2.weight(.semibold))
+                        Text(filter.title)
+                            .font(MessagesType.paneTitle)
                         Spacer()
-                        ChatListFilterMenu()
                         if !isShowingArchived {
                             Button {
                                 workspace.showNewChat()
@@ -181,11 +188,22 @@ struct ChatListDrawerView: View {
                                     }
                             }
                             .buttonStyle(.plain)
+                            .keyboardShortcut("n", modifiers: .command)
                             .help("New chat")
                         }
+                        ChatListOverflowMenu()
                     }
 
-                    MessagesSearchField(text: $workspace.searchText, accessibilityIdentifier: "chat.search")
+                    HStack(spacing: 8) {
+                        MessagesSearchField(
+                            text: $workspace.searchText,
+                            accessibilityIdentifier: "chat.search",
+                            placeholder: filter == .unread
+                                ? L10n.string("Search unread chats")
+                                : L10n.string("Search")
+                        )
+                        ChatListUnreadFilterButton()
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
@@ -205,9 +223,12 @@ struct ChatListDrawerView: View {
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
                     if visibleChats.isEmpty {
-                        if isShowingArchived {
+                        switch filter {
+                        case .archived:
                             ArchivedEmptyDrawerState()
-                        } else {
+                        case .unread:
+                            UnreadEmptyDrawerState()
+                        case .active:
                             EmptyDrawerState()
                         }
                     }
@@ -220,69 +241,85 @@ struct ChatListDrawerView: View {
     }
 }
 
-private struct ChatListFilterMenu: View {
+extension ChatListDrawerView {
+    fileprivate func visibleChats(for filter: ChatListFilter) -> [ChatItem] {
+        switch filter {
+        case .active:
+            return workspace.filteredChats
+        case .unread:
+            return workspace.filteredChats.filter { $0.unreadCount > 0 }
+        case .archived:
+            return workspace.filteredArchivedChats
+        }
+    }
+}
+
+private struct ChatListOverflowMenu: View {
     @Environment(WorkspaceState.self) private var workspace
-    @State private var isFilterPickerPresented = false
 
     var body: some View {
-        Button {
-            isFilterPickerPresented = true
+        @Bindable var workspace = workspace
+
+        Menu {
+            Picker(L10n.string("Show"), selection: $workspace.chatListFilter) {
+                ForEach(ChatListFilter.allCases, id: \.self) { filter in
+                    Label(filter.title, systemImage: filter.systemImage)
+                        .tag(filter)
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button {
+                workspace.showSettings()
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+            }
         } label: {
-            Image(systemName: "line.3.horizontal.decrease")
-                .font(.system(size: 16, weight: .semibold))
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
                 .frame(width: 34, height: 34)
                 .background {
                     MessagesCircleControlBackground(isSelected: workspace.chatListFilter == .archived)
                 }
         }
-        .buttonStyle(.plain)
-        .popover(isPresented: $isFilterPickerPresented, arrowEdge: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(ChatListFilter.allCases, id: \.self) { filter in
-                    filterButton(filter)
-                }
-            }
-            .padding(8)
-        }
-        .help(L10n.string("Show archived chats"))
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(L10n.string("More actions"))
         .accessibilityIdentifier("chat.list.filter")
     }
+}
 
-    private func filterButton(_ filter: ChatListFilter) -> some View {
+private struct ChatListUnreadFilterButton: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    var body: some View {
         Button {
-            workspace.chatListFilter = filter
-            isFilterPickerPresented = false
+            workspace.chatListFilter = workspace.chatListFilter == .unread ? .active : .unread
         } label: {
-            HStack(spacing: 8) {
-                if workspace.chatListFilter == filter {
-                    Image(systemName: "checkmark")
-                        .frame(width: 14)
-                } else {
-                    Color.clear
-                        .frame(width: 14, height: 1)
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 28, height: 28)
+                .background {
+                    MessagesCircleControlBackground(isSelected: workspace.chatListFilter == .unread)
                 }
-
-                Text(filter.title)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(minWidth: 150, alignment: .leading)
-            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background {
-            if workspace.chatListFilter == filter {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
-            }
-        }
+        .help(L10n.string("Filter by unread"))
+        .accessibilityIdentifier("chat.list.unreadFilter")
     }
 }
 
 private struct ArchivedEmptyDrawerState: View {
     var body: some View {
         ContentUnavailableView(L10n.string("No archived chats"), systemImage: "archivebox")
+            .padding()
+    }
+}
+
+private struct UnreadEmptyDrawerState: View {
+    var body: some View {
+        ContentUnavailableView(L10n.string("No unread chats"), systemImage: "bubble.left")
             .padding()
     }
 }
@@ -441,19 +478,19 @@ struct ChatRowContent: View {
     let isSelected: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             ProfileImageAvatarView(
                 seed: chat.avatarSeed,
                 initials: chat.title,
                 sanitizedPictureURL: chat.sanitizedPictureURL,
-                size: 42,
+                size: 46,
                 isSelected: false
             )
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(chat.title)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(MessagesType.rowTitle)
                         .lineLimit(1)
                     // An ended membership supersedes a pending invite: show a single
                     // badge rather than a contradictory "Invite" + "Removed" pair if
@@ -465,40 +502,36 @@ struct ChatRowContent: View {
                     }
                     Spacer(minLength: 8)
                     Text(chat.timestampLabel)
-                        .font(.caption)
+                        .font(MessagesType.meta)
                         .foregroundStyle(.secondary)
                 }
-                Text(chat.preview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(chat.subtitle)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-
-            if chat.unreadCount > 0 {
-                HStack(spacing: 4) {
-                    if chat.hasMention {
-                        Image(systemName: "at")
-                            .font(.caption2.weight(.bold))
+                HStack(alignment: .top, spacing: 4) {
+                    Text(chat.preview)
+                        .font(MessagesType.preview)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if chat.unreadCount > 0 {
+                        if chat.hasMention {
+                            Image(systemName: "at")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 18, height: 18)
+                                .background(Circle().fill(Color.accentColor))
+                                .help(L10n.string("You were mentioned"))
+                        }
+                        Text(unreadBadgeLabel(for: chat.unreadCount))
+                            .font(MessagesType.badge)
                             .foregroundStyle(.white)
-                            .frame(width: 18, height: 18)
-                            .background(Circle().fill(Color.accentColor))
-                            .help(L10n.string("You were mentioned"))
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(Capsule().fill(MessagesPalette.sentBubble))
                     }
-                    Text(unreadBadgeLabel(for: chat.unreadCount))
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(Circle().fill(MessagesPalette.sentBubble))
                 }
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.vertical, 8)
         .background {
             MessagesSidebarRowBackground(isSelected: isSelected)
         }
