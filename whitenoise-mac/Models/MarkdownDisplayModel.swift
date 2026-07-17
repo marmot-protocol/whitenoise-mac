@@ -19,19 +19,68 @@ nonisolated struct MarkdownDisplayDocument {
     /// than preserving nested structure.
     fileprivate static let maxDepth = 32
 
+    /// Upper bound on SwiftUI-producing display nodes per message (top-level and nested
+    /// blocks, list items, table rows, and table cells). Inline AST nodes collapse into a
+    /// single `AttributedString`/`Text` and do not consume slots. Prevents attacker-crafted
+    /// wide tables or long lists from materializing thousands of non-lazy `Grid`/`ForEach`
+    /// children in one bubble.
+    static let maxDisplayNodes = 256
+
     init(document: MarkdownDocumentFfi) {
-        self.blocks = Self.makeBlocks(from: document.blocks, remainingDepth: Self.maxDepth)
-        self.truncated = document.truncated
+        var budget = MarkdownDisplayBudget(limit: Self.maxDisplayNodes)
+        self.blocks = Self.makeBlocks(
+            from: document.blocks,
+            remainingDepth: Self.maxDepth,
+            budget: &budget
+        )
+        self.truncated = document.truncated || budget.didTruncate
     }
 
     fileprivate static func makeBlocks(
         from blocks: [MarkdownBlockFfi],
-        remainingDepth: Int
+        remainingDepth: Int,
+        budget: inout MarkdownDisplayBudget
     ) -> [MarkdownDisplayBlockNode] {
         guard remainingDepth > 0 else { return [] }
-        return blocks.enumerated().map { index, block in
-            MarkdownDisplayBlockNode(id: index, block: MarkdownDisplayBlock(block, remainingDepth: remainingDepth))
+        var result: [MarkdownDisplayBlockNode] = []
+        for (index, block) in blocks.enumerated() {
+            guard budget.takeOne() else { break }
+            result.append(
+                MarkdownDisplayBlockNode(
+                    id: index,
+                    block: MarkdownDisplayBlock(block, remainingDepth: remainingDepth, budget: &budget)
+                )
+            )
         }
+        return result
+    }
+}
+
+nonisolated fileprivate struct MarkdownDisplayBudget {
+    private(set) var remaining: Int
+    private(set) var didTruncate = false
+
+    init(limit: Int) {
+        remaining = limit
+    }
+
+    /// Reserves up to `count` display-node slots; returns how many were granted.
+    mutating func take(_ count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        if remaining <= 0 {
+            didTruncate = true
+            return 0
+        }
+        let granted = min(count, remaining)
+        remaining -= granted
+        if granted < count {
+            didTruncate = true
+        }
+        return granted
+    }
+
+    mutating func takeOne() -> Bool {
+        take(1) == 1
     }
 }
 
@@ -50,7 +99,7 @@ nonisolated enum MarkdownDisplayBlock {
     case table(header: [MarkdownDisplayTableCell], rows: [MarkdownDisplayTableRow])
     case mathBlock(String)
 
-    init(_ block: MarkdownBlockFfi, remainingDepth: Int) {
+    fileprivate init(_ block: MarkdownBlockFfi, remainingDepth: Int, budget: inout MarkdownDisplayBudget) {
         switch block {
         case .paragraph(let inlines):
             self = .paragraph(
@@ -66,19 +115,39 @@ nonisolated enum MarkdownDisplayBlock {
         case .codeBlock(_, _, let content):
             self = .codeBlock(content)
         case .blockQuote(let blocks):
-            self = .blockQuote(MarkdownDisplayDocument.makeBlocks(from: blocks, remainingDepth: remainingDepth - 1))
-        case .listBlock(let kind, _, let items):
-            self = .list(items: Self.listItems(kind: kind, items: items, remainingDepth: remainingDepth))
-        case .table(_, let header, let rows):
-            self = .table(
-                header: Self.tableCells(from: header, remainingDepth: remainingDepth),
-                rows: rows.enumerated().map { rowIndex, row in
-                    MarkdownDisplayTableRow(
-                        id: rowIndex,
-                        cells: Self.tableCells(from: row, remainingDepth: remainingDepth)
-                    )
-                }
+            self = .blockQuote(
+                MarkdownDisplayDocument.makeBlocks(
+                    from: blocks,
+                    remainingDepth: remainingDepth - 1,
+                    budget: &budget
+                )
             )
+        case .listBlock(let kind, _, let items):
+            self = .list(
+                items: Self.listItems(
+                    kind: kind,
+                    items: items,
+                    remainingDepth: remainingDepth,
+                    budget: &budget
+                )
+            )
+        case .table(_, let header, let rows):
+            let headerCount = budget.take(header.count)
+            let displayHeader = Self.tableCells(
+                from: Array(header.prefix(headerCount)),
+                remainingDepth: remainingDepth
+            )
+            var displayRows: [MarkdownDisplayTableRow] = []
+            for (rowIndex, row) in rows.enumerated() {
+                guard budget.takeOne() else { break }
+                let cellCount = budget.take(row.count)
+                let cells = Self.tableCells(
+                    from: Array(row.prefix(cellCount)),
+                    remainingDepth: remainingDepth
+                )
+                displayRows.append(MarkdownDisplayTableRow(id: rowIndex, cells: cells))
+            }
+            self = .table(header: displayHeader, rows: displayRows)
         case .mathBlock(let content):
             self = .mathBlock(content)
         @unknown default:
@@ -89,15 +158,25 @@ nonisolated enum MarkdownDisplayBlock {
     private static func listItems(
         kind: MarkdownListKindFfi,
         items: [MarkdownListItemFfi],
-        remainingDepth: Int
+        remainingDepth: Int,
+        budget: inout MarkdownDisplayBudget
     ) -> [MarkdownDisplayListItem] {
-        items.enumerated().map { index, item in
-            MarkdownDisplayListItem(
-                id: index,
-                marker: listMarker(kind: kind, item: item, index: index),
-                blocks: MarkdownDisplayDocument.makeBlocks(from: item.blocks, remainingDepth: remainingDepth - 1)
+        var result: [MarkdownDisplayListItem] = []
+        for (index, item) in items.enumerated() {
+            guard budget.takeOne() else { break }
+            result.append(
+                MarkdownDisplayListItem(
+                    id: index,
+                    marker: listMarker(kind: kind, item: item, index: index),
+                    blocks: MarkdownDisplayDocument.makeBlocks(
+                        from: item.blocks,
+                        remainingDepth: remainingDepth - 1,
+                        budget: &budget
+                    )
+                )
             )
         }
+        return result
     }
 
     private static func listMarker(
