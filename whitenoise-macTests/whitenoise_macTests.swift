@@ -6754,7 +6754,7 @@ struct whitenoise_macTests {
             signedOut: false,
             running: false
         )
-        let plaintext = Data([0x01, 0x02, 0x03])
+        let plaintext = Data([0x51, 0x52, 0x53])
         let timelineReference = mediaAttachmentReference(
             sourceEpoch: 0,
             mediaType: "image/png",
