@@ -11543,6 +11543,7 @@ struct whitenoise_macTests {
         // Issue #522: reopening the same group while the first MLS commit is still suspended must
         // not permit a second member mutation through the shared in-flight guard.
         await state.showGroupDetails(for: groupChat)
+        #expect(state.groupDetailsSnapshot?.members.contains(where: { $0.id == member.id }) == true)
         await state.promoteGroupMember(member)
         #expect(runtime.promoteAdminDetailedCallCount == 1)
         state.closeGroupDetails()
