@@ -3675,6 +3675,7 @@ struct whitenoise_macTests {
         let preservedDepth = blockQuoteNestingDepth(display.blocks)
         #expect(preservedDepth <= 32)
         #expect(preservedDepth >= 1)
+        #expect(display.truncated)
     }
 
     @MainActor
@@ -3696,6 +3697,7 @@ struct whitenoise_macTests {
         // The leaf text sits below the bound, so it is dropped entirely rather than the
         // renderer recursing through every wrapper to reach it.
         #expect(String(text.characters).isEmpty)
+        #expect(display.truncated)
     }
 
     @MainActor
@@ -3730,6 +3732,16 @@ struct whitenoise_macTests {
         let run = paragraph.runs.first
         #expect(run?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
         #expect(run?.link == URL(string: "https://example.com"))
+        #expect(!display.truncated)
+    }
+
+    @MainActor
+    @Test func markdownDisplayPreservesCoreTruncationFlag() async throws {
+        let display = MarkdownDisplayDocument(
+            document: MarkdownDocumentFfi(blocks: [], truncated: true)
+        )
+
+        #expect(display.truncated)
     }
 
     @MainActor
