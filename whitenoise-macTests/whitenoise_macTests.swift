@@ -3430,11 +3430,43 @@ struct whitenoise_macTests {
 
         let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
         let expected = messageDate.formatted(
-            Date.FormatStyle(date: .abbreviated, time: .shortened)
+            Date.FormatStyle(date: .omitted, time: .shortened)
                 .locale(Locale(identifier: AppLanguage.spanish.rawValue))
         )
 
         #expect(DisplayText.messageTimestamp(for: messageDate) == expected)
+    }
+
+    @MainActor
+    @Test func timelineDayGroupingLabelsOnlyDayBoundaries() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 7, day: 17, hour: 12))!
+        let older = calendar.date(byAdding: .day, value: -3, to: now)!
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
+        let laterYesterday = calendar.date(byAdding: .hour, value: 2, to: yesterday)!
+        let messages = [older, yesterday, laterYesterday, now].enumerated().map { index, date in
+            MessageItem(
+                id: "day-\(index)",
+                senderName: "Alice",
+                body: "Message \(index)",
+                sentAt: date,
+                isOutgoing: false
+            )
+        }
+
+        let items = TimelineMessageDisplayItem.make(
+            from: messages,
+            now: now,
+            calendar: calendar,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(items[0].dayLabel != nil)
+        #expect(items[1].dayLabel == "Yesterday")
+        #expect(items[2].dayLabel == nil)
+        #expect(items[3].dayLabel == "Today")
+        #expect(items.map(\.id) == messages.map(\.id))
     }
 
     @MainActor
@@ -3695,6 +3727,47 @@ struct whitenoise_macTests {
         #expect(!outgoing.timeLabel.isEmpty)
         #expect(outgoing.statusLabel == "Sent")
         #expect(incoming.statusLabel == nil)
+    }
+
+    @MainActor
+    @Test func messageMetadataCanShareTheFinalLineOfSimpleText() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let plain = MessageItem(
+            id: "plain-inline",
+            senderName: "Alice",
+            body: "Short",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let paragraph = MessageItem(
+            id: "paragraph-inline",
+            senderName: "Alice",
+            body: "Styled",
+            contentMarkdown: MarkdownDocumentFfi(
+                blocks: [.paragraph(inlines: [.strong(children: [.text(content: "Styled")])])],
+                truncated: false
+            ),
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let structured = MessageItem(
+            id: "structured-blocks",
+            senderName: "Alice",
+            body: "Heading\nBody",
+            contentMarkdown: MarkdownDocumentFfi(
+                blocks: [
+                    .heading(level: 2, inlines: [.text(content: "Heading")]),
+                    .paragraph(inlines: [.text(content: "Body")]),
+                ],
+                truncated: false
+            ),
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+
+        #expect(plain.supportsInlineMetadata)
+        #expect(paragraph.supportsInlineMetadata)
+        #expect(!structured.supportsInlineMetadata)
     }
 
     @MainActor

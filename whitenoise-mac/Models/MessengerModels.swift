@@ -1580,6 +1580,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
 
+    /// Plain text and a single Markdown paragraph can place compact metadata at
+    /// the end of the final text line. Structured Markdown keeps a separate
+    /// metadata row so its block semantics remain intact.
+    var supportsInlineMetadata: Bool {
+        contentMarkdown == nil || contentMarkdown?.inlineParagraph != nil
+    }
+
     // `nonisolated` so the timeline record → view-model mapping (`MessageItem.timeline`)
     // can build items in the off-main window/projection closure (whitenoise-mac#285)
     // without inheriting the module's default main-actor isolation.
@@ -2373,6 +2380,7 @@ nonisolated enum DisplayText {
     private static let dateTimeStyle = Date.FormatStyle(date: .abbreviated, time: .shortened)
     private static let weekdayStyle = Date.FormatStyle.dateTime.weekday(.abbreviated)
     private static let monthDayStyle = Date.FormatStyle.dateTime.month(.abbreviated).day()
+    private static let dayHeaderStyle = Date.FormatStyle(date: .abbreviated, time: .omitted)
 
     static func short(_ value: String, head: Int = 8, tail: Int = 6) -> String {
         guard value.count > head + tail + 3 else { return value }
@@ -2402,17 +2410,60 @@ nonisolated enum DisplayText {
         return date.formatted(monthDayStyle.locale(locale))
     }
 
-    static func messageTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale)
-        -> String
-    {
-        if calendar.isDateInToday(date) {
-            return date.formatted(timeOnlyStyle.locale(locale))
-        }
-        return dateTimeTimestamp(for: date, locale: locale)
+    static func messageTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
+        date.formatted(timeOnlyStyle.locale(locale))
     }
 
     static func dateTimeTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
         date.formatted(dateTimeStyle.locale(locale))
+    }
+
+    static func timelineDayLabel(
+        for date: Date,
+        now: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = AppLanguage.currentLocale
+    ) -> String {
+        if calendar.isDate(date, inSameDayAs: now) {
+            return L10n.string("Today")
+        }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+            calendar.isDate(date, inSameDayAs: yesterday)
+        {
+            return L10n.string("Yesterday")
+        }
+        return date.formatted(dayHeaderStyle.locale(locale))
+    }
+}
+
+nonisolated struct TimelineMessageDisplayItem: Identifiable {
+    let message: MessageItem
+    let dayLabel: String?
+
+    var id: String { message.id }
+
+    static func make(
+        from messages: [MessageItem],
+        now: Date = Date(),
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = AppLanguage.currentLocale
+    ) -> [TimelineMessageDisplayItem] {
+        var previousDate: Date?
+        return messages.map { message in
+            let beginsDay = previousDate.map { !calendar.isDate($0, inSameDayAs: message.sentAt) } ?? true
+            previousDate = message.sentAt
+            return TimelineMessageDisplayItem(
+                message: message,
+                dayLabel: beginsDay
+                    ? DisplayText.timelineDayLabel(
+                        for: message.sentAt,
+                        now: now,
+                        calendar: calendar,
+                        locale: locale
+                    )
+                    : nil
+            )
+        }
     }
 }
 

@@ -383,6 +383,7 @@ private struct ConversationView: View {
     var body: some View {
         @Bindable var workspace = workspace
         let messages = workspace.selectedMessages
+        let displayItems = TimelineMessageDisplayItem.make(from: messages)
         let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
@@ -416,9 +417,13 @@ private struct ConversationView: View {
                                     TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
                                 }
 
-                                ForEach(messages) { message in
+                                ForEach(displayItems) { item in
+                                    if let dayLabel = item.dayLabel {
+                                        TimelineDayHeaderView(title: dayLabel)
+                                    }
+
                                     ConversationMessageRow(
-                                        message: message,
+                                        message: item.message,
                                         showsDebugMetadata: workspace.streamingDebugEnabled
                                     ) { gallery in
                                         imageGallery = gallery

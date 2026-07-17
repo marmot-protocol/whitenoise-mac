@@ -279,7 +279,7 @@ struct MessageBubble: View {
                     isPresentationActive: $isInlineActionPresentationActive,
                     message: message
                 )
-                .offset(x: message.isOutgoing ? -100 : 100)
+                .offset(x: message.isOutgoing ? -132 : 132)
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
@@ -312,28 +312,32 @@ struct MessageBubble: View {
     }
 
     private var bubbleContent: some View {
-        VStack(alignment: .trailing, spacing: 5) {
-            VStack(alignment: .leading, spacing: 8) {
-                if showsDebugMetadata {
-                    MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
-                }
-
-                if let replyContext = message.replyContext {
-                    MessageReplyContextView(
-                        context: replyContext,
-                        isOutgoing: message.isOutgoing,
-                        onOpen: { onNavigateToMessage(replyContext.targetMessageId) }
-                    )
-                }
-
-                if !message.trimmedBody.isEmpty {
-                    MarkdownMessageView(message: message)
-                        .font(.system(size: 15.5))
-                        .foregroundStyle(message.isOutgoing ? .white : .primary)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            if showsDebugMetadata {
+                MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
             }
 
-            compactMetadata
+            if let replyContext = message.replyContext {
+                MessageReplyContextView(
+                    context: replyContext,
+                    isOutgoing: message.isOutgoing,
+                    onOpen: { onNavigateToMessage(replyContext.targetMessageId) }
+                )
+            }
+
+            if !message.trimmedBody.isEmpty {
+                MarkdownMessageView(
+                    message: message,
+                    trailingMetadata: showsInlineMetadata ? inlineMetadataText : nil
+                )
+                .font(.system(size: 15.5))
+                .foregroundStyle(message.isOutgoing ? .white : .primary)
+                .multilineTextAlignment(.leading)
+            }
+
+            if showsSeparateMetadata {
+                compactMetadata
+            }
         }
         // One hover-gated selection gate for the whole bubble: `.textSelection(.enabled)`
         // propagates through the environment to the body + reply-quote Text, so only the
@@ -343,7 +347,51 @@ struct MessageBubble: View {
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
-        .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
+        .frame(maxWidth: 540, alignment: .leading)
+    }
+
+    private var showsInlineMetadata: Bool {
+        !message.isDeleted && !showsDebugMetadata && message.supportsInlineMetadata
+    }
+
+    private var showsSeparateMetadata: Bool {
+        !message.isDeleted && (!showsInlineMetadata || message.trimmedBody.isEmpty)
+    }
+
+    private var inlineMetadataText: Text {
+        let color = metadataColor
+        var result = Text("  ")
+        if message.isEdited {
+            result =
+                result
+                + Text("Edited ")
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundColor(color)
+        }
+        result =
+            result
+            + Text(message.timeLabel)
+            .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+            .foregroundColor(color)
+        if message.invalidationStatus != nil {
+            result =
+                result + Text(" ")
+                + Text(Image(systemName: "exclamationmark.circle.fill"))
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundColor(.red)
+        } else if message.isOutgoing {
+            result =
+                result + Text(" ")
+                + Text(Image(systemName: "checkmark"))
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundColor(color)
+        }
+        return result
+    }
+
+    private var metadataColor: Color {
+        message.isOutgoing && message.hasBubbleContent
+            ? Color.white.opacity(0.68) : Color.secondary.opacity(0.72)
     }
 
     private var compactMetadata: some View {
@@ -361,10 +409,7 @@ struct MessageBubble: View {
             }
         }
         .font(.system(size: 10.5, weight: .medium))
-        .foregroundStyle(
-            message.isOutgoing && message.hasBubbleContent
-                ? Color.white.opacity(0.68) : Color.secondary.opacity(0.72)
-        )
+        .foregroundStyle(metadataColor)
         .accessibilityLabel(message.metadataLabel)
     }
 }
@@ -1539,7 +1584,7 @@ struct MessageInlineActions: View {
     let message: MessageItem
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 2) {
             if message.canReact {
                 Button {
                     isEmojiPickerPresented = true
@@ -1581,7 +1626,7 @@ struct MessageInlineActions: View {
                 .help("More")
             }
         }
-        .frame(width: 92, height: 32)
+        .frame(width: 124, height: 40)
         .onChange(of: isEmojiPickerPresented) { _, _ in
             syncPresentationState()
         }
@@ -1604,10 +1649,10 @@ struct MessageInlineActionIcon: View {
 
     var body: some View {
         Image(systemName: systemName)
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: 17, weight: .semibold))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(.secondary)
-            .frame(width: 24, height: 28)
+            .frame(width: 40, height: 40)
             .contentShape(Rectangle())
             .accessibilityLabel(label)
     }
@@ -1777,8 +1822,10 @@ struct MessageReplyContextView: View {
                         .font(.caption)
                         .foregroundStyle(isOutgoing ? Color.white.opacity(0.78) : Color.secondary)
                         .lineLimit(2)
+                        .multilineTextAlignment(.leading)
                 }
             }
+            .multilineTextAlignment(.leading)
         }
         .buttonStyle(.plain)
         .help("Show replied-to message")
@@ -1792,5 +1839,24 @@ struct MessageReplyContextView: View {
                 GlassRoundedBackground(cornerRadius: 8)
             }
         }
+    }
+}
+
+struct TimelineDayHeaderView: View {
+    let title: String
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 24)
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background { GlassCapsuleBackground() }
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 24)
+        }
+        .padding(.vertical, 2)
     }
 }

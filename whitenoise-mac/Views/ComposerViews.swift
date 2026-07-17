@@ -679,34 +679,40 @@ struct ReplyComposerContextView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrowshape.turn.up.left.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(MessagesPalette.sentBubble)
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(MessagesPalette.sentBubble)
+                .frame(width: 4, height: 38)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(context.senderName)
+                Text("Replying to \(context.senderName)")
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(MessagesPalette.sentBubble)
                     .lineLimit(1)
 
                 Text(context.body)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
             }
 
             Spacer(minLength: 12)
 
             Button(action: cancel) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 24, height: 24)
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 40, height: 40)
+                    .contentShape(Circle())
             }
-            .nativeGlassCircleButtonStyle()
+            .buttonStyle(.plain)
+            .background { MessagesCircleControlBackground() }
             .help("Cancel reply")
         }
-        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
         .padding(.vertical, 8)
-        .glassCard()
+        .background { GlassRoundedBackground(cornerRadius: 12) }
     }
 }
 
