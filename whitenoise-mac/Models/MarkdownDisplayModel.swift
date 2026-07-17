@@ -20,17 +20,33 @@ nonisolated struct MarkdownDisplayDocument {
     fileprivate static let maxDepth = 32
 
     init(document: MarkdownDocumentFfi) {
-        self.blocks = Self.makeBlocks(from: document.blocks, remainingDepth: Self.maxDepth)
-        self.truncated = document.truncated
+        var swiftTruncated = false
+        self.blocks = Self.makeBlocks(
+            from: document.blocks,
+            remainingDepth: Self.maxDepth,
+            truncated: &swiftTruncated
+        )
+        self.truncated = document.truncated || swiftTruncated
     }
 
     fileprivate static func makeBlocks(
         from blocks: [MarkdownBlockFfi],
-        remainingDepth: Int
+        remainingDepth: Int,
+        truncated: inout Bool
     ) -> [MarkdownDisplayBlockNode] {
-        guard remainingDepth > 0 else { return [] }
+        guard remainingDepth > 0 else {
+            truncated = truncated || !blocks.isEmpty
+            return []
+        }
         return blocks.enumerated().map { index, block in
-            MarkdownDisplayBlockNode(id: index, block: MarkdownDisplayBlock(block, remainingDepth: remainingDepth))
+            MarkdownDisplayBlockNode(
+                id: index,
+                block: MarkdownDisplayBlock(
+                    block,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                )
+            )
         }
     }
 }
@@ -50,32 +66,61 @@ nonisolated enum MarkdownDisplayBlock {
     case table(header: [MarkdownDisplayTableCell], rows: [MarkdownDisplayTableRow])
     case mathBlock(String)
 
-    init(_ block: MarkdownBlockFfi, remainingDepth: Int) {
+    init(_ block: MarkdownBlockFfi, remainingDepth: Int, truncated: inout Bool) {
         switch block {
         case .paragraph(let inlines):
             self = .paragraph(
-                MarkdownDisplayInlineBuilder.attributedString(from: inlines, remainingDepth: remainingDepth)
+                MarkdownDisplayInlineBuilder.attributedString(
+                    from: inlines,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                )
             )
         case .heading(let level, let inlines):
             self = .heading(
                 level: level,
-                text: MarkdownDisplayInlineBuilder.attributedString(from: inlines, remainingDepth: remainingDepth)
+                text: MarkdownDisplayInlineBuilder.attributedString(
+                    from: inlines,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                )
             )
         case .thematicBreak:
             self = .thematicBreak
         case .codeBlock(_, _, let content):
             self = .codeBlock(content)
         case .blockQuote(let blocks):
-            self = .blockQuote(MarkdownDisplayDocument.makeBlocks(from: blocks, remainingDepth: remainingDepth - 1))
+            self = .blockQuote(
+                MarkdownDisplayDocument.makeBlocks(
+                    from: blocks,
+                    remainingDepth: remainingDepth - 1,
+                    truncated: &truncated
+                )
+            )
         case .listBlock(let kind, _, let items):
-            self = .list(items: Self.listItems(kind: kind, items: items, remainingDepth: remainingDepth))
+            self = .list(
+                items: Self.listItems(
+                    kind: kind,
+                    items: items,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                )
+            )
         case .table(_, let header, let rows):
             self = .table(
-                header: Self.tableCells(from: header, remainingDepth: remainingDepth),
+                header: Self.tableCells(
+                    from: header,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                ),
                 rows: rows.enumerated().map { rowIndex, row in
                     MarkdownDisplayTableRow(
                         id: rowIndex,
-                        cells: Self.tableCells(from: row, remainingDepth: remainingDepth)
+                        cells: Self.tableCells(
+                            from: row,
+                            remainingDepth: remainingDepth,
+                            truncated: &truncated
+                        )
                     )
                 }
             )
@@ -89,13 +134,18 @@ nonisolated enum MarkdownDisplayBlock {
     private static func listItems(
         kind: MarkdownListKindFfi,
         items: [MarkdownListItemFfi],
-        remainingDepth: Int
+        remainingDepth: Int,
+        truncated: inout Bool
     ) -> [MarkdownDisplayListItem] {
         items.enumerated().map { index, item in
             MarkdownDisplayListItem(
                 id: index,
                 marker: listMarker(kind: kind, item: item, index: index),
-                blocks: MarkdownDisplayDocument.makeBlocks(from: item.blocks, remainingDepth: remainingDepth - 1)
+                blocks: MarkdownDisplayDocument.makeBlocks(
+                    from: item.blocks,
+                    remainingDepth: remainingDepth - 1,
+                    truncated: &truncated
+                )
             )
         }
     }
@@ -120,12 +170,17 @@ nonisolated enum MarkdownDisplayBlock {
 
     private static func tableCells(
         from cells: [MarkdownTableCellFfi],
-        remainingDepth: Int
+        remainingDepth: Int,
+        truncated: inout Bool
     ) -> [MarkdownDisplayTableCell] {
         cells.enumerated().map { index, cell in
             MarkdownDisplayTableCell(
                 id: index,
-                text: MarkdownDisplayInlineBuilder.attributedString(from: cell.inlines, remainingDepth: remainingDepth)
+                text: MarkdownDisplayInlineBuilder.attributedString(
+                    from: cell.inlines,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                )
             )
         }
     }
@@ -154,10 +209,30 @@ nonisolated struct MarkdownDisplayTableRow: Identifiable {
 
 nonisolated enum MarkdownDisplayInlineBuilder {
     static func attributedString(from inlines: [MarkdownInlineFfi], remainingDepth: Int) -> AttributedString {
-        guard remainingDepth > 0 else { return AttributedString() }
+        var truncated = false
+        return attributedString(from: inlines, remainingDepth: remainingDepth, truncated: &truncated)
+    }
+
+    fileprivate static func attributedString(
+        from inlines: [MarkdownInlineFfi],
+        remainingDepth: Int,
+        truncated: inout Bool
+    ) -> AttributedString {
+        guard remainingDepth > 0 else {
+            truncated = truncated || !inlines.isEmpty
+            return AttributedString()
+        }
         var result = AttributedString()
         for inline in inlines {
-            result.append(render(inline, intent: [], link: nil, remainingDepth: remainingDepth))
+            result.append(
+                render(
+                    inline,
+                    intent: [],
+                    link: nil,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                )
+            )
         }
         return result
     }
@@ -166,7 +241,8 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         _ inline: MarkdownInlineFfi,
         intent: InlinePresentationIntent,
         link: URL?,
-        remainingDepth: Int
+        remainingDepth: Int,
+        truncated: inout Bool
     ) -> AttributedString {
         switch inline {
         case .text(let content):
@@ -178,28 +254,44 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         case .code(let content):
             return styled(content, intent: intent.union(.code), link: link)
         case .emph(let children):
-            return concat(children, intent: intent.union(.emphasized), link: link, remainingDepth: remainingDepth - 1)
+            return concat(
+                children,
+                intent: intent.union(.emphasized),
+                link: link,
+                remainingDepth: remainingDepth - 1,
+                truncated: &truncated
+            )
         case .strong(let children):
             return concat(
                 children,
                 intent: intent.union(.stronglyEmphasized),
                 link: link,
-                remainingDepth: remainingDepth - 1
+                remainingDepth: remainingDepth - 1,
+                truncated: &truncated
             )
         case .strikethrough(let children):
             return concat(
                 children,
                 intent: intent.union(.strikethrough),
                 link: link,
-                remainingDepth: remainingDepth - 1
+                remainingDepth: remainingDepth - 1,
+                truncated: &truncated
             )
         case .link(let dest, _, let children):
             return concat(
                 children, intent: intent, link: MarkdownLinkPolicy.sanitizedURL(from: dest),
-                remainingDepth: remainingDepth - 1)
+                remainingDepth: remainingDepth - 1,
+                truncated: &truncated
+            )
         case .image(_, let title, let alt):
             if !alt.isEmpty {
-                return concat(alt, intent: intent, link: link, remainingDepth: remainingDepth - 1)
+                return concat(
+                    alt,
+                    intent: intent,
+                    link: link,
+                    remainingDepth: remainingDepth - 1,
+                    truncated: &truncated
+                )
             }
             return styled(title ?? "", intent: intent, link: link)
         case .autolink(let url, _):
@@ -217,12 +309,24 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         _ inlines: [MarkdownInlineFfi],
         intent: InlinePresentationIntent,
         link: URL?,
-        remainingDepth: Int
+        remainingDepth: Int,
+        truncated: inout Bool
     ) -> AttributedString {
-        guard remainingDepth > 0 else { return AttributedString() }
+        guard remainingDepth > 0 else {
+            truncated = truncated || !inlines.isEmpty
+            return AttributedString()
+        }
         var result = AttributedString()
         for inline in inlines {
-            result.append(render(inline, intent: intent, link: link, remainingDepth: remainingDepth))
+            result.append(
+                render(
+                    inline,
+                    intent: intent,
+                    link: link,
+                    remainingDepth: remainingDepth,
+                    truncated: &truncated
+                )
+            )
         }
         return result
     }
