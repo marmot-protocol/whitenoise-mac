@@ -9817,7 +9817,7 @@ struct whitenoise_macTests {
         await state.loadMessages(groupIdHex: "direct-group")
         await state.loadOlderMessages(groupIdHex: "direct-group")
 
-        #expect(runtime.refreshedProfileIds.isEmpty)
+        #expect(runtime.refreshedProfileIds == [account.accountIdHex])
         #expect(state.messagesByChat["direct-group"]?.first?.id == "message-000")
     }
 

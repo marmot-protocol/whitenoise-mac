@@ -52,7 +52,7 @@ extension WorkspaceState {
     }
 
     func selectAccount(_ account: AccountItem) {
-        guard !account.signedOut, !isSigningOutAccount else { return }
+        guard !account.signedOut else { return }
         switchActiveAccount(
             account,
             finalSelection: chatsByAccount[account.id]?.first.map { WorkspaceSelection.chat($0.id) }
@@ -60,7 +60,7 @@ extension WorkspaceState {
     }
 
     func selectAccountFromSettings(_ account: AccountItem) {
-        guard !account.signedOut, !isSigningOutAccount else { return }
+        guard !account.signedOut else { return }
         switchActiveAccount(account, finalSelection: .settings(.accounts))
     }
 
