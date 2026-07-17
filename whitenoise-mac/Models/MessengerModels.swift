@@ -5,6 +5,12 @@ import ImageIO
 import MarmotKit
 import UniformTypeIdentifiers
 
+nonisolated enum CollectionCountFormat {
+    static func localizedLabel(template: String, count: Int) -> String {
+        String(format: L10n.string(template), CUnsignedLongLong(UInt64(count)))
+    }
+}
+
 struct AccountItem: Identifiable, Hashable {
     let id: String
     let accountRef: String
@@ -234,7 +240,7 @@ struct GroupDetailsSnapshot: Hashable {
     let disappearingMessageSecs: UInt64
 
     var memberCountLabel: String {
-        String(format: L10n.string("%d members"), members.count)
+        CollectionCountFormat.localizedLabel(template: "%llu members", count: members.count)
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
@@ -334,7 +340,7 @@ nonisolated struct MessageMediaAttachment: Identifiable, Hashable {
         if attachments.count == 1 {
             return first.previewLabel
         }
-        return String(format: L10n.string("%d attachments"), attachments.count)
+        return CollectionCountFormat.localizedLabel(template: "%llu attachments", count: attachments.count)
     }
 }
 

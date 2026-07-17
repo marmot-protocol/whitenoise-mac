@@ -33,6 +33,23 @@ struct PureValueTests {
         #expect(DisappearingMessageOption.custom(oversizedSeconds).label == "9223372036854775808 seconds")
     }
 
+    @Test func collectionCountLabelFormatsLargeIntCountsWithoutTruncation() async throws {
+        // Regression for whitenoise-mac#533: Swift `Int` collection counts are
+        // 64-bit on macOS, but `%d` consumes a 32-bit CInt and can misprint large
+        // values. The shared formatter must use `%llu` with an explicit-width arg.
+        let above32Bit = Int(Int32.max) + 1
+
+        #expect(
+            CollectionCountFormat.localizedLabel(template: "%llu members", count: above32Bit)
+                == "2147483648 members"
+        )
+        #expect(
+            CollectionCountFormat.localizedLabel(template: "%llu attachments", count: above32Bit)
+                == "2147483648 attachments"
+        )
+        #expect(CollectionCountFormat.localizedLabel(template: "%llu members", count: 3) == "3 members")
+    }
+
     @Test func composerAudioWaveformUsesPrecomputedFallbackBars() async throws {
         // Regression for whitenoise-mac#292: fallback waveform samples/bars are used
         // while metadata loads, including during playback-progress repaint ticks. Keep
