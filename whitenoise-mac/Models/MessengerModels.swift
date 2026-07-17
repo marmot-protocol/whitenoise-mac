@@ -6,8 +6,16 @@ import MarmotKit
 import UniformTypeIdentifiers
 
 nonisolated enum CollectionCountFormat {
-    static func localizedLabel(template: String, count: Int) -> String {
-        String(format: L10n.string(template), CUnsignedLongLong(UInt64(count)))
+    static func memberLabel(count: Int) -> String {
+        localizedLabel(template: "%lld members", count: count)
+    }
+
+    static func attachmentLabel(count: Int) -> String {
+        localizedLabel(template: "%lld attachments", count: count)
+    }
+
+    private static func localizedLabel(template: String, count: Int) -> String {
+        String(format: L10n.string(template), CLongLong(count))
     }
 }
 
@@ -240,7 +248,7 @@ struct GroupDetailsSnapshot: Hashable {
     let disappearingMessageSecs: UInt64
 
     var memberCountLabel: String {
-        CollectionCountFormat.localizedLabel(template: "%llu members", count: members.count)
+        CollectionCountFormat.memberLabel(count: members.count)
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
@@ -340,7 +348,7 @@ nonisolated struct MessageMediaAttachment: Identifiable, Hashable {
         if attachments.count == 1 {
             return first.previewLabel
         }
-        return CollectionCountFormat.localizedLabel(template: "%llu attachments", count: attachments.count)
+        return CollectionCountFormat.attachmentLabel(count: attachments.count)
     }
 }
 

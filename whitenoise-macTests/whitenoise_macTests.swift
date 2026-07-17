@@ -3049,6 +3049,16 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func localizedMemberCountUsesSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        #expect(CollectionCountFormat.memberLabel(count: 3) == "Miembros de 3")
+    }
+
+    @MainActor
     @Test func localizedStringBundleCacheInvalidatesOnLanguageChange() async throws {
         // Regression for the residual half of #28 (#117): `L10n.string` caches the
         // resolved `.lproj` bundle to avoid a per-call filesystem stat + `Bundle`

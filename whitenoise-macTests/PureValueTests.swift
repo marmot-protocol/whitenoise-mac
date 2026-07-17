@@ -36,18 +36,12 @@ struct PureValueTests {
     @Test func collectionCountLabelFormatsLargeIntCountsWithoutTruncation() async throws {
         // Regression for whitenoise-mac#533: Swift `Int` collection counts are
         // 64-bit on macOS, but `%d` consumes a 32-bit CInt and can misprint large
-        // values. The shared formatter must use `%llu` with an explicit-width arg.
+        // values. The production formatters must use `%lld` with an explicit-width arg.
         let above32Bit = Int(Int32.max) + 1
 
-        #expect(
-            CollectionCountFormat.localizedLabel(template: "%llu members", count: above32Bit)
-                == "2147483648 members"
-        )
-        #expect(
-            CollectionCountFormat.localizedLabel(template: "%llu attachments", count: above32Bit)
-                == "2147483648 attachments"
-        )
-        #expect(CollectionCountFormat.localizedLabel(template: "%llu members", count: 3) == "3 members")
+        #expect(CollectionCountFormat.memberLabel(count: above32Bit) == "2147483648 members")
+        #expect(CollectionCountFormat.attachmentLabel(count: above32Bit) == "2147483648 attachments")
+        #expect(CollectionCountFormat.memberLabel(count: 3) == "3 members")
     }
 
     @Test func composerAudioWaveformUsesPrecomputedFallbackBars() async throws {
