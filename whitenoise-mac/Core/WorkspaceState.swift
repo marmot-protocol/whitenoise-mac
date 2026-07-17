@@ -1059,6 +1059,28 @@ final class WorkspaceState {
                 ownsGroupDetailsLoad(generation: generation)
             )
         }
+
+        /// Issue #529 regression support: when armed, the first `applyTimelineWindow` map pass
+        /// suspends until `releaseTimelineApplyMapGate()` is invoked.
+        var timelineApplyMapGateEnabled = false
+        private(set) var didReachTimelineApplyMapGate = false
+        private var timelineApplyMapGateContinuation: CheckedContinuation<Void, Never>?
+
+        func releaseTimelineApplyMapGate() {
+            timelineApplyMapGateContinuation?.resume()
+            timelineApplyMapGateContinuation = nil
+        }
+
+        func passTimelineApplyMapGateIfArmed() async {
+            guard timelineApplyMapGateEnabled,
+                timelineApplyMapGateContinuation == nil,
+                !didReachTimelineApplyMapGate
+            else { return }
+            didReachTimelineApplyMapGate = true
+            await withCheckedContinuation { continuation in
+                timelineApplyMapGateContinuation = continuation
+            }
+        }
     #endif
 
     /// How long a *complete* peer-profile lookup is trusted before it is re-resolved
