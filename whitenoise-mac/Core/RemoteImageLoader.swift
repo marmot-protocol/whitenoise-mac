@@ -119,7 +119,8 @@ nonisolated enum RemoteImageURLPolicy {
     }
 
     /// Rejects IPv6 literals in non-public ranges: unspecified `::`, loopback `::1`,
-    /// ULA `fc00::/7`, link-local `fe80::/10`, multicast `ff00::/8`, and the IPv4-embedding
+    /// ULA `fc00::/7`, link-local `fe80::/10`, multicast `ff00::/8`, documentation
+    /// `2001:db8::/32`, and the IPv4-embedding
     /// forms (mapped `::ffff:a.b.c.d`, translated `::ffff:0:a.b.c.d`, NAT64 `64:ff9b::a.b.c.d`,
     /// and IPv4-compatible `::a.b.c.d`) whose embedded IPv4 is itself private.
     private static func isPrivateIPv6(_ groups: [UInt16]) -> Bool {
@@ -138,6 +139,8 @@ nonisolated enum RemoteImageURLPolicy {
         if (first & 0xFFC0) == 0xFE80 { return true }
         // Multicast ff00::/8, mirroring the IPv4 `224.0.0.0/4` rejection.
         if (first & 0xFF00) == 0xFF00 { return true }
+        // Documentation range 2001:db8::/32 — reserved, never a real destination.
+        if first == 0x2001, groups[1] == 0x0DB8 { return true }
 
         // IPv4-mapped `::ffff:a.b.c.d` (and IPv4-compatible `::a.b.c.d`): re-check the
         // embedded IPv4 against the private ranges so `[::ffff:192.168.0.1]` is rejected too.

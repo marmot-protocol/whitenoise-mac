@@ -1770,6 +1770,7 @@ struct PureValueTests {
             "https://[64:ff9b::7f00:1]/x.png",  // NAT64 around 127.0.0.1
             "https://[::2]/x.png",  // IPv4-compatible 0.0.0.2, inside 0.0.0.0/8
             "https://[::ffff]/x.png",  // IPv4-compatible 0.0.255.255
+            "https://[2001:db8::5]/x.png",  // documentation range 2001:db8::/32, non-routable
         ] {
             #expect(
                 RemoteImageURLPolicy.sanitizedURL(from: raw) == nil,
@@ -1779,7 +1780,7 @@ struct PureValueTests {
 
         // Embedded-public NAT64 and plain public IPv6 destinations keep loading.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b::808:808]/x.png") != nil)
-        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[2001:db8::5]/x.png") != nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[2606:4700:4700::1111]/x.png") != nil)
     }
 
     @Test func markdownInlineBuilderDropsUnsafeMarkdownLinks() async throws {
