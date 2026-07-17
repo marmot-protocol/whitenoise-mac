@@ -1667,6 +1667,62 @@ struct PureValueTests {
         #expect(links(in: attributed).map(\.absoluteString) == ["nostr:\(bech32)"])
     }
 
+    @Test func overWideMarkdownTableBoundsDisplayNodesAndSetsTruncated() async throws {
+        // Regression for whitenoise-mac#517: depth is bounded but sibling width is not.
+        // A single wide table must not materialize thousands of Grid cells.
+        let document = wideMarkdownTable(columns: 50, rows: 50)
+        let display = MarkdownDisplayDocument(document: document)
+
+        #expect(display.truncated)
+        #expect(markdownDisplayNodeCount(display) <= MarkdownDisplayDocument.maxDisplayNodes)
+        guard case .table(let header, let rows) = display.blocks.first?.block else {
+            Issue.record("expected a table block")
+            return
+        }
+        #expect(!header.isEmpty)
+        #expect(header.first?.id == 0)
+        #expect(!rows.isEmpty)
+        #expect(rows.first?.id == 0)
+        #expect(rows.first?.cells.first?.id == 0)
+    }
+
+    @Test func overLongMarkdownListBoundsDisplayNodesAndSetsTruncated() async throws {
+        let document = longMarkdownList(itemCount: 500)
+        let display = MarkdownDisplayDocument(document: document)
+
+        #expect(display.truncated)
+        #expect(markdownDisplayNodeCount(display) <= MarkdownDisplayDocument.maxDisplayNodes)
+        guard case .list(let items) = display.blocks.first?.block else {
+            Issue.record("expected a list block")
+            return
+        }
+        #expect(!items.isEmpty)
+        #expect(items.first?.id == 0)
+        #expect(items.first?.blocks.first?.id == 0)
+    }
+
+    @Test func markdownDisplayPreservesCoreTruncatedFlag() async throws {
+        // Keep the display tree below the node budget so this specifically proves that
+        // an upstream/core truncation signal survives the Swift-side conversion.
+        let document = wideMarkdownTable(columns: 4, rows: 3)
+        let coreTruncated = MarkdownDocumentFfi(blocks: document.blocks, truncated: true)
+        let display = MarkdownDisplayDocument(document: coreTruncated)
+        #expect(display.truncated)
+    }
+
+    @Test func normalMarkdownTableIsNotTruncatedByDisplayBudget() async throws {
+        let document = wideMarkdownTable(columns: 4, rows: 3)
+        let display = MarkdownDisplayDocument(document: document)
+        #expect(!display.truncated)
+        guard case .table(let header, let rows) = display.blocks.first?.block else {
+            Issue.record("expected a table block")
+            return
+        }
+        #expect(header.count == 4)
+        #expect(rows.count == 3)
+        #expect(rows.allSatisfy { $0.cells.count == 4 })
+    }
+
     @MainActor
     @Test func groupImagePreviewURLUsesOpenverseThumbnailOnly() async throws {
         // Regression for whitenoise-mac#315: search-result tiles must connect only to
@@ -1944,6 +2000,74 @@ struct PureValueTests {
         #expect(firstSelectable)
         #expect(!secondSelectable)
     }
+}
+
+private func wideMarkdownTable(columns: Int, rows: Int) -> MarkdownDocumentFfi {
+    let header = (0..<columns).map { column in
+        MarkdownTableCellFfi(inlines: [.text(content: "h\(column)")])
+    }
+    let tableRows = (0..<rows).map { row in
+        (0..<columns).map { column in
+            MarkdownTableCellFfi(inlines: [.text(content: "\(row),\(column)")])
+        }
+    }
+    return MarkdownDocumentFfi(
+        blocks: [
+            .table(
+                alignments: Array(repeating: .left, count: columns),
+                header: header,
+                rows: tableRows
+            )
+        ],
+        truncated: false
+    )
+}
+
+private func longMarkdownList(itemCount: Int) -> MarkdownDocumentFfi {
+    let items = (0..<itemCount).map { index in
+        MarkdownListItemFfi(
+            blocks: [.paragraph(inlines: [.text(content: "item \(index)")])],
+            checked: nil
+        )
+    }
+    return MarkdownDocumentFfi(
+        blocks: [
+            .listBlock(
+                kind: .bullet(marker: "-"),
+                tight: true,
+                items: items
+            )
+        ],
+        truncated: false
+    )
+}
+
+private func markdownDisplayNodeCount(_ document: MarkdownDisplayDocument) -> Int {
+    func countBlocks(_ blocks: [MarkdownDisplayBlockNode]) -> Int {
+        blocks.reduce(0) { total, node in
+            total + 1 + countBlock(node.block)
+        }
+    }
+
+    func countBlock(_ block: MarkdownDisplayBlock) -> Int {
+        switch block {
+        case .blockQuote(let inner):
+            return countBlocks(inner)
+        case .list(let items):
+            return items.reduce(0) { partial, item in
+                partial + 1 + countBlocks(item.blocks)
+            }
+        case .table(let header, let rows):
+            return header.count
+                + rows.reduce(0) { partial, row in
+                    partial + 1 + row.cells.count
+                }
+        default:
+            return 0
+        }
+    }
+
+    return countBlocks(document.blocks)
 }
 
 @MainActor
