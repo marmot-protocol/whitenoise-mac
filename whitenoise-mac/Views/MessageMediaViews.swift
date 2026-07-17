@@ -1102,6 +1102,15 @@ struct MessageVideoAttachmentPlayer: View {
                 playbackTask = Task { await togglePlayback() }
             }
         }
+        // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
+        // does not trigger onDisappear. Tear down here as well to release the player and delete
+        // its decrypted playback scratch file as soon as the tile is no longer visible.
+        .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+            guard !isVisible else { return }
+            playbackTask?.cancel()
+            playbackTask = nil
+            stopPlayback()
+        }
         .onDisappear {
             playbackTask?.cancel()
             playbackTask = nil
