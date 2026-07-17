@@ -6741,6 +6741,101 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func mediaReferenceResolutionDoesNotConsumeDownloadLimiterSlot() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let plaintext = Data([0x01, 0x02, 0x03])
+        let timelineReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "resolve-before-slot.png",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let resolvedReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: "resolve-before-slot.png",
+            plaintextSha256: timelineReference.plaintextSha256
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "resolve-before-slot-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: resolvedReference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: MediaDownloadResultFfi(
+                plaintext: plaintext,
+                fileName: "resolve-before-slot.png",
+                mediaType: "image/png",
+                sizeBytes: UInt64(plaintext.count)
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let message = MessageItem(
+            id: "resolve-before-slot-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "resolve-before-slot-message#0#\(timelineReference.plaintextSha256)",
+                    reference: timelineReference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+
+        for _ in 0..<MediaAttachmentDownloadConcurrency.maxConcurrentDownloads {
+            try await MediaAttachmentDownloadLimiter.shared.acquire()
+        }
+        runtime.listMediaGateEnabled = true
+        let load = Task { await state.loadMediaAttachment(attachment, for: message) }
+        for _ in 0..<100 {
+            if runtime.didReachListMediaGate {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(runtime.didReachListMediaGate)
+
+        runtime.releaseListMediaGate()
+        for _ in 0..<MediaAttachmentDownloadConcurrency.maxConcurrentDownloads {
+            await MediaAttachmentDownloadLimiter.shared.release()
+        }
+        await load.value
+
+        guard case .loaded(let download) = state.mediaDownloadState(for: message, attachment: attachment) else {
+            Issue.record("Expected attachment download to complete after reference resolution")
+            return
+        }
+        #expect(download.data == plaintext)
+        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.downloadMediaCallCount == 1)
+    }
+
+    @MainActor
     @Test func mediaAttachmentDownloadTimesOutAndReleasesLimiterSlot() async throws {
         let previousTimeout = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds
         defer { MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = previousTimeout }
