@@ -268,19 +268,9 @@ struct MessageBubble: View {
                 .padding(.horizontal, 4)
             }
         }
-        // Hover actions are gated on `supportsChatActions` alone, independent of
-        // whether the bubble carries text/reply content. Anchoring the overlay to this
-        // content-hugging VStack (rather than the text-only `bubbleContent`) keeps React/Reply
-        // reachable for media-only messages, whose attachments render outside `bubbleContent`.
-        // See whitenoise-mac#361.
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
-            if showsInlineActions {
-                MessageInlineActions(
-                    isPresentationActive: $isInlineActionPresentationActive,
-                    message: message
-                )
-                .offset(x: message.isOutgoing ? -132 : 132)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            if !usesBubbleSurface {
+                inlineActions
             }
         }
         .animation(.smooth(duration: 0.12), value: showsInlineActions)
@@ -309,6 +299,38 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
+    private var usesBubbleSurface: Bool {
+        showsDebugMetadata || message.hasBubbleContent
+    }
+
+    @ViewBuilder
+    private var inlineActions: some View {
+        if showsInlineActions {
+            MessageInlineActions(
+                isPresentationActive: $isInlineActionPresentationActive,
+                message: message
+            )
+            .offset(x: message.isOutgoing ? -inlineActionOffset : inlineActionOffset)
+            .transition(
+                .opacity.combined(
+                    with: .scale(
+                        scale: 0.96,
+                        anchor: message.isOutgoing ? .trailing : .leading
+                    )))
+        }
+    }
+
+    private var inlineActionOffset: CGFloat {
+        var actionCount = 0
+        actionCount += message.canReact ? 1 : 0
+        actionCount += message.canReply ? 1 : 0
+        actionCount += message.canCopyText || message.canDelete ? 1 : 0
+
+        let controlWidth = CGFloat(actionCount) * 40
+        let spacingWidth = CGFloat(max(actionCount - 1, 0)) * 4
+        return controlWidth + spacingWidth + 8
     }
 
     private var bubbleContent: some View {
@@ -347,6 +369,11 @@ struct MessageBubble: View {
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
+        // Attach controls before the positioning frame so short messages use the visible
+        // bubble edge instead of the frame's maximum width.
+        .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
+            inlineActions
+        }
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
     }
 
@@ -1584,7 +1611,7 @@ struct MessageInlineActions: View {
     let message: MessageItem
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             if message.canReact {
                 Button {
                     isEmojiPickerPresented = true
@@ -1626,7 +1653,7 @@ struct MessageInlineActions: View {
                 .help("More")
             }
         }
-        .frame(width: 124, height: 40)
+        .fixedSize(horizontal: true, vertical: true)
         .onChange(of: isEmojiPickerPresented) { _, _ in
             syncPresentationState()
         }
@@ -1644,17 +1671,25 @@ struct MessageInlineActions: View {
 }
 
 struct MessageInlineActionIcon: View {
+    @State private var isHovering = false
     let systemName: String
     let label: String
 
     var body: some View {
         Image(systemName: systemName)
-            .font(.system(size: 17, weight: .semibold))
+            .font(.system(size: 18, weight: .medium))
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(isHovering ? Color.primary.opacity(0.9) : Color.secondary.opacity(0.78))
             .frame(width: 40, height: 40)
+            .background {
+                Circle()
+                    .fill(isHovering ? Color.primary.opacity(0.07) : .clear)
+                    .frame(width: 32, height: 32)
+            }
             .contentShape(Rectangle())
             .accessibilityLabel(label)
+            .animation(.easeOut(duration: 0.08), value: isHovering)
+            .onHover { isHovering = $0 }
     }
 }
 
