@@ -340,7 +340,12 @@ extension WorkspaceState {
         let groups = chats.filter { !$0.isDirect && !$0.pendingConfirmation }
             .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
             .prefix(40)
-        guard !groups.isEmpty else { return }
+        guard !groups.isEmpty else {
+            // A superseded refresh may no longer clear the spinner it set (the generation
+            // bump above orphaned its defer), so this early return must clear it.
+            isLoadingComposeContacts = false
+            return
+        }
         isLoadingComposeContacts = true
         defer {
             if composeContactsGeneration == generation {
@@ -477,8 +482,10 @@ extension WorkspaceState {
                         disappearingMessageSecs: retentionSecs
                     )
                 } catch {
-                    backgroundStatus = L10n.string(
-                        "The group was created, but disappearing messages could not be turned on.")
+                    if activeAccountId == accountId {
+                        backgroundStatus = L10n.string(
+                            "The group was created, but disappearing messages could not be turned on.")
+                    }
                 }
             }
             await reloadChats(forceFreshSnapshot: true)
