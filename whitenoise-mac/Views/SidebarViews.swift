@@ -104,6 +104,7 @@ private struct AccountRailAvatar: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(account.signedOut && workspace.isAccountMutationInProgress)
         .help(account.signedOut ? "\(account.displayName) — \(L10n.string("Signed out"))" : account.displayName)
         .contextMenu {
             if account.signedOut {
@@ -112,14 +113,14 @@ private struct AccountRailAvatar: View {
                 } label: {
                     Label("Sign In", systemImage: "person.crop.circle.badge.checkmark")
                 }
-                .disabled(workspace.isSigningOutAccount)
+                .disabled(workspace.isAccountMutationInProgress)
             } else {
                 Button {
                     Task { await workspace.signOutAccount(account) }
                 } label: {
                     Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
-                .disabled(workspace.isSigningOutAccount)
+                .disabled(workspace.isAccountMutationInProgress)
             }
         }
     }

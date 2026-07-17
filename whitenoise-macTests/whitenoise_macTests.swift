@@ -1059,6 +1059,167 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removingAccountBlocksSignOutMidFlight() async throws {
+        // Regression for whitenoise-mac#531: remove and sign-out must be mutually exclusive.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        let desktopAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+
+        runtime.onRemoveAccountMidFlight = { _ in
+            await state.signOutAccount(desktopAccount)
+        }
+
+        await state.removeAccount(backupAccount)
+
+        #expect(runtime.removedAccountRefs == ["Backup Account"])
+        #expect(runtime.signOutCallCount == 0)
+        #expect(runtime.signedOutAccountRefs.isEmpty)
+    }
+
+    @MainActor
+    @Test func removingAccountBlocksSignInMidFlight() async throws {
+        // Regression for whitenoise-mac#531: remove and sign-in must be mutually exclusive.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let other = AccountSummaryFfi(
+            label: "Other Account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let signedOut = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, other, signedOut])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let otherAccount = try #require(state.accounts.first { $0.id == "Other Account" })
+        let signedOutAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+
+        runtime.onRemoveAccountMidFlight = { _ in
+            await state.signInAccount(signedOutAccount)
+        }
+
+        await state.removeAccount(otherAccount)
+
+        #expect(runtime.removedAccountRefs == ["Other Account"])
+        #expect(runtime.signInAccountCallCount == 0)
+        #expect(state.accounts.first { $0.id == "Backup Account" }?.signedOut == true)
+    }
+
+    @MainActor
+    @Test func signingOutAccountBlocksRemoveMidFlight() async throws {
+        // Regression for whitenoise-mac#531: sign-out and remove must be mutually exclusive.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        let desktopAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+
+        runtime.onSignOutAccountMidFlight = { _ in
+            await state.removeAccount(backupAccount)
+        }
+
+        await state.signOutAccount(desktopAccount)
+
+        #expect(runtime.signedOutAccountRefs == ["Desktop Account"])
+        #expect(runtime.removedAccountRefs.isEmpty)
+        #expect(state.accounts.map(\.id) == ["Desktop Account", "Backup Account"])
+    }
+
+    @MainActor
+    @Test func signingInAccountBlocksRemoveMidFlight() async throws {
+        // Regression for whitenoise-mac#531: sign-in and remove must be mutually exclusive.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let signedOut = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, signedOut])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let signedOutAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        let desktopAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+
+        runtime.onSignInAccountMidFlight = { _ in
+            await state.removeAccount(desktopAccount)
+        }
+
+        await state.signInAccount(signedOutAccount)
+
+        #expect(runtime.signInAccountCallCount == 1)
+        #expect(runtime.removedAccountRefs.isEmpty)
+        #expect(state.accounts.map(\.id) == ["Desktop Account", "Backup Account"])
+        #expect(state.accounts.first { $0.id == "Backup Account" }?.signedOut == false)
+    }
+
+    @MainActor
     @Test func deleteAllDataResetsToNewInstallState() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
