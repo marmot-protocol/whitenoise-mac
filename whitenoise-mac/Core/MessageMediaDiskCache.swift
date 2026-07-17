@@ -145,6 +145,12 @@ nonisolated enum MessageMediaDiskCacheKeychain {
     }
 }
 
+private actor MessageMediaDiskCacheStagingCoordinator {
+    func perform(_ operation: @Sendable () -> Void) {
+        operation()
+    }
+}
+
 nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     typealias DirectoryResolver = @Sendable () throws -> URL
     typealias KeyProvider = @Sendable () throws -> SymmetricKey
@@ -182,6 +188,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private let keyDeleter: KeyDeleter
     private let timestampProvider: TimestampProvider
     private let evictionPolicy: EvictionPolicy
+    // Preparation and commit share one actor-isolated synchronous operation so at most one full
+    // encrypted payload is present in `staging/` per cache instance. This bounds the temporary
+    // disk spike without putting encryption or file writes back on the read/purge bookkeeping lock.
+    private let stagingCoordinator = MessageMediaDiskCacheStagingCoordinator()
     // Staging directories older than this cache instance were left by a previous process and
     // are safe to discard; same-session staging may still be an in-flight store.
     private let sessionStartedAtUnixSeconds: TimeInterval
@@ -280,39 +290,43 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         guard !Task.isCancelled else { return }
 
         let root: URL
-        let symmetricKey: SymmetricKey
         do {
             root = try directoryResolver()
         } catch {
             return
         }
         sweepStaleStagingDirectoriesIfNeeded(root: root)
-        do {
-            symmetricKey = try keyProvider()
-        } catch {
-            return
-        }
         guard !Task.isCancelled, isCurrent(start) else { return }
 
         let plaintext = download.payload.data
-        let cachedAtUnixSeconds = timestampProvider()
-        let prepared = await Task.detached(priority: .utility) {
-            Self.prepareStagedEntry(
-                download: download,
-                plaintext: plaintext,
-                for: key,
-                root: root,
-                symmetricKey: symmetricKey,
-                cachedAtUnixSeconds: cachedAtUnixSeconds
-            )
-        }.value
+        await stagingCoordinator.perform { [self] in
+            guard !Task.isCancelled, isCurrent(start) else { return }
 
-        guard let prepared else { return }
-        guard !Task.isCancelled else {
-            Self.discardPreparedEntry(prepared)
-            return
+            let symmetricKey: SymmetricKey
+            do {
+                symmetricKey = try keyProvider()
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, isCurrent(start) else { return }
+
+            guard
+                let prepared = Self.prepareStagedEntry(
+                    download: download,
+                    plaintext: plaintext,
+                    for: key,
+                    root: root,
+                    symmetricKey: symmetricKey,
+                    cachedAtUnixSeconds: timestampProvider()
+                )
+            else { return }
+
+            guard !Task.isCancelled else {
+                Self.discardPreparedEntry(prepared)
+                return
+            }
+            commitPreparedEntry(prepared, start: start, symmetricKey: symmetricKey)
         }
-        commitPreparedEntry(prepared, start: start, symmetricKey: symmetricKey)
     }
 
     func purgeAll(removeEncryptionKey: Bool = false) async {
