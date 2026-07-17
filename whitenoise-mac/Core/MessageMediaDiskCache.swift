@@ -204,7 +204,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private var purgeSequence = 0
     private var purgeTasks: [Int: ActivePurge] = [:]
     private var didSweepStagingDirectories = false
-    // Updated under `fileMutationLock` on commit and eviction.
+    // Updated under `fileMutationLock` on commit and eviction. Tracks committed entries only;
+    // live staging bytes are sampled separately when enforcing the byte cap.
     // Invalidated when read-path deletions or account purges remove an unknown subset.
     // Seeded with one full scan when nil so stores under the cap avoid re-walking the tree every time (#377).
     private var trackedFootprint: CacheFootprint?
@@ -578,7 +579,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
     private struct CacheScan {
         let removableEntries: [CacheEntry]
-        let footprint: CacheFootprint
+        let committedFootprint: CacheFootprint
+        let stagingByteCount: UInt64
     }
 
     private enum MetadataStatus {
@@ -907,7 +909,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         root: URL
     ) {
         if trackedFootprint == nil {
-            trackedFootprint = Self.cacheFootprint(root: root)
+            trackedFootprint = Self.committedFootprint(root: root)
             return
         }
 
@@ -923,19 +925,24 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
     private func enforceEvictionPolicy(root: URL, symmetricKey: SymmetricKey) {
         guard let tracked = trackedFootprint else { return }
+        let trackedTotalBytes = Self.addingWithSaturation(
+            tracked.byteCount,
+            Self.stagingByteCount(root: root)
+        )
         guard
             tracked.entryCount > evictionPolicy.maxEntryCount
-                || tracked.byteCount > evictionPolicy.maxTotalBytes
+                || trackedTotalBytes > evictionPolicy.maxTotalBytes
         else { return }
 
         let scan = Self.cacheScan(root: root, symmetricKey: symmetricKey)
         var entries = scan.removableEntries
-        var totalBytes = scan.footprint.byteCount
-        var remainingCount = scan.footprint.entryCount
+        var committedBytes = scan.committedFootprint.byteCount
+        var totalBytes = Self.addingWithSaturation(committedBytes, scan.stagingByteCount)
+        var remainingCount = scan.committedFootprint.entryCount
 
         guard remainingCount > evictionPolicy.maxEntryCount || totalBytes > evictionPolicy.maxTotalBytes
         else {
-            trackedFootprint = CacheFootprint(entryCount: remainingCount, byteCount: totalBytes)
+            trackedFootprint = CacheFootprint(entryCount: remainingCount, byteCount: committedBytes)
             return
         }
 
@@ -955,6 +962,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             do {
                 try FileManager.default.removeItem(at: entry.directory)
                 remainingCount -= 1
+                committedBytes = committedBytes > entry.byteCount ? committedBytes - entry.byteCount : 0
                 totalBytes = totalBytes > entry.byteCount ? totalBytes - entry.byteCount : 0
                 Self.removeEmptyDirectory(entry.directory.deletingLastPathComponent())
             } catch {
@@ -962,10 +970,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             }
         }
         Self.removeEmptyDirectory(root)
-        trackedFootprint = CacheFootprint(entryCount: remainingCount, byteCount: totalBytes)
+        // Staging bytes are live, temporary disk usage rather than committed cache entries.
+        // Keep the incremental accountant committed-only so each staging directory is counted
+        // exactly once when a later commit moves it into place.
+        trackedFootprint = CacheFootprint(entryCount: remainingCount, byteCount: committedBytes)
     }
 
-    private static func cacheFootprint(root: URL) -> CacheFootprint {
+    private static func committedFootprint(root: URL) -> CacheFootprint {
         guard
             let shardDirectories = try? FileManager.default.contentsOfDirectory(
                 at: root,
@@ -994,6 +1005,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private static func cacheScan(root: URL, symmetricKey: SymmetricKey) -> CacheScan {
+        let stagedBytes = stagingByteCount(root: root)
         guard
             let shardDirectories = try? FileManager.default.contentsOfDirectory(
                 at: root,
@@ -1003,7 +1015,8 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         else {
             return CacheScan(
                 removableEntries: [],
-                footprint: CacheFootprint(entryCount: 0, byteCount: 0)
+                committedFootprint: CacheFootprint(entryCount: 0, byteCount: 0),
+                stagingByteCount: stagedBytes
             )
         }
 
@@ -1021,10 +1034,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
             for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
                 let entryByteCount = entryByteCount(at: entryDirectory)
-                let metadata: Metadata
+                let cachedAtUnixSeconds: TimeInterval
                 switch metadataStatus(in: entryDirectory, symmetricKey: symmetricKey) {
-                case .readable(let decodedMetadata):
-                    metadata = decodedMetadata
+                case .readable(let metadata):
+                    cachedAtUnixSeconds = metadata.cachedAtUnixSeconds
                     entryCount += 1
                     byteCount = addingWithSaturation(byteCount, entryByteCount)
                 case .corrupt:
@@ -1032,15 +1045,18 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                     removeEmptyDirectory(shardDirectory)
                     continue
                 case .unavailable:
+                    // Cache entries are disposable under pressure. If metadata is temporarily
+                    // unreadable or belongs to a newer format, reclaim it before evicting a
+                    // readable entry; otherwise its bytes can keep the cache over cap forever.
+                    cachedAtUnixSeconds = -Double.infinity
                     entryCount += 1
                     byteCount = addingWithSaturation(byteCount, entryByteCount)
-                    continue
                 }
 
                 entries.append(
                     CacheEntry(
                         directory: entryDirectory,
-                        cachedAtUnixSeconds: metadata.cachedAtUnixSeconds,
+                        cachedAtUnixSeconds: cachedAtUnixSeconds,
                         byteCount: entryByteCount
                     )
                 )
@@ -1048,8 +1064,25 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
         return CacheScan(
             removableEntries: entries,
-            footprint: CacheFootprint(entryCount: entryCount, byteCount: byteCount)
+            committedFootprint: CacheFootprint(entryCount: entryCount, byteCount: byteCount),
+            stagingByteCount: stagedBytes
         )
+    }
+
+    private static func stagingByteCount(root: URL) -> UInt64 {
+        let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
+        guard
+            let stagingDirectories = try? FileManager.default.contentsOfDirectory(
+                at: stagingRoot,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+        else { return 0 }
+
+        return stagingDirectories.reduce(into: UInt64(0)) { byteCount, stagingDirectory in
+            guard isDirectory(stagingDirectory) else { return }
+            byteCount = addingWithSaturation(byteCount, entryByteCount(at: stagingDirectory))
+        }
     }
 
     private static func isDirectory(_ url: URL) -> Bool {
