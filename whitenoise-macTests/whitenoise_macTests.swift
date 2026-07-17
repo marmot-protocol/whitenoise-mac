@@ -2686,8 +2686,15 @@ struct whitenoise_macTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let keyProviderGate = OneShotKeyProviderGate()
+        let directoryResolutionCount = AtomicCounter()
+        let secondStoreResolvedDirectory = DispatchSemaphore(value: 0)
         let cache = MessageMediaDiskCache(
-            directoryResolver: { root },
+            directoryResolver: {
+                if directoryResolutionCount.increment() == 2 {
+                    secondStoreResolvedDirectory.signal()
+                }
+                return root
+            },
             keyProvider: keyProviderGate.symmetricKey,
             keyDeleter: {}
         )
@@ -2733,6 +2740,12 @@ struct whitenoise_macTests {
             )
         }
 
+        #expect(
+            await waitForSemaphore(
+                secondStoreResolvedDirectory,
+                timeout: .now() + .seconds(1)
+            ) == .success
+        )
         #expect(
             await keyProviderGate.waitForSecondCall(timeout: .now() + .milliseconds(200)) == .timedOut
         )
