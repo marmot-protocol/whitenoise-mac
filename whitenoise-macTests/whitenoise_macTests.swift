@@ -3701,6 +3701,67 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func deeplyNestedMarkdownListItemsMarkDocumentTruncated() async throws {
+        let document = MarkdownDocumentFfi(
+            blocks: [
+                .listBlock(
+                    kind: .bullet(marker: "-"),
+                    tight: true,
+                    items: [
+                        MarkdownListItemFfi(
+                            blocks: [
+                                nestedBlockQuote(
+                                    depth: 256,
+                                    leaf: .paragraph(inlines: [.text(content: "deep")])
+                                )
+                            ],
+                            checked: nil
+                        )
+                    ]
+                )
+            ],
+            truncated: false
+        )
+
+        let display = MarkdownDisplayDocument(document: document)
+
+        guard case .list(let items) = display.blocks.first?.block else {
+            Issue.record("expected a list block")
+            return
+        }
+        #expect(items.count == 1)
+        #expect(display.truncated)
+    }
+
+    @MainActor
+    @Test func deeplyNestedMarkdownTableCellsMarkDocumentTruncated() async throws {
+        let document = MarkdownDocumentFfi(
+            blocks: [
+                .table(
+                    alignments: [.left],
+                    header: [
+                        MarkdownTableCellFfi(
+                            inlines: [nestedStrong(depth: 256, leaf: .text(content: "deep"))]
+                        )
+                    ],
+                    rows: []
+                )
+            ],
+            truncated: false
+        )
+
+        let display = MarkdownDisplayDocument(document: document)
+
+        guard case .table(let header, _) = display.blocks.first?.block else {
+            Issue.record("expected a table block")
+            return
+        }
+        let headerCell = try #require(header.first)
+        #expect(String(headerCell.text.characters).isEmpty)
+        #expect(display.truncated)
+    }
+
+    @MainActor
     @Test func boundedNestedMarkdownStillStylesAndLinks() async throws {
         // Normal Markdown nesting (well within the bound) must keep its styles and links:
         // the depth guard only collapses the over-depth remainder.
