@@ -1094,18 +1094,21 @@ struct MessageVideoAttachmentPlayer: View {
         .contentShape(Rectangle())
         .onTapGesture {
             if isPreparingPlayback {
-                playbackTask?.cancel()
-                playbackTask = nil
-                stopPlayback()
+                tearDownPlayback()
             } else {
                 playbackTask?.cancel()
                 playbackTask = Task { await togglePlayback() }
             }
         }
+        // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
+        // does not trigger onDisappear. Tear down here as well to release the player and delete
+        // its decrypted playback scratch file as soon as the tile is no longer visible.
+        .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+            guard !isVisible else { return }
+            tearDownPlayback()
+        }
         .onDisappear {
-            playbackTask?.cancel()
-            playbackTask = nil
-            stopPlayback()
+            tearDownPlayback()
         }
         // If this view's identity outlives a change of the attachment it renders (e.g. a
         // media grid slot flips to a different attachment, or the download's decrypted
@@ -1120,11 +1123,15 @@ struct MessageVideoAttachmentPlayer: View {
         .accessibilityLabel("Video attachment")
     }
 
-    private func resetForAttachmentChange() {
+    private func tearDownPlayback() {
         playbackTask?.cancel()
         playbackTask = nil
-        didFail = false
         stopPlayback()
+    }
+
+    private func resetForAttachmentChange() {
+        didFail = false
+        tearDownPlayback()
     }
 
     @MainActor
