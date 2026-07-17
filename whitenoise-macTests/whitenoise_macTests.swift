@@ -6108,16 +6108,19 @@ struct whitenoise_macTests {
         let playerEnd = try #require(rest.range(of: "\nenum MessageMediaPlaybackFileStore {")?.lowerBound)
         let playerSource = String(source[playerStart.lowerBound..<playerEnd])
 
-        let offscreenTeardown = [
-            "guard !isVisible else { return }",
-            "            playbackTask?.cancel()",
-            "            playbackTask = nil",
-            "            stopPlayback()",
-        ].joined(separator: "\n")
+        let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
 
-        #expect(playerSource.contains(".onScrollVisibilityChange(threshold: 0.01) { isVisible in"))
-        #expect(playerSource.contains(offscreenTeardown))
-        #expect(playerSource.contains("MessageMediaPlaybackFileStore.remove(at: url)"))
+        #expect(
+            normalizedSource.contains(
+                ".onScrollVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}tearDownPlayback()}"
+            )
+        )
+        #expect(
+            normalizedSource.contains(
+                "privatefunctearDownPlayback(){playbackTask?.cancel()playbackTask=nilstopPlayback()}"
+            )
+        )
+        #expect(normalizedSource.contains("MessageMediaPlaybackFileStore.remove(at:url)"))
     }
 
     @MainActor
