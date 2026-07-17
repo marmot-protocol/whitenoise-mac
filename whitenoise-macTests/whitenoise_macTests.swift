@@ -11526,6 +11526,7 @@ struct whitenoise_macTests {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         let state = try await openInstalledGroupDetails(runtime: runtime)
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
         let member = try #require(state.groupDetailsSnapshot?.members.first { !$0.isSelf })
 
         runtime.groupMutationGateEnabled = true
@@ -11541,10 +11542,8 @@ struct whitenoise_macTests {
 
         // Issue #522: reopening the same group while the first MLS commit is still suspended must
         // not permit a second member mutation through the shared in-flight guard.
-        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
         await state.showGroupDetails(for: groupChat)
-        let reopenedMember = try #require(state.groupDetailsSnapshot?.members.first { $0.id == member.id })
-        await state.promoteGroupMember(reopenedMember)
+        await state.promoteGroupMember(member)
         #expect(runtime.promoteAdminDetailedCallCount == 1)
         state.closeGroupDetails()
 
