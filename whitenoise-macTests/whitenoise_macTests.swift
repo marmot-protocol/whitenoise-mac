@@ -11495,6 +11495,29 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func closingGroupDetailsPreservesOperationOwnedFlags() {
+        // Issue #522: these flags are mutexes owned by the async operations that set them. Closing
+        // the panel while FFI is suspended must leave them set until each operation's defer runs.
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        state.isSavingGroupProfile = true
+        state.isInvitingGroupMember = true
+        state.isLeavingGroup = true
+        state.isSavingGroupImage = true
+        state.isUpdatingDisappearingMessages = true
+        state.mutatingGroupMemberId = "member-in-flight"
+
+        state.closeGroupDetails()
+
+        #expect(state.isSavingGroupProfile)
+        #expect(state.isInvitingGroupMember)
+        #expect(state.isLeavingGroup)
+        #expect(state.isSavingGroupImage)
+        #expect(state.isUpdatingDisappearingMessages)
+        #expect(state.mutatingGroupMemberId == "member-in-flight")
+        #expect(state.hasInFlightGroupDetailsMutation)
+    }
+
+    @MainActor
     @Test func closingGroupDetailsInvalidatesInFlightGroupMemberMutationApply() async throws {
         // Issue #392: group-member mutations return a fresh group-details snapshot. If the details
         // panel is closed while the mutation is in flight, that completion must not repopulate the
