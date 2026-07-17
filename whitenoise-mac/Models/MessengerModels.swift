@@ -234,7 +234,7 @@ struct GroupDetailsSnapshot: Hashable {
     let disappearingMessageSecs: UInt64
 
     var memberCountLabel: String {
-        String(format: L10n.string("%d members"), members.count)
+        String(format: L10n.string("%d members"), CInt(members.count))
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
@@ -334,7 +334,7 @@ nonisolated struct MessageMediaAttachment: Identifiable, Hashable {
         if attachments.count == 1 {
             return first.previewLabel
         }
-        return String(format: L10n.string("%d attachments"), attachments.count)
+        return String(format: L10n.string("%d attachments"), CInt(attachments.count))
     }
 }
 
@@ -1825,7 +1825,6 @@ extension MessageItem {
         hasher.combine(replyTargetIdHex)
         hasher.combine(timelineAt)
         hasher.combine(isEdited)
-        hasher.combine(body)
     }
 }
 
