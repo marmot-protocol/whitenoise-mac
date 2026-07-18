@@ -2441,13 +2441,10 @@ struct whitenoise_macTests {
         #expect(!fileManager.fileExists(atPath: entryDirectory.path))
     }
 
-    @Test func messageMediaDiskCacheReadDeletionMaintainsTrackedFootprint() async throws {
-        // Since #444 isolates entries by (ciphertext, plaintext) hash, the read path no longer
-        // deletes a colliding stale entry — but it still deletes an entry whose sealed metadata
-        // cannot be opened, and must invalidate the tracked footprint when it does. Otherwise
-        // the next store sees an inflated count, runs a full eviction scan, and that scan sweeps
-        // an untouched corrupt sentinel early. The sentinel surviving proves the read deletion
-        // kept the footprint honest (no spurious scan).
+    @Test func messageMediaDiskCacheReadDeletionDoesNotEvictUnrelatedEntry() async throws {
+        // The read path deletes an entry whose sealed metadata cannot be opened. A subsequent
+        // store must reconcile that deletion without evicting an unrelated entry when the actual
+        // cache remains at the entry cap.
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
@@ -2500,8 +2497,8 @@ struct whitenoise_macTests {
         )
         let victimEntryDirectory = try #require(cache.entryDirectory(for: victimKey))
         let sentinelEntryDirectory = try #require(cache.entryDirectory(for: sentinelKey))
-        // Corrupt both sealed metadata blobs: reading the victim must delete it (exercising the
-        // read-path deletion), while the sentinel is only ever removed by a full eviction scan.
+        // Corrupt both sealed metadata blobs. Reading the victim exercises read-path deletion;
+        // the unrelated sentinel must remain untouched by the subsequent store.
         try Data("not sealed metadata".utf8).write(to: victimEntryDirectory.appendingPathComponent("metadata.bin"))
         try Data("not sealed metadata".utf8).write(to: sentinelEntryDirectory.appendingPathComponent("metadata.bin"))
 
@@ -2655,6 +2652,75 @@ struct whitenoise_macTests {
 
         let cacheFiles = try fileManager.subpathsOfDirectory(atPath: root.path)
         #expect(cacheFiles.filter { $0.hasSuffix("payload.bin") }.count == 2)
+    }
+
+    @Test func messageMediaDiskCacheEvictionUsesPersistedTimestampWithoutOpeningMetadata() async throws {
+        // Eviction ordering comes from the entry directory timestamp, not encrypted metadata.
+        // Corrupting the newest survivor distinguishes those paths: decrypting metadata would
+        // discard it, while the persisted ordering correctly evicts the older readable entry.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cachedAtCounter = AtomicCounter()
+        let cache = messageMediaDiskCache(
+            root: root,
+            evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
+            timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
+        )
+        let plaintexts = (0..<4).map { Data("cached media \($0)".utf8) }
+        let keys = plaintexts.enumerated().map { index, plaintext in
+            MessageMediaDiskCacheKey(
+                accountId: "account-a",
+                groupIdHex: "group-a",
+                reference: mediaDiskCacheReference(
+                    plaintext: plaintext,
+                    ciphertextByte: UInt8(0xb0 + index)
+                )
+            )
+        }
+
+        for index in 0..<3 {
+            await cache.store(
+                MessageMediaDownload(
+                    data: plaintexts[index],
+                    fileName: "photo-\(index).jpg",
+                    mediaType: "image/jpeg",
+                    sizeBytes: UInt64(plaintexts[index].count),
+                    payloadId: "photo-\(index)"
+                ),
+                for: keys[index]
+            )
+        }
+
+        let secondEntryDirectory = try #require(cache.entryDirectory(for: keys[1]))
+        let thirdEntryDirectory = try #require(cache.entryDirectory(for: keys[2]))
+        let thirdModifiedAt = try #require(
+            thirdEntryDirectory.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ).contentModificationDate
+        )
+        #expect(thirdModifiedAt.timeIntervalSince1970 == 3)
+        #expect(await cache.cachedDownload(for: keys[0]) == nil)
+        try Data("not sealed metadata".utf8).write(
+            to: thirdEntryDirectory.appendingPathComponent("metadata.bin")
+        )
+
+        await cache.store(
+            MessageMediaDownload(
+                data: plaintexts[3],
+                fileName: "photo-3.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(plaintexts[3].count),
+                payloadId: "photo-3"
+            ),
+            for: keys[3]
+        )
+
+        #expect(!fileManager.fileExists(atPath: secondEntryDirectory.path))
+        #expect(fileManager.fileExists(atPath: thirdEntryDirectory.path))
+        #expect(try #require(await cache.cachedDownload(for: keys[3])).data == plaintexts[3])
     }
 
     @Test func messageMediaDiskCacheReplaceEntryDoesNotEvictOthersAtEntryLimit() async throws {
