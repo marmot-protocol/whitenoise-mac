@@ -252,7 +252,7 @@ struct ConversationMetadata: Hashable {
                 DisappearingMessageOption.option(for: disappearingMessageSecs).label
             )
         }
-        return String(format: L10n.string("%d members"), memberCount)
+        return L10n.plural("%lld members", Int64(memberCount))
     }
 }
 
@@ -360,7 +360,7 @@ nonisolated struct MessageMediaAttachment: Identifiable, Hashable {
         if attachments.count == 1 {
             return first.previewLabel
         }
-        return String(format: L10n.string("%d attachments"), CInt(attachments.count))
+        return L10n.plural("%lld attachments", Int64(attachments.count))
     }
 }
 

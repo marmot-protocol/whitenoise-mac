@@ -3774,6 +3774,20 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func conversationMetadataSubtitleUsesMemberPluralRules() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+
+        UserDefaults.standard.set(AppLanguage.english.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+
+        let oneMember = ConversationMetadata(memberCount: 1, disappearingMessageSecs: 0, isSelfAdmin: false)
+        let twoMembers = ConversationMetadata(memberCount: 2, disappearingMessageSecs: 0, isSelfAdmin: false)
+        #expect(oneMember.subtitle == "1 member")
+        #expect(twoMembers.subtitle == "2 members")
+    }
+
+    @MainActor
     @Test func memberCountLocalizationUsesSelectedAppLanguage() async throws {
         let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
         defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
