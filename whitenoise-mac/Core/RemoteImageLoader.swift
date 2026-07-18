@@ -120,7 +120,7 @@ nonisolated enum RemoteImageURLPolicy {
 
     /// Rejects IPv6 literals in non-public ranges: unspecified `::`, loopback `::1`,
     /// ULA `fc00::/7`, link-local `fe80::/10`, multicast `ff00::/8`, documentation
-    /// `2001:db8::/32`, and the IPv4-embedding
+    /// `2001:db8::/32`, RFC 8215 local-use translation `64:ff9b:1::/48`, and the IPv4-embedding
     /// forms (mapped `::ffff:a.b.c.d`, translated `::ffff:0:a.b.c.d`, NAT64 `64:ff9b::a.b.c.d`,
     /// and IPv4-compatible `::a.b.c.d`) whose embedded IPv4 is itself private.
     private static func isPrivateIPv6(_ groups: [UInt16]) -> Bool {
@@ -154,6 +154,10 @@ nonisolated enum RemoteImageURLPolicy {
         // NAT64 well-known prefix `64:ff9b::a.b.c.d`.
         if groups[0] == 0x64, groups[1] == 0xFF9B, groups[2...5].allSatisfy({ $0 == 0 }) {
             return isPrivateIPv4(embeddedIPv4(groups))
+        }
+        // RFC 8215 local-use translation prefix `64:ff9b:1::/48` (distinct from the /96 above).
+        if groups[0] == 0x64, groups[1] == 0xFF9B, groups[2] == 0x0001 {
+            return true
         }
         if groups[0...5].allSatisfy({ $0 == 0 }), groups[6] != 0 || groups[7] != 0 {
             return isPrivateIPv4(embeddedIPv4(groups))
