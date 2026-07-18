@@ -1096,6 +1096,13 @@ struct MessageAudioAttachmentPlayer: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .attachmentRowChrome(isOutgoing: isOutgoing)
+        // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
+        // does not trigger onDisappear. Stop playback here as well so the AVAudioPlayer and
+        // progress monitor do not keep running offscreen.
+        .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+            guard !isVisible else { return }
+            stopPlayback()
+        }
         .onDisappear {
             stopPlayback()
         }
