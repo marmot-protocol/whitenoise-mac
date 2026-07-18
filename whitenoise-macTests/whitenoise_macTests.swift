@@ -9368,9 +9368,9 @@ struct whitenoise_macTests {
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
         #expect(state.messagesByChat["direct-group"]?.first?.id == "message-005")
+        let directChat = try #require(state.activeChats.first(where: { $0.id == "direct-group" }))
 
         state.stopTimelineListener()
-        state.cancelTimelineLoad()
         state.messageTimelineStores["direct-group"]?.clear()
 
         state.timelineApplyMapGateEnabled = true
@@ -9386,9 +9386,9 @@ struct whitenoise_macTests {
             return
         }
 
-        // A same-account/same-chat load normally joins its in-flight owner. Supersede that
-        // generation explicitly, as the leave/re-enter teardown path does, before starting B.
-        state.cancelTimelineLoad()
+        // Production leave/re-enter: Settings tears down the in-flight owner, then selecting the
+        // same chat starts a replacement load instead of joining the suspended initial load.
+        state.showSettings()
         runtime.installMessages(
             (0..<105).map { index in
                 appMessage(
@@ -9402,9 +9402,18 @@ struct whitenoise_macTests {
             },
             groupIdHex: "direct-group"
         )
-        await state.loadMessages(groupIdHex: "direct-group")
+        state.selectChat(directChat)
+        let didLoadReplacement = await waitFor {
+            state.messagesByChat["direct-group"]?.first?.id == "fresh-load-005"
+        }
+        guard didLoadReplacement else {
+            state.timelineApplyMapGateEnabled = false
+            state.releaseTimelineApplyMapGate()
+            _ = await staleInitialLoad
+            Issue.record("Expected replacement initial load to materialize via selectChat")
+            return
+        }
         let replacementSubscription = try #require(state.activeTimelineSubscription)
-        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-load-005")
         #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-load-104")
 
         state.releaseTimelineApplyMapGate()

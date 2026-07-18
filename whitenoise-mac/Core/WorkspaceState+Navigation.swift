@@ -31,6 +31,7 @@ extension WorkspaceState {
     func selectChat(_ chat: ChatItem) {
         leaveActiveConversation()
         stopTimelineListener()
+        cancelTimelineLoad()
         clearEnteredLoginIdentity()
         selection = .chat(chat.id)
         closeNewChatComposer()
@@ -54,6 +55,7 @@ extension WorkspaceState {
     func showSettings(_ page: SettingsPage = .profile) {
         leaveActiveConversation()
         stopTimelineListener()
+        cancelTimelineLoad()
         clearEnteredLoginIdentity()
         selection = .settings(page)
         closeNewChatComposer()
