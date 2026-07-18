@@ -23,6 +23,7 @@ extension WorkspaceState {
     func clearAllComposerDrafts() {
         draftTextByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
+        editingMessageContextByConversation.removeAll()
         pendingMediaAttachmentsByConversation.removeAll()
         pendingMediaUploadStatesByConversation.removeAll()
     }
@@ -32,6 +33,7 @@ extension WorkspaceState {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             draftTextByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
+            editingMessageContextByConversation[key] = nil
             pendingMediaAttachmentsByConversation[key] = nil
             pendingMediaUploadStatesByConversation[key] = nil
         }
@@ -43,6 +45,9 @@ extension WorkspaceState {
         }
         for key in replyDraftContextByConversation.keys.filter({ $0.accountId == accountId }) {
             replyDraftContextByConversation[key] = nil
+        }
+        for key in editingMessageContextByConversation.keys.filter({ $0.accountId == accountId }) {
+            editingMessageContextByConversation[key] = nil
         }
         for key in pendingMediaAttachmentsByConversation.keys.filter({ $0.accountId == accountId }) {
             pendingMediaAttachmentsByConversation[key] = nil
@@ -526,7 +531,10 @@ extension WorkspaceState {
         // importers, paste, and recording shortcuts can still fire while the visible
         // composer is replaced, and collected media would otherwise accumulate
         // invisibly (the pending-media strip is hidden) and never be sent.
-        guard client != nil, selectedChat?.canUseComposer == true else { return false }
+        guard client != nil,
+            selectedChat?.canUseComposer == true,
+            editingMessageContext == nil
+        else { return false }
         guard remainingMediaAttachmentSlots > 0 else {
             presentMaxMediaAttachmentWarning()
             return false

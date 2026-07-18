@@ -211,6 +211,7 @@ private extension View {
 struct AccountsSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var accountPendingRemoval: AccountItem?
+    @State private var accountPendingSignOut: AccountItem?
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -234,7 +235,7 @@ struct AccountsSettingsView: View {
                             accountPendingRemoval = account
                         },
                         onSignOut: {
-                            Task { await workspace.signOutAccount(account) }
+                            accountPendingSignOut = account
                         },
                         onSignIn: {
                             Task { await workspace.signInAccount(account) }
@@ -301,6 +302,22 @@ struct AccountsSettingsView: View {
             accountPendingRemoval = nil
             Task { await workspace.removeAccount(account) }
         }
+        .confirmationDialog(
+            "Sign out of this account?",
+            isPresented: signOutConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Sign Out", role: .destructive) {
+                guard let account = accountPendingSignOut else { return }
+                accountPendingSignOut = nil
+                Task { await workspace.signOutAccount(account) }
+            }
+            Button("Cancel", role: .cancel) {
+                accountPendingSignOut = nil
+            }
+        } message: {
+            Text("The account and its local data will stay on this Mac so you can sign in again later.")
+        }
     }
 
     private var removeConfirmationBinding: Binding<Bool> {
@@ -308,6 +325,15 @@ struct AccountsSettingsView: View {
             get: { accountPendingRemoval != nil },
             set: { isPresented in
                 if !isPresented { accountPendingRemoval = nil }
+            }
+        )
+    }
+
+    private var signOutConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { accountPendingSignOut != nil },
+            set: { isPresented in
+                if !isPresented { accountPendingSignOut = nil }
             }
         )
     }
@@ -369,30 +395,28 @@ struct AccountSettingsRow: View {
             )
             .disabled(isRemoving)
 
-            if account.signedOut {
-                Button(action: onSignIn) {
-                    Image(systemName: "person.crop.circle.badge.checkmark")
+            Menu {
+                if account.signedOut {
+                    Button(action: onSignIn) {
+                        Label("Sign In", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                } else {
+                    Button(action: onSignOut) {
+                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
                 }
-                .buttonStyle(.borderless)
-                .disabled(isAccountMutationInProgress)
-                .help(L10n.string("Sign in to this account"))
-            } else {
-                Button(action: onSignOut) {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                Divider()
+                Button(role: .destructive, action: onRemove) {
+                    Label("Remove Account", systemImage: "person.crop.circle.badge.minus")
                 }
-                .buttonStyle(.borderless)
-                .disabled(isAccountMutationInProgress)
-                .help(L10n.string("Sign out of this account on this Mac"))
+            } label: {
+                Image(systemName: "ellipsis.circle")
             }
-
-            Button(role: .destructive, action: onRemove) {
-                Image(systemName: "person.crop.circle.badge.minus")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.red)
-            .disabled(isAccountMutationInProgress)
-            .help(L10n.string("Remove this account from this Mac"))
-            .accessibilityLabel(Text(String(format: L10n.string("Remove %@"), account.displayName)))
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(isRemoving || isAccountMutationInProgress)
+            .help(L10n.string("Account actions"))
+            .accessibilityLabel(Text(String(format: L10n.string("Actions for %@"), account.displayName)))
         }
     }
 

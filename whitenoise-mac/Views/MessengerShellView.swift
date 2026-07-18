@@ -199,24 +199,103 @@ private struct DetailPaneView: View {
             case .failed(let message):
                 FailureView(message: message)
             case .ready:
-                switch workspace.selection {
-                case .chat:
-                    if let chat = workspace.selectedChat {
-                        ConversationView(chat: chat)
-                    } else {
+                if workspace.activeAccount == nil {
+                    SignedOutAccountsView()
+                } else {
+                    switch workspace.selection {
+                    case .chat:
+                        if let chat = workspace.selectedChat {
+                            ConversationView(chat: chat)
+                        } else {
+                            EmptyDetailView()
+                        }
+                    case .settings:
+                        SettingsPanelView()
+                    case nil:
                         EmptyDetailView()
                     }
-                case .settings:
-                    SettingsPanelView()
-                case nil:
-                    EmptyDetailView()
                 }
             }
         }
     }
 }
 
-/// Coarse, `Equatable` scroll-position signal derived from `ScrollGeometry`. Returning
+private struct SignedOutAccountsView: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    private var signedOutAccounts: [AccountItem] {
+        workspace.accounts.filter(\.signedOut)
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Image("WhiteNoiseLogo")
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 80, height: 80)
+
+            VStack(spacing: 5) {
+                Text("Choose an account")
+                    .font(.title2.weight(.semibold))
+                Text("Sign in to continue with an account stored on this Mac.")
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 10) {
+                ForEach(signedOutAccounts) { account in
+                    Button {
+                        Task { await workspace.signInAccount(account) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            ProfileImageAvatarView(
+                                seed: account.accountIdHex,
+                                initials: account.initials,
+                                sanitizedPictureURL: account.sanitizedPictureURL,
+                                size: 40,
+                                isSelected: false
+                            )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(account.displayName)
+                                    .font(.headline)
+                                Text(DisplayText.short(account.npub ?? account.accountIdHex))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 20)
+                            Text("Sign In")
+                                .font(.callout.weight(.semibold))
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .glassCard(cornerRadius: 12)
+                    .disabled(workspace.isSigningOutAccount)
+                }
+            }
+            .frame(maxWidth: 440)
+
+            Button("Use another account") {
+                workspace.showAccountOnboarding()
+            }
+            .nativeGlassButtonStyle()
+            .disabled(workspace.isSigningOutAccount)
+
+            if let lastError = workspace.lastError {
+                Text(lastError)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Coarse, `Equatable` scroll-position state derived from `ScrollGeometry`. Returning
 /// threshold booleans (rather than raw offsets) means `onScrollGeometryChange` only invokes
 /// its action when the transcript actually crosses an edge — not on every scrolled pixel —
 /// keeping pagination/pin updates off the per-frame path.
@@ -287,6 +366,8 @@ private struct ConversationView: View {
     @State private var isPinnedToBottom = true
     @State private var isFileImporterPresented = false
     @State private var isFileDropTargeted = false
+    @State private var isComposerEmojiPickerPresented = false
+    @State private var composerEmojiInsertion: ComposerEmojiInsertion?
     @State private var imageGallery: MessageImageGalleryPresentation?
     /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
     /// register local `isSelectable` state so hover only updates the previous and active row
@@ -302,6 +383,7 @@ private struct ConversationView: View {
     var body: some View {
         @Bindable var workspace = workspace
         let messages = workspace.selectedMessages
+        let displayItems = TimelineMessageDisplayItem.make(from: messages)
         let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
@@ -335,14 +417,21 @@ private struct ConversationView: View {
                                     TimelinePageLoadingRow(isLoading: paging.isLoadingBefore)
                                 }
 
-                                ForEach(messages) { message in
+                                ForEach(displayItems) { item in
+                                    if let dayLabel = item.dayLabel {
+                                        TimelineDayHeaderView(title: dayLabel)
+                                    }
+
                                     ConversationMessageRow(
-                                        message: message,
+                                        message: item.message,
                                         showsDebugMetadata: workspace.streamingDebugEnabled
                                     ) { gallery in
                                         imageGallery = gallery
+                                    } onNavigateToMessage: { targetMessageId in
+                                        Task {
+                                            await revealMessage(targetMessageId, using: proxy)
+                                        }
                                     }
-                                    .equatable()
                                 }
                                 .environment(\.conversationHoverSelectionCoordinator, hoverSelectionCoordinator)
 
@@ -379,7 +468,7 @@ private struct ConversationView: View {
                     .onScrollGeometryChange(for: TimelineScrollMetrics.self) { geometry in
                         TimelineScrollMetrics(geometry: geometry, bottomPadding: bottomTranscriptPadding)
                     } action: { _, metrics in
-                        // Threshold-crossing signal only (booleans), so this runs when the user
+                        // Threshold-crossing state only (booleans), so this runs when the user
                         // crosses an edge — not on every scrolled pixel — and only ever writes
                         // `isPinnedToBottom`, which no view's layout depends on.
                         isPinnedToBottom = metrics.atBottom
@@ -459,6 +548,26 @@ private struct ConversationView: View {
                             pendingPrependAnchorId = nil
                         }
                     }
+                    .overlay(alignment: .bottomTrailing) {
+                        if !isPinnedToBottom {
+                            Button {
+                                Task { await jumpToNewest(using: proxy) }
+                            } label: {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .frame(width: 40, height: 40)
+                                    .background(.regularMaterial, in: Circle())
+                                    .overlay {
+                                        Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                                    }
+                                    .shadow(color: .black.opacity(0.16), radius: 8, y: 3)
+                            }
+                            .buttonStyle(.plain)
+                            .help(L10n.string("Jump to latest message"))
+                            .padding(18)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        }
+                    }
                 }
 
                 GlassSeparator(axis: .horizontal)
@@ -467,7 +576,9 @@ private struct ConversationView: View {
                     // The core rejects sends to a group the local account left or was
                     // removed from (`invalid_transition`), so the whole composer —
                     // reply/media drafts included — gives way to an explanatory notice.
-                    if chat.isNoLongerMember {
+                    if workspace.isTimelineSelectionMode {
+                        MessageSelectionToolbar()
+                    } else if chat.isNoLongerMember {
                         MembershipEndedComposerNotice(membership: chat.selfMembership)
                     } else if chat.pendingConfirmation {
                         PendingGroupInviteComposerNotice(chat: chat)
@@ -537,10 +648,34 @@ private struct ConversationView: View {
             }
         }
         .animation(.smooth(duration: 0.24), value: workspace.isGroupDetailsPresented)
+        .task(id: chat.id) {
+            await workspace.refreshConversationMetadata(for: chat)
+        }
+        .sheet(
+            item: Binding(
+                get: { workspace.messageInfoTarget },
+                set: { workspace.messageInfoTarget = $0 }
+            )
+        ) { message in
+            MessageInfoSheet(message: message)
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { workspace.isForwardPickerPresented },
+                set: { isPresented in
+                    if !isPresented { workspace.cancelForwarding() }
+                }
+            )
+        ) {
+            MessageForwardSheet()
+        }
         // Switching conversations must not leave the previous chat's body-level
         // overlays open over a different transcript.
         .onChange(of: chat.id) { _, _ in
             imageGallery = nil
+            workspace.cancelMessageSelection()
+            workspace.cancelForwarding()
+            workspace.messageInfoTarget = nil
             if workspace.isGroupDetailsPresented {
                 workspace.closeGroupDetails()
             }
@@ -551,7 +686,9 @@ private struct ConversationView: View {
     private var composerControls: some View {
         @Bindable var workspace = workspace
 
-        if let replyDraftContext = workspace.replyDraftContext {
+        if let editingMessageContext = workspace.editingMessageContext {
+            EditComposerContextView(context: editingMessageContext)
+        } else if let replyDraftContext = workspace.replyDraftContext {
             ReplyComposerContextView(context: replyDraftContext) {
                 workspace.cancelReply()
             }
@@ -577,23 +714,53 @@ private struct ConversationView: View {
             )
         } else {
             HStack(alignment: .bottom, spacing: 8) {
-                Button {
-                    isFileImporterPresented = true
-                } label: {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 18, weight: .medium))
-                        .frame(width: 30, height: 30)
-                        .background {
-                            MessagesCircleControlBackground()
+                if workspace.editingMessageContext == nil {
+                    Button {
+                        isComposerEmojiPickerPresented.toggle()
+                    } label: {
+                        Image(systemName: "face.smiling")
+                            .font(.system(size: 17, weight: .medium))
+                            .frame(width: 30, height: 30)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isSending)
+                    .help("Emoji")
+                    .popover(isPresented: $isComposerEmojiPickerPresented, arrowEdge: .bottom) {
+                        ChatEmojiPicker { emoji in
+                            composerEmojiInsertion = ComposerEmojiInsertion(emoji: emoji)
+                            isComposerEmojiPickerPresented = false
                         }
+                    }
+
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 30, height: 30)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isSending)
+                    .help("Attach files")
                 }
-                .buttonStyle(.plain)
-                .disabled(workspace.isSending)
-                .help("Attach files")
 
                 ComposerMessageInputView(
                     text: $workspace.draftText,
+                    placeholder: workspace.editingMessageContext == nil
+                        ? L10n.string("Message") : L10n.string("Edit message"),
+                    emojiInsertion: composerEmojiInsertion,
+                    onEmojiInsertionConsumed: { insertionID in
+                        guard composerEmojiInsertion?.id == insertionID else { return }
+                        composerEmojiInsertion = nil
+                    },
                     onPasteMedia: { attachments in
+                        guard workspace.editingMessageContext == nil else { return }
                         Task { await workspace.addPastedMediaAttachments(attachments) }
                     },
                     onSend: {
@@ -608,19 +775,35 @@ private struct ConversationView: View {
                 }
                 .accessibilityIdentifier("composer.message")
 
-                Button {
-                    Task { await workspace.toggleVoiceRecording() }
-                } label: {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 32, height: 32)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
+                if workspace.editingMessageContext != nil {
+                    Button {
+                        workspace.cancelEditingMessage()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .frame(width: 32, height: 32)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isSending)
+                    .help(L10n.string("Cancel edit"))
+                } else {
+                    Button {
+                        Task { await workspace.toggleVoiceRecording() }
+                    } label: {
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isSending)
+                    .help("Voice message")
                 }
-                .buttonStyle(.plain)
-                .disabled(workspace.isSending)
-                .help("Voice message")
 
                 Button {
                     Task { await workspace.sendDraft() }
@@ -632,7 +815,7 @@ private struct ConversationView: View {
                                 .tint(.white)
                                 .scaleEffect(0.72)
                         } else {
-                            Image(systemName: "paperplane.fill")
+                            Image(systemName: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark")
                                 .font(.system(size: 14, weight: .semibold))
                         }
                     }
@@ -643,13 +826,48 @@ private struct ConversationView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!workspace.canSend)
-                .help("Send")
+                .help(workspace.editingMessageContext == nil ? "Send" : "Save edit")
             }
         }
     }
 
     private var bottomAnchorId: String {
         "conversation-bottom-\(chat.id)"
+    }
+
+    private func revealMessage(_ messageId: String, using proxy: ScrollViewProxy) async {
+        var attempts = 0
+        while !workspace.selectedTimelineContainsMessage(messageId),
+            workspace.selectedTimelinePaging.hasMoreBefore,
+            attempts < 12
+        {
+            let previousFirstId = workspace.selectedMessageIDs.first
+            await workspace.loadOlderMessages(groupIdHex: chat.id)
+            attempts += 1
+            guard workspace.selectedChat?.id == chat.id,
+                workspace.selectedMessageIDs.first != previousFirstId
+            else { break }
+        }
+        guard workspace.selectedChat?.id == chat.id,
+            workspace.selectedTimelineContainsMessage(messageId)
+        else { return }
+        withAnimation(.smooth(duration: 0.2)) {
+            proxy.scrollTo(messageId, anchor: .center)
+        }
+    }
+
+    private func jumpToNewest(using proxy: ScrollViewProxy) async {
+        var attempts = 0
+        while workspace.selectedTimelinePaging.hasMoreAfter, attempts < 12 {
+            let previousLastID = workspace.selectedMessageIDs.last
+            await workspace.loadNewerMessages(groupIdHex: chat.id)
+            attempts += 1
+            guard workspace.selectedChat?.id == chat.id,
+                workspace.selectedMessageIDs.last != previousLastID
+            else { break }
+        }
+        guard workspace.selectedChat?.id == chat.id else { return }
+        scrollToBottom(with: proxy)
     }
 
     /// Prefetch older history when the user scrolls near the top. `pendingPrependAnchorId`

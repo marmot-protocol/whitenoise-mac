@@ -11,9 +11,19 @@ import SwiftUI
 
 struct MarkdownMessageView: View {
     let message: MessageItem
+    var trailingMetadata: Text?
+
+    init(message: MessageItem, trailingMetadata: Text? = nil) {
+        self.message = message
+        self.trailingMetadata = trailingMetadata
+    }
 
     var body: some View {
-        if let document = message.contentMarkdown {
+        if let inlineParagraph = message.contentMarkdown?.inlineParagraph {
+            textWithMetadata(Text(inlineParagraph))
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if let document = message.contentMarkdown {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(document.blocks) { block in
                     MarkdownBlockView(block: block.block)
@@ -24,7 +34,7 @@ struct MarkdownMessageView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
         } else {
             // Fallback for bubbles the core didn't tokenise (or non-Markdown rows).
             // NB: do not add `.textSelection` here (nor in the inline/code views below).
@@ -35,10 +45,15 @@ struct MarkdownMessageView: View {
             // ScrollView/LazyVStack scroll-anchor resolution into a multi-second main-thread
             // layout loop on send (Instruments: continuous SelectionOverlay.updateNSView /
             // ScrollViewAdjustedState.adjustOffsetIfNeeded). See whitenoise-mac#205.
-            Text(message.body)
+            textWithMetadata(Text(message.body))
                 .lineSpacing(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private func textWithMetadata(_ body: Text) -> Text {
+        guard let trailingMetadata else { return body }
+        return body + trailingMetadata
     }
 }
 

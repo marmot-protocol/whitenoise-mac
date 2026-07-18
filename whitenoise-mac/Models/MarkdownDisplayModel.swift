@@ -11,6 +11,17 @@ nonisolated struct MarkdownDisplayDocument {
     let blocks: [MarkdownDisplayBlockNode]
     let truncated: Bool
 
+    /// A single paragraph can share its final line with compact message metadata.
+    /// More elaborate block layouts keep their own independent flow so lists,
+    /// tables, and code blocks are never flattened just to save vertical space.
+    var inlineParagraph: AttributedString? {
+        guard !truncated,
+            blocks.count == 1,
+            case .paragraph(let text) = blocks[0].block
+        else { return nil }
+        return text
+    }
+
     /// Block quotes, lists, and inline emphasis/link/image-alt all recurse over the
     /// `MarkdownDocumentFfi` AST, which is derived from untrusted peer message content.
     /// Bound the Swift-side recursion so attacker-chosen nesting cannot overflow the
