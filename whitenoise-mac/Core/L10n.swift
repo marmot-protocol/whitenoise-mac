@@ -40,9 +40,25 @@ nonisolated enum L10n {
         return formatPlural(string(key), count: count, locale: locale)
     }
 
+    static func plural(_ key: String, _ count: UInt64) -> String {
+        let locale = AppLanguage.currentLocale
+        return formatPlural(string(key), count: count, locale: locale)
+    }
+
     static func plural(
         _ key: String,
         _ count: Int64,
+        locale: Locale,
+        baseBundle: Bundle = .main
+    ) -> String {
+        let bundle = localizedBundle(for: locale, in: baseBundle) ?? baseBundle
+        let format = bundle.localizedString(forKey: key, value: key, table: nil)
+        return formatPlural(format, count: count, locale: locale)
+    }
+
+    static func plural(
+        _ key: String,
+        _ count: UInt64,
         locale: Locale,
         baseBundle: Bundle = .main
     ) -> String {
@@ -102,5 +118,29 @@ nonisolated enum L10n {
         withVaList([count]) {
             NSString(format: format, locale: locale, arguments: $0) as String
         }
+    }
+
+    private static func formatPlural(_ format: String, count: UInt64, locale: Locale) -> String {
+        let countArgument = CUnsignedLongLong(count)
+        let formatted = withVaList([countArgument]) {
+            NSString(format: format, locale: locale, arguments: $0) as String
+        }
+        return replacingGroupedInteger(in: formatted, count: count, locale: locale)
+    }
+
+    /// `NSString(format:locale:)` applies locale grouping to `%llu`, but count labels
+    /// must stay exact ungrouped decimals (see whitenoise-mac#212).
+    private static func replacingGroupedInteger(
+        in formatted: String,
+        count: UInt64,
+        locale: Locale
+    ) -> String {
+        let countArgument = CUnsignedLongLong(count)
+        let groupedNumber = withVaList([countArgument]) {
+            NSString(format: "%llu", locale: locale, arguments: $0) as String
+        }
+        let ungroupedNumber = String(count)
+        guard groupedNumber != ungroupedNumber else { return formatted }
+        return formatted.replacingOccurrences(of: groupedNumber, with: ungroupedNumber)
     }
 }
