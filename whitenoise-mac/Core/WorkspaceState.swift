@@ -832,6 +832,16 @@ final class WorkspaceState {
     var isDeletingAllData = false
     var deletingKeyPackageId: String?
     var isNewChatComposerVisible = false
+    var composePane: ComposePane = .newChat
+    var composeContacts: [ComposeContact] = []
+    var isLoadingComposeContacts = false
+    /// Peer hex of the contact row whose direct chat is currently being created, so only
+    /// that row shows a spinner.
+    var creatingDirectChatIdHex: String?
+    /// Disappearing-message timer chosen on the name-group panel. Not a `createGroup`
+    /// parameter, so it is applied right after creation.
+    var groupDraftRetentionSecs: UInt64 = 0
+    @ObservationIgnored var composeContactsGeneration: UInt64 = 0
     var newChatQuery = ""
     var newChatName = ""
     var newChatDescription = ""
