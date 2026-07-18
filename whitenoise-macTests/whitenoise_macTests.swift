@@ -3329,6 +3329,153 @@ struct whitenoise_macTests {
         #expect(fileManager.fileExists(atPath: inSessionStagingDirectory.path))
     }
 
+    @Test func messageMediaDiskCacheConcurrentStoreWaitsForInitialStagingSweep() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let stagingRoot = root.appendingPathComponent("staging", isDirectory: true)
+        let staleStagingDirectory = stagingRoot.appendingPathComponent("crash-orphan", isDirectory: true)
+        try fileManager.createDirectory(at: staleStagingDirectory, withIntermediateDirectories: true)
+        try Data("orphaned encrypted payload".utf8).write(
+            to: staleStagingDirectory.appendingPathComponent("payload.bin")
+        )
+        try fileManager.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 100)],
+            ofItemAtPath: staleStagingDirectory.path
+        )
+
+        let sweepGate = BlockingFfiGate()
+        sweepGate.isEnabled = true
+        let directoryResolutionCount = AtomicCounter()
+        let secondStoreResolvedDirectory = DispatchSemaphore(value: 0)
+        let keyProviderEntered = DispatchSemaphore(value: 0)
+        let keyProviderGate = OneShotKeyProviderGate()
+        let cache = MessageMediaDiskCache(
+            directoryResolver: {
+                if directoryResolutionCount.increment() == 2 {
+                    secondStoreResolvedDirectory.signal()
+                }
+                return root
+            },
+            keyProvider: {
+                keyProviderEntered.signal()
+                return try keyProviderGate.symmetricKey()
+            },
+            keyDeleter: {},
+            sessionStartedAtUnixSeconds: 1_000
+        )
+        cache.testingSetBeforeStagingSweepHook { sweepGate.passIfArmed() }
+        let firstPlaintext = Data("first store blocked behind initial staging sweep".utf8)
+        let secondPlaintext = Data("second store must wait for staging sweep".utf8)
+        let firstKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: firstPlaintext, ciphertextByte: 0xa1)
+        )
+        let secondKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: secondPlaintext, ciphertextByte: 0xa2)
+        )
+
+        let firstStore = Task {
+            await cache.store(
+                MessageMediaDownload(
+                    data: firstPlaintext,
+                    fileName: "first.jpg",
+                    mediaType: "image/jpeg",
+                    sizeBytes: UInt64(firstPlaintext.count),
+                    payloadId: "first"
+                ),
+                for: firstKey
+            )
+        }
+        while !sweepGate.didReach {
+            await Task.yield()
+        }
+
+        let secondStore = Task {
+            await cache.store(
+                MessageMediaDownload(
+                    data: secondPlaintext,
+                    fileName: "second.jpg",
+                    mediaType: "image/jpeg",
+                    sizeBytes: UInt64(secondPlaintext.count),
+                    payloadId: "second"
+                ),
+                for: secondKey
+            )
+        }
+        #expect(
+            await waitForSemaphore(
+                secondStoreResolvedDirectory,
+                timeout: .now() + .seconds(1)
+            ) == .success
+        )
+        #expect(
+            await waitForSemaphore(keyProviderEntered, timeout: .now() + .milliseconds(200)) == .timedOut
+        )
+
+        sweepGate.release()
+        keyProviderGate.releaseGate()
+        await firstStore.value
+        await secondStore.value
+
+        #expect(try #require(await cache.cachedDownload(for: firstKey)).data == firstPlaintext)
+        #expect(try #require(await cache.cachedDownload(for: secondKey)).data == secondPlaintext)
+        #expect(!fileManager.fileExists(atPath: staleStagingDirectory.path))
+    }
+
+    @Test func messageMediaDiskCachePostSweepReadDoesNotWaitForFileMutationLock() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("cached read should not block on file mutation lock".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "read.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "read-lock-test"
+        )
+
+        await cache.store(download, for: key)
+        _ = try #require(await cache.cachedDownload(for: key))
+
+        let lockHeld = DispatchSemaphore(value: 0)
+        let releaseLock = DispatchSemaphore(value: 0)
+        let holderTask = Task.detached {
+            cache.testingWithFileMutationLock {
+                lockHeld.signal()
+                _ = releaseLock.wait(timeout: .now() + 5)
+            }
+        }
+        #expect(await waitForSemaphore(lockHeld, timeout: .now() + 2) == .success)
+
+        let readCompleted = DispatchSemaphore(value: 0)
+        let readTask = Task {
+            let restored = await cache.cachedDownload(for: key)
+            readCompleted.signal()
+            return restored
+        }
+        let readCompletedWhileLockHeld = await waitForSemaphore(readCompleted, timeout: .now() + 2)
+
+        // Release the lock even when the bounded wait fails so the task can finish cleanly.
+        releaseLock.signal()
+        await holderTask.value
+        let restored = try #require(await readTask.value)
+
+        #expect(readCompletedWhileLockHeld == .success)
+        #expect(restored.data == plaintext)
+    }
+
     @Test func messageMediaDiskCacheUnrelatedAccountPurgeDoesNotCancelInFlightStore() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
