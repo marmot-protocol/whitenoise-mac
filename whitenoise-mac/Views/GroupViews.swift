@@ -782,11 +782,11 @@ enum DisappearingMessageOption: Hashable, Identifiable {
     var label: String {
         switch self {
         case .off: return L10n.string("Off")
-        case .oneHour: return L10n.string("1 hour")
-        case .oneDay: return L10n.string("1 day")
-        case .oneWeek: return L10n.string("1 week")
-        case .oneMonth: return L10n.string("1 month")
-        case .custom(let value): return String(format: L10n.string("%llu seconds"), CUnsignedLongLong(value))
+        case .oneHour: return L10n.plural("%llu hours", UInt64(1))
+        case .oneDay: return L10n.plural("%llu days", UInt64(1))
+        case .oneWeek: return L10n.plural("%llu weeks", UInt64(1))
+        case .oneMonth: return L10n.plural("%llu months", UInt64(1))
+        case .custom(let value): return L10n.plural("%llu seconds", value)
         }
     }
 

@@ -33,6 +33,22 @@ struct PureValueTests {
         #expect(DisappearingMessageOption.custom(oversizedSeconds).label == "9223372036854775808 seconds")
     }
 
+    @Test func durationCountLabelsUseLocalePluralRules() {
+        let russian = Locale(identifier: "ru")
+        #expect(L10n.plural("%llu seconds", UInt64(1), locale: russian) == "1 секунда")
+        #expect(L10n.plural("%llu seconds", UInt64(2), locale: russian) == "2 секунды")
+        #expect(L10n.plural("%llu seconds", UInt64(5), locale: russian) == "5 секунд")
+        #expect(L10n.plural("%llu days", UInt64(1), locale: russian) == "1 день")
+        #expect(L10n.plural("%llu weeks", UInt64(1), locale: russian) == "1 неделя")
+    }
+
+    @Test func attachmentCountLabelsUseLocalePluralRules() {
+        let russian = Locale(identifier: "ru")
+        #expect(L10n.plural("%lld attachments", Int64(1), locale: russian) == "1 вложение")
+        #expect(L10n.plural("%lld attachments", Int64(2), locale: russian) == "2 вложения")
+        #expect(L10n.plural("%lld attachments", Int64(5), locale: russian) == "5 вложений")
+    }
+
     @Test func composerAudioWaveformUsesPrecomputedFallbackBars() async throws {
         // Regression for whitenoise-mac#292: fallback waveform samples/bars are used
         // while metadata loads, including during playback-progress repaint ticks. Keep

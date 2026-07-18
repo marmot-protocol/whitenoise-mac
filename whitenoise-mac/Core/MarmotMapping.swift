@@ -691,33 +691,25 @@ nonisolated extension MessageItem {
     }
 
     private static func retentionDurationLabel(_ seconds: UInt64) -> String {
-        switch seconds {
-        case 0:
+        if seconds == 0 {
             return L10n.string("off")
-        case 1:
-            return L10n.string("1 second")
-        case 60:
-            return L10n.string("1 minute")
-        case 3_600:
-            return L10n.string("1 hour")
-        case 86_400:
-            return L10n.string("1 day")
-        case 604_800:
-            return L10n.string("1 week")
-        case 2_592_000:
-            return L10n.string("1 month")
-        default:
-            if seconds.isMultiple(of: 86_400) {
-                return String(format: L10n.string("%llu days"), CUnsignedLongLong(seconds / 86_400))
-            }
-            if seconds.isMultiple(of: 3_600) {
-                return String(format: L10n.string("%llu hours"), CUnsignedLongLong(seconds / 3_600))
-            }
-            if seconds.isMultiple(of: 60) {
-                return String(format: L10n.string("%llu minutes"), CUnsignedLongLong(seconds / 60))
-            }
-            return String(format: L10n.string("%llu seconds"), CUnsignedLongLong(seconds))
         }
+        if seconds == 604_800 {
+            return L10n.plural("%llu weeks", UInt64(1))
+        }
+        if seconds == 2_592_000 {
+            return L10n.plural("%llu months", UInt64(1))
+        }
+        if seconds.isMultiple(of: 86_400) {
+            return L10n.plural("%llu days", seconds / 86_400)
+        }
+        if seconds.isMultiple(of: 3_600) {
+            return L10n.plural("%llu hours", seconds / 3_600)
+        }
+        if seconds.isMultiple(of: 60) {
+            return L10n.plural("%llu minutes", seconds / 60)
+        }
+        return L10n.plural("%llu seconds", seconds)
     }
 
     /// The Markdown document to render in a chat bubble, or `nil` when the bubble
