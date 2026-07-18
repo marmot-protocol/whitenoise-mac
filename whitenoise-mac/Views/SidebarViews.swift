@@ -10,8 +10,18 @@
 import AppKit
 import SwiftUI
 
-private func unreadBadgeLabel(for count: Int) -> String {
-    count > 99 ? "99+" : "\(count)"
+private struct UnreadCountBadge: View {
+    let count: Int
+    var font: Font = .caption2.weight(.bold)
+
+    var body: some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(font)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(Capsule().fill(MessagesPalette.sentBubble))
+    }
 }
 
 struct AccountRailView: View {
@@ -133,12 +143,7 @@ private struct AccountRailAvatar: View {
                 .foregroundStyle(.secondary)
                 .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
         } else if unread > 0 {
-            Text(unreadBadgeLabel(for: unread))
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 5)
-                .frame(minWidth: 18, minHeight: 18)
-                .background(Capsule().fill(MessagesPalette.sentBubble))
+            UnreadCountBadge(count: unread)
                 .overlay(Capsule().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
         }
     }
@@ -522,12 +527,7 @@ struct ChatRowContent: View {
                                 .background(Circle().fill(Color.accentColor))
                                 .help(L10n.string("You were mentioned"))
                         }
-                        Text(unreadBadgeLabel(for: chat.unreadCount))
-                            .font(MessagesType.badge)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .frame(minWidth: 18, minHeight: 18)
-                            .background(Capsule().fill(MessagesPalette.sentBubble))
+                        UnreadCountBadge(count: chat.unreadCount, font: MessagesType.badge)
                     }
                 }
             }
