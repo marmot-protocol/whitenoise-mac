@@ -14551,6 +14551,75 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removedSelectedChatFullSnapshotStopsInProgressVoiceRecordingAndClearsPerChatState() async throws {
+        // #507: a reconnect full snapshot can omit the selected chat entirely (not just flip
+        // membership). applyChatRows must run the same per-chat teardown and selected-chat
+        // transition as removeChat, or selection, recording, transcript export, and cached
+        // timeline state can linger after the conversation disappears.
+        let state = WorkspaceState.preview()
+        let account = AccountItem.samples[0]
+        let removedChatId = try #require(state.selectedChat?.id)
+        let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let url = try armInProgressVoiceRecording(on: state)
+        let transcriptExportTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        state.groupTranscriptExportTask = transcriptExportTask
+        defer { transcriptExportTask.cancel() }
+
+        state.cachedMessageChatIds.insert(removedChatId)
+        let removedTimelineStore = try #require(state.messageTimelineStores[removedChatId])
+        #expect(!removedTimelineStore.messages.isEmpty)
+        state.timelinePagingByChat[removedChatId] = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: false,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
+        state.timelineInitialLoadGroupId = removedChatId
+        let marker = ReadMarker(sentAt: Date(), messageId: "m-removed")
+        state.lastMarkedReadMarkers[removedChatId] = marker
+        state.lastConfirmedReadMarkers[removedChatId] = marker
+
+        await state.applyChatRows(
+            [
+                chatListRow(
+                    groupIdHex: "chat-nvk",
+                    title: "NVK",
+                    preview: "Let's keep the left rail fast for account switching.",
+                    sender: sender,
+                    timelineAt: 1_700_000_001
+                ),
+                chatListRow(
+                    groupIdHex: "chat-relays",
+                    title: "Relay Ops",
+                    preview: "EU and US White Noise relays both caught up on the last run.",
+                    sender: sender,
+                    timelineAt: 1_700_000_002
+                ),
+            ],
+            account: account
+        )
+
+        #expect(state.selection != .chat(removedChatId))
+        #expect(state.selection == .chat("chat-relays"))
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(transcriptExportTask.isCancelled)
+        await transcriptExportTask.value
+        #expect(!state.cachedMessageChatIds.contains(removedChatId))
+        #expect(state.messageTimelineStores[removedChatId] == nil)
+        #expect(removedTimelineStore.messages.isEmpty)
+        #expect(state.timelinePagingByChat[removedChatId] == nil)
+        #expect(state.timelineInitialLoadGroupId != removedChatId)
+        #expect(state.lastMarkedReadMarkers[removedChatId] == nil)
+        #expect(state.lastConfirmedReadMarkers[removedChatId] == nil)
+    }
+
+    @MainActor
     @Test func endedMembershipBulkRowsUpdateStopsInProgressVoiceRecording() async throws {
         // Sibling of the single-row test above for the bulk snapshot/reconnect path
         // (`applyChatRows`), which also carries membership flips (#311).
