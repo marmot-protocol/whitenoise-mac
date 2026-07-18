@@ -9430,7 +9430,8 @@ struct whitenoise_macTests {
             replacementBack.snapshot() ?? emptyTimelinePage(),
             groupIdHex: "direct-group",
             account: activeAccount,
-            client: runtime
+            client: runtime,
+            owner: .subscription(replacementBack)
         )
         #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-back-005")
         #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-back-104")
@@ -9468,7 +9469,8 @@ struct whitenoise_macTests {
             scrolledBackWindow,
             groupIdHex: "direct-group",
             account: activeAccount,
-            client: runtime
+            client: runtime,
+            owner: .subscription(replacementFwd)
         )
         let scrolledBackFirst = try #require(state.messagesByChat["direct-group"]?.first?.id)
         #expect(state.selectedTimelinePaging.hasMoreAfter)
@@ -9510,7 +9512,8 @@ struct whitenoise_macTests {
             replacementForwardWindow,
             groupIdHex: "direct-group",
             account: activeAccount,
-            client: runtime
+            client: runtime,
+            owner: .subscription(replacementForward)
         )
         let replacementForwardFirst = state.messagesByChat["direct-group"]?.first?.id
         let replacementForwardLast = state.messagesByChat["direct-group"]?.last?.id
@@ -9602,7 +9605,8 @@ struct whitenoise_macTests {
             replacement.snapshot() ?? emptyTimelinePage(),
             groupIdHex: "direct-group",
             account: activeAccount,
-            client: runtime
+            client: runtime,
+            owner: .subscription(replacement)
         )
         #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-apply-005")
         #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-apply-104")
@@ -9702,7 +9706,8 @@ struct whitenoise_macTests {
             replacement.snapshot() ?? emptyTimelinePage(),
             groupIdHex: "direct-group",
             account: activeAccount,
-            client: runtime
+            client: runtime,
+            owner: .subscription(replacement)
         )
         #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-page-005")
         #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-page-104")
@@ -9713,6 +9718,108 @@ struct whitenoise_macTests {
         #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-page-005")
         #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-page-104")
         #expect(state.selectedTimelinePaging.hasMoreBefore)
+    }
+
+    @MainActor
+    @Test func stalePostSendRefreshDoesNotClobberReplacementSubscriptionWindow() async throws {
+        // Issue #572: a point-in-time post-send query must retain ownership through mapping.
+        // A replacement listener for the same account/chat can otherwise apply B, only for the
+        // older refresh A to resume and overwrite it because selection itself did not change.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "initial",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Initial",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let activeAccount = try #require(state.activeAccount)
+        #expect(state.activeTimelineSubscription != nil)
+
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "stale-refresh",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Stale refresh",
+                    kind: 9,
+                    recordedAt: 1_700_000_001
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        state.timelineApplyMapGateEnabled = true
+        async let staleRefresh: Void = state.refreshSelectedTimelineAfterSend(
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        let didSuspendRefresh = await waitFor {
+            state.didReachTimelineApplyMapGate
+        }
+        guard didSuspendRefresh else {
+            state.timelineApplyMapGateEnabled = false
+            state.releaseTimelineApplyMapGate()
+            _ = await staleRefresh
+            Issue.record("Expected post-send refresh to reach the map gate")
+            return
+        }
+
+        let replacement = FakeTimelineMessagesSubscription(
+            messages: [
+                timelineMessage(
+                    id: "replacement",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Replacement",
+                    recordedAt: 1_700_000_002
+                )
+            ],
+            limit: 100,
+            windowCap: 200
+        )
+        state.activeTimelineSubscription = replacement
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            replacement.snapshot() ?? emptyTimelinePage(),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime,
+            owner: .subscription(replacement)
+        )
+        #expect(state.messagesByChat["direct-group"]?.map(\.id) == ["replacement"])
+
+        state.releaseTimelineApplyMapGate()
+        _ = await staleRefresh
+
+        #expect(state.messagesByChat["direct-group"]?.map(\.id) == ["replacement"])
     }
 
     @MainActor
@@ -9888,7 +9995,8 @@ struct whitenoise_macTests {
             replacement.snapshot() ?? emptyTimelinePage(),
             groupIdHex: "direct-group",
             account: activeAccount,
-            client: runtime
+            client: runtime,
+            owner: .subscription(replacement)
         )
 
         staleSubscription.releasePaginationGate()

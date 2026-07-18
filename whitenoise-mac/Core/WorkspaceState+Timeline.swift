@@ -18,12 +18,13 @@ private enum ComposerMediaUploadPresentation {
     static let uploadedAcknowledgementDelayNanoseconds: UInt64 = 300_000_000
 }
 
-/// Ownership token for subscription-originated or initial-load timeline window applies.
+/// Ownership token for subscription, initial-load, or post-send timeline window applies.
 /// Re-checked after every suspension in `applyTimelineWindow` so a superseded listener
-/// or load cannot overwrite a replacement for the same account/chat.
+/// or query cannot overwrite a replacement for the same account/chat.
 enum TimelineWindowOwner {
     case subscription(TimelineMessagesSubscription)
     case loadGeneration(UInt64)
+    case postSendRefresh(generation: UInt64, subscription: TimelineMessagesSubscription?)
 }
 
 @MainActor
@@ -295,7 +296,7 @@ extension WorkspaceState {
         groupIdHex: String,
         account: AccountItem,
         client: any MarmotRuntime,
-        owner: TimelineWindowOwner? = nil
+        owner: TimelineWindowOwner
     ) async {
         guard
             canApplyTimelineWindow(
@@ -378,10 +379,9 @@ extension WorkspaceState {
     private func canApplyTimelineWindow(
         groupIdHex: String,
         accountId: String,
-        owner: TimelineWindowOwner?
+        owner: TimelineWindowOwner
     ) -> Bool {
         guard activeAccountId == accountId, selectedChat?.id == groupIdHex else { return false }
-        guard let owner else { return true }
         switch owner {
         case .subscription(let expectedSubscription):
             guard activeTimelineGroupId == groupIdHex,
@@ -390,6 +390,15 @@ extension WorkspaceState {
         case .loadGeneration(let generation):
             guard ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
             else { return false }
+        case .postSendRefresh(let generation, let expectedSubscription):
+            guard timelinePostSendRefreshGeneration == generation else { return false }
+            if let expectedSubscription {
+                guard activeTimelineGroupId == groupIdHex,
+                    activeTimelineSubscription === expectedSubscription
+                else { return false }
+            } else {
+                guard activeTimelineSubscription == nil, activeTimelineGroupId == nil else { return false }
+            }
         }
         return true
     }
@@ -920,6 +929,7 @@ extension WorkspaceState {
         timelineTaskGroupId = nil
         activeTimelineSubscription = nil
         activeTimelineGroupId = nil
+        timelinePostSendRefreshGeneration &+= 1
     }
 
     func runTimelineListener(
@@ -1080,6 +1090,13 @@ extension WorkspaceState {
         client: any MarmotRuntime
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        timelinePostSendRefreshGeneration &+= 1
+        let refreshGeneration = timelinePostSendRefreshGeneration
+        let subscription = activeTimelineGroupId == groupIdHex ? activeTimelineSubscription : nil
+        let owner = TimelineWindowOwner.postSendRefresh(
+            generation: refreshGeneration,
+            subscription: subscription
+        )
         let pageLimit = Self.timelinePageLimit
         do {
             let page = try await runOffMain {
@@ -1096,9 +1113,17 @@ extension WorkspaceState {
                     )
                 )
             }
-            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
-            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: account, client: client)
+            await applyTimelineWindow(
+                page,
+                groupIdHex: groupIdHex,
+                account: account,
+                client: client,
+                owner: owner
+            )
         } catch {
+            guard
+                canApplyTimelineWindow(groupIdHex: groupIdHex, accountId: account.id, owner: owner)
+            else { return }
             setBackgroundStatus(error.localizedDescription)
         }
     }
