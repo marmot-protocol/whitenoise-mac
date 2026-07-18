@@ -134,8 +134,6 @@ final class NIP05RedirectPolicy: NSObject, URLSessionTaskDelegate {
 }
 
 struct NIP05Identifier: Equatable {
-    /// Mailbox-length ceiling, generous for any legitimate identifier.
-    private static let maxLength = 254
     /// The spec-legal local part, accepted case-insensitively and stored lowercased. Anything
     /// wider (`:`, `/`, …) lets a full profile ref or URL masquerade as a name.
     private static let localPartAlphabet = Set("abcdefghijklmnopqrstuvwxyz0123456789-_.")
@@ -150,7 +148,6 @@ struct NIP05Identifier: Equatable {
     init?(_ rawValue: String) {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
-            trimmed.count <= Self.maxLength,
             trimmed.firstIndex(of: "@") == trimmed.lastIndex(of: "@"),
             let separator = trimmed.firstIndex(of: "@")
         else {

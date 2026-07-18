@@ -14535,7 +14535,6 @@ struct whitenoise_macTests {
         #expect(NIP05Identifier("alice@\(maxDomain)x") == nil)
     }
 
-
     @Test func nip05IdentifierRejectsQueryMetacharactersInName() {
         // #527: local names must not be able to inject extra query parameters.
         #expect(NIP05Identifier("x&foo=bar@example.com") == nil)
