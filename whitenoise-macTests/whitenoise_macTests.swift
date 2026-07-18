@@ -13466,6 +13466,70 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func mutateGroupMemberDropsWhileProfileSaveIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
+
+        state.groupProfileDraftName = "Renamed Group"
+        state.groupProfileDraftDescription = "Planning room"
+        runtime.groupMutationGateEnabled = true
+        async let save: Void = state.saveGroupProfile()
+        let reachedProfileSaveGate = await waitFor {
+            state.isSavingGroupProfile && runtime.didReachGroupMutationGate
+        }
+        #expect(reachedProfileSaveGate)
+        guard reachedProfileSaveGate else {
+            runtime.releaseGroupMutationGate()
+            await save
+            return
+        }
+
+        #expect(state.hasInFlightGroupDetailsMutation)
+        await state.promoteGroupMember(member)
+        #expect(runtime.promoteAdminDetailedCallCount == 0)
+
+        runtime.releaseGroupMutationGate()
+        await save
+    }
+
+    @MainActor
+    @Test func inviteMemberDropsWhileProfileSaveIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        runtime.installNormalizedMemberRef(
+            query: "npub1newmemzer",
+            accountIdHex: "new1234567890new1234567890new1234567890new1234567890new1",
+            npub: "npub1newmemzer"
+        )
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        state.groupProfileDraftName = "Renamed Group"
+        state.groupProfileDraftDescription = "Planning room"
+        state.groupInviteMemberQuery = "npub1newmemzer"
+        runtime.groupMutationGateEnabled = true
+        async let save: Void = state.saveGroupProfile()
+        let reachedProfileSaveGate = await waitFor {
+            state.isSavingGroupProfile && runtime.didReachGroupMutationGate
+        }
+        #expect(reachedProfileSaveGate)
+        guard reachedProfileSaveGate else {
+            runtime.releaseGroupMutationGate()
+            await save
+            return
+        }
+
+        await state.inviteMemberToSelectedGroup()
+        #expect(runtime.inviteMembersDetailedCallCount == 0)
+
+        runtime.releaseGroupMutationGate()
+        await save
+    }
+
+    @MainActor
     @Test func inviteMemberDropsOverlappingDuplicateInvocation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
