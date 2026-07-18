@@ -15264,6 +15264,119 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removingLastSelectedChatStopsTimelineListener() async throws {
+        // #525: incremental `removeChat` with no replacement chat must tear down the live
+        // timeline listener/subscription; the old path only stopped it via `loadMessages(nextChat)`.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "only",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Only chat message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let activeAccount = try #require(state.activeAccount)
+        let chat = try #require(state.activeChats.first)
+        #expect(state.selection == .chat(chat.id))
+        let didStartTimeline = await waitFor {
+            state.activeTimelineSubscription != nil && state.timelineTask != nil
+        }
+        #expect(didStartTimeline)
+        let timelineTask = try #require(state.timelineTask)
+
+        state.removeChat(groupIdHex: chat.id, account: activeAccount)
+
+        #expect(state.activeChats.isEmpty)
+        #expect(state.selectedChat == nil)
+        #expect(state.timelineTask == nil)
+        #expect(state.timelineTaskGroupId == nil)
+        #expect(state.activeTimelineSubscription == nil)
+        #expect(state.activeTimelineGroupId == nil)
+        #expect(timelineTask.isCancelled)
+    }
+
+    @MainActor
+    @Test func archivingLastSelectedChatStopsTimelineListener() async throws {
+        // #525: incremental archive delta (`moveChatToArchived`) with no replacement chat must
+        // tear down the live timeline listener/subscription the same way explicit navigation does.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "only",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Only chat message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ], groupIdHex: "group")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let activeAccount = try #require(state.activeAccount)
+        let chat = try #require(state.activeChats.first)
+        #expect(state.selection == .chat(chat.id))
+        let didStartTimeline = await waitFor {
+            state.activeTimelineSubscription != nil && state.timelineTask != nil
+        }
+        #expect(didStartTimeline)
+        let timelineTask = try #require(state.timelineTask)
+
+        await state.applyChatRow(
+            ChatListRowFfi(
+                groupIdHex: chat.id,
+                archived: true,
+                pendingConfirmation: false,
+                title: "Test Group",
+                groupName: "Test Group",
+                avatarUrl: nil,
+                avatar: nil,
+                lastMessage: ChatListMessagePreviewFfi(
+                    messageIdHex: "preview",
+                    sender: account.accountIdHex,
+                    senderDisplayName: nil,
+                    plaintext: "Only chat message",
+                    contentTokens: emptyMarkdownDocument(),
+                    kind: 9,
+                    timelineAt: 1_700_000_000,
+                    deleted: false
+                ),
+                unreadCount: 0,
+                hasUnread: false,
+                unreadMentionCount: 0,
+                unreadMention: false,
+                firstUnreadMessageIdHex: nil,
+                lastReadMessageIdHex: nil,
+                lastReadTimelineAt: nil,
+                updatedAt: 1_700_000_000,
+                selfMembership: .member
+            ),
+            account: activeAccount
+        )
+
+        #expect(state.activeChats.isEmpty)
+        #expect(state.archivedChats.count == 1)
+        #expect(state.selectedChat == nil)
+        #expect(state.timelineTask == nil)
+        #expect(state.timelineTaskGroupId == nil)
+        #expect(state.activeTimelineSubscription == nil)
+        #expect(state.activeTimelineGroupId == nil)
+        #expect(timelineTask.isCancelled)
+    }
+
+    @MainActor
     @Test func resetToNewInstallStateStopsInProgressVoiceRecording() throws {
         // #311: the full local-data teardown must also release the recorder so a wipe cannot
         // leave the microphone active or plaintext audio writes running in the old state.
