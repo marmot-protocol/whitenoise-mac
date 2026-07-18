@@ -13,8 +13,16 @@ import AppKit
 import ImageIO
 import SwiftUI
 
+struct ComposerEmojiInsertion: Equatable {
+    let id = UUID()
+    let emoji: String
+}
+
 struct ComposerMessageInputView: View {
     @Binding var text: String
+    let placeholder: String
+    let emojiInsertion: ComposerEmojiInsertion?
+    let onEmojiInsertionConsumed: (UUID) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
@@ -25,13 +33,15 @@ struct ComposerMessageInputView: View {
             ComposerMessageTextViewRepresentable(
                 text: $text,
                 measuredHeight: $measuredHeight,
+                emojiInsertion: emojiInsertion,
+                onEmojiInsertionConsumed: onEmojiInsertionConsumed,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend
             )
             .frame(height: measuredHeight)
 
             if text.isEmpty {
-                Text("Message")
+                Text(placeholder)
                     .font(.body)
                     .foregroundStyle(Color(nsColor: .placeholderTextColor))
                     .padding(.top, 1)
@@ -72,6 +82,8 @@ nonisolated enum ComposerKeyboardShortcutPolicy {
 private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var measuredHeight: CGFloat
+    let emojiInsertion: ComposerEmojiInsertion?
+    let onEmojiInsertionConsumed: (UUID) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
@@ -119,6 +131,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.measuredHeight = $measuredHeight
         context.coordinator.onPasteMedia = onPasteMedia
         context.coordinator.onSend = onSend
+        context.coordinator.onEmojiInsertionConsumed = onEmojiInsertionConsumed
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
         configureHandlers(for: textView, coordinator: context.coordinator)
@@ -126,6 +139,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+        context.coordinator.insertEmojiIfNeeded(emojiInsertion, into: textView)
         DispatchQueue.main.async {
             context.coordinator.updateMeasuredHeight(for: textView)
         }
@@ -146,17 +160,32 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var measuredHeight: Binding<CGFloat>
         var onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
         var onSend: () -> Void
+        var onEmojiInsertionConsumed: (UUID) -> Void
+        private var lastEmojiInsertionID: UUID?
 
         init(
             text: Binding<String>,
             measuredHeight: Binding<CGFloat>,
             onPasteMedia: @escaping ([OutgoingMediaPasteboardAttachment]) -> Void,
-            onSend: @escaping () -> Void
+            onSend: @escaping () -> Void,
+            onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in }
         ) {
             self.text = text
             self.measuredHeight = measuredHeight
             self.onPasteMedia = onPasteMedia
             self.onSend = onSend
+            self.onEmojiInsertionConsumed = onEmojiInsertionConsumed
+        }
+
+        func insertEmojiIfNeeded(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
+            guard let insertion, insertion.id != lastEmojiInsertionID else { return }
+            lastEmojiInsertionID = insertion.id
+            let selectedRange = textView.selectedRange()
+            textView.insertText(insertion.emoji, replacementRange: selectedRange)
+            text.wrappedValue = textView.string
+            updateMeasuredHeight(for: textView)
+            textView.window?.makeFirstResponder(textView)
+            onEmojiInsertionConsumed(insertion.id)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -659,34 +688,66 @@ struct ReplyComposerContextView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrowshape.turn.up.left.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(MessagesPalette.sentBubble)
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(MessagesPalette.sentBubble)
+                .frame(width: 4, height: 38)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(context.senderName)
+                Text("Replying to \(context.senderName)")
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(MessagesPalette.sentBubble)
                     .lineLimit(1)
 
                 Text(context.body)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
             }
 
             Spacer(minLength: 12)
 
             Button(action: cancel) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 24, height: 24)
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 40, height: 40)
+                    .contentShape(Circle())
             }
-            .nativeGlassCircleButtonStyle()
+            .buttonStyle(.plain)
+            .background { MessagesCircleControlBackground() }
             .help("Cancel reply")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .background { GlassRoundedBackground(cornerRadius: 12) }
+    }
+}
+
+struct EditComposerContextView: View {
+    let context: MessageEditContext
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pencil")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MessagesPalette.sentBubble)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Editing message")
+                    .font(.caption.weight(.semibold))
+                Text(context.originalBody)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .glassCard()
+        .background { GlassRoundedBackground(cornerRadius: 12) }
     }
 }
 
@@ -852,48 +913,78 @@ struct ConversationHeader: View {
         @Bindable var workspace = workspace
 
         HStack(spacing: 10) {
-            // Tapping the avatar or title opens the chat info / settings panel,
-            // which slides in over the transcript (see ConversationView).
-            Button {
-                Task { await workspace.showGroupDetails(for: chat) }
-            } label: {
-                HStack(spacing: 10) {
-                    ProfileImageAvatarView(
-                        seed: chat.avatarSeed,
-                        initials: chat.title,
-                        sanitizedPictureURL: chat.sanitizedPictureURL,
-                        size: 38,
-                        isSelected: false
-                    )
-
-                    Text(chat.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .lineLimit(1)
-                        .foregroundStyle(.primary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Chat info")
-
-            Spacer()
-
-            // Changing the group image is a send (commit) under the hood, which the
-            // core rejects until the invite is accepted, or once the local account is
-            // no longer a member.
-            if !chat.isDirect && chat.canUseComposer {
+            if workspace.isTimelineSelectionMode {
                 Button {
-                    workspace.showGroupImagePicker(for: chat)
+                    workspace.cancelMessageSelection()
                 } label: {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 34, height: 34)
-                        .background {
-                            MessagesCircleControlBackground()
-                        }
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 40, height: 40)
+                        .background { MessagesCircleControlBackground() }
                 }
                 .buttonStyle(.plain)
-                .help("Set group image")
+                .help(L10n.string("Cancel selection"))
+
+                Text(
+                    String(
+                        format: L10n.string("%d selected"),
+                        workspace.selectedTimelineMessageIds.count
+                    )
+                )
+                .font(.system(size: 15, weight: .semibold))
+
+                Spacer()
+            } else {
+                // Tapping the avatar or title opens the chat info / settings panel,
+                // which slides in over the transcript (see ConversationView).
+                Button {
+                    Task { await workspace.showGroupDetails(for: chat) }
+                } label: {
+                    HStack(spacing: 10) {
+                        ProfileImageAvatarView(
+                            seed: chat.avatarSeed,
+                            initials: chat.title,
+                            sanitizedPictureURL: chat.sanitizedPictureURL,
+                            size: 38,
+                            isSelected: false
+                        )
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(chat.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .lineLimit(1)
+                                .foregroundStyle(.primary)
+
+                            Text(workspace.conversationMetadataByChat[chat.id]?.subtitle ?? chat.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Chat info")
+
+                Spacer()
+
+                // Changing the group image is a send (commit) under the hood, which the
+                // core rejects until the invite is accepted, or once the local account is
+                // no longer a member.
+                if !chat.isDirect && chat.canUseComposer {
+                    Button {
+                        workspace.showGroupImagePicker(for: chat)
+                    } label: {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .help("Set group image")
+                }
             }
         }
         .padding(.horizontal, 14)
@@ -906,5 +997,177 @@ struct ConversationHeader: View {
         .sheet(isPresented: $workspace.isGroupImagePickerPresented) {
             GroupImagePickerSheet()
         }
+    }
+}
+
+struct MessageSelectionToolbar: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    var body: some View {
+        let messages = workspace.selectedTimelineMessagesForAction
+        let canForward = messages.contains(where: \.canForward)
+        let canDelete = messages.contains(where: workspace.canDeleteMessage)
+
+        HStack(spacing: 12) {
+            Text(
+                String(
+                    format: L10n.string("%d selected"),
+                    workspace.selectedTimelineMessageIds.count
+                )
+            )
+            .font(.callout.weight(.semibold))
+
+            Spacer()
+
+            Button {
+                workspace.startForwarding(messages)
+            } label: {
+                Label(L10n.string("Forward"), systemImage: "arrowshape.turn.up.right")
+                    .frame(minWidth: 40, minHeight: 40)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canForward)
+
+            Button(role: .destructive) {
+                Task { await workspace.deleteSelectedMessages() }
+            } label: {
+                Label(L10n.string("Delete"), systemImage: "trash")
+                    .frame(minWidth: 40, minHeight: 40)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canDelete)
+        }
+        .frame(minHeight: 42)
+    }
+}
+
+struct MessageInfoSheet: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let message: MessageItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text(L10n.string("Message Info"))
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Button {
+                    workspace.messageInfoTarget = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                infoRow(title: L10n.string("From"), value: message.senderName)
+                infoRow(
+                    title: L10n.string("Sent"),
+                    value: DisplayText.longDateTimeTimestamp(for: message.sentAt)
+                )
+                if message.isEdited {
+                    infoRow(title: L10n.string("Status"), value: L10n.string("Edited"))
+                }
+                infoRow(title: L10n.string("Message ID"), value: message.id)
+            }
+
+            if !message.trimmedBody.isEmpty {
+                Text(message.body)
+                    .textSelection(.enabled)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background { GlassRoundedBackground(cornerRadius: 12) }
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+
+    private func infoRow(title: String, value: String) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+        }
+    }
+}
+
+struct MessageForwardSheet: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var query = ""
+
+    var body: some View {
+        let targets = workspace.activeChats.filter { chat in
+            let searchMatches = query.isEmpty || chat.title.localizedCaseInsensitiveContains(query)
+            return chat.canUseComposer && searchMatches
+        }
+
+        VStack(spacing: 0) {
+            HStack {
+                Text(L10n.string("Forward To"))
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Button {
+                    workspace.cancelForwarding()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(16)
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField(L10n.string("Search chats"), text: $query)
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(targets) { chat in
+                        Button {
+                            Task { await workspace.forwardPendingMessages(to: chat) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                ProfileImageAvatarView(
+                                    seed: chat.avatarSeed,
+                                    initials: chat.title,
+                                    sanitizedPictureURL: chat.sanitizedPictureURL,
+                                    size: 34,
+                                    isSelected: false
+                                )
+                                Text(chat.title)
+                                    .lineLimit(1)
+                                Spacer()
+                                if workspace.isForwardingMessages {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrowshape.turn.up.right")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 52)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(workspace.isForwardingMessages)
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+        }
+        .frame(width: 420, height: 520)
     }
 }

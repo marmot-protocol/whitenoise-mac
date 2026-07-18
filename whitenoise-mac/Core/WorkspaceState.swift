@@ -857,8 +857,13 @@ final class WorkspaceState {
             replyDraftContextByConversation[selectedComposerDraftKey] = newValue
         }
     }
+    var editingMessageContext: MessageEditContext? {
+        guard let selectedComposerDraftKey else { return nil }
+        return editingMessageContextByConversation[selectedComposerDraftKey]
+    }
     var isResolvingNewChat = false
     var isCreatingChat = false
+    var isRefreshingAccountProfiles = false
     var isGroupImagePickerPresented = false
     var groupImageSearchQuery = ""
     var groupImageResults: [GroupImageSearchResult] = []
@@ -866,6 +871,13 @@ final class WorkspaceState {
     var isSavingGroupImage = false
     var isGroupDetailsPresented = false
     var groupDetailsSnapshot: GroupDetailsSnapshot?
+    var conversationMetadataByChat: [String: ConversationMetadata] = [:]
+    @ObservationIgnored var conversationMetadataGenerationByChat: [String: UInt64] = [:]
+    var selectedTimelineMessageIds: Set<String> = []
+    var messageInfoTarget: MessageItem?
+    var forwardingMessageIds: [String] = []
+    var isForwardPickerPresented = false
+    var isForwardingMessages = false
     var groupProfileDraftName = ""
     var groupProfileDraftDescription = ""
     var groupInviteMemberQuery = ""
@@ -888,6 +900,7 @@ final class WorkspaceState {
     var timelineInitialLoadGroupId: String?
     var draftTextByConversation: [ComposerDraftKey: String] = [:]
     var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
+    var editingMessageContextByConversation: [ComposerDraftKey: MessageEditContext] = [:]
     var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
     var pendingMediaUploadStatesByConversation:
         [ComposerDraftKey: [PendingMediaAttachment.ID: PendingMediaUploadState]] = [:]
@@ -1822,7 +1835,7 @@ final class WorkspaceState {
     }
 
     var showsMessengerChrome: Bool {
-        phase == .ready
+        phase == .ready && activeAccount != nil
     }
 
     var preferredColorScheme: ColorScheme? {

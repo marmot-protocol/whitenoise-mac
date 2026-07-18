@@ -82,6 +82,8 @@ nonisolated protocol MarmotRuntime: Sendable {
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
         -> SendSummaryFfi
     func deleteMessage(accountRef: String, groupIdHex: String, targetMessageId: String) async throws -> SendSummaryFfi
+    func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
+        -> SendSummaryFfi
     func parseMarkdown(text: String) -> MarkdownDocumentFfi
     func accountUnreadSummary() throws -> [AccountUnreadFfi]
     func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi
@@ -468,6 +470,17 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             accountRef: accountRef,
             groupIdHex: groupIdHex,
             targetMessageId: targetMessageId
+        )
+    }
+
+    func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
+        -> SendSummaryFfi
+    {
+        try await marmot.editMessage(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            targetMessageId: targetMessageId,
+            content: content
         )
     }
 

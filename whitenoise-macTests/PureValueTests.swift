@@ -90,6 +90,47 @@ struct PureValueTests {
         #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: .option) == .deferToSystem)
     }
 
+    @Test func emojiSearchMatchesNamesAndKeywordsWithStableRanking() async throws {
+        let entries = [
+            ChatEmojiCatalogEntry(emoji: "😂", name: "face with tears of joy", group: 0, keywords: ["laugh"]),
+            ChatEmojiCatalogEntry(emoji: "😀", name: "grinning face", group: 0, keywords: ["happy"]),
+            ChatEmojiCatalogEntry(emoji: "❤️", name: "red heart", group: 7, keywords: ["love"]),
+        ]
+
+        #expect(ChatEmojiSearch.results(in: entries, query: "laugh").map(\.emoji) == ["😂"])
+        #expect(ChatEmojiSearch.results(in: entries, query: "red").map(\.emoji) == ["❤️"])
+        #expect(ChatEmojiSearch.results(in: entries, query: "face").map(\.emoji) == ["😂", "😀"])
+    }
+
+    @Test func onlyOutgoingPlainTextMessagesCanEnterComposerEditing() async throws {
+        let outgoing = MessageItem(
+            id: "outgoing",
+            senderName: "You",
+            body: "Original",
+            sentAt: .now,
+            isOutgoing: true
+        )
+        let incoming = MessageItem(
+            id: "incoming",
+            senderName: "Friend",
+            body: "Original",
+            sentAt: .now,
+            isOutgoing: false
+        )
+        let deleted = MessageItem(
+            id: "deleted",
+            senderName: "You",
+            body: "Original",
+            sentAt: .now,
+            isDeleted: true,
+            isOutgoing: true
+        )
+
+        #expect(outgoing.canEdit)
+        #expect(!incoming.canEdit)
+        #expect(!deleted.canEdit)
+    }
+
     @Test func mediaDurationLabelClampsNonFiniteAndOversizedDurations() async throws {
         // Regression for whitenoise-mac#253: the audio duration is peer-derived
         // (MediaWaveformAnalyzer -> AVAudioFile.length / sampleRate), so it may be

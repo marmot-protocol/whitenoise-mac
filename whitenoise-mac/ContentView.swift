@@ -49,7 +49,10 @@ struct ContentView: View {
                 // The app just regained focus. Flush any read-marking that was deferred
                 // while it was in the background so the selected chat clears its unread
                 // state now that the user may be looking at it again.
-                Task { await workspace.handleConversationVisibilityChange() }
+                Task {
+                    await workspace.handleConversationVisibilityChange()
+                    await workspace.refreshAccountProfiles()
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(

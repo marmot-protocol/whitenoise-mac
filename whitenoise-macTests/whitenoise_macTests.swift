@@ -259,8 +259,9 @@ private struct TranscriptPerformanceRows: View {
                 ConversationMessageRow(
                     message: message,
                     showsDebugMetadata: false
-                ) { _ in }
-                .equatable()
+                ) { _ in
+                } onNavigateToMessage: { _ in
+                }
             }
         }
         .padding(.horizontal, 28)
@@ -878,7 +879,7 @@ struct whitenoise_macTests {
         await state.signOutAccount(desktopAccount)
 
         #expect(runtime.signedOutAccountRefs == [primary.label])
-        #expect(state.phase == .onboarding)
+        #expect(state.phase == .ready)
         #expect(state.activeAccountId == nil)
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecorder == nil)
@@ -3428,11 +3429,59 @@ struct whitenoise_macTests {
 
         let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
         let expected = messageDate.formatted(
-            Date.FormatStyle(date: .abbreviated, time: .shortened)
+            Date.FormatStyle(date: .omitted, time: .shortened)
                 .locale(Locale(identifier: AppLanguage.spanish.rawValue))
         )
 
         #expect(DisplayText.messageTimestamp(for: messageDate) == expected)
+    }
+
+    @MainActor
+    @Test func longDateTimeTimestampUsesSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+
+        let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let expected = messageDate.formatted(
+            Date.FormatStyle(date: .long, time: .shortened)
+                .locale(Locale(identifier: AppLanguage.spanish.rawValue))
+        )
+
+        #expect(DisplayText.longDateTimeTimestamp(for: messageDate) == expected)
+    }
+
+    @MainActor
+    @Test func timelineDayGroupingLabelsOnlyDayBoundaries() async throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 7, day: 17, hour: 12))!
+        let older = calendar.date(byAdding: .day, value: -3, to: now)!
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
+        let laterYesterday = calendar.date(byAdding: .hour, value: 2, to: yesterday)!
+        let messages = [older, yesterday, laterYesterday, now].enumerated().map { index, date in
+            MessageItem(
+                id: "day-\(index)",
+                senderName: "Alice",
+                body: "Message \(index)",
+                sentAt: date,
+                isOutgoing: false
+            )
+        }
+
+        let items = TimelineMessageDisplayItem.make(
+            from: messages,
+            now: now,
+            calendar: calendar,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(items[0].dayLabel != nil)
+        #expect(items[1].dayLabel == "Yesterday")
+        #expect(items[2].dayLabel == nil)
+        #expect(items[3].dayLabel == "Today")
+        #expect(items.map(\.id) == messages.map(\.id))
     }
 
     @MainActor
@@ -3693,6 +3742,47 @@ struct whitenoise_macTests {
         #expect(!outgoing.timeLabel.isEmpty)
         #expect(outgoing.statusLabel == "Sent")
         #expect(incoming.statusLabel == nil)
+    }
+
+    @MainActor
+    @Test func messageMetadataCanShareTheFinalLineOfSimpleText() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let plain = MessageItem(
+            id: "plain-inline",
+            senderName: "Alice",
+            body: "Short",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let paragraph = MessageItem(
+            id: "paragraph-inline",
+            senderName: "Alice",
+            body: "Styled",
+            contentMarkdown: MarkdownDocumentFfi(
+                blocks: [.paragraph(inlines: [.strong(children: [.text(content: "Styled")])])],
+                truncated: false
+            ),
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let structured = MessageItem(
+            id: "structured-blocks",
+            senderName: "Alice",
+            body: "Heading\nBody",
+            contentMarkdown: MarkdownDocumentFfi(
+                blocks: [
+                    .heading(level: 2, inlines: [.text(content: "Heading")]),
+                    .paragraph(inlines: [.text(content: "Body")]),
+                ],
+                truncated: false
+            ),
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+
+        #expect(plain.supportsInlineMetadata)
+        #expect(paragraph.supportsInlineMetadata)
+        #expect(!structured.supportsInlineMetadata)
     }
 
     @MainActor
@@ -10171,6 +10261,128 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func editingMessageUsesComposerAndRestoresPreservedDraft() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let preservedReplyTarget = MessageItem(
+            id: "reply-target",
+            senderName: "Alice",
+            body: "Keep this reply queued.",
+            sentAt: Date(timeIntervalSince1970: 1_699_999_900),
+            isOutgoing: false
+        )
+        state.startReply(to: preservedReplyTarget)
+        state.draftText = "Preserved draft"
+        state.startEditingMessage(
+            MessageItem(
+                id: "message-to-edit",
+                senderName: "You",
+                body: "Original text",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: true
+            ))
+
+        #expect(state.editingMessageContext?.targetMessageId == "message-to-edit")
+        #expect(state.draftText == "Original text")
+        #expect(state.replyDraftContext == nil)
+
+        state.startEditingMessage(
+            MessageItem(
+                id: "replacement-edit",
+                senderName: "You",
+                body: "Do not replace the active edit",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_100),
+                isOutgoing: true
+            ))
+
+        #expect(state.editingMessageContext?.targetMessageId == "message-to-edit")
+        #expect(state.draftText == "Original text")
+
+        state.draftText = "Updated text"
+        await state.sendDraft()
+
+        #expect(
+            runtime.editedMessage
+                == EditedMessage(
+                    groupIdHex: "direct-group",
+                    targetMessageId: "message-to-edit",
+                    content: "Updated text"
+                ))
+        #expect(state.editingMessageContext == nil)
+        #expect(state.draftText == "Preserved draft")
+        #expect(state.replyDraftContext?.targetMessageId == preservedReplyTarget.id)
+    }
+
+    @MainActor
+    @Test func cancellingMessageEditRestoresPreservedReplyAndDraft() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let replyTarget = MessageItem(
+            id: "reply-target",
+            senderName: "Alice",
+            body: "Reply later",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        state.startReply(to: replyTarget)
+        state.draftText = "Unsent draft"
+        state.startEditingMessage(
+            MessageItem(
+                id: "message-to-edit",
+                senderName: "You",
+                body: "Original text",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_100),
+                isOutgoing: true
+            ))
+
+        state.cancelEditingMessage()
+
+        #expect(state.editingMessageContext == nil)
+        #expect(state.draftText == "Unsent draft")
+        #expect(state.replyDraftContext?.targetMessageId == replyTarget.id)
+    }
+
+    @MainActor
     @Test func replyContextAndPendingMediaAreMutuallyExclusive() async throws {
         // Issue #399: FFI media uploads carry no reply target. The composer must never
         // keep both a visible reply banner and pending media, regardless of which one
@@ -10994,6 +11206,66 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupAdminCanDeleteIncomingMessage() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: true)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let message = MessageItem(
+            id: "incoming-group-message",
+            senderName: "Alice",
+            body: "Remove this from the group",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        await state.refreshConversationMetadata(for: chat)
+
+        #expect(state.canDeleteMessage(message))
+        await state.deleteMessage(message)
+        #expect(
+            runtime.deletedMessage
+                == DeletedMessage(
+                    groupIdHex: chat.id,
+                    targetMessageId: message.id
+                ))
+    }
+
+    @MainActor
+    @Test func newerFailedConversationMetadataRefreshInvalidatesHeldOlderResult() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: true)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        await state.refreshConversationMetadata(for: chat)
+        #expect(state.conversationMetadataByChat[chat.id]?.isSelfAdmin == true)
+
+        runtime.groupDetailsGateEnabled = true
+        async let olderRefresh: Void = state.refreshConversationMetadata(for: chat)
+        while !runtime.didReachGroupDetailsGate {
+            await Task.yield()
+        }
+
+        runtime.groupDetailsFailureGroupIds.insert(chat.id)
+        await state.refreshConversationMetadata(for: chat)
+        #expect(state.conversationMetadataByChat[chat.id] == nil)
+
+        runtime.releaseGroupDetailsGate()
+        _ = await olderRefresh
+
+        #expect(state.conversationMetadataByChat[chat.id] == nil)
+    }
+
+    @MainActor
     @Test func messageActionsRemoveOwnReactionByDeletingReactionEvent() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -11368,7 +11640,7 @@ struct whitenoise_macTests {
         #expect(state.activeChats.first?.avatarSeed == "alice1234567890alice1234567890alice1234567890alice1234567890")
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
         #expect(state.activeChats.first?.isDirect == true)
-        #expect(runtime.refreshedProfileIds.isEmpty)
+        #expect(runtime.refreshedProfileIds == [account.accountIdHex])
     }
 
     @MainActor
@@ -14663,6 +14935,38 @@ struct whitenoise_macTests {
         #expect(state.selection == .chat("created-group"))
         #expect(!state.isNewChatComposerVisible)
         #expect(state.activeChats.map(\.id) == ["created-group"])
+    }
+
+    @MainActor
+    @Test func startingDirectChatReusesExistingConversation() async throws {
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installNormalizedMemberRef(query: "npub1alice", accountIdHex: aliceId, npub: "npub1alice")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showNewChat()
+        state.newChatQuery = "npub1alice"
+        await state.createNewChat()
+
+        #expect(runtime.createdGroupMemberRefs.isEmpty)
+        #expect(state.selection == .chat("direct-group"))
+        #expect(!state.isNewChatComposerVisible)
     }
 
     @MainActor
@@ -18027,6 +18331,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var repliedMessage: SentReply?
     private(set) var reactedMessage: SentReaction?
     private(set) var deletedMessage: DeletedMessage?
+    private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
     private(set) var uploadedMedia: UploadedMedia?
     // Issue #78 reentrancy-test support: count message-action FFI calls so a test can prove
@@ -18035,6 +18340,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var replyToMessageCallCount = 0
     private(set) var reactToMessageCallCount = 0
     private(set) var deleteMessageCallCount = 0
+    private(set) var editMessageCallCount = 0
     private(set) var uploadMediaCallCount = 0
     var listMediaCallCount: Int {
         recordedStateLock.withLock { _listMediaCallCount }
@@ -19366,6 +19672,14 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["delete"])
     }
 
+    func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws
+        -> SendSummaryFfi
+    {
+        editMessageCallCount += 1
+        editedMessage = EditedMessage(groupIdHex: groupIdHex, targetMessageId: targetMessageId, content: content)
+        await messageActionGate.passIfArmed()
+        return SendSummaryFfi(published: 1, messageIds: ["edit"])
+    }
     func releaseMessageActionGate() {
         messageActionGate.release()
     }
@@ -19562,6 +19876,12 @@ private struct SentReaction: Equatable {
 private struct DeletedMessage: Equatable {
     let groupIdHex: String
     let targetMessageId: String
+}
+
+private struct EditedMessage: Equatable {
+    let groupIdHex: String
+    let targetMessageId: String
+    let content: String
 }
 
 private struct UpdatedGroupAvatar: Equatable {
