@@ -3528,6 +3528,29 @@ struct whitenoise_macTests {
         #expect(L10n.string("Save") == "Guardar")
     }
 
+    @Test func memberCountLocalizationUsesLocalePluralRules() {
+        let russian = Locale(identifier: "ru")
+        #expect(L10n.plural("%lld members", Int64(1), locale: russian) == "1 участник")
+        #expect(L10n.plural("%lld members", Int64(2), locale: russian) == "2 участника")
+        #expect(L10n.plural("%lld members", Int64(5), locale: russian) == "5 участников")
+        #expect(L10n.plural("%lld members", Int64(21), locale: russian) == "21 участник")
+        #expect(L10n.plural("%lld members", Int64(2), locale: Locale(identifier: "tr")) == "2 üye")
+    }
+
+    @MainActor
+    @Test func memberCountLocalizationUsesSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+
+        UserDefaults.standard.set(AppLanguage.russian.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        #expect(L10n.plural("%lld members", Int64(2)) == "2 участника")
+
+        UserDefaults.standard.set(AppLanguage.turkish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        #expect(L10n.plural("%lld members", Int64(2)) == "2 üye")
+    }
+
     @MainActor
     @Test func localizedStringBundleCacheInvalidatesOnLanguageChange() async throws {
         // Regression for the residual half of #28 (#117): `L10n.string` caches the

@@ -35,6 +35,22 @@ nonisolated enum L10n {
         return Bundle.main.localizedString(forKey: key, value: key, table: nil)
     }
 
+    static func plural(_ key: String, _ count: Int64) -> String {
+        let locale = AppLanguage.currentLocale
+        return formatPlural(string(key), count: count, locale: locale)
+    }
+
+    static func plural(
+        _ key: String,
+        _ count: Int64,
+        locale: Locale,
+        baseBundle: Bundle = .main
+    ) -> String {
+        let bundle = localizedBundle(for: locale, in: baseBundle) ?? baseBundle
+        let format = bundle.localizedString(forKey: key, value: key, table: nil)
+        return formatPlural(format, count: count, locale: locale)
+    }
+
     /// Clear the cached localized bundle so the next `string(_:)` call re-resolves
     /// it for the current language preference. Called from
     /// `AppLanguage.refreshCachedLocale()` whenever the preference or effective
@@ -61,7 +77,7 @@ nonisolated enum L10n {
         }
     }
 
-    private static func localizedBundle(for locale: Locale) -> Bundle? {
+    private static func localizedBundle(for locale: Locale, in baseBundle: Bundle = .main) -> Bundle? {
         let identifier = locale.identifier.replacingOccurrences(of: "_", with: "-")
         let parts = identifier.split(separator: "-").map(String.init)
         var candidates = [identifier]
@@ -73,12 +89,18 @@ nonisolated enum L10n {
         }
 
         for candidate in candidates {
-            if let path = Bundle.main.path(forResource: candidate, ofType: "lproj"),
+            if let path = baseBundle.path(forResource: candidate, ofType: "lproj"),
                 let bundle = Bundle(path: path)
             {
                 return bundle
             }
         }
         return nil
+    }
+
+    private static func formatPlural(_ format: String, count: Int64, locale: Locale) -> String {
+        withVaList([count]) {
+            NSString(format: format, locale: locale, arguments: $0) as String
+        }
     }
 }
