@@ -1768,6 +1768,9 @@ struct PureValueTests {
             "https://[64:ff9b::c0a8:1]/x.png",  // NAT64 well-known prefix around 192.168.0.1
             "https://[64:ff9b::192.168.0.1]/x.png",
             "https://[64:ff9b::7f00:1]/x.png",  // NAT64 around 127.0.0.1
+            "https://[64:ff9b:1::]/x.png",  // RFC 8215 local-use translation prefix, low boundary
+            "https://[64:ff9b:1::1]/x.png",
+            "https://[64:ff9b:1:ffff:ffff:ffff:ffff:ffff]/x.png",  // RFC 8215 /48 high boundary
             "https://[::2]/x.png",  // IPv4-compatible 0.0.0.2, inside 0.0.0.0/8
             "https://[::ffff]/x.png",  // IPv4-compatible 0.0.255.255
             "https://[2001:db8::5]/x.png",  // documentation range 2001:db8::/32, non-routable
@@ -1780,6 +1783,7 @@ struct PureValueTests {
 
         // Embedded-public NAT64 and plain public IPv6 destinations keep loading.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b::808:808]/x.png") != nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b:2::1]/x.png") != nil)  // adjacent to RFC 8215 /48
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[2606:4700:4700::1111]/x.png") != nil)
     }
 
