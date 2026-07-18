@@ -2254,6 +2254,64 @@ struct NewChatRecipient: Equatable {
     }
 }
 
+/// Which panel of the new-chat flow the drawer shows while the composer is visible.
+enum ComposePane: Equatable {
+    case newChat
+    case chooseMembers
+    case nameGroup
+}
+
+/// A person reachable from the compose flow. Derived from already-loaded chats (direct-chat
+/// peers and group rosters) because the core exposes no contact-enumeration call.
+struct ComposeContact: Identifiable, Equatable {
+    let accountIdHex: String
+    let npub: String
+    let displayName: String?
+    let pictureURL: String?
+    let sanitizedPictureURL: URL?
+    let lastActivity: Date?
+
+    var id: String { accountIdHex }
+
+    init(
+        accountIdHex: String,
+        npub: String,
+        displayName: String?,
+        pictureURL: String?,
+        lastActivity: Date?
+    ) {
+        self.accountIdHex = accountIdHex
+        self.npub = npub
+        self.displayName = PeerDisplayText.sanitize(displayName)
+        self.pictureURL = pictureURL
+        self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
+        self.lastActivity = lastActivity
+    }
+
+    var title: String {
+        displayName ?? DisplayText.short(npub.isEmpty ? accountIdHex : npub)
+    }
+
+    var subtitle: String {
+        DisplayText.short(npub.isEmpty ? accountIdHex : npub, head: 12, tail: 8)
+    }
+
+    var memberRef: String {
+        npub.isEmpty ? accountIdHex : npub
+    }
+
+    var recipient: NewChatRecipient {
+        NewChatRecipient(
+            sourceQuery: "",
+            memberRef: memberRef,
+            accountIdHex: accountIdHex,
+            npub: npub,
+            displayName: displayName,
+            pictureURL: pictureURL
+        )
+    }
+}
+
 enum ChatFilter {
     static func filtered(_ chats: [ChatItem], query: String) -> [ChatItem] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2268,12 +2326,15 @@ enum ChatFilter {
 
 enum ChatListFilter: String, CaseIterable {
     case active
+    case unread
     case archived
 
     var title: String {
         switch self {
         case .active:
             return L10n.string("Chats")
+        case .unread:
+            return L10n.string("Unread")
         case .archived:
             return L10n.string("Archived")
         }
@@ -2283,6 +2344,8 @@ enum ChatListFilter: String, CaseIterable {
         switch self {
         case .active:
             return "bubble.left.and.bubble.right"
+        case .unread:
+            return "circle.fill"
         case .archived:
             return "archivebox"
         }

@@ -98,9 +98,25 @@ enum MessagesLayout {
     static let sidebarTitlebarTopPadding: CGFloat = 42
 }
 
+/// Semantic type ramp for the messenger chrome, so text stays on the system typeface at the
+/// platform's native sizes and tracks the user's text-size settings, instead of per-view
+/// hardcoded pixel sizes.
+enum MessagesType {
+    static let paneTitle = Font.title2.weight(.semibold)
+    static let rowTitle = Font.body.weight(.semibold)
+    static let rowLabel = Font.body
+    static let preview = Font.callout
+    static let meta = Font.subheadline
+    static let sectionHeader = Font.subheadline.weight(.semibold)
+    static let badge = Font.subheadline.weight(.semibold)
+}
+
 struct MessagesSearchField: View {
     @Binding var text: String
     var accessibilityIdentifier: String?
+    var placeholder = L10n.string("Search")
+    var autofocus = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 6) {
@@ -108,15 +124,34 @@ struct MessagesSearchField: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            TextField("Search", text: $text)
+            TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(.callout)
+                .focused($isFocused)
                 .accessibilityIdentifier(accessibilityIdentifier ?? "search.field")
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                    isFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Clear search"))
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background {
             MessagesSearchFieldBackground()
+        }
+        .task {
+            if autofocus {
+                isFocused = true
+            }
         }
     }
 }

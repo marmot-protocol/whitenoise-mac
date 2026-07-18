@@ -226,11 +226,14 @@ extension WorkspaceState {
 
     func resetNewChatComposer() {
         invalidateNewChatLookup()
+        composePane = .newChat
         newChatQuery = ""
         newChatName = ""
         newChatDescription = ""
         newChatRecipient = nil
         newChatRecipients = []
+        groupDraftRetentionSecs = 0
+        creatingDirectChatIdHex = nil
     }
 
     func beginNewChatLookup() -> UInt64 {
@@ -308,5 +311,240 @@ extension WorkspaceState {
             return try await nip05Resolver.accountReference(for: query)
         }
         return query
+    }
+
+    // MARK: - Compose flow
+
+    /// Rebuild the compose-flow contact directory. There is no contact-enumeration FFI, so
+    /// candidates come from what the workspace already loaded: direct-chat peers (instant)
+    /// and the rosters of the most recent groups, fetched through the per-group member cache
+    /// and merged in progressively.
+    func refreshComposeContacts() async {
+        guard let client, let activeAccount else { return }
+        composeContactsGeneration &+= 1
+        let generation = composeContactsGeneration
+        let accountId = activeAccount.id
+        let selfHex = activeAccount.accountIdHex
+
+        var byHex: [String: ComposeContact] = [:]
+        let chats = (chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? [])
+        for chat in chats where chat.isDirect {
+            let hex = chat.avatarSeed
+            guard hex != selfHex, hex.count == 64 else { continue }
+            let existing = byHex[hex]
+            byHex[hex] = ComposeContact(
+                accountIdHex: hex,
+                npub: existing?.npub ?? "",
+                displayName: chat.title,
+                pictureURL: chat.pictureURL ?? existing?.pictureURL,
+                lastActivity: latestDate(existing?.lastActivity, chat.updatedAt)
+            )
+        }
+        composeContacts = sortedComposeContacts(byHex)
+
+        let groups = chats.filter { !$0.isDirect && !$0.pendingConfirmation }
+            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+            .prefix(40)
+        guard !groups.isEmpty else {
+            // A superseded refresh may no longer clear the spinner it set (the generation
+            // bump above orphaned its defer), so this early return must clear it.
+            isLoadingComposeContacts = false
+            return
+        }
+        isLoadingComposeContacts = true
+        defer {
+            if composeContactsGeneration == generation {
+                isLoadingComposeContacts = false
+            }
+        }
+        for group in groups {
+            guard composeContactsGeneration == generation, activeAccountId == accountId else { return }
+            guard
+                let members = await cachedGroupMembers(
+                    groupIdHex: group.id,
+                    account: activeAccount,
+                    client: client
+                )
+            else { continue }
+            guard composeContactsGeneration == generation, activeAccountId == accountId else { return }
+            for member in members where !member.isSelf {
+                let hex = member.memberIdHex
+                guard hex != selfHex else { continue }
+                let existing = byHex[hex]
+                var npub = member.npub
+                if let existing, !existing.npub.isEmpty {
+                    npub = existing.npub
+                }
+                byHex[hex] = ComposeContact(
+                    accountIdHex: hex,
+                    npub: npub,
+                    displayName: existing?.displayName ?? member.displayName,
+                    pictureURL: existing?.pictureURL,
+                    lastActivity: latestDate(existing?.lastActivity, group.updatedAt)
+                )
+            }
+            composeContacts = sortedComposeContacts(byHex)
+        }
+    }
+
+    /// Name-filtered contacts, prefix matches ranked before contained matches.
+    func filteredComposeContacts(matching query: String) -> [ComposeContact] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return composeContacts }
+        var prefixMatches: [ComposeContact] = []
+        var containedMatches: [ComposeContact] = []
+        for contact in composeContacts {
+            let title = contact.title
+            guard let range = title.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive])
+            else { continue }
+            if range.lowerBound == title.startIndex {
+                prefixMatches.append(contact)
+            } else {
+                containedMatches.append(contact)
+            }
+        }
+        return prefixMatches + containedMatches
+    }
+
+    func existingDirectChat(peerAccountIdHex: String) -> ChatItem? {
+        guard let activeAccountId else { return nil }
+        let match: (ChatItem) -> Bool = { $0.isDirect && $0.avatarSeed == peerAccountIdHex }
+        if let chat = (chatsByAccount[activeAccountId] ?? []).first(where: match) {
+            return chat
+        }
+        return (archivedChatsByAccount[activeAccountId] ?? []).first(where: match)
+    }
+
+    /// Open the existing direct chat with this person, or create one and select it. Direct
+    /// chats are created with an empty group name; the chat list titles them from the peer
+    /// profile.
+    func startDirectChat(with recipient: NewChatRecipient) async {
+        if let existing = existingDirectChat(peerAccountIdHex: recipient.accountIdHex) {
+            selectChat(existing)
+            return
+        }
+        guard let client, let activeAccount, !isCreatingChat else { return }
+        lastError = nil
+        isCreatingChat = true
+        creatingDirectChatIdHex = recipient.accountIdHex
+        defer {
+            isCreatingChat = false
+            creatingDirectChatIdHex = nil
+        }
+        // Capture the creating account so a mid-await account switch cannot graft the new
+        // chat onto another account's UI state (see whitenoise-mac#229).
+        let accountId = activeAccount.id
+        do {
+            let memberRef = recipient.memberRef.isEmpty ? recipient.accountIdHex : recipient.memberRef
+            let groupIdHex = try await client.createGroup(
+                accountRef: activeAccount.accountRef,
+                name: "",
+                memberRefs: [memberRef],
+                description: nil
+            )
+            await reloadChats(forceFreshSnapshot: true)
+            guard activeAccountId == accountId else { return }
+            insertCreatedChatIfNeeded(
+                groupIdHex: groupIdHex,
+                title: recipient.title,
+                avatarSeed: recipient.accountIdHex,
+                pictureURL: recipient.pictureURL,
+                isDirect: true
+            )
+            selection = .chat(groupIdHex)
+            closeNewChatComposer()
+            beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
+            await loadMessages(groupIdHex: groupIdHex)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// Create the group from the compose-flow draft (chosen members, required name, timer).
+    /// A timer failure keeps the group and surfaces on the background banner.
+    func createGroupFromDraft() async {
+        guard let client, let activeAccount, !isCreatingChat else { return }
+        let name = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let members = newChatRecipients
+        guard !name.isEmpty, !members.isEmpty else { return }
+        lastError = nil
+        isCreatingChat = true
+        defer { isCreatingChat = false }
+        let accountId = activeAccount.id
+        let retentionSecs = groupDraftRetentionSecs
+        do {
+            let groupIdHex = try await client.createGroup(
+                accountRef: activeAccount.accountRef,
+                name: name,
+                memberRefs: members.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef },
+                description: nil
+            )
+            if retentionSecs > 0 {
+                do {
+                    try await client.updateMessageRetention(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: groupIdHex,
+                        disappearingMessageSecs: retentionSecs
+                    )
+                } catch {
+                    if activeAccountId == accountId {
+                        backgroundStatus = L10n.string(
+                            "The group was created, but disappearing messages could not be turned on.")
+                    }
+                }
+            }
+            await reloadChats(forceFreshSnapshot: true)
+            guard activeAccountId == accountId else { return }
+            insertCreatedChatIfNeeded(
+                groupIdHex: groupIdHex,
+                title: name,
+                avatarSeed: groupIdHex,
+                pictureURL: nil,
+                isDirect: false
+            )
+            selection = .chat(groupIdHex)
+            closeNewChatComposer()
+            beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
+            await loadMessages(groupIdHex: groupIdHex)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func toggleComposeMember(_ recipient: NewChatRecipient) {
+        if newChatRecipients.contains(where: { $0.accountIdHex == recipient.accountIdHex }) {
+            removeNewChatRecipient(recipient)
+        } else {
+            appendNewChatRecipient(recipient)
+            clearComposeSearch()
+        }
+    }
+
+    func sortedComposeContacts(_ byHex: [String: ComposeContact]) -> [ComposeContact] {
+        byHex.values.sorted { lhs, rhs in
+            switch (lhs.lastActivity, rhs.lastActivity) {
+            case (let left?, let right?) where left != right:
+                return left > right
+            case (.some, nil):
+                return true
+            case (nil, .some):
+                return false
+            default:
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+        }
+    }
+}
+
+private func latestDate(_ first: Date?, _ second: Date?) -> Date? {
+    switch (first, second) {
+    case (let first?, let second?):
+        return max(first, second)
+    case (let first?, nil):
+        return first
+    case (nil, let second?):
+        return second
+    default:
+        return nil
     }
 }

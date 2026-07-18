@@ -51,6 +51,40 @@ extension WorkspaceState {
         resetNewChatComposer()
     }
 
+    func composeShowChooseMembers() {
+        composePane = .chooseMembers
+        clearComposeSearch()
+    }
+
+    func composeShowNameGroup() {
+        guard !newChatRecipients.isEmpty else { return }
+        composePane = .nameGroup
+        clearComposeSearch()
+    }
+
+    /// One step back through the compose flow; leaving the first panel closes the composer.
+    /// The group draft (members, name, timer) survives chooseMembers ↔ nameGroup hops and is
+    /// discarded only when the composer closes.
+    func composeGoBack() {
+        guard !isCreatingChat else { return }
+        switch composePane {
+        case .newChat:
+            closeNewChatComposer()
+        case .chooseMembers:
+            composePane = .newChat
+            clearComposeSearch()
+        case .nameGroup:
+            composePane = .chooseMembers
+        }
+    }
+
+    func clearComposeSearch() {
+        invalidateNewChatLookup()
+        newChatQuery = ""
+        newChatRecipient = nil
+        lastError = nil
+    }
+
     func showSettings(_ page: SettingsPage = .profile) {
         leaveActiveConversation()
         stopTimelineListener()
