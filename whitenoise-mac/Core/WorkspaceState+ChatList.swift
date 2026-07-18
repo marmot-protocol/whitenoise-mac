@@ -347,6 +347,7 @@ extension WorkspaceState {
         else { return }
 
         leaveActiveConversation()
+        stopTimelineListener()
         closeGroupImagePicker()
         let nextChat = mostRecentChat(in: chatsByAccount[account.id] ?? [])
         selection = nextChat.map { .chat($0.id) }
@@ -395,6 +396,7 @@ extension WorkspaceState {
         else { return }
 
         leaveActiveConversation()
+        stopTimelineListener()
         closeGroupImagePicker()
         let nextChat = mostRecentChat(in: chats)
         selection = nextChat.map { .chat($0.id) }
