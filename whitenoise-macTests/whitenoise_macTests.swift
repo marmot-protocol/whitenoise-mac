@@ -6846,6 +6846,158 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func cancelledMediaReferenceResolutionAllowsAttachmentRetry() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let fixtureID = UUID().uuidString
+        let plaintext = Data(fixtureID.utf8)
+        let timelineReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "cancelled-resolution-\(fixtureID).png",
+            plaintextSha256: hexSHA256(plaintext)
+        )
+        let resolvedReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: "image/png",
+            fileName: timelineReference.fileName,
+            plaintextSha256: timelineReference.plaintextSha256
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "cancelled-resolution-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: resolvedReference,
+                caption: nil,
+                recordedAt: 1_700_000_000,
+                receivedAt: 1_700_000_000
+            ),
+            download: MediaDownloadResultFfi(
+                plaintext: plaintext,
+                fileName: resolvedReference.fileName,
+                mediaType: resolvedReference.mediaType,
+                sizeBytes: UInt64(plaintext.count)
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let message = MessageItem(
+            id: "cancelled-resolution-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "cancelled-resolution-message#0#\(timelineReference.plaintextSha256)",
+                    reference: timelineReference
+                )
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+        let stateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
+
+        func waitForCompletion(of task: Task<Void, Never>, description: String) async -> Bool {
+            do {
+                try await withMediaAttachmentDownloadTimeout(nanoseconds: 1_000_000_000) {
+                    await task.value
+                }
+                return true
+            } catch {
+                Issue.record("Expected \(description) to finish, got \(error)")
+                return false
+            }
+        }
+
+        runtime.listMediaGateEnabled = true
+        let firstLoad = Task { await state.loadMediaAttachment(attachment, for: message) }
+        var retryLoad: Task<Void, Never>?
+        defer {
+            firstLoad.cancel()
+            retryLoad?.cancel()
+            runtime.listMediaGateEnabled = false
+            runtime.releaseListMediaGate()
+        }
+
+        for _ in 0..<100 {
+            if runtime.didReachListMediaGate {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard runtime.didReachListMediaGate else {
+            firstLoad.cancel()
+            runtime.releaseListMediaGate()
+            _ = await waitForCompletion(of: firstLoad, description: "the first attachment load")
+            Issue.record("Expected media reference resolution to reach the fake listMedia gate")
+            return
+        }
+
+        firstLoad.cancel()
+        for _ in 0..<100 {
+            if case .idle = stateStore.state {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard case .idle = stateStore.state else {
+            runtime.releaseListMediaGate()
+            _ = await waitForCompletion(of: firstLoad, description: "the cancelled first attachment load")
+            Issue.record("Expected cancellation to clear the attachment loading state")
+            return
+        }
+
+        let retry = Task { await state.loadMediaAttachment(attachment, for: message) }
+        retryLoad = retry
+        for _ in 0..<100 {
+            if case .loading = stateStore.state {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard case .loading = stateStore.state else {
+            retry.cancel()
+            runtime.releaseListMediaGate()
+            _ = await waitForCompletion(of: firstLoad, description: "the cancelled first attachment load")
+            _ = await waitForCompletion(of: retry, description: "the retried attachment load")
+            Issue.record("Expected a later attachment load to retry reference resolution")
+            return
+        }
+
+        runtime.releaseListMediaGate()
+        let firstLoadFinished = await waitForCompletion(
+            of: firstLoad,
+            description: "the cancelled first attachment load"
+        )
+        let retryFinished = await waitForCompletion(of: retry, description: "the retried attachment load")
+        guard firstLoadFinished, retryFinished else { return }
+
+        guard case .loaded(let download) = stateStore.state else {
+            Issue.record("Expected the retried attachment load to complete")
+            return
+        }
+        #expect(download.data == plaintext)
+        #expect(runtime.listMediaCallCount == 1)
+        #expect(runtime.downloadMediaCallCount == 1)
+    }
+
+    @MainActor
     @Test func mediaAttachmentDownloadTimesOutAndReleasesLimiterSlot() async throws {
         let previousTimeout = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds
         defer { MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = previousTimeout }

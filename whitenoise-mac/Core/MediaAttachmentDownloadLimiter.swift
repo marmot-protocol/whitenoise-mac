@@ -10,9 +10,10 @@ import Foundation
 nonisolated enum MediaAttachmentDownloadConcurrency {
     static let maxConcurrentDownloads = 4
 
-    /// Wall-clock ceiling for one attachment's download FFI while holding a limiter slot.
-    /// Matches `RemoteImageURLPolicy.downloadResourceTimeout` so stalled relay fetches cannot
-    /// occupy all download slots indefinitely.
+    /// Wall-clock ceiling for each attachment-loading FFI stage. Reference resolution uses it
+    /// before acquiring a limiter slot; download uses it while holding one. Matches
+    /// `RemoteImageURLPolicy.downloadResourceTimeout` so stalled relay fetches cannot leave the
+    /// UI loading or occupy all download slots indefinitely.
     static let defaultFfiDownloadTimeoutNanoseconds: UInt64 = 60 * 1_000_000_000
 
     #if DEBUG
