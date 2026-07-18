@@ -20,6 +20,26 @@ private func isolated(_ text: String) -> String {
 
 @Suite(.serialized)
 struct PeerDisplayTextTests {
+    @Test func sanitizeStripsControlCharsAndLineSeparators() async throws {
+        #expect(PeerDisplayText.sanitize("Alice\tBob") == "AliceBob")
+        #expect(PeerDisplayText.sanitize("Alice\nBob") == "AliceBob")
+        #expect(PeerDisplayText.sanitize("Alice\rBob") == "AliceBob")
+        #expect(PeerDisplayText.sanitize("Alice\r\nBob") == "AliceBob")
+        #expect(PeerDisplayText.sanitize("\u{0000}Alice") == "Alice")
+        #expect(PeerDisplayText.sanitize("Alice\u{007F}") == "Alice")
+        #expect(PeerDisplayText.sanitize("Alice\u{0080}Bob") == "AliceBob")
+        #expect(PeerDisplayText.sanitize("Alice\u{2028}Bob") == "AliceBob")
+        #expect(PeerDisplayText.sanitize("Alice\u{2029}Bob") == "AliceBob")
+        #expect(PeerDisplayText.sanitize("Alice Bob") == "Alice Bob")
+
+        let spoofedSender = "Trusted Admin\nSpoofed second line"
+        let sanitized = try #require(PeerDisplayText.sanitize(spoofedSender))
+        #expect(sanitized == "Trusted AdminSpoofed second line")
+        #expect(!sanitized.unicodeScalars.contains { $0.properties.generalCategory == .control })
+        #expect(!sanitized.unicodeScalars.contains { $0.properties.generalCategory == .lineSeparator })
+        #expect(!sanitized.unicodeScalars.contains { $0.properties.generalCategory == .paragraphSeparator })
+    }
+
     @Test func sanitizeStripsBidiAndFormatControls() async throws {
         let malicious = "\(rtlOverride)Alice\(ltrIsolate)"
         #expect(PeerDisplayText.sanitize(malicious) == "Alice")
