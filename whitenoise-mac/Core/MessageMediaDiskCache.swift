@@ -325,7 +325,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 Self.discardPreparedEntry(prepared)
                 return
             }
-            commitPreparedEntry(prepared, start: start, symmetricKey: symmetricKey)
+            commitPreparedEntry(prepared, start: start)
         }
     }
 
@@ -490,8 +490,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
     private func commitPreparedEntry(
         _ prepared: PreparedEntry,
-        start: AccessHandle,
-        symmetricKey: SymmetricKey
+        start: AccessHandle
     ) {
         // Hold only the narrow filesystem-mutation lock across the slow create/remove/move
         // so generation reads and purge bookkeeping (on `lock`) never block on this commit.
@@ -527,7 +526,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 replacedByteCount: replacedByteCount,
                 root: prepared.root
             )
-            enforceEvictionPolicy(root: prepared.root, symmetricKey: symmetricKey)
+            enforceEvictionPolicy(root: prepared.root)
         } catch {
             try? FileManager.default.removeItem(at: prepared.stagingDirectory)
         }
@@ -748,6 +747,12 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 to: stagingDirectory.appendingPathComponent(payloadFileName),
                 options: [.atomic, .completeFileProtection]
             )
+            // Persist eviction ordering outside the sealed metadata. Reads do not change a
+            // directory's modification date, and moving the staged directory preserves it.
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSince1970: cachedAtUnixSeconds)],
+                ofItemAtPath: stagingDirectory.path
+            )
             return PreparedEntry(root: root, stagingDirectory: stagingDirectory, finalDirectory: finalDirectory)
         } catch {
             discardStagingDirectory(stagingDirectory, root: root)
@@ -937,7 +942,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         )
     }
 
-    private func enforceEvictionPolicy(root: URL, symmetricKey: SymmetricKey) {
+    private func enforceEvictionPolicy(root: URL) {
         guard let tracked = trackedFootprint else { return }
         let trackedTotalBytes = Self.addingWithSaturation(
             tracked.byteCount,
@@ -948,7 +953,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 || trackedTotalBytes > evictionPolicy.maxTotalBytes
         else { return }
 
-        let scan = Self.cacheScan(root: root, symmetricKey: symmetricKey)
+        let scan = Self.cacheScan(root: root)
         var entries = scan.removableEntries
         var committedBytes = scan.committedFootprint.byteCount
         var totalBytes = Self.addingWithSaturation(committedBytes, scan.stagingByteCount)
@@ -1018,7 +1023,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         return CacheFootprint(entryCount: entryCount, byteCount: byteCount)
     }
 
-    private static func cacheScan(root: URL, symmetricKey: SymmetricKey) -> CacheScan {
+    private static func cacheScan(root: URL) -> CacheScan {
         let stagedBytes = stagingByteCount(root: root)
         guard
             let shardDirectories = try? FileManager.default.contentsOfDirectory(
@@ -1048,24 +1053,9 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
             for entryDirectory in entryDirectories where isDirectory(entryDirectory) {
                 let entryByteCount = entryByteCount(at: entryDirectory)
-                let cachedAtUnixSeconds: TimeInterval
-                switch metadataStatus(in: entryDirectory, symmetricKey: symmetricKey) {
-                case .readable(let metadata):
-                    cachedAtUnixSeconds = metadata.cachedAtUnixSeconds
-                    entryCount += 1
-                    byteCount = addingWithSaturation(byteCount, entryByteCount)
-                case .corrupt:
-                    try? FileManager.default.removeItem(at: entryDirectory)
-                    removeEmptyDirectory(shardDirectory)
-                    continue
-                case .unavailable:
-                    // Cache entries are disposable under pressure. If metadata is temporarily
-                    // unreadable or belongs to a newer format, reclaim it before evicting a
-                    // readable entry; otherwise its bytes can keep the cache over cap forever.
-                    cachedAtUnixSeconds = -Double.infinity
-                    entryCount += 1
-                    byteCount = addingWithSaturation(byteCount, entryByteCount)
-                }
+                let cachedAtUnixSeconds = evictionTimestamp(for: entryDirectory)
+                entryCount += 1
+                byteCount = addingWithSaturation(byteCount, entryByteCount)
 
                 entries.append(
                     CacheEntry(
@@ -1081,6 +1071,21 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             committedFootprint: CacheFootprint(entryCount: entryCount, byteCount: byteCount),
             stagingByteCount: stagedBytes
         )
+    }
+
+    private static func evictionTimestamp(for entryDirectory: URL) -> TimeInterval {
+        let metadataURL = entryDirectory.appendingPathComponent(metadataFileName)
+        guard
+            (try? metadataURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+            let modifiedAt = try? entryDirectory.resourceValues(
+                forKeys: [.contentModificationDateKey]
+            ).contentModificationDate
+        else {
+            // Entries without a normal metadata file or readable timestamp are disposable under
+            // pressure. Reclaim them before entries with known ordering.
+            return -Double.infinity
+        }
+        return modifiedAt.timeIntervalSince1970
     }
 
     private static func stagingByteCount(root: URL) -> UInt64 {
