@@ -987,6 +987,9 @@ final class WorkspaceState {
     var timelineLoadGroupId: String?
     var timelineLoadAccountId: String?
     var timelineLoadGeneration: UInt64 = 0
+    /// Last-request-wins owner for point-in-time post-send timeline refreshes. A newer refresh or
+    /// listener teardown invalidates older windows before they can replace the selected transcript.
+    var timelinePostSendRefreshGeneration: UInt64 = 0
     /// The live timeline subscription for the open conversation. It owns the
     /// authoritative, bounded, materialized window; scroll-back/forward pagination and
     /// live updates all flow through it (`paginateBackwards` / `paginateForwards` / `next`).
