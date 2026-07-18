@@ -110,8 +110,10 @@ nonisolated enum ConversationTranscriptExport {
             }
 
             guard page.hasMoreBefore else { break }
-            let orderedPage = sortChronologically(page.messages)
-            guard let oldest = orderedPage.first else {
+            guard let oldest = page.messages.min(by: { lhs, rhs in
+                lhs.timelineAt != rhs.timelineAt ? lhs.timelineAt < rhs.timelineAt
+                                                 : lhs.messageIdHex < rhs.messageIdHex
+            }) else {
                 // `hasMoreBefore` is true but the page is empty, so the `before` cursor
                 // cannot advance. Fail loudly instead of silently truncating history (#139).
                 throw ExportError.emptyPageWithMoreHistory
