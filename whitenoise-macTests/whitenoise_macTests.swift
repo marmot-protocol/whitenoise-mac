@@ -16315,6 +16315,52 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func privacySecuritySettingsLoadDoesNotOverwriteNewerTelemetrySave() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.storedRelayTelemetrySettings = RelayTelemetrySettingsFfi(
+            exportEnabled: false,
+            exportIntervalSeconds: 120
+        )
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(
+                    telemetryToken: "otlp-token",
+                    auditToken: "audit-token",
+                    environment: "production"
+                )
+            },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+
+        runtime.relayTelemetrySettingsGateEnabled = true
+        async let staleLoad: Void = state.loadPrivacySecuritySettings()
+        while !runtime.didReachRelayTelemetrySettingsGate {
+            await Task.yield()
+        }
+
+        await state.setRelayTelemetryEnabled(true)
+        #expect(runtime.storedRelayTelemetrySettings.exportEnabled)
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+
+        runtime.releaseRelayTelemetrySettingsGate()
+        _ = await staleLoad
+
+        #expect(runtime.storedRelayTelemetrySettings.exportEnabled)
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+    }
+
+    @MainActor
     @Test func observabilityRuntimeConfigurationSkipsUnchangedRequests() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
@@ -18236,6 +18282,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachNotificationSettingsGate: Bool {
         notificationSettingsGate.didReach
     }
+    /// Issue #562 load-vs-save support: capture the first telemetry snapshot, then block its
+    /// synchronous read so a newer save can complete before the stale load returns.
+    private let relayTelemetrySettingsGate = BlockingFfiGate()
+    var relayTelemetrySettingsGateEnabled: Bool {
+        get { relayTelemetrySettingsGate.isEnabled }
+        set { relayTelemetrySettingsGate.isEnabled = newValue }
+    }
+    var didReachRelayTelemetrySettingsGate: Bool {
+        relayTelemetrySettingsGate.didReach
+    }
     /// Issue #228 equivalent gate for the synchronous `setLocalNotificationsEnabled` FFI write.
     private let setLocalNotificationsGate = BlockingFfiGate()
     var setLocalNotificationsGateEnabled: Bool {
@@ -18719,7 +18775,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func relayTelemetrySettings() throws -> RelayTelemetrySettingsFfi {
         recordSyncCall("relayTelemetrySettings")
-        return storedRelayTelemetrySettings
+        let result = storedRelayTelemetrySettings
+        relayTelemetrySettingsGate.passIfArmed()
+        return result
+    }
+
+    func releaseRelayTelemetrySettingsGate() {
+        relayTelemetrySettingsGate.release()
     }
 
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi {
