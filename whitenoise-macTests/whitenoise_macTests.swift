@@ -2051,6 +2051,38 @@ struct whitenoise_macTests {
         #expect(try Data(contentsOf: url) == Data("secret".utf8))
     }
 
+    @Test func mediaPlaybackTempStoreUsesOnlyBoundedCanonicalPeerSuffixHints() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let attachmentID = "attachment-id"
+        let stem = MediaPlaybackTempStore.stableStem(for: attachmentID)
+        let cases: [(mediaType: String, fileName: String, suffix: String)] = [
+            ("application/octet-stream", "archive.pdf", "pdf"),
+            ("application/octet-stream", "clip.mp4", "mp4"),
+            ("", "clip.mp4", "mp4"),
+            ("application/octet-stream", "photo.jfif", "bin"),
+            ("application/octet-stream", "innocent.HIV-results", "bin"),
+            ("video/mp4", "report.pdf", "mp4"),
+        ]
+
+        for item in cases {
+            let uniqueID = UUID()
+            let url = try MediaPlaybackTempStore.materialize(
+                data: Data("secret".utf8),
+                id: attachmentID,
+                mediaType: item.mediaType,
+                fileName: item.fileName,
+                directory: directory,
+                uniqueID: uniqueID
+            )
+
+            #expect(url.lastPathComponent == "\(stem)-\(uniqueID.uuidString).\(item.suffix)")
+        }
+    }
+
     @Test func mediaPlaybackTempStoreUsesBinSuffixForUnknownMediaType() throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory

@@ -114,20 +114,21 @@ nonisolated enum MediaPlaybackTempStore {
     /// `uniqueID` makes each handoff/playback own an independent file. That prevents a
     /// delayed cleanup from an earlier open from deleting the file a later consumer is
     /// still reading. The path component contains only the stable attachment stem, UUID,
-    /// and an app-controlled canonical type suffix derived from `mediaType`; peer filenames
-    /// are never embedded because directory entries are not covered by
-    /// `.completeFileProtection`.
+    /// and an app-controlled canonical type suffix derived from `mediaType` (with
+    /// allowlisted extension inference for generic MIME types); peer basenames are never
+    /// embedded because directory entries are not covered by `.completeFileProtection`.
     static func materialize(
         data: Data,
         id: String,
         mediaType: String,
+        fileName: String? = nil,
         directory: URL,
         uniqueID: UUID = UUID(),
         fileManager: FileManager = .default
     ) throws -> URL {
         try MediaProtectedTempDirectory.prepareDirectory(directory, fileManager: fileManager)
         let stem = "\(stableStem(for: id))-\(uniqueID.uuidString)"
-        let suffix = OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType)
+        let suffix = OutgoingMediaAttachmentPolicy.scratchFileExtension(for: mediaType, fileName: fileName)
         let url = directory.appendingPathComponent(stem).appendingPathExtension(suffix)
         try MediaProtectedTempDirectory.writeProtectedData(data, to: url, fileManager: fileManager)
         return url

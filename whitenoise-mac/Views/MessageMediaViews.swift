@@ -1241,6 +1241,7 @@ enum MessageMediaPlaybackFileStore {
     /// the consuming action (open/playback) finishes.
     @MainActor
     static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) async -> URL? {
+        let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
         let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
         let attachmentID = attachment.id
         let data = download.payload.data
@@ -1252,6 +1253,7 @@ enum MessageMediaPlaybackFileStore {
                     data: data,
                     id: attachmentID,
                     mediaType: resolvedMediaType,
+                    fileName: resolvedFileName,
                     directory: directory
                 )
             } catch {
