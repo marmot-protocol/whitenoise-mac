@@ -1783,7 +1783,8 @@ struct PureValueTests {
 
         // Embedded-public NAT64 and plain public IPv6 destinations keep loading.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b::808:808]/x.png") != nil)
-        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b:2::1]/x.png") != nil)  // adjacent to RFC 8215 /48
+        // Adjacent to the RFC 8215 /48.
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b:2::1]/x.png") != nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[2606:4700:4700::1111]/x.png") != nil)
     }
 
