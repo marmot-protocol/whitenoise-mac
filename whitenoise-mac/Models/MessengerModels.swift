@@ -234,7 +234,7 @@ struct GroupDetailsSnapshot: Hashable {
     let disappearingMessageSecs: UInt64
 
     var memberCountLabel: String {
-        String(format: L10n.string("%d members"), CInt(members.count))
+        L10n.plural("%lld members", Int64(members.count))
     }
 
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }

@@ -225,7 +225,7 @@ struct ChooseMembersPanelView: View {
             GlassSeparator(axis: .horizontal)
 
             HStack {
-                Text(String(format: L10n.string("%d members"), CInt(workspace.newChatRecipients.count)))
+                Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -328,7 +328,7 @@ struct NameGroupPanelView: View {
                     disappearingRow
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(String(format: L10n.string("%d members"), CInt(workspace.newChatRecipients.count)))
+                        Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
                             .font(MessagesType.sectionHeader)
                             .foregroundStyle(.secondary)
                         ForEach(workspace.newChatRecipients, id: \.accountIdHex) { member in
