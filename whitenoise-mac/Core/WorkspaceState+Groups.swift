@@ -39,8 +39,6 @@ extension WorkspaceState {
         // Invalidate any in-flight load so a stale completion cannot repopulate closed details or
         // resurrect the spinner; this also clears `isLoadingGroupDetails`. See issue #135.
         invalidateGroupDetailsLoad()
-        isAcceptingGroupInvite = false
-        isDecliningGroupInvite = false
         isArchivingGroup = false
         isExportingGroupTranscript = false
         groupTranscriptExportStatus = nil
