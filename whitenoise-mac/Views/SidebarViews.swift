@@ -176,6 +176,7 @@ struct ChatListDrawerView: View {
                         Text(filter.title)
                             .font(MessagesType.paneTitle)
                         Spacer()
+                        ChatListFilterMenu()
                         if !isShowingArchived {
                             Button {
                                 workspace.showNewChat()
@@ -191,19 +192,15 @@ struct ChatListDrawerView: View {
                             .keyboardShortcut("n", modifiers: .command)
                             .help("New chat")
                         }
-                        ChatListOverflowMenu()
                     }
 
-                    HStack(spacing: 8) {
-                        MessagesSearchField(
-                            text: $workspace.searchText,
-                            accessibilityIdentifier: "chat.search",
-                            placeholder: filter == .unread
-                                ? L10n.string("Search unread chats")
-                                : L10n.string("Search")
-                        )
-                        ChatListUnreadFilterButton()
-                    }
+                    MessagesSearchField(
+                        text: $workspace.searchText,
+                        accessibilityIdentifier: "chat.search",
+                        placeholder: filter == .unread
+                            ? L10n.string("Search unread chats")
+                            : L10n.string("Search")
+                    )
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
@@ -254,59 +251,63 @@ extension ChatListDrawerView {
     }
 }
 
-private struct ChatListOverflowMenu: View {
+private struct ChatListFilterMenu: View {
     @Environment(WorkspaceState.self) private var workspace
-
-    var body: some View {
-        @Bindable var workspace = workspace
-
-        Menu {
-            Picker(L10n.string("Show"), selection: $workspace.chatListFilter) {
-                ForEach(ChatListFilter.allCases, id: \.self) { filter in
-                    Label(filter.title, systemImage: filter.systemImage)
-                        .tag(filter)
-                }
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Button {
-                workspace.showSettings()
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 34, height: 34)
-                .background {
-                    MessagesCircleControlBackground(isSelected: workspace.chatListFilter == .archived)
-                }
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(L10n.string("More actions"))
-        .accessibilityIdentifier("chat.list.filter")
-    }
-}
-
-private struct ChatListUnreadFilterButton: View {
-    @Environment(WorkspaceState.self) private var workspace
+    @State private var isFilterPickerPresented = false
 
     var body: some View {
         Button {
-            workspace.chatListFilter = workspace.chatListFilter == .unread ? .active : .unread
+            isFilterPickerPresented = true
         } label: {
             Image(systemName: "line.3.horizontal.decrease")
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 28, height: 28)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 34, height: 34)
                 .background {
-                    MessagesCircleControlBackground(isSelected: workspace.chatListFilter == .unread)
+                    MessagesCircleControlBackground(isSelected: workspace.chatListFilter != .active)
                 }
         }
         .buttonStyle(.plain)
-        .help(L10n.string("Filter by unread"))
-        .accessibilityIdentifier("chat.list.unreadFilter")
+        .popover(isPresented: $isFilterPickerPresented, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(ChatListFilter.allCases, id: \.self) { filter in
+                    filterButton(filter)
+                }
+            }
+            .padding(8)
+        }
+        .help(L10n.string("Filter chats"))
+        .accessibilityIdentifier("chat.list.filter")
+    }
+
+    private func filterButton(_ filter: ChatListFilter) -> some View {
+        Button {
+            workspace.chatListFilter = filter
+            isFilterPickerPresented = false
+        } label: {
+            HStack(spacing: 8) {
+                if workspace.chatListFilter == filter {
+                    Image(systemName: "checkmark")
+                        .frame(width: 14)
+                } else {
+                    Color.clear
+                        .frame(width: 14, height: 1)
+                }
+
+                Text(filter.title)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(minWidth: 150, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background {
+            if workspace.chatListFilter == filter {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
+            }
+        }
     }
 }
 
