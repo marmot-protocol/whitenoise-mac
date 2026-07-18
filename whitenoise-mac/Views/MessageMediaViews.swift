@@ -1441,11 +1441,8 @@ enum MessageMediaPlaybackFileStore {
                 return try MediaPlaybackTempStore.materialize(
                     data: data,
                     id: attachmentID,
+                    mediaType: resolvedMediaType,
                     fileName: resolvedFileName,
-                    fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
-                        for: resolvedMediaType,
-                        fileName: resolvedFileName
-                    ),
                     directory: directory
                 )
             } catch {
