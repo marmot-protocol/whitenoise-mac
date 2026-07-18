@@ -683,8 +683,23 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         }
     }
 
-    static func mediaType(forFileExtension fileExtension: String) -> String? {
+    /// App-controlled extension-to-MIME mapping used for scratch suffix inference and as
+    /// the first lookup in `mediaType(forFileExtension:)`. Extensions outside this list
+    /// must not influence scratch paths even when UTType recognizes them.
+    private static func allowlistedMediaType(forFileExtension fileExtension: String) -> String? {
         switch fileExtension.lowercased() {
+        case "gif":
+            return "image/gif"
+        case "heic":
+            return "image/heic"
+        case "jpeg", "jpg":
+            return "image/jpeg"
+        case "png":
+            return "image/png"
+        case "webp":
+            return "image/webp"
+        case "aac":
+            return "audio/aac"
         case "m4a":
             return "audio/mp4"
         case "mp3":
@@ -718,8 +733,15 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         case "pptx":
             return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
         default:
-            return UTType(filenameExtension: fileExtension.lowercased())?.preferredMIMEType
+            return nil
         }
+    }
+
+    static func mediaType(forFileExtension fileExtension: String) -> String? {
+        if let allowlisted = allowlistedMediaType(forFileExtension: fileExtension) {
+            return allowlisted
+        }
+        return UTType(filenameExtension: fileExtension.lowercased())?.preferredMIMEType
     }
 
     static func fileExtension(for mediaType: String, fileName: String? = nil) -> String {
@@ -775,6 +797,24 @@ nonisolated enum OutgoingMediaAttachmentPolicy {
         default:
             return "bin"
         }
+    }
+
+    /// Canonical scratch-file suffix for decrypted media handoff.
+    ///
+    /// Peer `fileName` is consulted only when `mediaType` is empty or generic
+    /// (`application/octet-stream`). In that case an allowlisted extension maps to a known
+    /// media type and the returned suffix is always app-controlled; peer basename or
+    /// extension text is never copied into the path.
+    static func scratchFileExtension(for mediaType: String, fileName: String?) -> String {
+        let canonical = canonicalMediaType(mediaType)
+        if shouldInferKindFromFileName(canonicalMediaType: canonical),
+            let fileName,
+            let fileExtension = fileName.split(separator: ".").last.map(String.init),
+            let resolved = allowlistedMediaType(forFileExtension: fileExtension)
+        {
+            return Self.fileExtension(for: canonicalMediaType(resolved))
+        }
+        return fileExtension(for: canonical)
     }
 
     static func kind(mediaType: String, fileName: String? = nil) -> MessageMediaKind {
