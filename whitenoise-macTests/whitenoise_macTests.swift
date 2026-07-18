@@ -9228,6 +9228,195 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleTimelineLivePageApplyDoesNotClobberReplacementSubscriptionWindow() async throws {
+        // Issue #557: non-pagination window applies (live `.page`, reconnect snapshot, initial
+        // load) must carry ownership through `applyTimelineWindow` and re-check after suspension,
+        // matching pagination (#529). A superseded listener's `.page` apply must not overwrite a
+        // replacement subscription for the same account/chat.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let activeAccount = try #require(state.activeAccount)
+        let staleSubscription = try #require(state.activeTimelineSubscription as? FakeTimelineMessagesSubscription)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-005")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+
+        let stalePage = staleSubscription.snapshot() ?? emptyTimelinePage()
+
+        state.timelineApplyMapGateEnabled = true
+        async let stalePageApply: Void = state.applyTimelineSubscriptionUpdate(
+            .page(page: stalePage),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime,
+            subscription: staleSubscription
+        )
+        let didSuspendApply = await waitFor {
+            state.didReachTimelineApplyMapGate
+        }
+        guard didSuspendApply else {
+            state.timelineApplyMapGateEnabled = false
+            state.releaseTimelineApplyMapGate()
+            _ = await stalePageApply
+            Issue.record("Expected live `.page` apply to reach the map gate")
+            return
+        }
+
+        let replacementMessages = (0..<105).map { index in
+            timelineMessage(
+                id: String(format: "fresh-page-%03d", index),
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Fresh page \(index)",
+                recordedAt: baseTime + UInt64(index)
+            )
+        }
+        let replacement = FakeTimelineMessagesSubscription(
+            messages: replacementMessages,
+            limit: 100,
+            windowCap: 200
+        )
+        state.activeTimelineSubscription = replacement
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            replacement.snapshot() ?? emptyTimelinePage(),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-page-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-page-104")
+
+        state.releaseTimelineApplyMapGate()
+        _ = await stalePageApply
+
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-page-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-page-104")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+    }
+
+    @MainActor
+    @Test func staleTimelineInitialLoadApplyDoesNotClobberReplacementLoadWindow() async throws {
+        // Issue #557: initial-load window applies must re-check load-generation ownership after
+        // suspension, matching subscription pagination/live paths (#529). A superseded initial load
+        // must not overwrite a replacement load for the same account/chat.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-005")
+
+        state.stopTimelineListener()
+        state.cancelTimelineLoad()
+        state.messageTimelineStores["direct-group"]?.clear()
+
+        state.timelineApplyMapGateEnabled = true
+        async let staleInitialLoad: Void = state.loadMessages(groupIdHex: "direct-group")
+        let didSuspendApply = await waitFor {
+            state.didReachTimelineApplyMapGate
+        }
+        guard didSuspendApply else {
+            state.timelineApplyMapGateEnabled = false
+            state.releaseTimelineApplyMapGate()
+            _ = await staleInitialLoad
+            Issue.record("Expected initial-load apply to reach the map gate")
+            return
+        }
+
+        // A same-account/same-chat load normally joins its in-flight owner. Supersede that
+        // generation explicitly, as the leave/re-enter teardown path does, before starting B.
+        state.cancelTimelineLoad()
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "fresh-load-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Fresh load \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        await state.loadMessages(groupIdHex: "direct-group")
+        let replacementSubscription = try #require(state.activeTimelineSubscription)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-load-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-load-104")
+
+        state.releaseTimelineApplyMapGate()
+        _ = await staleInitialLoad
+
+        #expect(state.activeTimelineSubscription === replacementSubscription)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-load-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-load-104")
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+    }
+
+    @MainActor
     @Test func staleTimelinePaginationErrorDoesNotSurfaceAfterSubscriptionReplacement() async throws {
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
