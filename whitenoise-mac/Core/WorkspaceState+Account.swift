@@ -372,7 +372,6 @@ extension WorkspaceState {
         groupImageSearchQuery = ""
         groupImageResults = []
         invalidateGroupImageSearch()
-        isSavingGroupImage = false
 
         closeGroupDetails()
         groupTranscriptExportTask = nil

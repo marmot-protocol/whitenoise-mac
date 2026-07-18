@@ -162,8 +162,7 @@ extension WorkspaceState {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
-            !isSavingGroupProfile,
-            !hasInFlightGroupDetailsMutation
+            !hasInFlightGroupCommit
         else { return }
         let trimmedName = groupProfileDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDescription = groupProfileDraftDescription.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -194,7 +193,7 @@ extension WorkspaceState {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
-            !hasInFlightGroupDetailsMutation
+            !hasInFlightGroupCommit
         else { return }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
@@ -283,7 +282,7 @@ extension WorkspaceState {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
-            !hasInFlightGroupDetailsMutation
+            !hasInFlightGroupCommit
         else { return }
         guard snapshot.isSelfAdmin, !snapshot.isLastAdmin else {
             lastError = L10n.string("Make another member an admin before stepping down.")
@@ -367,7 +366,11 @@ extension WorkspaceState {
     }
 
     func leaveSelectedGroup() async {
-        guard let client, let activeAccount, let snapshot = groupDetailsSnapshot, !isLeavingGroup else { return }
+        guard let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot,
+            !hasInFlightGroupCommit
+        else { return }
         guard snapshot.canLeave, !snapshot.requiresSelfDemoteBeforeLeave else {
             lastError = L10n.string("Demote yourself from admin before leaving this group.")
             return
@@ -461,7 +464,7 @@ extension WorkspaceState {
             let activeAccount,
             let selectedChat,
             !selectedChat.isDirect,
-            !isSavingGroupImage
+            !hasInFlightGroupCommit
         else { return }
         isSavingGroupImage = true
         defer { isSavingGroupImage = false }
@@ -527,7 +530,7 @@ extension WorkspaceState {
     }
 
     func setDisappearingMessages(groupIdHex: String, seconds: UInt64) async {
-        guard let client, let activeAccount, !isUpdatingDisappearingMessages else { return }
+        guard let client, let activeAccount, !hasInFlightGroupCommit else { return }
         lastError = nil
         isUpdatingDisappearingMessages = true
         defer { isUpdatingDisappearingMessages = false }
@@ -635,15 +638,20 @@ extension WorkspaceState {
         }
     }
 
-    var hasInFlightGroupDetailsMutation: Bool {
-        isSavingGroupProfile || isInvitingGroupMember || mutatingGroupMemberId != nil
+    var hasInFlightGroupCommit: Bool {
+        isSavingGroupProfile
+            || isInvitingGroupMember
+            || mutatingGroupMemberId != nil
+            || isUpdatingDisappearingMessages
+            || isLeavingGroup
+            || isSavingGroupImage
     }
 
     func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
-            !hasInFlightGroupDetailsMutation
+            !hasInFlightGroupCommit
         else { return }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex

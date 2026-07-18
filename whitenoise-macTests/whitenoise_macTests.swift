@@ -13243,7 +13243,64 @@ struct whitenoise_macTests {
         #expect(state.isAcceptingGroupInvite)
         #expect(state.isDecliningGroupInvite)
         #expect(state.mutatingGroupMemberId == "member-in-flight")
-        #expect(state.hasInFlightGroupDetailsMutation)
+        #expect(state.hasInFlightGroupCommit)
+    }
+
+    @MainActor
+    @Test func accountScopedUITeardownPreservesOperationOwnedFlags() {
+        // Issue #523 follow-up: account-scoped group UI teardown must not clear operation-owned
+        // group-commit flags while FFI is still suspended.
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        state.isSavingGroupProfile = true
+        state.isInvitingGroupMember = true
+        state.isLeavingGroup = true
+        state.isSavingGroupImage = true
+        state.isUpdatingDisappearingMessages = true
+        state.mutatingGroupMemberId = "member-in-flight"
+
+        state.resetActiveAccountUIState()
+
+        #expect(state.isSavingGroupProfile)
+        #expect(state.isInvitingGroupMember)
+        #expect(state.isLeavingGroup)
+        #expect(state.isSavingGroupImage)
+        #expect(state.isUpdatingDisappearingMessages)
+        #expect(state.mutatingGroupMemberId == "member-in-flight")
+        #expect(state.hasInFlightGroupCommit)
+    }
+
+    @MainActor
+    @Test func hasInFlightGroupCommitReflectsEachMLSCommitOwnershipState() {
+        // Issue #523: every MLS group-commit operation must contribute to the shared mutex.
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+
+        #expect(!state.hasInFlightGroupCommit)
+
+        state.isSavingGroupProfile = true
+        #expect(state.hasInFlightGroupCommit)
+        state.isSavingGroupProfile = false
+
+        state.isInvitingGroupMember = true
+        #expect(state.hasInFlightGroupCommit)
+        state.isInvitingGroupMember = false
+
+        state.mutatingGroupMemberId = "member-in-flight"
+        #expect(state.hasInFlightGroupCommit)
+        state.mutatingGroupMemberId = nil
+
+        state.isUpdatingDisappearingMessages = true
+        #expect(state.hasInFlightGroupCommit)
+        state.isUpdatingDisappearingMessages = false
+
+        state.isLeavingGroup = true
+        #expect(state.hasInFlightGroupCommit)
+        state.isLeavingGroup = false
+
+        state.isSavingGroupImage = true
+        #expect(state.hasInFlightGroupCommit)
+        state.isSavingGroupImage = false
+
+        #expect(!state.hasInFlightGroupCommit)
     }
 
     @MainActor
@@ -13797,7 +13854,7 @@ struct whitenoise_macTests {
             return
         }
 
-        #expect(state.hasInFlightGroupDetailsMutation)
+        #expect(state.hasInFlightGroupCommit)
         await state.promoteGroupMember(member)
         #expect(runtime.promoteAdminDetailedCallCount == 0)
 
@@ -14015,6 +14072,156 @@ struct whitenoise_macTests {
 
         #expect(runtime.setGroupArchivedCallCount == 1)
         #expect(!state.isArchivingGroup)
+    }
+
+    @MainActor
+    @Test func setDisappearingMessagesDropsWhileMemberMutationIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
+        let groupIdHex = try #require(state.groupDetailsSnapshot?.groupIdHex)
+
+        runtime.groupMutationGateEnabled = true
+        async let firstPromote: Void = state.promoteGroupMember(member)
+        let didSuspendPromote = await waitFor {
+            state.mutatingGroupMemberId == member.id && runtime.didReachGroupMutationGate
+        }
+        guard didSuspendPromote else {
+            runtime.groupMutationGateEnabled = false
+            runtime.releaseGroupMutationGate()
+            await firstPromote
+            Issue.record("Expected member mutation to reach the test gate")
+            return
+        }
+
+        await state.setDisappearingMessages(groupIdHex: groupIdHex, seconds: 86_400)
+        #expect(runtime.updateMessageRetentionCallCount == 0)
+        #expect(!state.isUpdatingDisappearingMessages)
+
+        runtime.releaseGroupMutationGate()
+        await firstPromote
+    }
+
+    @MainActor
+    @Test func saveGroupProfileDropsWhileRetentionUpdateIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let groupIdHex = try #require(state.groupDetailsSnapshot?.groupIdHex)
+
+        runtime.groupMutationGateEnabled = true
+        async let firstRetention: Void = state.setDisappearingMessages(groupIdHex: groupIdHex, seconds: 86_400)
+        let didSuspendRetention = await waitFor {
+            state.isUpdatingDisappearingMessages && runtime.didReachGroupMutationGate
+        }
+        guard didSuspendRetention else {
+            runtime.groupMutationGateEnabled = false
+            runtime.releaseGroupMutationGate()
+            await firstRetention
+            Issue.record("Expected retention update to reach the test gate")
+            return
+        }
+
+        state.groupProfileDraftName = "Renamed While Retaining"
+        state.groupProfileDraftDescription = "Should be ignored until retention finishes"
+        await state.saveGroupProfile()
+        #expect(runtime.updateGroupProfileCallCount == 0)
+        #expect(!state.isSavingGroupProfile)
+
+        runtime.releaseGroupMutationGate()
+        await firstRetention
+    }
+
+    @MainActor
+    @Test func leaveSelectedGroupDropsWhileProfileSaveIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
+        runtime.installGroupDetails(
+            details,
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: false,
+                isLastAdmin: false,
+                canInvite: false,
+                canLeave: true,
+                requiresSelfDemoteBeforeLeave: false,
+                memberActions: []
+            )
+        )
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        state.groupProfileDraftName = "Renamed Group"
+        state.groupProfileDraftDescription = "Planning room"
+        runtime.groupMutationGateEnabled = true
+        async let firstSave: Void = state.saveGroupProfile()
+        let didSuspendSave = await waitFor {
+            state.isSavingGroupProfile && runtime.didReachGroupMutationGate
+        }
+        guard didSuspendSave else {
+            runtime.groupMutationGateEnabled = false
+            runtime.releaseGroupMutationGate()
+            await firstSave
+            Issue.record("Expected profile save to reach the test gate")
+            return
+        }
+
+        await state.leaveSelectedGroup()
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(!state.isLeavingGroup)
+
+        runtime.releaseGroupMutationGate()
+        await firstSave
+    }
+
+    @MainActor
+    @Test func updateSelectedGroupImageDropsWhileMemberMutationIsInFlight() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let member = try #require(state.groupDetailsSnapshot?.members.first(where: { !$0.isSelf }))
+        guard let groupChat = state.activeChats.first else {
+            Issue.record("Expected a group chat")
+            return
+        }
+
+        let result = GroupImageSearchResult(
+            id: "image-1",
+            title: "Aurora",
+            imageURL: "https://example.com/aurora.jpg",
+            thumbnailURL: "https://example.com/aurora-thumb.jpg",
+            creator: "Open Photographer",
+            license: "by",
+            attribution: nil,
+            sourceURL: "https://example.com/aurora",
+            width: 1024,
+            height: 680
+        )
+
+        runtime.groupMutationGateEnabled = true
+        async let firstPromote: Void = state.promoteGroupMember(member)
+        let didSuspendPromote = await waitFor {
+            state.mutatingGroupMemberId == member.id && runtime.didReachGroupMutationGate
+        }
+        guard didSuspendPromote else {
+            runtime.groupMutationGateEnabled = false
+            runtime.releaseGroupMutationGate()
+            await firstPromote
+            Issue.record("Expected member mutation to reach the test gate")
+            return
+        }
+
+        state.showGroupImagePicker(for: groupChat)
+        await state.setGroupImage(result)
+        #expect(runtime.updateGroupAvatarUrlCallCount == 0)
+        #expect(!state.isSavingGroupImage)
+
+        runtime.releaseGroupMutationGate()
+        await firstPromote
     }
 
     @MainActor
@@ -20527,6 +20734,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         -> SendSummaryFfi
     {
         updateMessageRetentionCallCount += 1
+        await groupMutationGate.passIfArmed()
         lastRetentionSecs = disappearingMessageSecs
         return SendSummaryFfi(published: 1, messageIds: ["retention"])
     }
