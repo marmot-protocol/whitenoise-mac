@@ -1221,6 +1221,97 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func deletingAllDataBlocksAccountMutationsMidFlight() async throws {
+        // Regression for whitenoise-mac#590: a full wipe and every account mutation must
+        // share one mutual-exclusion guard.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let signedOut = AccountSummaryFfi(
+            label: "Signed Out Account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary, signedOut])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let desktopAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+        let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
+        let signedOutAccount = try #require(state.accounts.first { $0.id == "Signed Out Account" })
+
+        runtime.onDeleteAllLocalDataMidFlight = {
+            await state.removeAccount(backupAccount)
+            await state.signOutAccount(desktopAccount)
+            await state.signInAccount(signedOutAccount)
+        }
+
+        await state.deleteAllData()
+
+        #expect(runtime.didDeleteAllLocalData)
+        #expect(runtime.removedAccountRefs.isEmpty)
+        #expect(runtime.signOutCallCount == 0)
+        #expect(runtime.signInAccountCallCount == 0)
+        #expect(state.phase == .onboarding)
+    }
+
+    @MainActor
+    @Test func signingOutAccountBlocksDeleteAllDataMidFlight() async throws {
+        // Regression for whitenoise-mac#590: mutual exclusion must also prevent a wipe
+        // from starting after an account mutation has entered its first await.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let desktopAccount = try #require(state.accounts.first { $0.id == "Desktop Account" })
+
+        runtime.onSignOutAccountMidFlight = { _ in
+            await state.deleteAllData()
+        }
+
+        await state.signOutAccount(desktopAccount)
+
+        #expect(runtime.signOutCallCount == 1)
+        #expect(!runtime.didDeleteAllLocalData)
+        #expect(state.accounts.first { $0.id == "Desktop Account" }?.signedOut == true)
+        #expect(state.phase == .ready)
+    }
+
+    @MainActor
     @Test func deleteAllDataResetsToNewInstallState() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
@@ -19965,6 +20056,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var removedAccountRefs: [String] = []
     private(set) var didDeleteAllLocalData = false
     var deleteAllLocalDataError: Error?
+    /// Optional hook fired after `deleteAllLocalData` starts but before storage is cleared,
+    /// used to simulate a racing account mutation while a full wipe is in flight.
+    var onDeleteAllLocalDataMidFlight: (@Sendable () async -> Void)?
     /// Optional hook fired inside `removeAccount` after the ref is recorded but before the
     /// account is actually dropped, used to simulate a racing UI action (e.g. the user
     /// selecting the account currently being removed) mid-await.
@@ -20410,6 +20504,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func deleteAllLocalData() async throws {
         didDeleteAllLocalData = true
+        await onDeleteAllLocalDataMidFlight?()
         if let deleteAllLocalDataError {
             throw deleteAllLocalDataError
         }

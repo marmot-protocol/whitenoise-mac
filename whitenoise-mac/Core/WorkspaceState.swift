@@ -816,8 +816,10 @@ final class WorkspaceState {
     var isSavingProfile = false
     var isRemovingAccount = false
     var isSigningOutAccount = false
-    /// True while any account remove, sign-out, or sign-in mutation is in flight.
-    var isAccountMutationInProgress: Bool { isRemovingAccount || isSigningOutAccount }
+    /// True while an account remove, sign-out, sign-in, or full local-data wipe is in flight.
+    var isAccountMutationInProgress: Bool {
+        isRemovingAccount || isSigningOutAccount || isDeletingAllData
+    }
     /// Per-account unread totals keyed by `accountIdHex`, for switcher avatar badges.
     var accountUnreadByIdHex: [String: Int] = [:]
     var isSavingRelays = false

@@ -486,7 +486,7 @@ extension WorkspaceState {
     }
 
     func deleteAllData() async {
-        guard let client, !isDeletingAllData else { return }
+        guard let client, !isAccountMutationInProgress else { return }
 
         isDeletingAllData = true
         lastError = nil
