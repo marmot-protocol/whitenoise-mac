@@ -2868,23 +2868,41 @@ struct whitenoise_macTests {
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        let cachedAtCounter = AtomicCounter()
         let cache = messageMediaDiskCache(
             root: root,
-            evictionPolicy: .init(maxEntryCount: 1, maxTotalBytes: UInt64.max)
+            evictionPolicy: .init(maxEntryCount: 2, maxTotalBytes: UInt64.max),
+            timestampProvider: { TimeInterval(cachedAtCounter.increment()) }
         )
-        let unavailablePlaintext = Data("temporarily unavailable cached media".utf8)
         let readablePlaintext = Data("readable cached media".utf8)
-        let unavailableKey = MessageMediaDiskCacheKey(
-            accountId: "account-a",
-            groupIdHex: "group-a",
-            reference: mediaDiskCacheReference(plaintext: unavailablePlaintext, ciphertextByte: 0xa1)
-        )
+        let unavailablePlaintext = Data("temporarily unavailable cached media".utf8)
+        let pressurePlaintext = Data("pressure-triggering cached media".utf8)
         let readableKey = MessageMediaDiskCacheKey(
             accountId: "account-a",
             groupIdHex: "group-a",
-            reference: mediaDiskCacheReference(plaintext: readablePlaintext, ciphertextByte: 0xa2)
+            reference: mediaDiskCacheReference(plaintext: readablePlaintext, ciphertextByte: 0xa1)
+        )
+        let unavailableKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: unavailablePlaintext, ciphertextByte: 0xa2)
+        )
+        let pressureKey = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: pressurePlaintext, ciphertextByte: 0xa3)
         )
 
+        await cache.store(
+            MessageMediaDownload(
+                data: readablePlaintext,
+                fileName: "readable.jpg",
+                mediaType: "image/jpeg",
+                sizeBytes: UInt64(readablePlaintext.count),
+                payloadId: "readable"
+            ),
+            for: readableKey
+        )
         await cache.store(
             MessageMediaDownload(
                 data: unavailablePlaintext,
@@ -2899,20 +2917,25 @@ struct whitenoise_macTests {
         let unavailableMetadataURL = unavailableEntryDirectory.appendingPathComponent("metadata.bin")
         try fileManager.removeItem(at: unavailableMetadataURL)
         try fileManager.createDirectory(at: unavailableMetadataURL, withIntermediateDirectories: false)
+        try fileManager.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2)],
+            ofItemAtPath: unavailableEntryDirectory.path
+        )
 
         await cache.store(
             MessageMediaDownload(
-                data: readablePlaintext,
-                fileName: "readable.jpg",
+                data: pressurePlaintext,
+                fileName: "pressure.jpg",
                 mediaType: "image/jpeg",
-                sizeBytes: UInt64(readablePlaintext.count),
-                payloadId: "readable"
+                sizeBytes: UInt64(pressurePlaintext.count),
+                payloadId: "pressure"
             ),
-            for: readableKey
+            for: pressureKey
         )
 
         #expect(!fileManager.fileExists(atPath: unavailableEntryDirectory.path))
         #expect(try #require(await cache.cachedDownload(for: readableKey)).data == readablePlaintext)
+        #expect(try #require(await cache.cachedDownload(for: pressureKey)).data == pressurePlaintext)
     }
 
     @Test func messageMediaDiskCacheCountsInSessionStagingBytesAgainstByteLimit() async throws {
