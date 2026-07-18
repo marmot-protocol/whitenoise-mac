@@ -645,6 +645,10 @@ extension WorkspaceState {
             let snapshot = groupDetailsSnapshot,
             !hasInFlightGroupDetailsMutation
         else { return }
+        if case .demote = action, member.isSelf {
+            await selfDemoteSelectedGroupAdmin()
+            return
+        }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
         let generation = beginGroupDetailsMutation()
@@ -662,18 +666,11 @@ extension WorkspaceState {
                     memberRef: member.npub
                 )
             case .demote:
-                if member.isSelf {
-                    result = try await client.selfDemoteAdminDetailed(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: groupIdHex
-                    )
-                } else {
-                    result = try await client.demoteAdminDetailed(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: groupIdHex,
-                        memberRef: member.npub
-                    )
-                }
+                result = try await client.demoteAdminDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex,
+                    memberRef: member.npub
+                )
             case .remove:
                 result = try await client.removeMembersDetailed(
                     accountRef: activeAccount.accountRef,

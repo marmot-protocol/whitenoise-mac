@@ -13574,6 +13574,43 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupMemberRowSelfDemoteRejectsLastAdminDespiteActionFlagDrift() async throws {
+        // Issue #518: the member-row action is FFI-driven. Even if that flag drifts and exposes
+        // self-demote for the last admin, the client must preserve the same guard as Step Down.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex),
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: true,
+                isLastAdmin: true,
+                canInvite: true,
+                canLeave: false,
+                requiresSelfDemoteBeforeLeave: true,
+                memberActions: [
+                    GroupMemberActionStateFfi(
+                        memberIdHex: account.accountIdHex,
+                        isSelf: true,
+                        isAdmin: true,
+                        canRemove: false,
+                        canPromote: false,
+                        canDemote: true
+                    )
+                ]
+            ))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+        let selfMember = try #require(state.groupDetailsSnapshot?.members.first(where: { $0.isSelf }))
+        #expect(selfMember.canDemote)
+
+        await state.demoteGroupMember(selfMember)
+
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(state.lastError == L10n.string("Make another member an admin before stepping down."))
+        #expect(state.mutatingGroupMemberId == nil)
+    }
+
+    @MainActor
     @Test func groupDetailsArchiveAndLeaveRefreshChatList() async throws {
         let account = desktopAccount()
         let archiveRuntime = FakeMarmotRuntime(accounts: [account])
