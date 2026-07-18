@@ -5,12 +5,20 @@ nonisolated enum PeerDisplayText {
     private static let firstStrongIsolate = "\u{2068}"
     private static let popDirectionalIsolate = "\u{2069}"
 
-    /// Strips Unicode format controls (`Cf`), including bidi embedding/override/isolate
+    /// Strips Unicode format controls (`Cf`), control characters (`Cc`), and line/
+    /// paragraph separators (`Zl`/`Zp`), including bidi embedding/override/isolate
     /// scalars (U+202A–U+202E, U+2066–U+2069), then treats an all-blank result as absent.
     static func sanitize(_ text: String?) -> String? {
         guard let text else { return nil }
         let filtered = String(
-            String.UnicodeScalarView(text.unicodeScalars.filter { $0.properties.generalCategory != .format })
+            String.UnicodeScalarView(text.unicodeScalars.filter { scalar in
+                switch scalar.properties.generalCategory {
+                case .format, .control, .lineSeparator, .paragraphSeparator:
+                    return false
+                default:
+                    return true
+                }
+            })
         )
         return filtered.nilIfBlank
     }
