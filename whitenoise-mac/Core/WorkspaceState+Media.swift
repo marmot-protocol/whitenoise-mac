@@ -206,28 +206,6 @@ extension WorkspaceState {
             return
         }
 
-        do {
-            try await MediaAttachmentDownloadLimiter.shared.acquire()
-        } catch is CancellationError {
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
-                stateStore.update(.idle)
-                return
-            }
-            if case .loading = stateStore.state {
-                stateStore.update(.idle)
-            }
-            return
-        } catch {
-            guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
-                stateStore.update(.idle)
-                return
-            }
-            stateStore.update(.failed(error.localizedDescription))
-            return
-        }
-        defer {
-            Task { await MediaAttachmentDownloadLimiter.shared.release() }
-        }
         if case .loaded = stateStore.state {
             return
         }
@@ -244,6 +222,8 @@ extension WorkspaceState {
         }
 
         do {
+            // Resolve first: the synchronous `listMedia` FFI may stall and must not consume one
+            // of the scarce slots reserved for attachment downloads.
             let reference = try await resolvedMediaReference(
                 attachment.reference,
                 accountId: accountId,
@@ -262,6 +242,26 @@ extension WorkspaceState {
                 stateStore.update(.idle)
                 return
             }
+
+            try await MediaAttachmentDownloadLimiter.shared.acquire()
+            defer {
+                Task { await MediaAttachmentDownloadLimiter.shared.release() }
+            }
+            if case .loaded = stateStore.state {
+                return
+            }
+            guard
+                canPublishMediaDownloadState(
+                    forKey: key,
+                    stateStore: stateStore,
+                    accountId: accountId,
+                    groupIdHex: groupIdHex
+                )
+            else {
+                stateStore.update(.idle)
+                return
+            }
+
             let download = try await withMediaAttachmentDownloadTimeout {
                 try await client.downloadMedia(
                     accountRef: accountRef,
