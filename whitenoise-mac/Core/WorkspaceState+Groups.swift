@@ -101,8 +101,12 @@ extension WorkspaceState {
                 groupDetailsSnapshot == snapshot
             else { return }
             copyText(export.json)
+            let statusFormat =
+                export.eventCount == 1
+                ? L10n.string("Copied transcript JSON for %d event.")
+                : L10n.string("Copied transcript JSON for %d events.")
             groupTranscriptExportStatus = String(
-                format: L10n.string("Copied transcript JSON for %d events."),
+                format: statusFormat,
                 export.eventCount
             )
         } catch is CancellationError {
