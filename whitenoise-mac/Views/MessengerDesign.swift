@@ -103,7 +103,6 @@ enum MessagesLayout {
 /// hardcoded pixel sizes.
 enum MessagesType {
     static let paneTitle = Font.title2.weight(.semibold)
-    static let panelHeading = Font.headline
     static let rowTitle = Font.body.weight(.semibold)
     static let rowLabel = Font.body
     static let preview = Font.callout

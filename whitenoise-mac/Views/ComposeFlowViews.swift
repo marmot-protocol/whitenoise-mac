@@ -430,7 +430,7 @@ struct NameGroupPanelView: View {
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(member.title)
-                    .font(MessagesType.rowTitle)
+                    .font(MessagesType.rowLabel)
                     .lineLimit(1)
                 Text(shortKey(npub: member.npub, hex: member.accountIdHex))
                     .font(MessagesType.meta)
@@ -461,7 +461,7 @@ private struct ComposePaneHeader: View {
         }
         .overlay {
             Text(title)
-                .font(MessagesType.panelHeading)
+                .font(MessagesType.paneTitle)
                 .lineLimit(1)
         }
         .padding(.horizontal, 12)
@@ -497,7 +497,7 @@ private struct ComposeActionRow: View {
                     .frame(width: 32, height: 32)
                     .background(Circle().fill(.quaternary))
                 Text(title)
-                    .font(MessagesType.rowLabel.weight(.medium))
+                    .font(MessagesType.rowLabel)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
@@ -530,7 +530,7 @@ private struct ComposeContactRow: View {
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(MessagesType.rowTitle)
+                        .font(MessagesType.rowLabel)
                         .lineLimit(1)
                     Text(subtitle)
                         .font(MessagesType.meta)
