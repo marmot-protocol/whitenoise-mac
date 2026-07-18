@@ -593,7 +593,7 @@ extension WorkspaceState {
     }
 
     var hasInFlightGroupDetailsMutation: Bool {
-        isInvitingGroupMember || mutatingGroupMemberId != nil
+        isSavingGroupProfile || isInvitingGroupMember || mutatingGroupMemberId != nil
     }
 
     func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
