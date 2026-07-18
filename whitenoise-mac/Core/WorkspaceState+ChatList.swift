@@ -355,6 +355,7 @@ extension WorkspaceState {
         else { return }
 
         leaveActiveConversation()
+        stopTimelineListener()
         closeGroupImagePicker()
         let nextChat = mostRecentChat(in: chatsByAccount[account.id] ?? [])
         selection = nextChat.map { .chat($0.id) }
@@ -402,6 +403,7 @@ extension WorkspaceState {
     /// remaining active chat.
     func transitionAfterRemovedSelectedChat(remainingActiveChats: [ChatItem]) {
         leaveActiveConversation()
+        stopTimelineListener()
         closeGroupImagePicker()
         let nextChat = mostRecentChat(in: remainingActiveChats)
         selection = nextChat.map { .chat($0.id) }
