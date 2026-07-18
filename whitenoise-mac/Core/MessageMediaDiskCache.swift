@@ -392,6 +392,12 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         func entryDirectory(for key: MessageMediaDiskCacheKey) -> URL? {
             try? Self.entryDirectory(for: key, root: directoryResolver())
         }
+
+        func testingWithFileMutationLock(_ operation: () -> Void) {
+            fileMutationLock.lock()
+            defer { fileMutationLock.unlock() }
+            operation()
+        }
     #endif
 
     private func waitForActivePurge(affecting accountDigest: String? = nil) async {
@@ -430,6 +436,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private func sweepStaleStagingDirectoriesIfNeeded(root: URL) {
+        lock.lock()
+        if didSweepStagingDirectories {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
         fileMutationLock.lock()
         defer { fileMutationLock.unlock() }
 

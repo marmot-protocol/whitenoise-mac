@@ -3329,6 +3329,54 @@ struct whitenoise_macTests {
         #expect(fileManager.fileExists(atPath: inSessionStagingDirectory.path))
     }
 
+    @Test func messageMediaDiskCachePostSweepReadDoesNotWaitForFileMutationLock() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("cached read should not block on file mutation lock".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(accountId: "account-a", groupIdHex: "group-a", reference: reference)
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "read.png",
+            mediaType: "image/png",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "read-lock-test"
+        )
+
+        await cache.store(download, for: key)
+        _ = try #require(await cache.cachedDownload(for: key))
+
+        let lockHeld = DispatchSemaphore(value: 0)
+        let releaseLock = DispatchSemaphore(value: 0)
+        let holderTask = Task.detached {
+            cache.testingWithFileMutationLock {
+                lockHeld.signal()
+                _ = releaseLock.wait(timeout: .now() + 5)
+            }
+        }
+        #expect(await waitForSemaphore(lockHeld, timeout: .now() + 2) == .success)
+
+        let readCompleted = DispatchSemaphore(value: 0)
+        let readTask = Task {
+            let restored = await cache.cachedDownload(for: key)
+            readCompleted.signal()
+            return restored
+        }
+        let readCompletedWhileLockHeld = await waitForSemaphore(readCompleted, timeout: .now() + 2)
+
+        // Release the lock even when the bounded wait fails so the task can finish cleanly.
+        releaseLock.signal()
+        await holderTask.value
+        let restored = try #require(await readTask.value)
+
+        #expect(readCompletedWhileLockHeld == .success)
+        #expect(restored.data == plaintext)
+    }
+
     @Test func messageMediaDiskCacheUnrelatedAccountPurgeDoesNotCancelInFlightStore() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
