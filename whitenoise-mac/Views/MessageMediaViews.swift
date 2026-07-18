@@ -1241,7 +1241,6 @@ enum MessageMediaPlaybackFileStore {
     /// the consuming action (open/playback) finishes.
     @MainActor
     static func fileURL(attachment: MessageMediaAttachment, download: MessageMediaDownload) async -> URL? {
-        let resolvedFileName = download.fileName.nilIfBlank ?? attachment.fileName
         let resolvedMediaType = download.mediaType.nilIfBlank ?? attachment.mediaType
         let attachmentID = attachment.id
         let data = download.payload.data
@@ -1252,11 +1251,7 @@ enum MessageMediaPlaybackFileStore {
                 return try MediaPlaybackTempStore.materialize(
                     data: data,
                     id: attachmentID,
-                    fileName: resolvedFileName,
-                    fallbackExtension: OutgoingMediaAttachmentPolicy.fileExtension(
-                        for: resolvedMediaType,
-                        fileName: resolvedFileName
-                    ),
+                    mediaType: resolvedMediaType,
                     directory: directory
                 )
             } catch {

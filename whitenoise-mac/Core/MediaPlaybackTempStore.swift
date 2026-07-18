@@ -27,12 +27,6 @@ nonisolated enum MediaPlaybackTempStore {
     private static let directoryName = "WhiteNoiseMediaPlayback"
     private static let voiceRecordingsDirectoryName = "WhiteNoiseVoiceRecordings"
 
-    /// Upper bound, in UTF-8 bytes, for the scratch filename component built by `materialize`.
-    ///
-    /// APFS allows 255 UTF-8 bytes per path component. Keeping our component below that leaves
-    /// room for filesystem normalization differences while still preserving useful peer filenames.
-    static let maxScratchFileComponentBytes = 240
-
     /// Resolves the playback scratch directory inside the app container.
     ///
     /// Mirrors `MarmotStorageRoot`'s Application Support location but lives in a
@@ -114,26 +108,27 @@ nonisolated enum MediaPlaybackTempStore {
         return url
     }
 
-    /// Writes `data` to a per-consumer scratch file for `id`/`fileName` and returns its URL.
+    /// Writes `data` to a per-consumer scratch file for `id` and returns its URL.
     ///
     /// The attachment id contributes a deterministic, collision-resistant stem while
     /// `uniqueID` makes each handoff/playback own an independent file. That prevents a
     /// delayed cleanup from an earlier open from deleting the file a later consumer is
-    /// still reading.
+    /// still reading. The path component contains only the stable attachment stem, UUID,
+    /// and an app-controlled canonical type suffix derived from `mediaType`; peer filenames
+    /// are never embedded because directory entries are not covered by
+    /// `.completeFileProtection`.
     static func materialize(
         data: Data,
         id: String,
-        fileName: String,
-        fallbackExtension: String,
+        mediaType: String,
         directory: URL,
         uniqueID: UUID = UUID(),
         fileManager: FileManager = .default
     ) throws -> URL {
         try MediaProtectedTempDirectory.prepareDirectory(directory, fileManager: fileManager)
-        let prefix = "\(stableStem(for: id))-\(uniqueID.uuidString)-"
-        let byteLimit = max(1, maxScratchFileComponentBytes - prefix.utf8.count)
-        let sanitized = sanitizedFileName(fileName, fallbackExtension: fallbackExtension, byteLimit: byteLimit)
-        let url = directory.appendingPathComponent("\(prefix)\(sanitized)")
+        let stem = "\(stableStem(for: id))-\(uniqueID.uuidString)"
+        let suffix = OutgoingMediaAttachmentPolicy.fileExtension(for: mediaType)
+        let url = directory.appendingPathComponent(stem).appendingPathExtension(suffix)
         try MediaProtectedTempDirectory.writeProtectedData(data, to: url, fileManager: fileManager)
         return url
     }
@@ -201,55 +196,6 @@ nonisolated enum MediaPlaybackTempStore {
 
         let prefix = sanitizedPrefix.isEmpty ? "attachment" : String(sanitizedPrefix)
         return "\(prefix)-\(digest)"
-    }
-
-    static func sanitizedFileName(_ fileName: String, fallbackExtension: String, byteLimit: Int) -> String {
-        let trimmed = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = "attachment.\(fallbackExtension)"
-        let rawName = trimmed.isEmpty ? fallback : trimmed
-        let illegal = CharacterSet(charactersIn: "/:\\")
-        let components = rawName.components(separatedBy: illegal).filter { !$0.isEmpty }
-        let sanitized = components.joined(separator: "-").trimmingCharacters(in: .whitespacesAndNewlines)
-        let bounded = boundedFileName(sanitized.isEmpty ? fallback : sanitized, byteLimit: byteLimit)
-        return bounded.isEmpty ? fallback : bounded
-    }
-
-    /// Truncates `name` to at most `byteLimit` UTF-8 bytes, keeping a trailing extension
-    /// intact when possible by shortening the stem first.
-    ///
-    /// A peer-supplied `fileName` can be arbitrarily long; without this bound the full
-    /// `"<stem>-<uuid>-<sanitized>"` path component can exceed APFS' 255-byte limit and make
-    /// `data.write(to:)` throw, silently breaking the attachment open/playback.
-    static func boundedFileName(_ name: String, byteLimit: Int) -> String {
-        guard byteLimit > 0, name.utf8.count > byteLimit else { return name }
-
-        let dotIndex = name.lastIndex(of: ".")
-        let stem = dotIndex.map { String(name[..<$0]) } ?? name
-        // Include the leading dot so an empty stem still yields a usable name.
-        let ext = dotIndex.map { String(name[$0...]) } ?? ""
-
-        // Reserve room for the extension; if it alone overruns the budget, drop it and
-        // truncate the whole name so we never exceed the cap.
-        let stemBudget = byteLimit - ext.utf8.count
-        guard stemBudget > 0 else { return truncatedToUTF8ByteLimit(name, byteLimit: byteLimit) }
-        return truncatedToUTF8ByteLimit(stem, byteLimit: stemBudget) + ext
-    }
-
-    /// Returns the longest prefix of `value` whose UTF-8 encoding fits in `byteLimit`,
-    /// never splitting a multi-byte scalar.
-    private static func truncatedToUTF8ByteLimit(_ value: String, byteLimit: Int) -> String {
-        guard byteLimit > 0 else { return "" }
-        guard value.utf8.count > byteLimit else { return value }
-
-        var result = ""
-        var used = 0
-        for character in value {
-            let width = String(character).utf8.count
-            if used + width > byteLimit { break }
-            result.append(character)
-            used += width
-        }
-        return result
     }
 }
 

@@ -1969,15 +1969,14 @@ struct whitenoise_macTests {
         let url = try MediaPlaybackTempStore.materialize(
             data: Data("secret".utf8),
             id: "attachment-id/with:illegal",
-            fileName: "report.pdf",
-            fallbackExtension: "bin",
+            mediaType: "video/mp4",
             directory: directory,
             uniqueID: firstConsumer
         )
 
         #expect(fileManager.fileExists(atPath: url.path))
-        #expect(url.lastPathComponent.hasSuffix("-report.pdf"))
-        #expect(url.lastPathComponent.contains(firstConsumer.uuidString))
+        let stem = MediaPlaybackTempStore.stableStem(for: "attachment-id/with:illegal")
+        #expect(url.lastPathComponent == "\(stem)-\(firstConsumer.uuidString).mp4")
         #expect(url.deletingLastPathComponent().path == directory.path)
 
         // Re-materializing the same attachment for a later consumer must not reuse the
@@ -1985,8 +1984,7 @@ struct whitenoise_macTests {
         let again = try MediaPlaybackTempStore.materialize(
             data: Data("different".utf8),
             id: "attachment-id/with:illegal",
-            fileName: "report.pdf",
-            fallbackExtension: "bin",
+            mediaType: "video/mp4",
             directory: directory,
             uniqueID: secondConsumer
         )
@@ -2010,16 +2008,14 @@ struct whitenoise_macTests {
         let first = try MediaPlaybackTempStore.materialize(
             data: Data("first".utf8),
             id: firstID,
-            fileName: "report.pdf",
-            fallbackExtension: "bin",
+            mediaType: "application/pdf",
             directory: directory,
             uniqueID: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
         )
         let second = try MediaPlaybackTempStore.materialize(
             data: Data("second".utf8),
             id: secondID,
-            fileName: "report.pdf",
-            fallbackExtension: "bin",
+            mediaType: "application/pdf",
             directory: directory,
             uniqueID: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
         )
@@ -2032,42 +2028,52 @@ struct whitenoise_macTests {
         #expect(try Data(contentsOf: second) == Data("second".utf8))
     }
 
-    @Test func mediaPlaybackTempStoreBoundsLongPeerFileName() throws {
+    @Test func mediaPlaybackTempStoreUsesCanonicalSuffixWithoutPeerFileName() throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: directory) }
 
-        // An attacker-controlled attachment name of ~500 characters would otherwise push the
-        // "<stem>-<uuid>-<sanitized>" path component past APFS' 255-byte limit and make the
-        // write throw, silently breaking the open/playback.
-        let longName = String(repeating: "a", count: 500) + ".mp4"
+        let attachmentID = "attachment-id"
+        let uniqueID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+        let stem = MediaPlaybackTempStore.stableStem(for: attachmentID)
         let url = try MediaPlaybackTempStore.materialize(
             data: Data("secret".utf8),
-            id: "attachment-id",
-            fileName: longName,
-            fallbackExtension: "bin",
+            id: attachmentID,
+            mediaType: "application/pdf",
             directory: directory,
-            uniqueID: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
+            uniqueID: uniqueID
         )
 
         #expect(fileManager.fileExists(atPath: url.path))
-        // The full scratch-file component stays comfortably below APFS' 255-byte limit.
-        #expect(url.lastPathComponent.utf8.count <= MediaPlaybackTempStore.maxScratchFileComponentBytes)
-        // The original extension survives truncation of the stem.
-        #expect(url.lastPathComponent.hasSuffix(".mp4"))
+        #expect(url.lastPathComponent == "\(stem)-\(uniqueID.uuidString).pdf")
+        #expect(url.pathExtension == "pdf")
         #expect(try Data(contentsOf: url) == Data("secret".utf8))
     }
 
-    @Test func mediaPlaybackTempStoreBoundsFileNameKeepsMultiByteExtension() throws {
-        // A multi-byte scalar must never be split when truncating to the byte budget.
-        let longStem = String(repeating: "é", count: 400)
-        let byteLimit = 128
-        let bounded = MediaPlaybackTempStore.boundedFileName("\(longStem).pdf", byteLimit: byteLimit)
-        let expectedStemCount = (byteLimit - ".pdf".utf8.count) / "é".utf8.count
+    @Test func mediaPlaybackTempStoreUsesBinSuffixForUnknownMediaType() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-playback-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
 
-        #expect(bounded.utf8.count <= byteLimit)
-        #expect(bounded == String(repeating: "é", count: expectedStemCount) + ".pdf")
+        let attachmentID = "attachment-id"
+        let uniqueID = UUID(uuidString: "00000000-0000-0000-0000-000000000006")!
+        let stem = MediaPlaybackTempStore.stableStem(for: attachmentID)
+        let adversarialMediaType = "application/HIV-results"
+        let url = try MediaPlaybackTempStore.materialize(
+            data: Data("secret".utf8),
+            id: attachmentID,
+            mediaType: adversarialMediaType,
+            directory: directory,
+            uniqueID: uniqueID
+        )
+
+        #expect(fileManager.fileExists(atPath: url.path))
+        #expect(url.lastPathComponent == "\(stem)-\(uniqueID.uuidString).bin")
+        #expect(url.pathExtension == "bin")
+        #expect(!url.path.contains("HIV-results"))
+        #expect(try Data(contentsOf: url) == Data("secret".utf8))
     }
 
     @Test func mediaPlaybackTempStoreExcludesScratchDirectoryFromBackups() throws {
@@ -2079,8 +2085,7 @@ struct whitenoise_macTests {
         _ = try MediaPlaybackTempStore.materialize(
             data: Data("secret".utf8),
             id: "attachment",
-            fileName: "report.pdf",
-            fallbackExtension: "bin",
+            mediaType: "application/pdf",
             directory: directory
         )
 
@@ -2097,8 +2102,7 @@ struct whitenoise_macTests {
         let url = try MediaPlaybackTempStore.materialize(
             data: Data("bytes".utf8),
             id: "video",
-            fileName: "clip.mp4",
-            fallbackExtension: "mp4",
+            mediaType: "video/mp4",
             directory: directory
         )
         #expect(fileManager.fileExists(atPath: url.path))
@@ -2120,15 +2124,13 @@ struct whitenoise_macTests {
         _ = try MediaPlaybackTempStore.materialize(
             data: Data("a".utf8),
             id: "one",
-            fileName: "a.txt",
-            fallbackExtension: "txt",
+            mediaType: "text/plain",
             directory: directory
         )
         _ = try MediaPlaybackTempStore.materialize(
             data: Data("b".utf8),
             id: "two",
-            fileName: "b.txt",
-            fallbackExtension: "txt",
+            mediaType: "text/plain",
             directory: directory
         )
         #expect(fileManager.fileExists(atPath: directory.path))
