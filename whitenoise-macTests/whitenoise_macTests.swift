@@ -10291,6 +10291,130 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func staleTimelineLiveProjectionApplyDoesNotClobberReplacementSubscriptionWindow() async throws {
+        // Issue #571: live `.projection` applies must carry subscription ownership and re-check
+        // after suspension, matching `.page` (#557) and pagination (#529). A superseded listener's
+        // in-flight projection must not mutate a replacement subscription's authoritative window.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<105).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        let activeAccount = try #require(state.activeAccount)
+        let staleSubscription = try #require(state.activeTimelineSubscription as? FakeTimelineMessagesSubscription)
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "message-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "message-104")
+
+        let staleProjection = TimelineProjectionUpdateFfi(
+            groupIdHex: "direct-group",
+            messages: [],
+            changes: [
+                .upsert(
+                    trigger: .newMessage,
+                    message: timelineMessage(
+                        id: "message-104",
+                        groupIdHex: "direct-group",
+                        sender: aliceId,
+                        plaintext: "Stale projection regression",
+                        recordedAt: baseTime + 104
+                    ))
+            ],
+            chatListRow: nil,
+            chatListTrigger: .newLastMessage
+        )
+
+        state.timelineApplyMapGateEnabled = true
+        async let staleProjectionApply: Void = state.applyTimelineSubscriptionUpdate(
+            .projection(
+                update: RuntimeProjectionUpdateFfi(
+                    accountIdHex: account.accountIdHex,
+                    accountLabel: account.label,
+                    update: staleProjection
+                )),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime,
+            subscription: staleSubscription
+        )
+        let didSuspendApply = await waitFor {
+            state.didReachTimelineApplyMapGate
+        }
+        guard didSuspendApply else {
+            state.timelineApplyMapGateEnabled = false
+            state.releaseTimelineApplyMapGate()
+            _ = await staleProjectionApply
+            Issue.record("Expected live `.projection` apply to reach the map gate")
+            return
+        }
+
+        let replacementMessages = (0..<105).map { index in
+            timelineMessage(
+                id: String(format: "fresh-projection-%03d", index),
+                groupIdHex: "direct-group",
+                sender: aliceId,
+                plaintext: "Fresh projection \(index)",
+                recordedAt: baseTime + UInt64(index)
+            )
+        }
+        let replacement = FakeTimelineMessagesSubscription(
+            messages: replacementMessages,
+            limit: 100,
+            windowCap: 200
+        )
+        state.activeTimelineSubscription = replacement
+        state.activeTimelineGroupId = "direct-group"
+        await state.applyTimelineWindow(
+            replacement.snapshot() ?? emptyTimelinePage(),
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime,
+            owner: .subscription(replacement)
+        )
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-projection-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-projection-104")
+        #expect(state.messagesByChat["direct-group"]?.count == 100)
+
+        state.releaseTimelineApplyMapGate()
+        _ = await staleProjectionApply
+
+        #expect(state.messagesByChat["direct-group"]?.first?.id == "fresh-projection-005")
+        #expect(state.messagesByChat["direct-group"]?.last?.id == "fresh-projection-104")
+        #expect(state.messagesByChat["direct-group"]?.count == 100)
+        #expect(state.messagesByChat["direct-group"]?.contains { $0.id == "message-104" } == false)
+        #expect(state.selectedTimelinePaging.hasMoreBefore)
+    }
+
+    @MainActor
     @Test func staleTimelineInitialLoadApplyDoesNotClobberReplacementLoadWindow() async throws {
         // Issue #557: initial-load window applies must re-check load-generation ownership after
         // suspension, matching subscription pagination/live paths (#529). A superseded initial load
