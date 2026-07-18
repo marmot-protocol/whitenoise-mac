@@ -14939,7 +14939,9 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func marmotDeepLinkPreservesInProgressNewChatComposition() async throws {
+    @Test func marmotDeepLinkDoesNotMutateInProgressNewChatComposition() async throws {
+        // Issue #510: OS-delivered marmot:// links are untrusted and must not silently append
+        // an attacker-chosen recipient to a draft that the user is already composing.
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
         let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1234567890"
@@ -14947,7 +14949,11 @@ struct whitenoise_macTests {
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installNormalizedMemberRef(query: "npub1alyce", accountIdHex: aliceId, npub: "npub1alyce")
         runtime.installNormalizedMemberRef(query: routedQuery, accountIdHex: bobId, npub: "npub1p0p")
-        let state = WorkspaceState(clientFactory: { runtime })
+        let activationRecorder = AppActivationRecorder()
+        let state = WorkspaceState(
+            appActivationHandler: activationRecorder.record,
+            clientFactory: { runtime }
+        )
 
         await state.bootstrap()
         state.showNewChat()
@@ -14957,15 +14963,76 @@ struct whitenoise_macTests {
         state.newChatDescription = "planning space"
 
         state.handleDeepLinkURL(URL(string: "marmot://profile/npub1p0p?from=qr")!)
-        let added = await waitFor {
-            state.newChatRecipients.contains { $0.accountIdHex == bobId }
+        let blocked = await waitFor {
+            state.backgroundStatus == "Finish or discard the current New Chat draft before opening this link."
         }
 
-        #expect(added)
+        #expect(blocked)
         #expect(state.isNewChatComposerVisible)
-        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId, bobId])
+        #expect(state.newChatRecipients.map(\.accountIdHex) == [aliceId])
         #expect(state.newChatName == "Project Room")
         #expect(state.newChatDescription == "planning space")
+        #expect(!runtime.refreshedProfileIds.contains(bobId))
+        #expect(activationRecorder.requests == [false])
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkDoesNotCancelInProgressVoiceRecording() async throws {
+        // Issue #510: an unsolicited external link must not discard plaintext audio that the
+        // user is still recording or hide the recording controls by opening New Chat.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let activationRecorder = AppActivationRecorder()
+        let state = WorkspaceState(
+            appActivationHandler: activationRecorder.record,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let recordingURL = try armInProgressVoiceRecording(on: state)
+        defer { state.cancelVoiceRecording() }
+
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1p0p")!)
+        let blocked = await waitFor {
+            state.backgroundStatus == "Finish the current voice recording before opening this link."
+        }
+
+        #expect(blocked)
+        #expect(state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingURL == recordingURL)
+        #expect(state.voiceRecordingMeterTask != nil)
+        #expect(FileManager.default.fileExists(atPath: recordingURL.path))
+        #expect(!state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient == nil)
+        #expect(activationRecorder.requests == [false])
+    }
+
+    @MainActor
+    @Test func marmotDeepLinkDoesNotInterruptVoiceRecordingPreparation() async throws {
+        // The microphone-permission await is part of the recording flow too. Navigating during
+        // it could let recording begin after the New Chat composer has hidden the stop controls.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let activationRecorder = AppActivationRecorder()
+        let state = WorkspaceState(
+            appActivationHandler: activationRecorder.record,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.isPreparingVoiceRecording = true
+        defer { state.isPreparingVoiceRecording = false }
+
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1p0p")!)
+        let blocked = await waitFor {
+            state.backgroundStatus == "Finish the current voice recording before opening this link."
+        }
+
+        #expect(blocked)
+        #expect(state.isPreparingVoiceRecording)
+        #expect(!state.isNewChatComposerVisible)
+        #expect(state.resolvedNewChatRecipient == nil)
+        #expect(activationRecorder.requests == [false])
     }
 
     @MainActor

@@ -32,7 +32,7 @@ extension WorkspaceState {
         }
 
         appActivationHandler(false)
-        Task { await openProfileReference(reference) }
+        Task { await openProfileReferenceFromDeepLink(reference) }
     }
 
     func flushPendingDeepLinkIfReady() {
@@ -42,6 +42,25 @@ extension WorkspaceState {
         pendingDeepLinkProfileReference = nil
         // Queued links came from an earlier untrusted URL event. Handle them once ready,
         // but do not foreground the app later as a delayed side effect.
-        Task { await openProfileReference(reference) }
+        Task { await openProfileReferenceFromDeepLink(reference) }
+    }
+
+    /// OS-level links are unsolicited. Do not let them interrupt a recording flow or alter a
+    /// New Chat draft; profile links explicitly tapped inside the app still use the normal
+    /// `openProfileReference` behavior.
+    private func openProfileReferenceFromDeepLink(_ reference: String) async {
+        guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else {
+            backgroundStatus = L10n.string("Finish the current voice recording before opening this link.")
+            return
+        }
+
+        guard !(isNewChatComposerVisible && hasInProgressNewChatComposition) else {
+            backgroundStatus = L10n.string(
+                "Finish or discard the current New Chat draft before opening this link."
+            )
+            return
+        }
+
+        await openProfileReference(reference)
     }
 }
