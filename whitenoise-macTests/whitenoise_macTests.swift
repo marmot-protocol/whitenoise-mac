@@ -18378,6 +18378,78 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func activeVisibleChatDoesNotSuppressNotificationForOtherLocalAccountInSameGroup() async throws {
+        // Issue #591: the client-wide notification listener serves every local account.
+        // Suppression must require the update to target the active account; viewing the
+        // same MLS group as account A must not drop a notification addressed to account B.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let sharedGroup = directGroup()
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installNotificationSettings(
+            accountRef: accountA.label,
+            settings: notificationSettings(for: accountA, localEnabled: true)
+        )
+        runtime.installNotificationSettings(
+            accountRef: accountB.label,
+            settings: notificationSettings(for: accountB, localEnabled: true)
+        )
+        UserDefaults.standard.set(accountA.label, forKey: WorkspaceState.activeAccountKey)
+        runtime.installDirectGroup(
+            sharedGroup,
+            selfAccountIdHex: accountA.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == accountA.label)
+        #expect(state.selection == .chat(sharedGroup.groupIdHex))
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: accountB,
+                notificationKey: "notice-for-b",
+                groupIdHex: sharedGroup.groupIdHex,
+                senderName: "Alice",
+                previewText: "For account B only."
+            ))
+
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["notice-for-b"])
+    }
+
+    @MainActor
     @Test func activeSelectedChatNotificationPostsLocalAlertWhenConversationWindowIsHidden() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
