@@ -134,11 +134,10 @@ nonisolated enum ConversationTranscriptExport {
     static func makeDocument(
         groupIdHex: String,
         groupName: String,
-        messages: [TimelineMessageRecordFfi],
+        chronologicallySortedMessages messages: [TimelineMessageRecordFfi],
         exportedAt: Date = Date()
     ) -> Document {
-        let ordered = sortChronologically(messages)
-        let events = ordered.enumerated().map { index, record in
+        let events = messages.enumerated().map { index, record in
             Event(
                 index: index,
                 messageIdHex: record.messageIdHex,
