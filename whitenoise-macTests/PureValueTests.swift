@@ -1675,7 +1675,7 @@ struct PureValueTests {
             "átila@example.com",
             "@example.com",
             "name@",
-            String(repeating: "a", count: 250) + "@example.com",  // over the total-length bound
+            String(repeating: "a", count: 250) + "@example.com",  // over the local-part bound
         ] {
             #expect(NIP05Identifier(raw) == nil, "expected rejection for \(String(reflecting: raw))")
         }
