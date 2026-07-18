@@ -145,7 +145,7 @@ struct GroupDetailsSheet: View {
                                 } label: {
                                     Label("Search Web Image", systemImage: "photo.badge.plus")
                                 }
-                                .disabled(workspace.isSavingGroupImage)
+                                .disabled(workspace.hasInFlightGroupCommit)
                             }
 
                             Spacer()
@@ -160,8 +160,7 @@ struct GroupDetailsSheet: View {
                             .nativeGlassProminentButtonStyle()
                             .disabled(
                                 !hasProfileChanges
-                                    || workspace.isSavingGroupProfile
-                                    || workspace.hasInFlightGroupDetailsMutation
+                                    || workspace.hasInFlightGroupCommit
                             )
                         }
                     }
@@ -204,7 +203,7 @@ struct GroupDetailsSheet: View {
                         // Retention changes are group commits — rejected for non-members.
                         // "Delete expired now" below stays enabled: it is a local prune.
                         .disabled(
-                            workspace.isUpdatingDisappearingMessages || snapshot.selfMembership != .member
+                            workspace.hasInFlightGroupCommit || snapshot.selfMembership != .member
                         )
 
                         if snapshot.disappearingMessagesEnabled {
@@ -236,7 +235,7 @@ struct GroupDetailsSheet: View {
                                         systemImage: "person.badge.plus")
                                 }
                                 .disabled(
-                                    workspace.hasInFlightGroupDetailsMutation
+                                    workspace.hasInFlightGroupCommit
                                         || workspace.groupInviteMemberQuery.trimmingCharacters(
                                             in: .whitespacesAndNewlines
                                         ).isEmpty
@@ -263,7 +262,7 @@ struct GroupDetailsSheet: View {
                                 } label: {
                                     Label("Step Down as Admin", systemImage: "star.slash")
                                 }
-                                .disabled(workspace.hasInFlightGroupDetailsMutation || snapshot.isLastAdmin)
+                                .disabled(workspace.hasInFlightGroupCommit || snapshot.isLastAdmin)
                             }
 
                             Button(role: .destructive) {
@@ -274,7 +273,9 @@ struct GroupDetailsSheet: View {
                                     systemImage: "rectangle.portrait.and.arrow.right")
                             }
                             .disabled(
-                                workspace.isLeavingGroup || !snapshot.canLeave || snapshot.requiresSelfDemoteBeforeLeave
+                                workspace.hasInFlightGroupCommit
+                                    || !snapshot.canLeave
+                                    || snapshot.requiresSelfDemoteBeforeLeave
                             )
 
                             Button(role: .destructive) {
@@ -402,7 +403,7 @@ struct GroupDetailsSheet: View {
             Button("Step Down", role: .destructive) {
                 Task { await workspace.selfDemoteSelectedGroupAdmin() }
             }
-            .disabled(workspace.hasInFlightGroupDetailsMutation)
+            .disabled(workspace.hasInFlightGroupCommit)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You'll stay in the group, but another admin will need to restore your admin status.")
@@ -415,6 +416,7 @@ struct GroupDetailsSheet: View {
             Button("Leave Group", role: .destructive) {
                 Task { await workspace.leaveSelectedGroup() }
             }
+            .disabled(workspace.hasInFlightGroupCommit)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You will no longer receive messages from this group on this account.")
@@ -563,7 +565,7 @@ struct GroupMemberRow: View {
                         .frame(width: 28, height: 28)
                 }
                 .menuStyle(.borderlessButton)
-                .disabled(workspace.hasInFlightGroupDetailsMutation)
+                .disabled(workspace.hasInFlightGroupCommit)
             }
         }
         .confirmationDialog(
@@ -574,7 +576,7 @@ struct GroupMemberRow: View {
             Button("Remove Member", role: .destructive) {
                 Task { await workspace.removeGroupMember(member) }
             }
-            .disabled(workspace.hasInFlightGroupDetailsMutation)
+            .disabled(workspace.hasInFlightGroupCommit)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes \(PeerDisplayText.templateFragment(member.displayName)) from the group.")
@@ -665,7 +667,7 @@ struct GroupImagePickerSheet: View {
                                 Label("Clear", systemImage: "xmark.circle")
                             }
                             .controlSize(.small)
-                            .disabled(workspace.isSavingGroupImage)
+                            .disabled(workspace.hasInFlightGroupCommit)
                         }
                     }
                     .frame(minHeight: 24)
@@ -690,7 +692,7 @@ struct GroupImagePickerSheet: View {
                                         GroupImageResultTile(result: result)
                                     }
                                     .buttonStyle(.plain)
-                                    .disabled(workspace.isSavingGroupImage)
+                                    .disabled(workspace.hasInFlightGroupCommit)
                                 }
                             }
                             .padding(.vertical, 2)
