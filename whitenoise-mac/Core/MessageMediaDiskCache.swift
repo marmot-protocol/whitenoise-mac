@@ -214,6 +214,9 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private var purgeSequence = 0
     private var purgeTasks: [Int: ActivePurge] = [:]
     private var didSweepStagingDirectories = false
+    #if DEBUG
+        private var testingBeforeRemoveStaleStagingDirectories: (@Sendable () -> Void)?
+    #endif
     // Updated under `fileMutationLock` on commit and eviction. Tracks committed entries only;
     // live staging bytes are sampled separately when enforcing the byte cap.
     // Invalidated when read-path deletions or account purges remove an unknown subset.
@@ -392,6 +395,16 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         func entryDirectory(for key: MessageMediaDiskCacheKey) -> URL? {
             try? Self.entryDirectory(for: key, root: directoryResolver())
         }
+
+        func testingWithFileMutationLock(_ operation: () -> Void) {
+            fileMutationLock.lock()
+            defer { fileMutationLock.unlock() }
+            operation()
+        }
+
+        func testingSetBeforeStagingSweepHook(_ hook: @escaping @Sendable () -> Void) {
+            testingBeforeRemoveStaleStagingDirectories = hook
+        }
     #endif
 
     private func waitForActivePurge(affecting accountDigest: String? = nil) async {
@@ -430,6 +443,13 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     }
 
     private func sweepStaleStagingDirectoriesIfNeeded(root: URL) {
+        lock.lock()
+        if didSweepStagingDirectories {
+            lock.unlock()
+            return
+        }
+        lock.unlock()
+
         fileMutationLock.lock()
         defer { fileMutationLock.unlock() }
 
@@ -438,11 +458,17 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             lock.unlock()
             return
         }
-        didSweepStagingDirectories = true
         let cutoff = sessionStartedAtUnixSeconds
         lock.unlock()
 
+        #if DEBUG
+            testingBeforeRemoveStaleStagingDirectories?()
+        #endif
         Self.removeStaleStagingDirectories(root: root, olderThanUnixSeconds: cutoff)
+
+        lock.lock()
+        didSweepStagingDirectories = true
+        lock.unlock()
     }
 
     private func beginPurge(scope: PurgeScope, _ work: @escaping @Sendable () -> Void) -> PurgeHandle {
