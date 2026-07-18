@@ -538,6 +538,7 @@ extension WorkspaceState {
 
     func startEditingMessage(_ message: MessageItem) {
         guard message.canEdit, let draftKey = selectedComposerDraftKey else { return }
+        guard editingMessageContextByConversation[draftKey] == nil else { return }
         cancelVoiceRecording()
         let preservedDraft = draftTextByConversation[draftKey] ?? ""
         editingMessageContextByConversation[draftKey] = MessageEditContext(
@@ -545,6 +546,7 @@ extension WorkspaceState {
             senderName: message.senderName,
             originalBody: message.body,
             preservedDraft: preservedDraft,
+            preservedReplyContext: replyDraftContextByConversation[draftKey],
             preservedMediaAttachments: pendingMediaAttachmentsByConversation[draftKey] ?? [],
             preservedMediaUploadStates: pendingMediaUploadStatesByConversation[draftKey] ?? [:]
         )
@@ -559,6 +561,7 @@ extension WorkspaceState {
             let edit = editingMessageContextByConversation.removeValue(forKey: draftKey)
         else { return }
         draftTextByConversation[draftKey] = edit.preservedDraft.isEmpty ? nil : edit.preservedDraft
+        replyDraftContextByConversation[draftKey] = edit.preservedReplyContext
         pendingMediaAttachmentsByConversation[draftKey] =
             edit.preservedMediaAttachments.isEmpty ? nil : edit.preservedMediaAttachments
         pendingMediaUploadStatesByConversation[draftKey] =
@@ -568,6 +571,90 @@ extension WorkspaceState {
     func copyText(of message: MessageItem) {
         guard message.canCopyText else { return }
         copyText(message.body)
+    }
+
+    var isTimelineSelectionMode: Bool {
+        !selectedTimelineMessageIds.isEmpty
+    }
+
+    var selectedTimelineMessagesForAction: [MessageItem] {
+        selectedMessages.filter { selectedTimelineMessageIds.contains($0.id) }
+    }
+
+    func beginMessageSelection(_ message: MessageItem) {
+        guard message.presentation.isChatBubble else { return }
+        selectedTimelineMessageIds = [message.id]
+    }
+
+    func toggleMessageSelection(_ message: MessageItem) {
+        guard message.presentation.isChatBubble else { return }
+        if selectedTimelineMessageIds.contains(message.id) {
+            selectedTimelineMessageIds.remove(message.id)
+        } else {
+            selectedTimelineMessageIds.insert(message.id)
+        }
+    }
+
+    func cancelMessageSelection() {
+        selectedTimelineMessageIds.removeAll()
+    }
+
+    func showMessageInfo(_ message: MessageItem) {
+        messageInfoTarget = message
+    }
+
+    func startForwarding(_ messages: [MessageItem]) {
+        let ids = messages.filter(\.canForward).map(\.id)
+        guard !ids.isEmpty else { return }
+        forwardingMessageIds = ids
+        isForwardPickerPresented = true
+    }
+
+    func cancelForwarding() {
+        forwardingMessageIds = []
+        isForwardPickerPresented = false
+    }
+
+    func forwardPendingMessages(to chat: ChatItem) async {
+        guard !isForwardingMessages,
+            chat.canUseComposer,
+            let client,
+            let activeAccount
+        else { return }
+        let messages = selectedMessages.filter { forwardingMessageIds.contains($0.id) && $0.canForward }
+        guard !messages.isEmpty else { return }
+
+        isForwardingMessages = true
+        defer { isForwardingMessages = false }
+        do {
+            for message in messages {
+                _ = try await client.sendText(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: chat.id,
+                    text: message.body
+                )
+            }
+            cancelForwarding()
+            cancelMessageSelection()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func canDeleteMessage(_ message: MessageItem) -> Bool {
+        guard message.supportsChatActions, let selectedChat else { return false }
+        if message.isOutgoing { return true }
+        guard !selectedChat.isDirect else { return false }
+        return conversationMetadataByChat[selectedChat.id]?.isSelfAdmin == true
+    }
+
+    func deleteSelectedMessages() async {
+        let messages = selectedTimelineMessagesForAction.filter(canDeleteMessage)
+        guard !messages.isEmpty else { return }
+        for message in messages {
+            await deleteMessage(message)
+        }
+        cancelMessageSelection()
     }
 
     /// Copies `text` to the system pasteboard.
@@ -624,7 +711,7 @@ extension WorkspaceState {
     }
 
     func deleteMessage(_ message: MessageItem) async {
-        guard message.canDelete else { return }
+        guard canDeleteMessage(message) else { return }
         guard let client, let activeAccount, let selectedChat else { return }
         // Reentrancy guard: drop a repeated delete of the same in-flight message.
         guard !inFlightDeleteMessageIds.contains(message.id) else { return }
@@ -678,6 +765,7 @@ extension WorkspaceState {
             )
             editingMessageContextByConversation[draftKey] = nil
             draftTextByConversation[draftKey] = editContext.preservedDraft.isEmpty ? nil : editContext.preservedDraft
+            replyDraftContextByConversation[draftKey] = editContext.preservedReplyContext
             pendingMediaAttachmentsByConversation[draftKey] =
                 editContext.preservedMediaAttachments.isEmpty ? nil : editContext.preservedMediaAttachments
             pendingMediaUploadStatesByConversation[draftKey] =

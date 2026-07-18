@@ -50,8 +50,8 @@ struct ContentView: View {
                 // while it was in the background so the selected chat clears its unread
                 // state now that the user may be looking at it again.
                 Task {
-                    await workspace.refreshAccountProfiles()
                     await workspace.handleConversationVisibilityChange()
+                    await workspace.refreshAccountProfiles()
                 }
             }
             .onReceive(

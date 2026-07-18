@@ -871,6 +871,12 @@ final class WorkspaceState {
     var isSavingGroupImage = false
     var isGroupDetailsPresented = false
     var groupDetailsSnapshot: GroupDetailsSnapshot?
+    var conversationMetadataByChat: [String: ConversationMetadata] = [:]
+    var selectedTimelineMessageIds: Set<String> = []
+    var messageInfoTarget: MessageItem?
+    var forwardingMessageIds: [String] = []
+    var isForwardPickerPresented = false
+    var isForwardingMessages = false
     var groupProfileDraftName = ""
     var groupProfileDraftDescription = ""
     var groupInviteMemberQuery = ""

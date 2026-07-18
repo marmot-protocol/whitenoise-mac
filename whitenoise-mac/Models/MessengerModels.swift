@@ -240,6 +240,22 @@ struct GroupDetailsSnapshot: Hashable {
     var disappearingMessagesEnabled: Bool { disappearingMessageSecs > 0 }
 }
 
+struct ConversationMetadata: Hashable {
+    let memberCount: Int
+    let disappearingMessageSecs: UInt64
+    let isSelfAdmin: Bool
+
+    var subtitle: String {
+        if disappearingMessageSecs > 0 {
+            return String(
+                format: L10n.string("Disappearing messages: %@"),
+                DisappearingMessageOption.option(for: disappearingMessageSecs).label
+            )
+        }
+        return String(format: L10n.string("%d members"), memberCount)
+    }
+}
+
 enum GroupDetailsHeaderAvatar {
     static func sanitizedURL(snapshot: GroupDetailsSnapshot?, fallback chat: ChatItem) -> URL? {
         snapshot?.sanitizedAvatarURL ?? chat.sanitizedPictureURL
@@ -281,6 +297,7 @@ nonisolated struct MessageEditContext: Hashable {
     let senderName: String
     let originalBody: String
     let preservedDraft: String
+    let preservedReplyContext: MessageReplyContext?
     let preservedMediaAttachments: [PendingMediaAttachment]
     let preservedMediaUploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]
 }
@@ -1790,6 +1807,10 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     var canDelete: Bool {
         isActionableChatBubble && isOutgoing
+    }
+
+    var canForward: Bool {
+        isActionableChatBubble && hasCopyableBody
     }
 
     var canEdit: Bool {

@@ -531,7 +531,10 @@ extension WorkspaceState {
         // importers, paste, and recording shortcuts can still fire while the visible
         // composer is replaced, and collected media would otherwise accumulate
         // invisibly (the pending-media strip is hidden) and never be sent.
-        guard client != nil, selectedChat?.canUseComposer == true else { return false }
+        guard client != nil,
+            selectedChat?.canUseComposer == true,
+            editingMessageContext == nil
+        else { return false }
         guard remainingMediaAttachmentSlots > 0 else {
             presentMaxMediaAttachmentWarning()
             return false

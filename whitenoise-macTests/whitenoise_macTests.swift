@@ -262,7 +262,6 @@ private struct TranscriptPerformanceRows: View {
                 ) { _ in
                 } onNavigateToMessage: { _ in
                 }
-                .equatable()
             }
         }
         .padding(.horizontal, 28)
@@ -9890,7 +9889,7 @@ struct whitenoise_macTests {
         await state.loadMessages(groupIdHex: "direct-group")
         await state.loadOlderMessages(groupIdHex: "direct-group")
 
-        #expect(runtime.refreshedProfileIds == [account.accountIdHex])
+        #expect(runtime.refreshedProfileIds.isEmpty)
         #expect(state.messagesByChat["direct-group"]?.first?.id == "message-000")
     }
 
@@ -10272,6 +10271,14 @@ struct whitenoise_macTests {
         )
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
+        let preservedReplyTarget = MessageItem(
+            id: "reply-target",
+            senderName: "Alice",
+            body: "Keep this reply queued.",
+            sentAt: Date(timeIntervalSince1970: 1_699_999_900),
+            isOutgoing: false
+        )
+        state.startReply(to: preservedReplyTarget)
         state.draftText = "Preserved draft"
         state.startEditingMessage(
             MessageItem(
@@ -10279,6 +10286,19 @@ struct whitenoise_macTests {
                 senderName: "You",
                 body: "Original text",
                 sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: true
+            ))
+
+        #expect(state.editingMessageContext?.targetMessageId == "message-to-edit")
+        #expect(state.draftText == "Original text")
+        #expect(state.replyDraftContext == nil)
+
+        state.startEditingMessage(
+            MessageItem(
+                id: "replacement-edit",
+                senderName: "You",
+                body: "Do not replace the active edit",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_100),
                 isOutgoing: true
             ))
 
@@ -10297,6 +10317,53 @@ struct whitenoise_macTests {
                 ))
         #expect(state.editingMessageContext == nil)
         #expect(state.draftText == "Preserved draft")
+        #expect(state.replyDraftContext?.targetMessageId == preservedReplyTarget.id)
+    }
+
+    @MainActor
+    @Test func cancellingMessageEditRestoresPreservedReplyAndDraft() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let replyTarget = MessageItem(
+            id: "reply-target",
+            senderName: "Alice",
+            body: "Reply later",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        state.startReply(to: replyTarget)
+        state.draftText = "Unsent draft"
+        state.startEditingMessage(
+            MessageItem(
+                id: "message-to-edit",
+                senderName: "You",
+                body: "Original text",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_100),
+                isOutgoing: true
+            ))
+
+        state.cancelEditingMessage()
+
+        #expect(state.editingMessageContext == nil)
+        #expect(state.draftText == "Unsent draft")
+        #expect(state.replyDraftContext?.targetMessageId == replyTarget.id)
     }
 
     @MainActor
@@ -11123,6 +11190,36 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupAdminCanDeleteIncomingMessage() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: true)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        let message = MessageItem(
+            id: "incoming-group-message",
+            senderName: "Alice",
+            body: "Remove this from the group",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        await state.refreshConversationMetadata(for: chat)
+
+        #expect(state.canDeleteMessage(message))
+        await state.deleteMessage(message)
+        #expect(
+            runtime.deletedMessage
+                == DeletedMessage(
+                    groupIdHex: chat.id,
+                    targetMessageId: message.id
+                ))
+    }
+
+    @MainActor
     @Test func messageActionsRemoveOwnReactionByDeletingReactionEvent() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -11497,7 +11594,7 @@ struct whitenoise_macTests {
         #expect(state.activeChats.first?.avatarSeed == "alice1234567890alice1234567890alice1234567890alice1234567890")
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
         #expect(state.activeChats.first?.isDirect == true)
-        #expect(runtime.refreshedProfileIds.isEmpty)
+        #expect(runtime.refreshedProfileIds == [account.accountIdHex])
     }
 
     @MainActor

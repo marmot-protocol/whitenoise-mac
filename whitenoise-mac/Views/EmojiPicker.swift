@@ -65,19 +65,21 @@ nonisolated enum ChatReactionDefaults {
 
 private struct ChatEmojiCategory: Identifiable {
     let id: Int
-    let title: String
+    let titleKey: String
     let systemImage: String
 
+    var title: String { L10n.string(titleKey) }
+
     static let all = [
-        Self(id: 0, title: "Smileys & People", systemImage: "face.smiling"),
-        Self(id: 1, title: "People & Body", systemImage: "person.fill"),
-        Self(id: 2, title: "Animals & Nature", systemImage: "pawprint.fill"),
-        Self(id: 3, title: "Food & Drink", systemImage: "fork.knife"),
-        Self(id: 4, title: "Travel & Places", systemImage: "car.fill"),
-        Self(id: 5, title: "Activities", systemImage: "soccerball"),
-        Self(id: 6, title: "Objects", systemImage: "lightbulb.fill"),
-        Self(id: 7, title: "Symbols", systemImage: "heart.fill"),
-        Self(id: 8, title: "Flags", systemImage: "flag.fill"),
+        Self(id: 0, titleKey: "Smileys & People", systemImage: "face.smiling"),
+        Self(id: 1, titleKey: "People & Body", systemImage: "person.fill"),
+        Self(id: 2, titleKey: "Animals & Nature", systemImage: "pawprint.fill"),
+        Self(id: 3, titleKey: "Food & Drink", systemImage: "fork.knife"),
+        Self(id: 4, titleKey: "Travel & Places", systemImage: "car.fill"),
+        Self(id: 5, titleKey: "Activities", systemImage: "soccerball"),
+        Self(id: 6, titleKey: "Objects", systemImage: "lightbulb.fill"),
+        Self(id: 7, titleKey: "Symbols", systemImage: "heart.fill"),
+        Self(id: 8, titleKey: "Flags", systemImage: "flag.fill"),
     ]
 }
 
@@ -154,7 +156,7 @@ struct ChatEmojiPicker: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Search emoji", text: $query)
+            TextField(L10n.string("Search emoji"), text: $query)
                 .textFieldStyle(.plain)
             if !query.isEmpty {
                 Button {
@@ -164,7 +166,7 @@ struct ChatEmojiPicker: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
+                .accessibilityLabel(L10n.string("Clear search"))
             }
         }
         .padding(.horizontal, 11)
@@ -186,7 +188,7 @@ struct ChatEmojiPicker: View {
                         let lookup = Dictionary(uniqueKeysWithValues: model.entries.map { ($0.emoji, $0) })
                         let recents = ChatEmojiRecents.values.compactMap { lookup[$0] }
                         if !recents.isEmpty {
-                            emojiSection(title: "Recently used", entries: recents)
+                            emojiSection(title: L10n.string("Recently used"), entries: recents)
                                 .id("recent")
                         }
                         ForEach(ChatEmojiCategory.all) { category in
@@ -198,7 +200,7 @@ struct ChatEmojiPicker: View {
                         }
                     } else {
                         emojiSection(
-                            title: "Search results",
+                            title: L10n.string("Search results"),
                             entries: ChatEmojiSearch.results(in: model.entries, query: query)
                         )
                     }
@@ -238,11 +240,19 @@ struct ChatEmojiPicker: View {
 
     private func categoryRail(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 2) {
-            railButton(systemImage: "clock.fill", selected: false) {
+            railButton(
+                systemImage: "clock.fill",
+                label: L10n.string("Recently used"),
+                selected: false
+            ) {
                 proxy.scrollTo("recent", anchor: .top)
             }
             ForEach(ChatEmojiCategory.all) { category in
-                railButton(systemImage: category.systemImage, selected: selectedCategory == category.id) {
+                railButton(
+                    systemImage: category.systemImage,
+                    label: category.title,
+                    selected: selectedCategory == category.id
+                ) {
                     selectedCategory = category.id
                     proxy.scrollTo("category-\(category.id)", anchor: .top)
                 }
@@ -256,6 +266,7 @@ struct ChatEmojiPicker: View {
 
     private func railButton(
         systemImage: String,
+        label: String,
         selected: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -267,5 +278,6 @@ struct ChatEmojiPicker: View {
                 .background(selected ? Color.primary.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }

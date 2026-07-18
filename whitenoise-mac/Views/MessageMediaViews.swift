@@ -70,10 +70,8 @@ extension EnvironmentValues {
     }
 }
 
-struct ConversationMessageRow: View, Equatable {
+struct ConversationMessageRow: View {
     let message: MessageItem
-    /// Keep the debug toggle as a row input so `.equatable()` still updates rows when the
-    /// diagnostics presentation changes, while hover/selection churn is scoped below the row.
     var showsDebugMetadata = false
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
@@ -92,11 +90,6 @@ struct ConversationMessageRow: View, Equatable {
         } else {
             TimelineNoticeRow(message: message, showsDebugMetadata: showsDebugMetadata)
         }
-    }
-
-    static func == (lhs: ConversationMessageRow, rhs: ConversationMessageRow) -> Bool {
-        lhs.message == rhs.message
-            && lhs.showsDebugMetadata == rhs.showsDebugMetadata
     }
 }
 
@@ -244,21 +237,16 @@ struct MessageBubble: View {
                         .background { GlassCapsuleBackground() }
                         .popover(isPresented: $isReactionSummaryPresented, arrowEdge: .bottom) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("Reactions")
+                                Text(L10n.string("Reactions"))
                                     .font(.headline)
-                                ForEach(message.reactions) { reaction in
-                                    HStack {
-                                        Text(reaction.emoji)
-                                        Text("\(reaction.count)")
-                                            .foregroundStyle(.secondary)
-                                        Spacer()
-                                        if reaction.canRemoveOwnReaction {
-                                            Text("You")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                ScrollView {
+                                    LazyVStack(spacing: 8) {
+                                        ForEach(message.reactions) { reaction in
+                                            reactionSummaryRow(reaction)
                                         }
                                     }
                                 }
+                                .frame(maxHeight: 260)
                             }
                             .padding(14)
                             .frame(width: 220)
@@ -273,13 +261,44 @@ struct MessageBubble: View {
                 inlineActions
             }
         }
+        .overlay(alignment: .leading) {
+            if workspace.isTimelineSelectionMode {
+                Button {
+                    workspace.toggleMessageSelection(message)
+                } label: {
+                    Image(
+                        systemName: workspace.selectedTimelineMessageIds.contains(message.id)
+                            ? "checkmark.circle.fill" : "circle"
+                    )
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(
+                        workspace.selectedTimelineMessageIds.contains(message.id)
+                            ? Color.accentColor : Color.secondary
+                    )
+                    .frame(width: 40, height: 40)
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    workspace.selectedTimelineMessageIds.contains(message.id)
+                        ? L10n.string("Deselect message") : L10n.string("Select message")
+                )
+            }
+        }
         .animation(.smooth(duration: 0.12), value: showsInlineActions)
         .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
         .padding(message.isOutgoing ? .leading : .trailing, 72)
         .contentShape(Rectangle())
         .contextMenu {
-            MessageContextMenuItems(message: message)
+            if !workspace.isTimelineSelectionMode {
+                MessageContextMenuItems(message: message)
+            }
+        }
+        .onTapGesture {
+            if workspace.isTimelineSelectionMode {
+                workspace.toggleMessageSelection(message)
+            }
         }
         .onAppear {
             hoverSelectionCoordinator.register(messageID: message.id, isSelectable: $isSelectable)
@@ -299,6 +318,39 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
+    }
+
+    @ViewBuilder
+    private func reactionSummaryRow(_ reaction: MessageReaction) -> some View {
+        if reaction.canRemoveOwnReaction {
+            Button {
+                Task {
+                    await workspace.removeReaction(reaction, from: message)
+                    isReactionSummaryPresented = false
+                }
+            } label: {
+                reactionSummaryLabel(reaction)
+            }
+            .buttonStyle(.plain)
+            .help(String(format: L10n.string("Remove %@ reaction"), reaction.emoji))
+        } else {
+            reactionSummaryLabel(reaction)
+        }
+    }
+
+    private func reactionSummaryLabel(_ reaction: MessageReaction) -> some View {
+        HStack {
+            Text(reaction.emoji)
+            Text("\(reaction.count)")
+                .foregroundStyle(.secondary)
+            Spacer()
+            if reaction.canRemoveOwnReaction {
+                Text(L10n.string("You"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(Rectangle())
     }
 
     private var usesBubbleSurface: Bool {
@@ -326,7 +378,7 @@ struct MessageBubble: View {
         var actionCount = 0
         actionCount += message.canReact ? 1 : 0
         actionCount += message.canReply ? 1 : 0
-        actionCount += message.canCopyText || message.canDelete ? 1 : 0
+        actionCount += message.supportsChatActions ? 1 : 0
 
         let controlWidth = CGFloat(actionCount) * 40
         let spacingWidth = CGFloat(max(actionCount - 1, 0)) * 4
@@ -1638,7 +1690,7 @@ struct MessageInlineActions: View {
                 .help("Reply")
             }
 
-            if message.canCopyText || message.canDelete {
+            if message.supportsChatActions {
                 Button {
                     isOverflowPresented = true
                 } label: {
@@ -1678,8 +1730,8 @@ struct MessageInlineActionIcon: View {
     var body: some View {
         Image(systemName: systemName)
             .font(.system(size: 18, weight: .medium))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(isHovering ? Color.primary.opacity(0.9) : Color.secondary.opacity(0.78))
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(isHovering ? Color.primary : Color.secondary.opacity(0.9))
             .frame(width: 40, height: 40)
             .background {
                 Circle()
@@ -1694,20 +1746,55 @@ struct MessageInlineActionIcon: View {
 }
 
 struct MessageEmojiPickerPopover: View {
+    @State private var isFullPickerPresented = false
     let onPick: (String) -> Void
 
     var body: some View {
-        ChatEmojiPicker(onPick: onPick)
+        HStack(spacing: 4) {
+            ForEach(ChatReactionDefaults.quick, id: \.self) { emoji in
+                Button {
+                    onPick(emoji)
+                } label: {
+                    Text(emoji)
+                        .font(.system(size: 22))
+                        .frame(width: 40, height: 40)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(format: L10n.string("React with %@"), emoji))
+            }
+
+            Button {
+                isFullPickerPresented = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+                    .background(Color.primary.opacity(0.08), in: Circle())
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(L10n.string("More emoji"))
+            .popover(isPresented: $isFullPickerPresented, arrowEdge: .bottom) {
+                ChatEmojiPicker { emoji in
+                    isFullPickerPresented = false
+                    onPick(emoji)
+                }
+            }
+        }
+        .padding(6)
+        .background(.regularMaterial, in: Capsule())
     }
 }
 
-/// The Copy/Delete actions available on a message row, gated by the message's own
-/// `canCopyText` / `canDelete`. Centralised here so both presentations — the native
+/// The actions available on a message row, gated by message and conversation capabilities.
+/// Centralised here so both presentations — the native
 /// `.contextMenu` (`MessageContextMenuItems`) and the inline hover popover
 /// (`MessageOverflowPopover`) — share one source of truth for which actions exist and what
 /// they do, while each keeps its own button styling.
 struct MessageRowAction: Identifiable {
-    enum Kind { case edit, copy, delete }
+    enum Kind { case info, select, forward, edit, copy, delete }
 
     let kind: Kind
     let title: LocalizedStringKey
@@ -1724,6 +1811,23 @@ struct MessageRowAction: Identifiable {
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
         var actions: [MessageRowAction] = []
+        actions.append(
+            MessageRowAction(kind: .info, title: "Message Info", systemImage: "info.circle", role: nil) {
+                workspace.showMessageInfo(message)
+                dismiss()
+            })
+        actions.append(
+            MessageRowAction(kind: .select, title: "Select", systemImage: "checkmark.circle", role: nil) {
+                workspace.beginMessageSelection(message)
+                dismiss()
+            })
+        if message.canForward {
+            actions.append(
+                MessageRowAction(kind: .forward, title: "Forward", systemImage: "arrowshape.turn.up.right", role: nil) {
+                    workspace.startForwarding([message])
+                    dismiss()
+                })
+        }
         if message.canEdit {
             actions.append(
                 MessageRowAction(kind: .edit, title: "Edit", systemImage: "pencil", role: nil) {
@@ -1738,7 +1842,7 @@ struct MessageRowAction: Identifiable {
                     dismiss()
                 })
         }
-        if message.canDelete {
+        if workspace.canDeleteMessage(message) {
             actions.append(
                 MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {
                     dismiss()

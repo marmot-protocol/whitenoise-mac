@@ -16,6 +16,31 @@ import UserNotifications
 
 @MainActor
 extension WorkspaceState {
+    func refreshConversationMetadata(for chat: ChatItem) async {
+        guard !chat.isDirect, let client, let activeAccount else {
+            conversationMetadataByChat[chat.id] = nil
+            return
+        }
+        do {
+            async let details = client.groupDetails(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: chat.id
+            )
+            async let management = client.groupManagementState(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: chat.id
+            )
+            let (resolvedDetails, resolvedManagement) = try await (details, management)
+            conversationMetadataByChat[chat.id] = ConversationMetadata(
+                memberCount: resolvedDetails.members.count,
+                disappearingMessageSecs: resolvedDetails.group.disappearingMessageSecs,
+                isSelfAdmin: resolvedManagement.isSelfAdmin
+            )
+        } catch {
+            // The chat remains fully usable with its cached subtitle and owner-only delete rules.
+        }
+    }
+
     func showGroupDetails(for chat: ChatItem) async {
         cancelGroupTranscriptExport()
         lastError = nil
@@ -284,8 +309,9 @@ extension WorkspaceState {
         }
     }
 
-    func setChatArchived(_ chat: ChatItem, archived: Bool) async {
-        guard let client, let activeAccount, archivingChatId == nil else { return }
+    @discardableResult
+    func setChatArchived(_ chat: ChatItem, archived: Bool) async -> Bool {
+        guard let client, let activeAccount, archivingChatId == nil else { return false }
         lastError = nil
         archivingChatId = chat.id
         defer { archivingChatId = nil }
@@ -297,11 +323,13 @@ extension WorkspaceState {
                 archived: archived
             )
             await reloadChats(forceFreshSnapshot: true)
+            return true
         } catch {
             lastError =
                 archived
                 ? L10n.string("Couldn't archive chat")
                 : L10n.string("Couldn't update archive")
+            return false
         }
     }
 
@@ -315,7 +343,7 @@ extension WorkspaceState {
         isArchivingGroup = true
         defer { isArchivingGroup = false }
 
-        await setChatArchived(chat, archived: archived)
+        guard await setChatArchived(chat, archived: archived) else { return }
         if archived {
             closeGroupDetails()
         } else {

@@ -194,7 +194,7 @@ extension WorkspaceState {
                 )
             {
                 if existing.isArchived {
-                    await setChatArchived(existing.chat, archived: false)
+                    guard await setChatArchived(existing.chat, archived: false) else { return }
                 }
                 guard activeAccountId == accountId else { return }
                 selection = .chat(existing.chat.id)
