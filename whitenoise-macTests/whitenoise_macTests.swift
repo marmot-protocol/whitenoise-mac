@@ -3021,9 +3021,12 @@ struct whitenoise_macTests {
             .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        let keyProviderGate = OneShotKeyProviderGate()
         let directoryResolutionCount = AtomicCounter()
         let secondStoreResolvedDirectory = DispatchSemaphore(value: 0)
+        let timestampProviderCalls = AtomicCounter()
+        let firstTimestampProviderCall = DispatchSemaphore(value: 0)
+        let secondTimestampProviderCall = DispatchSemaphore(value: 0)
+        let releaseFirstTimestampProviderCall = DispatchSemaphore(value: 0)
         let cache = MessageMediaDiskCache(
             directoryResolver: {
                 if directoryResolutionCount.increment() == 2 {
@@ -3031,8 +3034,18 @@ struct whitenoise_macTests {
                 }
                 return root
             },
-            keyProvider: keyProviderGate.symmetricKey,
-            keyDeleter: {}
+            keyProvider: { SymmetricKey(data: Data(repeating: 0x42, count: 32)) },
+            keyDeleter: {},
+            timestampProvider: {
+                let call = timestampProviderCalls.increment()
+                if call == 1 {
+                    firstTimestampProviderCall.signal()
+                    releaseFirstTimestampProviderCall.wait()
+                } else if call == 2 {
+                    secondTimestampProviderCall.signal()
+                }
+                return TimeInterval(call)
+            }
         )
         let firstPlaintext = Data("first concurrently stored media".utf8)
         let secondPlaintext = Data("second concurrently stored media".utf8)
@@ -3059,9 +3072,12 @@ struct whitenoise_macTests {
                 for: firstKey
             )
         }
-        await Task.detached {
-            keyProviderGate.waitUntilReached()
-        }.value
+        #expect(
+            await waitForSemaphore(
+                firstTimestampProviderCall,
+                timeout: .now() + .seconds(1)
+            ) == .success
+        )
 
         let secondStore = Task {
             await cache.store(
@@ -3083,13 +3099,19 @@ struct whitenoise_macTests {
             ) == .success
         )
         #expect(
-            await keyProviderGate.waitForSecondCall(timeout: .now() + .milliseconds(200)) == .timedOut
+            await waitForSemaphore(
+                secondTimestampProviderCall,
+                timeout: .now() + .milliseconds(200)
+            ) == .timedOut
         )
-        keyProviderGate.releaseGate()
+        releaseFirstTimestampProviderCall.signal()
         await firstStore.value
         await secondStore.value
         #expect(
-            await keyProviderGate.waitForSecondCall(timeout: .now() + .seconds(1)) == .success
+            await waitForSemaphore(
+                secondTimestampProviderCall,
+                timeout: .now() + .seconds(1)
+            ) == .success
         )
         #expect(try #require(await cache.cachedDownload(for: firstKey)).data == firstPlaintext)
         #expect(try #require(await cache.cachedDownload(for: secondKey)).data == secondPlaintext)
@@ -3483,8 +3505,15 @@ struct whitenoise_macTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let keyProviderGate = OneShotKeyProviderGate()
+        let directoryResolutionCount = AtomicCounter()
+        let purgeResolvedDirectory = DispatchSemaphore(value: 0)
         let cache = MessageMediaDiskCache(
-            directoryResolver: { root },
+            directoryResolver: {
+                if directoryResolutionCount.increment() == 2 {
+                    purgeResolvedDirectory.signal()
+                }
+                return root
+            },
             keyProvider: keyProviderGate.symmetricKey,
             keyDeleter: {}
         )
@@ -3509,8 +3538,17 @@ struct whitenoise_macTests {
             keyProviderGate.waitUntilReached()
         }.value
 
-        await cache.purgeAccount("account-a")
+        let purgeTask = Task {
+            await cache.purgeAccount("account-a")
+        }
+        #expect(
+            await waitForSemaphore(
+                purgeResolvedDirectory,
+                timeout: .now() + .seconds(1)
+            ) == .success
+        )
         keyProviderGate.releaseGate()
+        await purgeTask.value
         await storeTask.value
 
         let restored = try #require(await cache.cachedDownload(for: key))
@@ -3525,8 +3563,15 @@ struct whitenoise_macTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let keyProviderGate = OneShotKeyProviderGate()
+        let directoryResolutionCount = AtomicCounter()
+        let purgeResolvedDirectory = DispatchSemaphore(value: 0)
         let cache = MessageMediaDiskCache(
-            directoryResolver: { root },
+            directoryResolver: {
+                if directoryResolutionCount.increment() == 2 {
+                    purgeResolvedDirectory.signal()
+                }
+                return root
+            },
             keyProvider: keyProviderGate.symmetricKey,
             keyDeleter: {}
         )
@@ -3551,8 +3596,17 @@ struct whitenoise_macTests {
             keyProviderGate.waitUntilReached()
         }.value
 
-        await cache.purgeAccount("account-b")
+        let purgeTask = Task {
+            await cache.purgeAccount("account-b")
+        }
+        #expect(
+            await waitForSemaphore(
+                purgeResolvedDirectory,
+                timeout: .now() + .seconds(1)
+            ) == .success
+        )
         keyProviderGate.releaseGate()
+        await purgeTask.value
         await storeTask.value
 
         #expect(await cache.cachedDownload(for: key) == nil)
@@ -3611,6 +3665,53 @@ struct whitenoise_macTests {
         #expect(await cache.cachedDownload(for: secondKey) == nil)
         #expect(didDeleteKey.value)
         #expect(!fileManager.fileExists(atPath: root.path))
+    }
+
+    @Test func messageMediaDiskCacheMemoizesEncryptionKeyUntilDeletion() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyProviderCalls = AtomicCounter()
+        let keyDeleterCalls = AtomicCounter()
+        let cache = MessageMediaDiskCache(
+            directoryResolver: { root },
+            keyProvider: {
+                let call = keyProviderCalls.increment()
+                return SymmetricKey(data: Data(repeating: UInt8(call), count: 32))
+            },
+            keyDeleter: { keyDeleterCalls.increment() }
+        )
+        let plaintext = Data("memoized cache key".utf8)
+        let key = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: plaintext)
+        )
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "memoized.jpg",
+            mediaType: "image/jpeg",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "memoized"
+        )
+
+        await cache.store(download, for: key)
+        #expect(try #require(await cache.cachedDownload(for: key)).data == plaintext)
+        #expect(keyProviderCalls.value == 1)
+
+        await cache.purgeAll()
+        await cache.store(download, for: key)
+        #expect(try #require(await cache.cachedDownload(for: key)).data == plaintext)
+        #expect(keyProviderCalls.value == 1)
+        #expect(keyDeleterCalls.value == 0)
+
+        await cache.purgeAll(removeEncryptionKey: true)
+        #expect(keyDeleterCalls.value == 1)
+        await cache.store(download, for: key)
+        #expect(try #require(await cache.cachedDownload(for: key)).data == plaintext)
+        #expect(keyProviderCalls.value == 2)
     }
 
     @Test func messageMediaDiskCacheRejectsDirectStoreDuringFullWipe() async throws {
