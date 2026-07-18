@@ -506,6 +506,17 @@ private extension View {
         }
     }
 
+    func attachmentRowChrome(isOutgoing: Bool) -> some View {
+        foregroundStyle(isOutgoing ? Color.white : Color.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(width: 260, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06))
+            }
+    }
+
     func autoDownloadMediaAttachment(
         _ downloadState: MediaDownloadStateStore,
         attachment: MessageMediaAttachment,
@@ -1006,22 +1017,11 @@ struct MessageAttachmentStatusRow: View {
                 .help(L10n.string("Retry"))
             }
         }
-        .foregroundStyle(isOutgoing ? Color.white : Color.primary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(width: 260, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(rowBackground)
-        }
+        .attachmentRowChrome(isOutgoing: isOutgoing)
     }
 
     private var iconBackground: Color {
         isOutgoing ? Color.white.opacity(0.18) : Color.primary.opacity(0.08)
-    }
-
-    private var rowBackground: Color {
-        isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06)
     }
 }
 
@@ -1095,14 +1095,7 @@ struct MessageAudioAttachmentPlayer: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .foregroundStyle(isOutgoing ? Color.white : Color.primary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(width: 260, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06))
-        }
+        .attachmentRowChrome(isOutgoing: isOutgoing)
         .onDisappear {
             stopPlayback()
         }
