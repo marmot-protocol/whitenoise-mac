@@ -1064,7 +1064,7 @@ struct MessageInfoSheet: View {
                 infoRow(title: L10n.string("From"), value: message.senderName)
                 infoRow(
                     title: L10n.string("Sent"),
-                    value: message.sentAt.formatted(date: .long, time: .shortened)
+                    value: DisplayText.longDateTimeTimestamp(for: message.sentAt)
                 )
                 if message.isEdited {
                     infoRow(title: L10n.string("Status"), value: L10n.string("Edited"))

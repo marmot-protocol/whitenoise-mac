@@ -872,6 +872,7 @@ final class WorkspaceState {
     var isGroupDetailsPresented = false
     var groupDetailsSnapshot: GroupDetailsSnapshot?
     var conversationMetadataByChat: [String: ConversationMetadata] = [:]
+    @ObservationIgnored var conversationMetadataGenerationByChat: [String: UInt64] = [:]
     var selectedTimelineMessageIds: Set<String> = []
     var messageInfoTarget: MessageItem?
     var forwardingMessageIds: [String] = []

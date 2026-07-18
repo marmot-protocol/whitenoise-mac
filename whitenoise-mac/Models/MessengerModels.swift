@@ -2399,6 +2399,7 @@ nonisolated enum DisplayText {
     private static let calendar = Calendar.autoupdatingCurrent
     private static let timeOnlyStyle = Date.FormatStyle(date: .omitted, time: .shortened)
     private static let dateTimeStyle = Date.FormatStyle(date: .abbreviated, time: .shortened)
+    private static let longDateTimeStyle = Date.FormatStyle(date: .long, time: .shortened)
     private static let weekdayStyle = Date.FormatStyle.dateTime.weekday(.abbreviated)
     private static let monthDayStyle = Date.FormatStyle.dateTime.month(.abbreviated).day()
     private static let dayHeaderStyle = Date.FormatStyle(date: .abbreviated, time: .omitted)
@@ -2437,6 +2438,10 @@ nonisolated enum DisplayText {
 
     static func dateTimeTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
         date.formatted(dateTimeStyle.locale(locale))
+    }
+
+    static func longDateTimeTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
+        date.formatted(longDateTimeStyle.locale(locale))
     }
 
     static func timelineDayLabel(

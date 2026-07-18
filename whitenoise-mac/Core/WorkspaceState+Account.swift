@@ -100,6 +100,8 @@ extension WorkspaceState {
         archivingChatId = nil
         closeNewChatComposer()
         pruneMessageCache(keeping: groupIdHex)
+        conversationMetadataByChat.removeAll()
+        conversationMetadataGenerationByChat.removeAll()
         clearMediaReferenceResolutionCache()
         // Lookup caches are scoped to the active account's view (directory display names and
         // group membership visibility can differ per account); drop them on switch so the new

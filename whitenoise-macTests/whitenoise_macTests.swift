@@ -3437,6 +3437,22 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func longDateTimeTimestampUsesSelectedAppLanguage() async throws {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+
+        let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let expected = messageDate.formatted(
+            Date.FormatStyle(date: .long, time: .shortened)
+                .locale(Locale(identifier: AppLanguage.spanish.rawValue))
+        )
+
+        #expect(DisplayText.longDateTimeTimestamp(for: messageDate) == expected)
+    }
+
+    @MainActor
     @Test func timelineDayGroupingLabelsOnlyDayBoundaries() async throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -11217,6 +11233,36 @@ struct whitenoise_macTests {
                     groupIdHex: chat.id,
                     targetMessageId: message.id
                 ))
+    }
+
+    @MainActor
+    @Test func newerFailedConversationMetadataRefreshInvalidatesHeldOlderResult() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: true)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        await state.refreshConversationMetadata(for: chat)
+        #expect(state.conversationMetadataByChat[chat.id]?.isSelfAdmin == true)
+
+        runtime.groupDetailsGateEnabled = true
+        async let olderRefresh: Void = state.refreshConversationMetadata(for: chat)
+        while !runtime.didReachGroupDetailsGate {
+            await Task.yield()
+        }
+
+        runtime.groupDetailsFailureGroupIds.insert(chat.id)
+        await state.refreshConversationMetadata(for: chat)
+        #expect(state.conversationMetadataByChat[chat.id] == nil)
+
+        runtime.releaseGroupDetailsGate()
+        _ = await olderRefresh
+
+        #expect(state.conversationMetadataByChat[chat.id] == nil)
     }
 
     @MainActor

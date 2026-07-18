@@ -17,8 +17,13 @@ import UserNotifications
 @MainActor
 extension WorkspaceState {
     func refreshConversationMetadata(for chat: ChatItem) async {
-        guard !chat.isDirect, let client, let activeAccount else {
-            conversationMetadataByChat[chat.id] = nil
+        conversationMetadataGenerationByChat[chat.id, default: 0] &+= 1
+        let generation = conversationMetadataGenerationByChat[chat.id] ?? 0
+
+        guard !chat.isDirect, let client, let activeAccount, let accountId = activeAccountId else {
+            if conversationMetadataGenerationByChat[chat.id] == generation {
+                conversationMetadataByChat[chat.id] = nil
+            }
             return
         }
         do {
@@ -31,13 +36,21 @@ extension WorkspaceState {
                 groupIdHex: chat.id
             )
             let (resolvedDetails, resolvedManagement) = try await (details, management)
+            guard
+                activeAccountId == accountId,
+                conversationMetadataGenerationByChat[chat.id] == generation
+            else { return }
             conversationMetadataByChat[chat.id] = ConversationMetadata(
                 memberCount: resolvedDetails.members.count,
                 disappearingMessageSecs: resolvedDetails.group.disappearingMessageSecs,
                 isSelfAdmin: resolvedManagement.isSelfAdmin
             )
         } catch {
-            // The chat remains fully usable with its cached subtitle and owner-only delete rules.
+            guard
+                activeAccountId == accountId,
+                conversationMetadataGenerationByChat[chat.id] == generation
+            else { return }
+            conversationMetadataByChat[chat.id] = nil
         }
     }
 
