@@ -213,13 +213,22 @@ extension WorkspaceState {
         // both lists are truly removed — clearing drafts for a moved chat drops its composer draft.
         let removedChatIds = previousActiveChatIds.union(previousArchivedChatIds)
             .subtracting(nextActiveChatIds.union(nextArchivedChatIds))
+        let selectedChatWasRemoved: Bool
+        if case .chat(let selectedGroupId) = selection {
+            selectedChatWasRemoved = removedChatIds.contains(selectedGroupId)
+        } else {
+            selectedChatWasRemoved = false
+        }
 
         for groupId in removedChatIds {
-            invalidateGroupMembers(for: groupId)
+            teardownRemovedChatPerChatState(groupIdHex: groupId, accountId: account.id)
         }
-        clearComposerDrafts(for: Array(removedChatIds), accountId: account.id)
-        setChats(sortedChatItems(activeItems), forAccountId: account.id)
+        let sortedActiveItems = sortedChatItems(activeItems)
+        setChats(sortedActiveItems, forAccountId: account.id)
         setArchivedChats(sortedChatItems(archivedItems), forAccountId: account.id)
+        if selectedChatWasRemoved {
+            transitionAfterRemovedSelectedChat(remainingActiveChats: chatsByAccount[account.id] ?? [])
+        }
         dismissGroupImagePickerIfSelectedChatUnavailable()
         cancelVoiceRecordingIfSelectedMembershipEnded()
         ensureSelectedMessageTimelineStore()
@@ -249,7 +258,6 @@ extension WorkspaceState {
             // still happens via `upsertChat` inside `applyChatRow` (issue #251).
             await applyChatRow(row, account: account, shouldEnrich: chatListTriggerRequiresEnrichment(trigger))
         case .removeRow(trigger: _, let groupIdHex):
-            invalidateGroupMembers(for: groupIdHex)
             removeChat(groupIdHex: groupIdHex, account: account)
             removeArchivedChatFromList(chatId: groupIdHex, forAccountId: account.id)
         }
@@ -374,35 +382,51 @@ extension WorkspaceState {
         return groupNameIsBlank && current.title == rawTitle
     }
 
-    func removeChat(groupIdHex: String, account: AccountItem) {
-        guard activeAccountId == account.id else { return }
-
-        let chats = removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
+    /// Clears per-chat cached state when a conversation disappears from the account.
+    /// Does not mutate chat lists or selection — callers own those updates.
+    func teardownRemovedChatPerChatState(groupIdHex: String, accountId: String) {
         cachedMessageChatIds.remove(groupIdHex)
         messageTimelineStores[groupIdHex]?.clear()
         messageTimelineStores[groupIdHex] = nil
         invalidateGroupMembers(for: groupIdHex)
         timelinePagingByChat[groupIdHex] = nil
-        clearComposerDrafts(for: [groupIdHex], accountId: account.id)
+        clearComposerDrafts(for: [groupIdHex], accountId: accountId)
         if timelineInitialLoadGroupId == groupIdHex {
             timelineInitialLoadGroupId = nil
         }
         lastMarkedReadMarkers[groupIdHex] = nil
         lastConfirmedReadMarkers[groupIdHex] = nil
+    }
 
-        guard case .chat(let selectedGroupId) = selection,
-            selectedGroupId == groupIdHex
-        else { return }
-
+    /// After the selected chat was removed, leave its live resources and select the most recent
+    /// remaining active chat.
+    func transitionAfterRemovedSelectedChat(remainingActiveChats: [ChatItem]) {
         leaveActiveConversation()
         closeGroupImagePicker()
-        let nextChat = mostRecentChat(in: chats)
+        let nextChat = mostRecentChat(in: remainingActiveChats)
         selection = nextChat.map { .chat($0.id) }
         pruneMessageCache(keeping: nextChat?.id)
         if let nextChat {
             beginTimelineInitialLoadIfNeeded(groupIdHex: nextChat.id)
             Task { await loadMessages(groupIdHex: nextChat.id) }
         }
+    }
+
+    func removeChat(groupIdHex: String, account: AccountItem) {
+        guard activeAccountId == account.id else { return }
+
+        let wasSelected: Bool
+        if case .chat(let selectedGroupId) = selection {
+            wasSelected = selectedGroupId == groupIdHex
+        } else {
+            wasSelected = false
+        }
+
+        let chats = removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
+        teardownRemovedChatPerChatState(groupIdHex: groupIdHex, accountId: account.id)
+
+        guard wasSelected else { return }
+        transitionAfterRemovedSelectedChat(remainingActiveChats: chats)
     }
 
     func baseChatItem(from row: ChatListRowFfi, account: AccountItem) -> ChatItem {
