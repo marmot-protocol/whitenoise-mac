@@ -14,6 +14,10 @@ import Observation
 import SwiftUI
 import UserNotifications
 
+private nonisolated struct MediaReferenceIndexTaskFailure: Error {
+    let underlying: Error
+}
+
 @MainActor
 extension WorkspaceState {
     func clearAllComposerDrafts() {
@@ -223,7 +227,8 @@ extension WorkspaceState {
 
         do {
             // Resolve first: the synchronous `listMedia` FFI may stall and must not consume one
-            // of the scarce slots reserved for attachment downloads.
+            // of the scarce slots reserved for attachment downloads. Reference resolution bounds
+            // its wait so cancellation or timeout can unwind while the detached FFI work continues.
             let reference = try await resolvedMediaReference(
                 attachment.reference,
                 accountId: accountId,
@@ -716,26 +721,50 @@ extension WorkspaceState {
         groupIdHex: String,
         client: any MarmotRuntime
     ) async throws -> MediaReferenceIndex {
+        let resolution: MediaReferenceIndexTask
         if let existing = mediaReferenceIndexTasks[cacheKey] {
-            return try await existing.task.value
-        }
-
-        let generation = mediaReferenceIndexGeneration
-        let task = Task.detached(priority: .userInitiated) { [client, accountRef, groupIdHex] in
-            let records = try await WorkspaceState.runFFI {
-                try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+            resolution = existing
+        } else {
+            mediaReferenceIndexGeneration &+= 1
+            let generation = mediaReferenceIndexGeneration
+            let task = Task.detached(priority: .userInitiated) { [client, accountRef, groupIdHex] in
+                let records = try await WorkspaceState.runFFI {
+                    try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+                }
+                return MediaReferenceIndex(records: records)
             }
-            return MediaReferenceIndex(records: records)
+            resolution = MediaReferenceIndexTask(generation: generation, task: task)
+            mediaReferenceIndexTasks[cacheKey] = resolution
         }
-        mediaReferenceIndexTasks[cacheKey] = MediaReferenceIndexTask(generation: generation, task: task)
 
+        let generation = resolution.generation
+        let task = resolution.task
         do {
-            let index = try await task.value
+            // Only the detached FFI task is shared and retained. Each caller can stop waiting
+            // without capturing WorkspaceState until the synchronous `listMedia` call returns.
+            let index = try await withMediaAttachmentDownloadTimeout { [task] in
+                do {
+                    return try await task.value
+                } catch {
+                    throw MediaReferenceIndexTaskFailure(underlying: error)
+                }
+            }
             if mediaReferenceIndexTasks[cacheKey]?.generation == generation {
                 mediaReferenceIndexTasks[cacheKey] = nil
                 mediaReferenceIndexes[cacheKey] = index
             }
             return index
+        } catch let failure as MediaReferenceIndexTaskFailure {
+            if mediaReferenceIndexTasks[cacheKey]?.generation == generation {
+                mediaReferenceIndexTasks[cacheKey] = nil
+            }
+            throw failure.underlying
+        } catch let error as CancellationError {
+            // Keep the shared FFI task so a later retry joins it instead of starting another call.
+            throw error
+        } catch let error as MediaAttachmentDownloadTimeoutError {
+            // The synchronous FFI may still complete; preserve it for the same bounded retry path.
+            throw error
         } catch {
             if mediaReferenceIndexTasks[cacheKey]?.generation == generation {
                 mediaReferenceIndexTasks[cacheKey] = nil
