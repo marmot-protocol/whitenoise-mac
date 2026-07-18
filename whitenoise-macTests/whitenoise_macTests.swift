@@ -17798,6 +17798,48 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func privacySecuritySettingsLoadSurvivesObservabilityConfigurationFailure() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var buildConfig = telemetryBuildConfig(environment: "production")
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: { buildConfig },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(!state.privacySecuritySettings.auditLoggingEnabled)
+        #expect(state.auditLogFiles.isEmpty)
+
+        runtime.storedRelayTelemetrySettings = RelayTelemetrySettingsFfi(
+            exportEnabled: true,
+            exportIntervalSeconds: 120
+        )
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true, dataMode: .fullData)
+        runtime.storedAuditLogFiles = [
+            AuditLogFileFfi(
+                accountRef: account.label,
+                path: "/tmp/audit-1.jsonl",
+                fileName: "audit-1.jsonl",
+                sizeBytes: 512,
+                modifiedAtMs: 1_800_000_000_000
+            )
+        ]
+        buildConfig = telemetryBuildConfig(environment: "staging")
+        runtime.telemetryInstallIdError = FakeMarmotRuntimeError.observabilityConfigurationFailed
+
+        await state.loadPrivacySecuritySettings()
+
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(state.privacySecuritySettings.relayTelemetryIntervalSeconds == 120)
+        #expect(state.privacySecuritySettings.auditLoggingEnabled)
+        #expect(state.privacySecuritySettings.auditFullDataLogging)
+        #expect(state.auditLogFiles.map(\.path) == ["/tmp/audit-1.jsonl"])
+        #expect(state.lastError == "Observability configuration failed.")
+    }
+
+    @MainActor
     @Test func privacySecuritySettingsLoadDoesNotOverwriteNewerTelemetrySave() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -19962,6 +20004,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var relayTelemetryRuntimeConfig: RelayTelemetryRuntimeConfigFfi?
     private(set) var relayTelemetryRuntimeConfigSetCallCount = 0
     private(set) var telemetryInstallIdCallCount = 0
+    var telemetryInstallIdError: Error?
     private(set) var removedAccountRefs: [String] = []
     private(set) var didDeleteAllLocalData = false
     var deleteAllLocalDataError: Error?
@@ -20405,6 +20448,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func telemetryInstallId() throws -> String {
         telemetryInstallIdCallCount += 1
         recordSyncCall("telemetryInstallId")
+        if let telemetryInstallIdError {
+            throw telemetryInstallIdError
+        }
         return "test-install-id"
     }
 
@@ -21165,6 +21211,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 private enum FakeMarmotRuntimeError: Error, LocalizedError {
     case missingCreatedAccount
     case auditLogDeleteFailed
+    case observabilityConfigurationFailed
     case unused
 
     var errorDescription: String? {
@@ -21173,6 +21220,8 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
             return "Missing created account."
         case .auditLogDeleteFailed:
             return "Audit log delete failed."
+        case .observabilityConfigurationFailed:
+            return "Observability configuration failed."
         case .unused:
             return "Unused fake runtime error."
         }

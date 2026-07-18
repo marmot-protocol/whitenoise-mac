@@ -462,8 +462,16 @@ extension WorkspaceState {
         guard !isSavingPrivacySecurity else { return }
         let generation = privacySecuritySettingsGeneration
 
+        // Runtime configuration is best-effort for this read: a transient failure must not
+        // hide the persisted telemetry and audit settings from the user.
+        var observabilityConfigurationError: Error?
         do {
             try await configureObservabilityRuntime()
+        } catch {
+            observabilityConfigurationError = error
+        }
+
+        do {
             let (telemetry, auditLog) = try await runOffMain {
                 (
                     try client.relayTelemetrySettings(),
@@ -481,6 +489,9 @@ extension WorkspaceState {
                 telemetryCredentialsAvailable: config.telemetryCredentialsAvailable,
                 auditLogCredentialsAvailable: config.auditLogCredentialsAvailable
             )
+            if let observabilityConfigurationError {
+                lastError = observabilityConfigurationError.localizedDescription
+            }
             await loadAuditLogFiles()
         } catch {
             guard privacySecuritySettingsGeneration == generation else { return }
