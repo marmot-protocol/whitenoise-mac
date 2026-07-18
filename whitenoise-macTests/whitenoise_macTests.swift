@@ -1505,7 +1505,7 @@ struct whitenoise_macTests {
         state.groupProfileDraftName = "Private group name"
         state.groupProfileDraftDescription = "Private group description"
         state.groupInviteMemberQuery = "npub1pryvateynvyte"
-        state.groupTranscriptExportStatus = "Copied transcript JSON for 1 events."
+        state.groupTranscriptExportStatus = "Copied transcript JSON for 1 event."
         let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
 
         state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
@@ -13552,7 +13552,7 @@ struct whitenoise_macTests {
         await exportTask.value
 
         #expect(!copiedText.isEmpty)
-        #expect(state.groupTranscriptExportStatus == "Copied transcript JSON for 1 events.")
+        #expect(state.groupTranscriptExportStatus == "Copied transcript JSON for 1 event.")
         #expect(state.groupTranscriptExportTask == nil)
     }
 
