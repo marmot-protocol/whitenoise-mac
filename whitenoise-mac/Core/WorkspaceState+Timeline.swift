@@ -18,6 +18,14 @@ private enum ComposerMediaUploadPresentation {
     static let uploadedAcknowledgementDelayNanoseconds: UInt64 = 300_000_000
 }
 
+/// Ownership token for subscription-originated or initial-load timeline window applies.
+/// Re-checked after every suspension in `applyTimelineWindow` so a superseded listener
+/// or load cannot overwrite a replacement for the same account/chat.
+enum TimelineWindowOwner {
+    case subscription(TimelineMessagesSubscription)
+    case loadGeneration(UInt64)
+}
+
 @MainActor
 extension WorkspaceState {
     func loadMessages(groupIdHex: String) async {
@@ -139,7 +147,16 @@ extension WorkspaceState {
                     hasMoreBefore: false,
                     hasMoreAfter: false
                 )
-            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: activeAccount, client: client)
+            await applyTimelineWindow(
+                page,
+                groupIdHex: groupIdHex,
+                account: activeAccount,
+                client: client,
+                owner: .loadGeneration(generation)
+            )
+            guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex),
+                selectedChat?.id == groupIdHex
+            else { return }
             // Start the listener first (it tears down any prior listener, which would clear
             // these), then record the subscription so scroll-back pagination can reach it.
             // `startTimelineListener` can bail without starting a task (e.g. selection changed
@@ -214,7 +231,7 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 account: activeAccount,
                 client: client,
-                expectedTimelineSubscription: subscription
+                owner: .subscription(subscription)
             )
         } catch {
             guard activeAccountId == activeAccount.id,
@@ -258,7 +275,7 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 account: activeAccount,
                 client: client,
-                expectedTimelineSubscription: subscription
+                owner: .subscription(subscription)
             )
         } catch {
             guard activeAccountId == activeAccount.id,
@@ -278,13 +295,13 @@ extension WorkspaceState {
         groupIdHex: String,
         account: AccountItem,
         client: any MarmotRuntime,
-        expectedTimelineSubscription: TimelineMessagesSubscription? = nil
+        owner: TimelineWindowOwner? = nil
     ) async {
         guard
             canApplyTimelineWindow(
                 groupIdHex: groupIdHex,
                 accountId: account.id,
-                expectedTimelineSubscription: expectedTimelineSubscription
+                owner: owner
             )
         else { return }
         let senderProfiles = await TimelineSignpost.mapping.asyncInterval(
@@ -301,7 +318,7 @@ extension WorkspaceState {
             canApplyTimelineWindow(
                 groupIdHex: groupIdHex,
                 accountId: account.id,
-                expectedTimelineSubscription: expectedTimelineSubscription
+                owner: owner
             )
         else { return }
 
@@ -311,7 +328,7 @@ extension WorkspaceState {
                 canApplyTimelineWindow(
                     groupIdHex: groupIdHex,
                     accountId: account.id,
-                    expectedTimelineSubscription: expectedTimelineSubscription
+                    owner: owner
                 )
             else { return }
         #endif
@@ -336,7 +353,7 @@ extension WorkspaceState {
             canApplyTimelineWindow(
                 groupIdHex: groupIdHex,
                 accountId: account.id,
-                expectedTimelineSubscription: expectedTimelineSubscription
+                owner: owner
             )
         else { return }
 
@@ -361,12 +378,17 @@ extension WorkspaceState {
     private func canApplyTimelineWindow(
         groupIdHex: String,
         accountId: String,
-        expectedTimelineSubscription: TimelineMessagesSubscription?
+        owner: TimelineWindowOwner?
     ) -> Bool {
         guard activeAccountId == accountId, selectedChat?.id == groupIdHex else { return false }
-        if let expectedTimelineSubscription {
+        guard let owner else { return true }
+        switch owner {
+        case .subscription(let expectedSubscription):
             guard activeTimelineGroupId == groupIdHex,
-                activeTimelineSubscription === expectedTimelineSubscription
+                activeTimelineSubscription === expectedSubscription
+            else { return false }
+        case .loadGeneration(let generation):
+            guard ownsTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
             else { return false }
         }
         return true
@@ -385,11 +407,18 @@ extension WorkspaceState {
         _ update: TimelineSubscriptionUpdateFfi,
         groupIdHex: String,
         account: AccountItem,
-        client: any MarmotRuntime
+        client: any MarmotRuntime,
+        subscription: TimelineMessagesSubscription
     ) async {
         switch update {
         case .page(let page):
-            await applyTimelineWindow(page, groupIdHex: groupIdHex, account: account, client: client)
+            await applyTimelineWindow(
+                page,
+                groupIdHex: groupIdHex,
+                account: account,
+                client: client,
+                owner: .subscription(subscription)
+            )
         case .projection(let runtimeUpdate):
             await applyTimelineProjection(
                 runtimeUpdate.update,
@@ -935,7 +964,8 @@ extension WorkspaceState {
                             page,
                             groupIdHex: groupIdHex,
                             account: account,
-                            client: client
+                            client: client,
+                            owner: .subscription(subscription)
                         )
                     }
                 }
@@ -959,7 +989,8 @@ extension WorkspaceState {
                         update,
                         groupIdHex: groupIdHex,
                         account: account,
-                        client: client
+                        client: client,
+                        subscription: subscription
                     )
                 }
             } catch is CancellationError {
