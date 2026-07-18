@@ -45,7 +45,10 @@ extension WorkspaceState {
 
         guard settings.localNotificationsEnabled else { return }
 
-        if selectedChat?.id == update.groupIdHex, selectedConversationIsVisible() {
+        if activeAccount?.accountIdHex == update.accountIdHex,
+            selectedChat?.id == update.groupIdHex,
+            selectedConversationIsVisible()
+        {
             return
         }
 
