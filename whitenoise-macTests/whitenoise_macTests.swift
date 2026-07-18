@@ -13339,6 +13339,72 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func marmotDeepLinkDoesNotCancelInProgressTranscriptExport() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+
+        let firstPageGate = BlockingFfiGate()
+        firstPageGate.isEnabled = true
+        runtime.timelineMessagesHandler = { _ in
+            firstPageGate.passIfArmed()
+            return TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: String(repeating: "1", count: 64),
+                        groupIdHex: "group",
+                        sender: account.accountIdHex,
+                        plaintext: "message",
+                        recordedAt: 10
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+
+        var copiedText = ""
+        let state = WorkspaceState(
+            copyTextHandler: { text, _ in copiedText = text },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: groupChat)
+        state.startCopySelectedGroupTranscriptJSON()
+        let exportTask = try #require(state.groupTranscriptExportTask)
+        let deadline = Date().addingTimeInterval(2)
+        while !firstPageGate.didReach && Date() < deadline {
+            await Task.yield()
+        }
+        if !firstPageGate.didReach {
+            firstPageGate.isEnabled = false
+        }
+        #expect(firstPageGate.didReach)
+
+        let blockedStatus = "Finish copying the current transcript before opening this link."
+        state.handleDeepLinkURL(URL(string: "marmot://profile/npub1p0p")!)
+        let deepLinkHandled = await waitFor {
+            state.backgroundStatus == blockedStatus || state.isNewChatComposerVisible
+        }
+
+        #expect(deepLinkHandled)
+        #expect(state.backgroundStatus == blockedStatus)
+        #expect(!state.isNewChatComposerVisible)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.isExportingGroupTranscript)
+        #expect(state.groupTranscriptExportTask != nil)
+
+        firstPageGate.release()
+        await exportTask.value
+
+        #expect(!copiedText.isEmpty)
+        #expect(state.groupTranscriptExportStatus == "Copied transcript JSON for 1 events.")
+        #expect(state.groupTranscriptExportTask == nil)
+    }
+
+    @MainActor
     @Test func settingsSelectionUsesDetailPaneWithoutChangingAccount() async throws {
         let state = WorkspaceState.preview()
         let accountId = state.activeAccountId

@@ -45,9 +45,8 @@ extension WorkspaceState {
         Task { await openProfileReferenceFromDeepLink(reference) }
     }
 
-    /// OS-level links are unsolicited. Do not let them interrupt a recording flow or alter a
-    /// New Chat draft; profile links explicitly tapped inside the app still use the normal
-    /// `openProfileReference` behavior.
+    /// OS-level links are unsolicited. Do not let them interrupt active work; profile links
+    /// explicitly tapped inside the app still use the normal `openProfileReference` behavior.
     private func openProfileReferenceFromDeepLink(_ reference: String) async {
         guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else {
             backgroundStatus = L10n.string("Finish the current voice recording before opening this link.")
@@ -57,6 +56,13 @@ extension WorkspaceState {
         guard !(isNewChatComposerVisible && hasInProgressNewChatComposition) else {
             backgroundStatus = L10n.string(
                 "Finish or discard the current New Chat draft before opening this link."
+            )
+            return
+        }
+
+        guard !isExportingGroupTranscript, groupTranscriptExportTask == nil else {
+            backgroundStatus = L10n.string(
+                "Finish copying the current transcript before opening this link."
             )
             return
         }
