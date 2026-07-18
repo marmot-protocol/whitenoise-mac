@@ -12877,14 +12877,16 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func closingGroupDetailsPreservesOperationOwnedFlags() {
-        // Issue #522: these flags are mutexes owned by the async operations that set them. Closing
-        // the panel while FFI is suspended must leave them set until each operation's defer runs.
+        // Issues #522 and #553: these flags are mutexes owned by the async operations that set them.
+        // Closing the panel while FFI is suspended must leave them set until each operation's defer runs.
         let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
         state.isSavingGroupProfile = true
         state.isInvitingGroupMember = true
         state.isLeavingGroup = true
         state.isSavingGroupImage = true
         state.isUpdatingDisappearingMessages = true
+        state.isAcceptingGroupInvite = true
+        state.isDecliningGroupInvite = true
         state.mutatingGroupMemberId = "member-in-flight"
 
         state.closeGroupDetails()
@@ -12894,6 +12896,8 @@ struct whitenoise_macTests {
         #expect(state.isLeavingGroup)
         #expect(state.isSavingGroupImage)
         #expect(state.isUpdatingDisappearingMessages)
+        #expect(state.isAcceptingGroupInvite)
+        #expect(state.isDecliningGroupInvite)
         #expect(state.mutatingGroupMemberId == "member-in-flight")
         #expect(state.hasInFlightGroupDetailsMutation)
     }
@@ -13111,6 +13115,78 @@ struct whitenoise_macTests {
         #expect(!state.isGroupDetailsPresented)
         #expect(state.activeChats.isEmpty)
         #expect(state.selectedChat == nil)
+    }
+
+    @MainActor
+    @Test func acceptGroupInviteDropsOverlappingDuplicateAfterClosingDetails() async throws {
+        let account = desktopAccount()
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        details.group.pendingConfirmation = true
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(details)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: groupChat)
+
+        runtime.groupInviteGateEnabled = true
+        async let firstAccept: Void = state.acceptSelectedGroupInvite()
+        while !(state.isAcceptingGroupInvite && runtime.didReachGroupInviteGate) {
+            await Task.yield()
+        }
+
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented)
+
+        await state.acceptGroupInvite(for: groupChat)
+        await state.declineGroupInvite(for: groupChat)
+        #expect(runtime.acceptGroupInviteCallCount == 1)
+        #expect(runtime.declineGroupInviteCallCount == 0)
+
+        runtime.releaseGroupInviteGate()
+        await firstAccept
+
+        #expect(runtime.acceptGroupInviteCallCount == 1)
+        #expect(runtime.declineGroupInviteCallCount == 0)
+        #expect(!state.isAcceptingGroupInvite)
+        #expect(!state.isDecliningGroupInvite)
+    }
+
+    @MainActor
+    @Test func declineGroupInviteDropsOverlappingDuplicateAfterClosingDetails() async throws {
+        let account = desktopAccount()
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        details.group.pendingConfirmation = true
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(details)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: groupChat)
+
+        runtime.groupInviteGateEnabled = true
+        async let firstDecline: Void = state.declineSelectedGroupInvite()
+        while !(state.isDecliningGroupInvite && runtime.didReachGroupInviteGate) {
+            await Task.yield()
+        }
+
+        state.closeGroupDetails()
+        #expect(!state.isGroupDetailsPresented)
+
+        await state.declineGroupInvite(for: groupChat)
+        await state.acceptGroupInvite(for: groupChat)
+        #expect(runtime.declineGroupInviteCallCount == 1)
+        #expect(runtime.acceptGroupInviteCallCount == 0)
+
+        runtime.releaseGroupInviteGate()
+        await firstDecline
+
+        #expect(runtime.declineGroupInviteCallCount == 1)
+        #expect(runtime.acceptGroupInviteCallCount == 0)
+        #expect(!state.isDecliningGroupInvite)
+        #expect(!state.isAcceptingGroupInvite)
     }
 
     @MainActor
@@ -18432,7 +18508,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var leftGroupIdHex: String?
     private(set) var leaveGroupCallCount = 0
     private(set) var acceptedInviteGroupIds: [String] = []
+    private(set) var acceptGroupInviteCallCount = 0
     private(set) var declinedInviteGroupIds: [String] = []
+    private(set) var declineGroupInviteCallCount = 0
     private(set) var invitedMemberRefs: [String] = []
     private(set) var inviteMembersDetailedCallCount = 0
     private(set) var promotedAdminRef: String?
@@ -18551,6 +18629,17 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
     var didReachGroupAvatarUpdateGate: Bool {
         groupAvatarUpdateGate.didReach
+    }
+    /// Issue #553 reentrancy-test support: when armed, the first pending-invite FFI call (accept or
+    /// decline) suspends until `releaseGroupInviteGate()` is invoked so a test can close group
+    /// details mid-operation and assert overlapping accept/decline invocations do not reach FFI.
+    private let groupInviteGate = AsyncFfiGate()
+    var groupInviteGateEnabled: Bool {
+        get { groupInviteGate.isEnabled }
+        set { groupInviteGate.isEnabled = newValue }
+    }
+    var didReachGroupInviteGate: Bool {
+        groupInviteGate.didReach
     }
     /// Issue #310 reentrancy-test support: when armed, the first group mutation FFI call suspends
     /// until `releaseGroupMutationGate()` is invoked, holding the first invocation in-flight so a
@@ -19248,6 +19337,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws -> AppGroupRecordFfi {
+        acceptGroupInviteCallCount += 1
+        await groupInviteGate.passIfArmed()
         acceptedInviteGroupIds.append(groupIdHex)
         guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
             throw FakeMarmotRuntimeError.unused
@@ -19262,6 +19353,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func declineGroupInvite(accountRef: String, groupIdHex: String) async throws -> GroupInviteDeclineResultFfi {
+        declineGroupInviteCallCount += 1
+        await groupInviteGate.passIfArmed()
         declinedInviteGroupIds.append(groupIdHex)
         guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
             throw FakeMarmotRuntimeError.unused
@@ -19453,6 +19546,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func releaseGroupMutationGate() {
         groupMutationGate.release()
+    }
+
+    func releaseGroupInviteGate() {
+        groupInviteGate.release()
     }
 
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
