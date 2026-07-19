@@ -391,6 +391,7 @@ private struct ConversationView: View {
         ZStack {
             VStack(spacing: 0) {
                 ConversationHeader(chat: chat)
+                    .messageDeletionConfirmation()
                 GlassSeparator(axis: .horizontal)
 
                 ScrollViewReader { proxy in

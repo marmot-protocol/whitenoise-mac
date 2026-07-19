@@ -360,9 +360,11 @@ extension WorkspaceState {
 
         let editMutations = MessageEditOverlay.mutations(from: page.messages)
         let currentPaging = timelinePagingByChat[groupIdHex]
-        TimelineSignpost.store.interval("replaceMessages", count: mappedMessages.count) {
+        // Keep "Delete for me" hides out of every full window replace, not just the incremental path.
+        let visibleMessages = filterHiddenMessages(mappedMessages, groupIdHex: groupIdHex)
+        TimelineSignpost.store.interval("replaceMessages", count: visibleMessages.count) {
             replaceMessages(
-                mappedMessages,
+                visibleMessages,
                 groupIdHex: groupIdHex,
                 paging: TimelinePagingState(
                     hasMoreBefore: page.hasMoreBefore,
@@ -528,12 +530,15 @@ extension WorkspaceState {
             clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
         }
 
+        // Keep "Delete for me" messages out of the window across every reprojection.
+        let (visibleUpserts, visibleRemovals) = partitionHiddenMessages(
+            upserts: mappedUpserts, removals: removalIds, groupIdHex: groupIdHex)
         let result = TimelineSignpost.store.interval(
-            "applyProjection", count: mappedUpserts.count + removalIds.count
+            "applyProjection", count: visibleUpserts.count + visibleRemovals.count
         ) {
             timelineStore.applyProjection(
-                upserts: mappedUpserts,
-                removals: removalIds,
+                upserts: visibleUpserts,
+                removals: visibleRemovals,
                 editMutations: editMutations,
                 anchoredToNewest: anchored,
                 windowLimit: Self.timelineWindowLimit
@@ -679,18 +684,45 @@ extension WorkspaceState {
         }
     }
 
+    /// The authoritative deletion-scope model for `message` in the selected conversation. Both the
+    /// action UI and the mutation paths derive from this — button visibility is not the security
+    /// boundary (the mutations re-check the same capability).
+    func messageDeletionCapability(_ message: MessageItem) -> MessageDeletionCapability {
+        guard message.supportsChatActions, let selectedChat else { return .none }
+        return MessageDeletionCapability.resolve(
+            isActionable: true,
+            isDirectConversation: selectedChat.isDirect,
+            isOwnMessage: message.isOutgoing,
+            isSelfGroupAdmin: conversationMetadataByChat[selectedChat.id]?.isSelfAdmin == true
+        )
+    }
+
     func canDeleteMessage(_ message: MessageItem) -> Bool {
-        guard message.supportsChatActions, let selectedChat else { return false }
-        if message.isOutgoing { return true }
-        guard !selectedChat.isDirect else { return false }
-        return conversationMetadataByChat[selectedChat.id]?.isSelfAdmin == true
+        messageDeletionCapability(message).canDelete
+    }
+
+    /// Adaptive supporting copy for the delete-confirmation surface. Explains the offered scopes
+    /// without admin-branding the action, per the unified model.
+    func messageDeletionScopeExplanation(_ message: MessageItem) -> String {
+        let capability = messageDeletionCapability(message)
+        guard capability.canDeleteForEveryone else {
+            return L10n.string("This message will be hidden on this device only.")
+        }
+        if message.isOutgoing {
+            return L10n.string("Remove this message for everyone, or hide it just for you.")
+        }
+        return L10n.string("Remove this message for everyone in the group, or hide it just for you.")
     }
 
     func deleteSelectedMessages() async {
-        let messages = selectedTimelineMessagesForAction.filter(canDeleteMessage)
+        // Multi-select acts only on messages the user may delete for everyone — it must not
+        // silently mix in local hides; single-message delete-for-me goes through the confirmation.
+        let messages = selectedTimelineMessagesForAction.filter {
+            messageDeletionCapability($0).canDeleteForEveryone
+        }
         guard !messages.isEmpty else { return }
         for message in messages {
-            await deleteMessage(message)
+            await deleteForEveryone(message)
         }
         cancelMessageSelection()
     }
@@ -748,9 +780,12 @@ extension WorkspaceState {
         }
     }
 
-    func deleteMessage(_ message: MessageItem) async {
-        guard canDeleteMessage(message) else { return }
+    /// Delete for everyone: publish a group-wide tombstone (self-retraction, or an admin moderating
+    /// another member's group message). Re-checks the capability so a mis-rendered option can't
+    /// drive an unauthorized retraction — the engine is the final authority, this is the local guard.
+    func deleteForEveryone(_ message: MessageItem) async {
         guard let client, let activeAccount, let selectedChat else { return }
+        guard messageDeletionCapability(message).canDeleteForEveryone else { return }
         // Reentrancy guard: drop a repeated delete of the same in-flight message.
         guard !inFlightDeleteMessageIds.contains(message.id) else { return }
         inFlightDeleteMessageIds.insert(message.id)
@@ -761,11 +796,30 @@ extension WorkspaceState {
                 groupIdHex: selectedChat.id,
                 targetMessageId: message.id
             )
-            if replyDraftContext?.targetMessageId == message.id {
-                replyDraftContext = nil
-            }
+            clearComposerContextTargeting(message.id)
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    /// Delete for me: hide the message locally and persist the hidden id. Publishes nothing.
+    func deleteForMe(_ message: MessageItem) {
+        guard let activeAccountId, let selectedChat else { return }
+        guard messageDeletionCapability(message).canDeleteForMe else { return }
+        hideMessageLocally(accountId: activeAccountId, groupIdHex: selectedChat.id, messageId: message.id)
+        clearComposerContextTargeting(message.id)
+    }
+
+    /// Drop any reply or in-progress edit in the selected conversation that targets `messageId`,
+    /// so a deleted message can't remain a live reply/edit target.
+    private func clearComposerContextTargeting(_ messageId: String) {
+        if replyDraftContext?.targetMessageId == messageId {
+            replyDraftContext = nil
+        }
+        if let draftKey = selectedComposerDraftKey,
+            editingMessageContextByConversation[draftKey]?.targetMessageId == messageId
+        {
+            cancelEditingMessage()
         }
     }
 

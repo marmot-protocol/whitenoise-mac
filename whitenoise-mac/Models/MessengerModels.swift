@@ -1858,6 +1858,39 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     }
 }
 
+/// Which delete scopes the local account may perform on one message. Derived from conversation
+/// type, message ownership, and the local account's admin role in *this* conversation.
+///
+/// Delete-for-me hides the message locally and never publishes. Delete-for-everyone publishes a
+/// group-wide tombstone (self-retraction, or an admin moderating another member's group message).
+/// A direct message is never removable for everyone by anyone but its author — an admin role from
+/// another group, or an admin flag on a DM's own two-member group, must never grant it, which the
+/// `isGroup` guard below enforces structurally.
+nonisolated struct MessageDeletionCapability: Equatable {
+    let canDeleteForMe: Bool
+    let canDeleteForEveryone: Bool
+
+    static let none = MessageDeletionCapability(canDeleteForMe: false, canDeleteForEveryone: false)
+
+    var canDelete: Bool { canDeleteForMe || canDeleteForEveryone }
+
+    /// - Parameters:
+    ///   - isActionable: a real, non-deleted message bubble the user can act on.
+    ///   - isDirectConversation: a two-member direct message rather than a group.
+    ///   - isOwnMessage: the local account authored the message.
+    ///   - isSelfGroupAdmin: the local account is admin/owner of THIS group. Ignored for DMs.
+    static func resolve(
+        isActionable: Bool,
+        isDirectConversation: Bool,
+        isOwnMessage: Bool,
+        isSelfGroupAdmin: Bool
+    ) -> MessageDeletionCapability {
+        guard isActionable else { return .none }
+        let forEveryone = isOwnMessage || (!isDirectConversation && isSelfGroupAdmin)
+        return MessageDeletionCapability(canDeleteForMe: true, canDeleteForEveryone: forEveryone)
+    }
+}
+
 extension MessageItem {
     // Hand-written `Equatable`/`Hashable` so equality and hashing stay O(1) instead of
     // recursively walking `contentMarkdown`'s pre-rendered Markdown tree.

@@ -33,6 +33,60 @@ struct PureValueTests {
         #expect(DisappearingMessageOption.custom(oversizedSeconds).label == "9223372036854775808 seconds")
     }
 
+    @Test func messageDeletionCapabilityCoversEveryOwnershipAndRole() {
+        struct Case {
+            let name: String
+            let isDirect: Bool
+            let isOwn: Bool
+            let isAdmin: Bool
+            let forMe: Bool
+            let forEveryone: Bool
+        }
+        let cases = [
+            Case(name: "own DM", isDirect: true, isOwn: true, isAdmin: false, forMe: true, forEveryone: true),
+            Case(name: "other's DM", isDirect: true, isOwn: false, isAdmin: false, forMe: true, forEveryone: false),
+            // An admin flag on a DM's underlying two-member group must never grant for-everyone.
+            Case(
+                name: "other's DM, spurious admin", isDirect: true, isOwn: false, isAdmin: true,
+                forMe: true, forEveryone: false),
+            Case(name: "own group", isDirect: false, isOwn: true, isAdmin: false, forMe: true, forEveryone: true),
+            Case(
+                name: "other's group, admin", isDirect: false, isOwn: false, isAdmin: true,
+                forMe: true, forEveryone: true),
+            Case(
+                name: "other's group, member", isDirect: false, isOwn: false, isAdmin: false,
+                forMe: true, forEveryone: false),
+        ]
+        for testCase in cases {
+            let capability = MessageDeletionCapability.resolve(
+                isActionable: true,
+                isDirectConversation: testCase.isDirect,
+                isOwnMessage: testCase.isOwn,
+                isSelfGroupAdmin: testCase.isAdmin
+            )
+            #expect(capability.canDeleteForMe == testCase.forMe, "for-me mismatch: \(testCase.name)")
+            #expect(capability.canDeleteForEveryone == testCase.forEveryone, "for-everyone mismatch: \(testCase.name)")
+        }
+    }
+
+    @Test func messageDeletionCapabilityIsEmptyForNonActionableBubbles() {
+        // A deleted tombstone or system bubble offers no delete scope, regardless of role.
+        let capability = MessageDeletionCapability.resolve(
+            isActionable: false, isDirectConversation: false, isOwnMessage: true, isSelfGroupAdmin: true
+        )
+        #expect(capability == .none)
+        #expect(!capability.canDelete)
+    }
+
+    @Test func messageDeletionCapabilityForMeIsUniversalForActionableBubbles() {
+        // Any actionable message can be hidden locally, regardless of ownership or role.
+        let otherMemberMessage = MessageDeletionCapability.resolve(
+            isActionable: true, isDirectConversation: false, isOwnMessage: false, isSelfGroupAdmin: false
+        )
+        #expect(otherMemberMessage.canDeleteForMe)
+        #expect(!otherMemberMessage.canDeleteForEveryone)
+    }
+
     @Test func durationCountLabelsUseLocalePluralRules() {
         let russian = Locale(identifier: "ru")
         #expect(L10n.plural("%llu seconds", UInt64(1), locale: russian) == "1 секунда")
