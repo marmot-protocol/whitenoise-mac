@@ -243,10 +243,18 @@ struct MessageBubble: View {
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
                                 .background {
-                                    GlassCapsuleBackground(
-                                        borderColor: reaction.canRemoveOwnReaction
-                                            ? MessagesPalette.sentBubble.opacity(0.45) : Color.white.opacity(0.18)
-                                    )
+                                    // Own reactions get a gentle accent fill rather than a heavy
+                                    // ring, so a row of them reads as one cluster, not selected chips.
+                                    if reaction.canRemoveOwnReaction {
+                                        Capsule(style: .continuous)
+                                            .fill(Color.accentColor.opacity(0.16))
+                                            .overlay {
+                                                Capsule(style: .continuous)
+                                                    .strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1)
+                                            }
+                                    } else {
+                                        GlassCapsuleBackground()
+                                    }
                                 }
                         }
                         .buttonStyle(.plain)
@@ -294,6 +302,20 @@ struct MessageBubble: View {
         .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
         .padding(message.isOutgoing ? .leading : .trailing, 72)
+        // Sender avatar in a leading gutter for incoming group messages (never DMs or own).
+        .padding(.leading, showsSenderAvatar ? 36 : 0)
+        .overlay(alignment: .bottomLeading) {
+            if showsSenderAvatar {
+                ProfileImageAvatarView(
+                    seed: message.senderAccountIdHex,
+                    initials: message.senderName,
+                    sanitizedPictureURL: message.senderSanitizedPictureURL,
+                    size: 28,
+                    isSelected: false
+                )
+                .padding(.bottom, 2)
+            }
+        }
         .contentShape(Rectangle())
         .contextMenu {
             if !workspace.isTimelineSelectionMode {
@@ -355,6 +377,12 @@ struct MessageBubble: View {
 
     private var usesBubbleSurface: Bool {
         showsDebugMetadata || message.hasBubbleContent
+    }
+
+    /// Incoming messages in a group carry the sender's avatar in a leading gutter; DMs and the
+    /// local account's own messages do not (the peer/self is unambiguous there).
+    private var showsSenderAvatar: Bool {
+        !message.isOutgoing && !(workspace.selectedChat?.isDirect ?? true)
     }
 
     @ViewBuilder
@@ -441,11 +469,15 @@ struct MessageBubble: View {
         let color = metadataColor
         var result = Text("  ")
         if message.isEdited {
-            result =
-                result
-                + Text("Edited ")
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundColor(color)
+            // "Edited" is a tappable link (routed to the edit-history sheet via the message-link
+            // handler) while staying inline with the message's trailing metadata.
+            var edited = AttributedString("Edited ")
+            edited.foregroundColor = color
+            edited.font = .system(size: 10.5, weight: .medium)
+            if let url = URL(string: "\(WorkspaceState.editHistoryMessageURLScheme):\(message.id)") {
+                edited.link = url
+            }
+            result = result + Text(edited)
         }
         result =
             result
@@ -476,7 +508,9 @@ struct MessageBubble: View {
     private var compactMetadata: some View {
         HStack(spacing: 4) {
             if message.isEdited {
-                Text("Edited")
+                Button("Edited") { workspace.messagePendingEditHistory = message }
+                    .buttonStyle(.plain)
+                    .help(L10n.string("View edit history"))
             }
             Text(message.timeLabel)
                 .monospacedDigit()
@@ -1879,49 +1913,15 @@ struct MessageOverflowPopover: View {
     }
 }
 
-/// The right-click menu for a chat bubble. Unlike the inline hover bar this is always
-/// reachable (no hover), so it mirrors the same React/Reply/Copy/Delete actions — gated on
-/// the message's own capabilities — rather than only the Copy/Delete overflow subset. This
-/// keeps React/Reply available for media-only bubbles, where the hover bar can be easy to
-/// miss and text/copy actions don't apply. See whitenoise-mac#361.
+/// The right-click menu for a chat bubble. Shows the same action set as the hover bar's "…"
+/// overflow (`MessageRowAction.all`) so both entry points are identical — React/Reply stay on
+/// the inline hover bar, not here.
 struct MessageContextMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
 
-    /// A short list of common reactions offered inline in the context menu; the hover bar's
-    /// popover remains the path to the full emoji grid.
-    private static let quickReactionEmojis = ChatReactionDefaults.quick
-
     var body: some View {
-        let actions = MessageRowAction.all(for: message, workspace: workspace)
-
-        if message.canReact {
-            Menu {
-                ForEach(Self.quickReactionEmojis, id: \.self) { emoji in
-                    Button {
-                        Task { await workspace.react(to: message, emoji: emoji) }
-                    } label: {
-                        Text(emoji)
-                    }
-                }
-            } label: {
-                Label("React", systemImage: "face.smiling")
-            }
-        }
-
-        if message.canReply {
-            Button {
-                workspace.startReply(to: message)
-            } label: {
-                Label("Reply", systemImage: "arrowshape.turn.up.left")
-            }
-        }
-
-        if (message.canReact || message.canReply) && !actions.isEmpty {
-            Divider()
-        }
-        ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-            if index > 0 { Divider() }
+        ForEach(MessageRowAction.all(for: message, workspace: workspace)) { action in
             Button(role: action.role, action: action.run) {
                 Label(action.title, systemImage: action.systemImage)
             }
