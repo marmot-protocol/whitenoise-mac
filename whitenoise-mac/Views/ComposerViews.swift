@@ -18,11 +18,29 @@ struct ComposerEmojiInsertion: Equatable {
     let emoji: String
 }
 
+/// An open "@query" left of the caret, published by the text view so the shell can show the
+/// mention picker. `tokenRange` is the "@…caret" span to replace when a candidate is chosen.
+struct ComposerMentionContext: Equatable {
+    let query: String
+    let tokenRange: NSRange
+}
+
+/// A caret-preserving mention insertion the text view applies on the next update, mirroring
+/// `ComposerEmojiInsertion` but replacing the "@query" token rather than the current selection.
+struct ComposerMentionInsertion: Equatable {
+    let id = UUID()
+    let range: NSRange
+    let replacement: String
+}
+
 struct ComposerMessageInputView: View {
     @Binding var text: String
     let placeholder: String
     let emojiInsertion: ComposerEmojiInsertion?
     let onEmojiInsertionConsumed: (UUID) -> Void
+    let mentionInsertion: ComposerMentionInsertion?
+    let onMentionInsertionConsumed: (UUID) -> Void
+    let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
@@ -35,6 +53,9 @@ struct ComposerMessageInputView: View {
                 measuredHeight: $measuredHeight,
                 emojiInsertion: emojiInsertion,
                 onEmojiInsertionConsumed: onEmojiInsertionConsumed,
+                mentionInsertion: mentionInsertion,
+                onMentionInsertionConsumed: onMentionInsertionConsumed,
+                onMentionContextChange: onMentionContextChange,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend
             )
@@ -55,6 +76,80 @@ struct ComposerMessageInputView: View {
 private enum ComposerMessageInputMetrics {
     static let minHeight: CGFloat = 20
     static let maxHeight: CGFloat = 96
+}
+
+/// Autocomplete list of mentionable group members, shown above the composer while an "@query"
+/// is open. Mouse-driven selection; the caret stays in the text field.
+struct ComposerMentionPicker: View {
+    let candidates: [ComposerMentionCandidate]
+    let onSelect: (ComposerMentionCandidate) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(candidates) { candidate in
+                ComposerMentionRow(candidate: candidate) {
+                    onSelect(candidate)
+                }
+                if candidate.id != candidates.last?.id {
+                    Divider().padding(.leading, 44)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+        .accessibilityIdentifier("composer.mentionPicker")
+    }
+}
+
+private struct ComposerMentionRow: View {
+    let candidate: ComposerMentionCandidate
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 8) {
+                ProfileImageAvatarView(
+                    seed: candidate.accountIdHex,
+                    initials: candidate.displayName,
+                    sanitizedPictureURL: nil,
+                    size: 26,
+                    isSelected: false
+                )
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(candidate.displayName)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if !candidate.npub.isEmpty {
+                        Text(DisplayText.short(candidate.npub))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background {
+                if isHovered {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.14))
+                        .padding(.horizontal, 4)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
 }
 
 nonisolated enum ComposerReturnKeyAction: Equatable {
@@ -84,11 +179,20 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     @Binding var measuredHeight: CGFloat
     let emojiInsertion: ComposerEmojiInsertion?
     let onEmojiInsertionConsumed: (UUID) -> Void
+    let mentionInsertion: ComposerMentionInsertion?
+    let onMentionInsertionConsumed: (UUID) -> Void
+    let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, measuredHeight: $measuredHeight, onPasteMedia: onPasteMedia, onSend: onSend)
+        Coordinator(
+            text: $text,
+            measuredHeight: $measuredHeight,
+            onPasteMedia: onPasteMedia,
+            onSend: onSend,
+            onMentionContextChange: onMentionContextChange
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -132,6 +236,8 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.onPasteMedia = onPasteMedia
         context.coordinator.onSend = onSend
         context.coordinator.onEmojiInsertionConsumed = onEmojiInsertionConsumed
+        context.coordinator.onMentionInsertionConsumed = onMentionInsertionConsumed
+        context.coordinator.onMentionContextChange = onMentionContextChange
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
         configureHandlers(for: textView, coordinator: context.coordinator)
@@ -140,6 +246,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             textView.string = text
         }
         context.coordinator.insertEmojiIfNeeded(emojiInsertion, into: textView)
+        context.coordinator.insertMentionIfNeeded(mentionInsertion, into: textView)
         DispatchQueue.main.async {
             context.coordinator.updateMeasuredHeight(for: textView)
         }
@@ -161,20 +268,28 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         var onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
         var onSend: () -> Void
         var onEmojiInsertionConsumed: (UUID) -> Void
+        var onMentionInsertionConsumed: (UUID) -> Void
+        var onMentionContextChange: (ComposerMentionContext?) -> Void
         private var lastEmojiInsertionID: UUID?
+        private var lastMentionInsertionID: UUID?
+        private var lastMentionContext: ComposerMentionContext?
 
         init(
             text: Binding<String>,
             measuredHeight: Binding<CGFloat>,
             onPasteMedia: @escaping ([OutgoingMediaPasteboardAttachment]) -> Void,
             onSend: @escaping () -> Void,
-            onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in }
+            onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in },
+            onMentionInsertionConsumed: @escaping (UUID) -> Void = { _ in },
+            onMentionContextChange: @escaping (ComposerMentionContext?) -> Void = { _ in }
         ) {
             self.text = text
             self.measuredHeight = measuredHeight
             self.onPasteMedia = onPasteMedia
             self.onSend = onSend
             self.onEmojiInsertionConsumed = onEmojiInsertionConsumed
+            self.onMentionInsertionConsumed = onMentionInsertionConsumed
+            self.onMentionContextChange = onMentionContextChange
         }
 
         func insertEmojiIfNeeded(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
@@ -188,10 +303,54 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             onEmojiInsertionConsumed(insertion.id)
         }
 
+        func insertMentionIfNeeded(_ insertion: ComposerMentionInsertion?, into textView: NSTextView) {
+            guard let insertion, insertion.id != lastMentionInsertionID else { return }
+            lastMentionInsertionID = insertion.id
+            let bounds = NSRange(location: 0, length: (textView.string as NSString).length)
+            // The token range was captured on an earlier text snapshot; drop it if the text has
+            // since shrunk past it rather than inserting at a stale offset.
+            guard NSMaxRange(insertion.range) <= bounds.length else {
+                onMentionInsertionConsumed(insertion.id)
+                return
+            }
+            textView.insertText(insertion.replacement, replacementRange: insertion.range)
+            text.wrappedValue = textView.string
+            updateMeasuredHeight(for: textView)
+            textView.window?.makeFirstResponder(textView)
+            publishMentionContext(for: textView)
+            onMentionInsertionConsumed(insertion.id)
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
             updateMeasuredHeight(for: textView)
+            publishMentionContext(for: textView)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            publishMentionContext(for: textView)
+        }
+
+        /// Recompute the open mention query left of the caret and forward it upward when it
+        /// changes, so the picker tracks both typing and caret moves.
+        private func publishMentionContext(for textView: NSTextView) {
+            let context = Self.mentionContext(in: textView)
+            guard context != lastMentionContext else { return }
+            lastMentionContext = context
+            onMentionContextChange(context)
+        }
+
+        private static func mentionContext(in textView: NSTextView) -> ComposerMentionContext? {
+            let selection = textView.selectedRange()
+            guard selection.length == 0 else { return nil }
+            let full = textView.string
+            guard let caret = Range(NSRange(location: selection.location, length: 0), in: full)?.lowerBound,
+                let session = ComposerMentionQuery.active(in: full, upTo: caret),
+                !ComposerMentionQuery.looksLikeCompleteNpub(session.query)
+            else { return nil }
+            return ComposerMentionContext(query: session.query, tokenRange: NSRange(session.range, in: full))
         }
 
         func handleMediaPaste() -> Bool {
