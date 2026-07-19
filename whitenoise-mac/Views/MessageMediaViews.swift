@@ -81,7 +81,9 @@ struct ConversationMessageRow: View {
     // so SwiftUI diffs each row by value and only re-runs the rows that actually changed
     // instead of invalidating every visible row on each page load / streaming update.
     var body: some View {
-        if workspace.isTimelineSelectionMode {
+        // Only chat bubbles are selectable; `toggleMessageSelection` ignores system/notice rows,
+        // so they must not show a checkbox or carry button semantics in selection mode.
+        if workspace.isTimelineSelectionMode, message.presentation.isChatBubble {
             let isSelected = workspace.selectedTimelineMessageIds.contains(message.id)
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
