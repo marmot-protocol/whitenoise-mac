@@ -133,24 +133,43 @@ struct GroupAddMembersSheet: View {
         HStack {
             Spacer()
             Button {
-                let toInvite = staged
-                Task {
-                    await workspace.inviteMembers(toInvite)
-                    dismiss()
-                }
+                Task { await inviteStaged() }
             } label: {
-                Text(
-                    staged.isEmpty
-                        ? L10n.string("Invite")
-                        : String(format: L10n.string("Invite %lld"), staged.count)
-                )
-                .frame(minWidth: 96)
+                Text(inviteLabel).frame(minWidth: 96)
             }
             .keyboardShortcut(.defaultAction)
             .nativeGlassProminentButtonStyle()
-            .disabled(staged.isEmpty || workspace.hasInFlightGroupCommit)
+            .disabled(!canInvite || isResolving || workspace.hasInFlightGroupCommit)
         }
         .padding(16)
+    }
+
+    private var pendingQuery: Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var canInvite: Bool {
+        !staged.isEmpty || pendingQuery
+    }
+
+    private var inviteLabel: String {
+        let count = staged.count + (pendingQuery && !staged.isEmpty ? 1 : 0)
+        return count <= 1 ? L10n.string("Invite") : String(format: L10n.string("Invite %lld"), count)
+    }
+
+    /// Fold in any recipient still typed in the field so a single "Invite" (or Return) works even
+    /// when the user didn't press "+" first, then commit. Dismiss only on success.
+    private func inviteStaged() async {
+        if pendingQuery {
+            await resolveAndStage()
+            guard resolveError == nil else { return }
+        }
+        guard !staged.isEmpty else { return }
+        if await workspace.inviteMembers(staged) {
+            dismiss()
+        } else {
+            resolveError = workspace.lastError ?? L10n.string("Couldn't add members.")
+        }
     }
 
     private func resolveAndStage() async {

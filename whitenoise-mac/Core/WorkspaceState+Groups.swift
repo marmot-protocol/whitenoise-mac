@@ -249,14 +249,16 @@ extension WorkspaceState {
 
     /// Invite one or more already-resolved recipients in a single group commit. Recipients carry a
     /// normalized `npub` from the new-chat resolver, so no per-entry re-normalization is needed.
-    func inviteMembers(_ recipients: [NewChatRecipient]) async {
+    /// Returns `true` when the commit succeeded so the caller can dismiss only on success.
+    @discardableResult
+    func inviteMembers(_ recipients: [NewChatRecipient]) async -> Bool {
         guard let client,
             let activeAccount,
             let snapshot = groupDetailsSnapshot,
             !hasInFlightGroupCommit
-        else { return }
+        else { return false }
         let memberRefs = recipients.map(\.npub).filter { !$0.isEmpty }
-        guard !memberRefs.isEmpty else { return }
+        guard !memberRefs.isEmpty else { return false }
         let accountId = activeAccount.id
         let groupIdHex = snapshot.groupIdHex
         let generation = beginGroupDetailsMutation()
@@ -273,14 +275,16 @@ extension WorkspaceState {
             )
             guard
                 isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
-            else { return }
+            else { return false }
             applyGroupMutationResult(result)
             await reloadChats(forceFreshSnapshot: true)
+            return true
         } catch {
             guard
                 isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
-            else { return }
+            else { return false }
             lastError = error.localizedDescription
+            return false
         }
     }
 

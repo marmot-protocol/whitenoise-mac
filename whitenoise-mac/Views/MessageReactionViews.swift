@@ -16,36 +16,48 @@ struct MessageReactionChips: View {
     /// emoji to focus the viewer on, or nil for the "All" tab.
     let onOpenViewer: (String?) -> Void
 
-    private let maxVisible = 5
+    private let maxVisibleEmojis = 6
 
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(reactions.prefix(maxVisible)) { reaction in
-                chip(label: reaction.label, isOwn: reaction.isOwn) { onOpenViewer(reaction.emoji) }
-            }
-            if reactions.count > maxVisible {
-                chip(label: "+\(reactions.count - maxVisible)", isOwn: false) { onOpenViewer(nil) }
-            }
-        }
+    /// All reacted emojis run together in one pill (deduped by emoji), matching the sibling
+    /// clients' single grouped chip rather than a spread of separate capsules.
+    private var emojis: String {
+        reactions.prefix(maxVisibleEmojis).map(\.emoji).joined()
     }
 
-    private func chip(label: String, isOwn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(isOwn ? Color.accentColor.opacity(0.20) : Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(
-                            isOwn ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.12),
-                            lineWidth: 1
-                        )
-                )
+    private var totalCount: Int {
+        reactions.reduce(0) { $0 + $1.count }
+    }
+
+    private var isOwn: Bool {
+        reactions.contains { $0.isOwn }
+    }
+
+    var body: some View {
+        Button {
+            onOpenViewer(nil)
+        } label: {
+            HStack(spacing: 3) {
+                Text(emojis)
+                if totalCount > 1 {
+                    Text("\(totalCount)")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.footnote)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isOwn ? Color.accentColor.opacity(0.20) : Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        isOwn ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.12),
+                        lineWidth: 1
+                    )
+            )
         }
         .buttonStyle(.plain)
         .contentShape(Capsule(style: .continuous))
@@ -71,9 +83,11 @@ struct MessageReactionDetailsView: View {
             filters
             Divider()
             reactorList
+                .frame(maxHeight: .infinity)
         }
-        .frame(width: 300)
-        .frame(maxHeight: 380)
+        // A definite height so the reactor list fills the popover and shows several rows at once,
+        // rather than collapsing to a single intrinsic row.
+        .frame(width: 320, height: 420)
     }
 
     private var totalCount: Int {
