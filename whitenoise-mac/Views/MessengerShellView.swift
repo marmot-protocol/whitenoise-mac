@@ -368,6 +368,8 @@ private struct ConversationView: View {
     @State private var isFileDropTargeted = false
     @State private var isComposerEmojiPickerPresented = false
     @State private var composerEmojiInsertion: ComposerEmojiInsertion?
+    @State private var composerMentionContext: ComposerMentionContext?
+    @State private var composerMentionInsertion: ComposerMentionInsertion?
     @State private var imageGallery: MessageImageGalleryPresentation?
     /// Hover-scoped text-selection gate for chat bubbles. Not read by `body` — bubbles
     /// register local `isSelectable` state so hover only updates the previous and active row
@@ -705,6 +707,20 @@ private struct ConversationView: View {
             )
         }
 
+        if let context = composerMentionContext {
+            let candidates = workspace.mentionCandidates(matching: context.query)
+            if !candidates.isEmpty {
+                ComposerMentionPicker(candidates: candidates) { candidate in
+                    composerMentionInsertion = ComposerMentionInsertion(
+                        range: context.tokenRange,
+                        replacement: "@\(candidate.displayName) "
+                    )
+                    composerMentionContext = nil
+                }
+                .padding(.bottom, 6)
+            }
+        }
+
         if workspace.isRecordingVoiceMessage {
             VoiceRecordingComposerView(
                 samples: workspace.voiceRecordingSamples,
@@ -760,6 +776,17 @@ private struct ConversationView: View {
                     onEmojiInsertionConsumed: { insertionID in
                         guard composerEmojiInsertion?.id == insertionID else { return }
                         composerEmojiInsertion = nil
+                    },
+                    mentionInsertion: composerMentionInsertion,
+                    onMentionInsertionConsumed: { insertionID in
+                        guard composerMentionInsertion?.id == insertionID else { return }
+                        composerMentionInsertion = nil
+                    },
+                    onMentionContextChange: { context in
+                        composerMentionContext = context
+                        if context != nil {
+                            workspace.ensureMentionRosterLoaded()
+                        }
                     },
                     onPasteMedia: { attachments in
                         guard workspace.editingMessageContext == nil else { return }

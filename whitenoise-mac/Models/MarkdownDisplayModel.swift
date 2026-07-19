@@ -2,6 +2,11 @@ import Foundation
 import MarmotKit
 import SwiftUI
 
+/// npub/nprofile bech32 → known display name, keyed as the entity carries it (`entity.bech32`).
+/// Empty when no roster is loaded, in which case mentions keep their truncated-bech32 fallback.
+/// Injected through the builder so the transformation stays pure and off-main.
+typealias MarkdownMentionNames = [String: String]
+
 // Pure FFI → display-model transformation (built off-main while mapping a timeline window,
 // read on the main actor by the views). Marked `nonisolated` so it does not inherit the
 // module's default main-actor isolation — otherwise constructing it from `MessageItem.init`
@@ -30,11 +35,12 @@ nonisolated struct MarkdownDisplayDocument {
     /// than preserving nested structure.
     fileprivate static let maxDepth = 32
 
-    init(document: MarkdownDocumentFfi) {
+    init(document: MarkdownDocumentFfi, mentionNames: MarkdownMentionNames = [:]) {
         var swiftTruncated = false
         self.blocks = Self.makeBlocks(
             from: document.blocks,
             remainingDepth: Self.maxDepth,
+            mentionNames: mentionNames,
             truncated: &swiftTruncated
         )
         self.truncated = document.truncated || swiftTruncated
@@ -43,6 +49,7 @@ nonisolated struct MarkdownDisplayDocument {
     fileprivate static func makeBlocks(
         from blocks: [MarkdownBlockFfi],
         remainingDepth: Int,
+        mentionNames: MarkdownMentionNames,
         truncated: inout Bool
     ) -> [MarkdownDisplayBlockNode] {
         guard remainingDepth > 0 else {
@@ -55,6 +62,7 @@ nonisolated struct MarkdownDisplayDocument {
                 block: MarkdownDisplayBlock(
                     block,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -77,13 +85,14 @@ nonisolated enum MarkdownDisplayBlock {
     case table(header: [MarkdownDisplayTableCell], rows: [MarkdownDisplayTableRow])
     case mathBlock(String)
 
-    init(_ block: MarkdownBlockFfi, remainingDepth: Int, truncated: inout Bool) {
+    init(_ block: MarkdownBlockFfi, remainingDepth: Int, mentionNames: MarkdownMentionNames, truncated: inout Bool) {
         switch block {
         case .paragraph(let inlines):
             self = .paragraph(
                 MarkdownDisplayInlineBuilder.attributedString(
                     from: inlines,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -93,6 +102,7 @@ nonisolated enum MarkdownDisplayBlock {
                 text: MarkdownDisplayInlineBuilder.attributedString(
                     from: inlines,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -105,6 +115,7 @@ nonisolated enum MarkdownDisplayBlock {
                 MarkdownDisplayDocument.makeBlocks(
                     from: blocks,
                     remainingDepth: remainingDepth - 1,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -114,6 +125,7 @@ nonisolated enum MarkdownDisplayBlock {
                     kind: kind,
                     items: items,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -122,6 +134,7 @@ nonisolated enum MarkdownDisplayBlock {
                 header: Self.tableCells(
                     from: header,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 ),
                 rows: rows.enumerated().map { rowIndex, row in
@@ -130,6 +143,7 @@ nonisolated enum MarkdownDisplayBlock {
                         cells: Self.tableCells(
                             from: row,
                             remainingDepth: remainingDepth,
+                            mentionNames: mentionNames,
                             truncated: &truncated
                         )
                     )
@@ -146,6 +160,7 @@ nonisolated enum MarkdownDisplayBlock {
         kind: MarkdownListKindFfi,
         items: [MarkdownListItemFfi],
         remainingDepth: Int,
+        mentionNames: MarkdownMentionNames,
         truncated: inout Bool
     ) -> [MarkdownDisplayListItem] {
         items.enumerated().map { index, item in
@@ -155,6 +170,7 @@ nonisolated enum MarkdownDisplayBlock {
                 blocks: MarkdownDisplayDocument.makeBlocks(
                     from: item.blocks,
                     remainingDepth: remainingDepth - 1,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -182,6 +198,7 @@ nonisolated enum MarkdownDisplayBlock {
     private static func tableCells(
         from cells: [MarkdownTableCellFfi],
         remainingDepth: Int,
+        mentionNames: MarkdownMentionNames,
         truncated: inout Bool
     ) -> [MarkdownDisplayTableCell] {
         cells.enumerated().map { index, cell in
@@ -190,6 +207,7 @@ nonisolated enum MarkdownDisplayBlock {
                 text: MarkdownDisplayInlineBuilder.attributedString(
                     from: cell.inlines,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -219,14 +237,24 @@ nonisolated struct MarkdownDisplayTableRow: Identifiable {
 }
 
 nonisolated enum MarkdownDisplayInlineBuilder {
-    static func attributedString(from inlines: [MarkdownInlineFfi], remainingDepth: Int) -> AttributedString {
+    static func attributedString(
+        from inlines: [MarkdownInlineFfi],
+        remainingDepth: Int,
+        mentionNames: MarkdownMentionNames = [:]
+    ) -> AttributedString {
         var truncated = false
-        return attributedString(from: inlines, remainingDepth: remainingDepth, truncated: &truncated)
+        return attributedString(
+            from: inlines,
+            remainingDepth: remainingDepth,
+            mentionNames: mentionNames,
+            truncated: &truncated
+        )
     }
 
     fileprivate static func attributedString(
         from inlines: [MarkdownInlineFfi],
         remainingDepth: Int,
+        mentionNames: MarkdownMentionNames,
         truncated: inout Bool
     ) -> AttributedString {
         guard remainingDepth > 0 else {
@@ -241,6 +269,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                     intent: [],
                     link: nil,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -253,6 +282,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         intent: InlinePresentationIntent,
         link: URL?,
         remainingDepth: Int,
+        mentionNames: MarkdownMentionNames,
         truncated: inout Bool
     ) -> AttributedString {
         switch inline {
@@ -270,6 +300,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 intent: intent.union(.emphasized),
                 link: link,
                 remainingDepth: remainingDepth - 1,
+                mentionNames: mentionNames,
                 truncated: &truncated
             )
         case .strong(let children):
@@ -278,6 +309,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 intent: intent.union(.stronglyEmphasized),
                 link: link,
                 remainingDepth: remainingDepth - 1,
+                mentionNames: mentionNames,
                 truncated: &truncated
             )
         case .strikethrough(let children):
@@ -286,12 +318,14 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 intent: intent.union(.strikethrough),
                 link: link,
                 remainingDepth: remainingDepth - 1,
+                mentionNames: mentionNames,
                 truncated: &truncated
             )
         case .link(let dest, _, let children):
             return concat(
                 children, intent: intent, link: MarkdownLinkPolicy.sanitizedURL(from: dest),
                 remainingDepth: remainingDepth - 1,
+                mentionNames: mentionNames,
                 truncated: &truncated
             )
         case .image(_, let title, let alt):
@@ -301,6 +335,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                     intent: intent,
                     link: link,
                     remainingDepth: remainingDepth - 1,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             }
@@ -310,7 +345,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         case .math(let content):
             return styled(content, intent: intent.union(.code), link: link)
         case .nostrMention(let entity), .nostrUri(let entity):
-            return nostrEntity(entity, intent: intent)
+            return nostrEntity(entity, intent: intent, mentionNames: mentionNames)
         @unknown default:
             return AttributedString()
         }
@@ -321,6 +356,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         intent: InlinePresentationIntent,
         link: URL?,
         remainingDepth: Int,
+        mentionNames: MarkdownMentionNames,
         truncated: inout Bool
     ) -> AttributedString {
         guard remainingDepth > 0 else {
@@ -335,6 +371,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                     intent: intent,
                     link: link,
                     remainingDepth: remainingDepth,
+                    mentionNames: mentionNames,
                     truncated: &truncated
                 )
             )
@@ -367,22 +404,37 @@ nonisolated enum MarkdownDisplayInlineBuilder {
 
     private static func nostrEntity(
         _ entity: MarkdownNostrEntityFfi,
-        intent: InlinePresentationIntent
+        intent: InlinePresentationIntent,
+        mentionNames: MarkdownMentionNames
     ) -> AttributedString {
         let shortReference = shortBech32(entity.bech32)
         let displayText: String
+        var isMention = false
         switch entity.hrp {
         case .npub, .nprofile:
-            displayText = "@\(shortReference)"
+            // A known group member renders as "@Display Name"; otherwise the truncated bech32
+            // keeps the reference legible and tappable.
+            if let name = PeerDisplayText.sanitize(mentionNames[entity.bech32]) {
+                displayText = "@\(name)"
+            } else {
+                displayText = "@\(shortReference)"
+            }
+            isMention = true
         case .note, .nevent, .naddr, .nrelay:
             displayText = shortReference
         @unknown default:
             displayText = shortReference
         }
+        // No baked foreground color: the bubble owns `.tint` so the linked reference stays visible
+        // on both sent and received. A mention is set off by a subtle background pill (Signal's
+        // treatment) rather than bold weight or a color — `.primary` adapts to light/dark and the
+        // low alpha reads as a soft highlight over either bubble fill.
         var attributed = AttributedString(displayText)
-        attributed.foregroundColor = .accentColor
         if !intent.isEmpty {
             attributed.inlinePresentationIntent = intent
+        }
+        if isMention {
+            attributed.backgroundColor = Color.primary.opacity(0.14)
         }
         if let link = MarkdownLinkPolicy.nostrURL(for: entity.bech32) {
             attributed.link = link

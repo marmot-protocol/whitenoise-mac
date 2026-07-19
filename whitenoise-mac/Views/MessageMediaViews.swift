@@ -434,6 +434,9 @@ struct MessageBubble: View {
                 )
                 .font(.system(size: 15.5))
                 .foregroundStyle(message.isOutgoing ? .white : .primary)
+                // Links and @-mentions (no baked color) render in the tint: white on the sent
+                // gradient so they stay visible, accent on received so they read as links.
+                .tint(message.isOutgoing ? .white : .accentColor)
                 .multilineTextAlignment(.leading)
             }
 

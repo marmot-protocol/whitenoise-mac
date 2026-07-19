@@ -1210,7 +1210,8 @@ final class WorkspaceState {
     nonisolated static func mapTimelineOffMain(
         page: TimelinePageFfi,
         activeAccountIdHex: String?,
-        senderProfiles: [String: ChatPeerProfile]
+        senderProfiles: [String: ChatPeerProfile],
+        mentionNames: MarkdownMentionNames
     ) async -> [MessageItem] {
         await withCheckedContinuation { (continuation: CheckedContinuation<[MessageItem], Never>) in
             Self.ffiQueue.async {
@@ -1218,7 +1219,8 @@ final class WorkspaceState {
                     returning: MessageItem.timeline(
                         from: page,
                         activeAccountIdHex: activeAccountIdHex,
-                        senderProfiles: senderProfiles
+                        senderProfiles: senderProfiles,
+                        mentionNames: mentionNames
                     )
                 )
             }

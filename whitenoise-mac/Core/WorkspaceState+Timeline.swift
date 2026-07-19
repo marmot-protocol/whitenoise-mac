@@ -315,6 +315,7 @@ extension WorkspaceState {
                 client: client
             )
         }
+        let mentionNames = cachedMentionNames(groupIdHex: groupIdHex)
         guard
             canApplyTimelineWindow(
                 groupIdHex: groupIdHex,
@@ -347,7 +348,8 @@ extension WorkspaceState {
             await Self.mapTimelineOffMain(
                 page: page,
                 activeAccountIdHex: activeAccountIdHex,
-                senderProfiles: senderProfiles
+                senderProfiles: senderProfiles,
+                mentionNames: mentionNames
             )
         }
         guard
@@ -485,6 +487,7 @@ extension WorkspaceState {
                 client: client
             )
         }
+        let mentionNames = cachedMentionNames(groupIdHex: groupIdHex)
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
         // Map only the changed records off the main actor (same pure transformation as the
         // window path), then re-check the selection guard after the await before mutating
@@ -498,7 +501,8 @@ extension WorkspaceState {
             await Self.mapTimelineOffMain(
                 page: upsertPage,
                 activeAccountIdHex: activeAccountIdHex,
-                senderProfiles: senderProfiles
+                senderProfiles: senderProfiles,
+                mentionNames: mentionNames
             )
         }
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
@@ -833,7 +837,7 @@ extension WorkspaceState {
     }
 
     func sendDraft() async {
-        let text = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = canonicalizeMentions(in: draftText.trimmingCharacters(in: .whitespacesAndNewlines))
         let mediaAttachments = pendingMediaAttachments
         // `!isSending` is the reentrancy guard: `isSending` flips synchronously here,
         // but the model only suspends (and `draftText` is only cleared) at the `await`
