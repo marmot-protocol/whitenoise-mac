@@ -16,6 +16,7 @@ struct GroupDetailsSheet: View {
     @State private var showLeaveConfirmation = false
     @State private var showSelfDemoteConfirmation = false
     @State private var showRemoveLocallyConfirmation = false
+    @State private var isAddMembersPresented = false
     let chat: ChatItem
 
     private var hasProfileChanges: Bool {
@@ -168,7 +169,7 @@ struct GroupDetailsSheet: View {
                     // non-member the same way it rejects sends (`invalid_transition`).
                     .disabled(snapshot.selfMembership != .member)
 
-                    Section("Members") {
+                    Section {
                         if snapshot.members.isEmpty {
                             ContentUnavailableView("No members", systemImage: "person.2.slash")
                                 .frame(minHeight: 120)
@@ -177,7 +178,19 @@ struct GroupDetailsSheet: View {
                                 GroupMemberRow(member: member)
                             }
                         }
+                        if snapshot.canInvite && snapshot.selfMembership == .member {
+                            Button {
+                                isAddMembersPresented = true
+                            } label: {
+                                Label(L10n.string("Add members"), systemImage: "person.badge.plus")
+                            }
+                            .disabled(workspace.hasInFlightGroupCommit)
+                        }
+                    } header: {
+                        Text(snapshot.memberCountLabel)
                     }
+
+                    GroupSharedMediaSection(groupIdHex: snapshot.groupIdHex)
 
                     Section("Disappearing Messages") {
                         Picker(
@@ -214,33 +227,6 @@ struct GroupDetailsSheet: View {
                             }
                             .disabled(workspace.isSecureDeletingExpired)
                             .help(L10n.string("Securely prune already-expired messages on this device"))
-                        }
-                    }
-
-                    if snapshot.canInvite && snapshot.selfMembership == .member {
-                        Section("Invite") {
-                            HStack(spacing: 10) {
-                                TextField(
-                                    "NIP-05, npub, profile link, or hex public key",
-                                    text: $workspace.groupInviteMemberQuery
-                                )
-                                .textFieldStyle(.roundedBorder)
-
-                                Button {
-                                    Task { await workspace.inviteMemberToSelectedGroup() }
-                                } label: {
-                                    Label(
-                                        workspace.isInvitingGroupMember
-                                            ? L10n.string("Inviting...") : L10n.string("Invite"),
-                                        systemImage: "person.badge.plus")
-                                }
-                                .disabled(
-                                    workspace.hasInFlightGroupCommit
-                                        || workspace.groupInviteMemberQuery.trimmingCharacters(
-                                            in: .whitespacesAndNewlines
-                                        ).isEmpty
-                                )
-                            }
                         }
                     }
 
@@ -377,6 +363,17 @@ struct GroupDetailsSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             MessagesTranscriptBackground()
+        }
+        .task(id: chat.id) {
+            await workspace.loadSharedMedia(groupIdHex: chat.id)
+        }
+        .onDisappear {
+            workspace.clearSharedMedia()
+        }
+        .sheet(isPresented: $isAddMembersPresented) {
+            GroupAddMembersSheet(
+                existingMemberIds: Set(workspace.groupDetailsSnapshot?.members.map(\.id) ?? [])
+            )
         }
         .confirmationDialog(
             archiveConfirmationTitle,

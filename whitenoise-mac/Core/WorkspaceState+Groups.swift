@@ -247,6 +247,43 @@ extension WorkspaceState {
         }
     }
 
+    /// Invite one or more already-resolved recipients in a single group commit. Recipients carry a
+    /// normalized `npub` from the new-chat resolver, so no per-entry re-normalization is needed.
+    func inviteMembers(_ recipients: [NewChatRecipient]) async {
+        guard let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot,
+            !hasInFlightGroupCommit
+        else { return }
+        let memberRefs = recipients.map(\.npub).filter { !$0.isEmpty }
+        guard !memberRefs.isEmpty else { return }
+        let accountId = activeAccount.id
+        let groupIdHex = snapshot.groupIdHex
+        let generation = beginGroupDetailsMutation()
+
+        lastError = nil
+        isInvitingGroupMember = true
+        defer { isInvitingGroupMember = false }
+
+        do {
+            let result = try await client.inviteMembersDetailed(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex,
+                memberRefs: memberRefs
+            )
+            guard
+                isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
+            else { return }
+            applyGroupMutationResult(result)
+            await reloadChats(forceFreshSnapshot: true)
+        } catch {
+            guard
+                isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
+            else { return }
+            lastError = error.localizedDescription
+        }
+    }
+
     func acceptGroupInvite(for chat: ChatItem) async {
         // DMs are 2-person MLS groups, so their welcomes are accepted the same way.
         await acceptGroupInvite(groupIdHex: chat.id)

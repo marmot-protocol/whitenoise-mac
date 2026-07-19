@@ -918,6 +918,15 @@ final class WorkspaceState {
     var isSavingGroupImage = false
     var isGroupDetailsPresented = false
     var groupDetailsSnapshot: GroupDetailsSnapshot?
+    /// Shared-media browser state for the group-details sheet.
+    var sharedMediaRecords: [MediaRecordFfi] = []
+    var sharedMediaGroupId: String?
+    var sharedMediaError: String?
+    var isLoadingSharedMedia = false
+    /// Decrypted shared-media bytes keyed by plaintext hash, with an insertion-order list bounding
+    /// eviction. `@ObservationIgnored` — views read via the async loader, not by observing this.
+    @ObservationIgnored var sharedMediaThumbnailCache: [String: Data] = [:]
+    @ObservationIgnored var sharedMediaThumbnailCacheOrder: [String] = []
     var conversationMetadataByChat: [String: ConversationMetadata] = [:]
     @ObservationIgnored var conversationMetadataGenerationByChat: [String: UInt64] = [:]
     /// Message ids the local account hid via "Delete for me", keyed by `accountId\u{1F}groupId`.
