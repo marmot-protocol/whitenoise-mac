@@ -30,6 +30,24 @@ struct GroupDetailsSheet: View {
         GroupDetailsHeaderAvatar.sanitizedURL(snapshot: workspace.groupDetailsSnapshot, fallback: chat)
     }
 
+    /// Under the group name: the disappearing-message timer as a bare icon + duration (no label)
+    /// when it's on, otherwise the member count.
+    @ViewBuilder
+    private var headerSubtitle: some View {
+        if let snapshot = workspace.groupDetailsSnapshot, snapshot.disappearingMessagesEnabled {
+            HStack(spacing: 4) {
+                Image(systemName: "timer")
+                Text(DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs).label)
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        } else {
+            Text(workspace.groupDetailsSnapshot?.memberCountLabel ?? "Group details")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         @Bindable var workspace = workspace
 
@@ -47,9 +65,7 @@ struct GroupDetailsSheet: View {
                     Text(workspace.groupDetailsSnapshot?.name ?? chat.title)
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
-                    Text(workspace.groupDetailsSnapshot?.memberCountLabel ?? "Group details")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    headerSubtitle
                 }
 
                 Spacer()
@@ -57,6 +73,22 @@ struct GroupDetailsSheet: View {
                 if workspace.isLoadingGroupDetails {
                     ProgressView()
                         .controlSize(.small)
+                }
+
+                if let snapshot = workspace.groupDetailsSnapshot,
+                    snapshot.canInvite, snapshot.selfMembership == .member
+                {
+                    Button {
+                        isAddMembersPresented = true
+                    } label: {
+                        Image(systemName: "person.badge.plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .background { MessagesCircleControlBackground() }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.hasInFlightGroupCommit)
+                    .help(L10n.string("Add members"))
                 }
 
                 GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat") {
@@ -785,8 +817,18 @@ enum DisappearingMessageOption: Hashable, Identifiable {
         case .oneDay: return L10n.plural("%llu days", UInt64(1))
         case .oneWeek: return L10n.plural("%llu weeks", UInt64(1))
         case .oneMonth: return L10n.plural("%llu months", UInt64(1))
-        case .custom(let value): return L10n.plural("%llu seconds", value)
+        case .custom(let value): return Self.humanDuration(value)
         }
+    }
+
+    /// A whole-unit human duration for non-preset values (e.g. a 4-week timer reads "4 weeks"
+    /// rather than a raw seconds count). Uses the largest unit that divides evenly.
+    static func humanDuration(_ seconds: UInt64) -> String {
+        if seconds == 0 { return L10n.string("Off") }
+        if seconds % 604_800 == 0 { return L10n.plural("%llu weeks", seconds / 604_800) }
+        if seconds % 86_400 == 0 { return L10n.plural("%llu days", seconds / 86_400) }
+        if seconds % 3_600 == 0 { return L10n.plural("%llu hours", seconds / 3_600) }
+        return L10n.plural("%llu seconds", seconds)
     }
 
     /// The matching preset for `seconds`, or a `.custom` wrapper when none match.
