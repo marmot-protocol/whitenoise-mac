@@ -30,7 +30,16 @@ struct ComposerMentionContext: Equatable {
 struct ComposerMentionInsertion: Equatable {
     let id = UUID()
     let range: NSRange
-    let replacement: String
+    let displayText: String
+    let npub: String
+
+    init(range: NSRange, candidate: ComposerMentionCandidate) {
+        self.range = range
+        displayText = "@\(candidate.displayName)"
+        npub = candidate.npub
+    }
+
+    var replacement: String { "\(displayText) " }
 }
 
 struct ComposerMessageInputView: View {
@@ -40,6 +49,7 @@ struct ComposerMessageInputView: View {
     let onEmojiInsertionConsumed: (UUID) -> Void
     let mentionInsertion: ComposerMentionInsertion?
     let onMentionInsertionConsumed: (UUID) -> Void
+    @Binding var mentionSelections: [ComposerMentionSelection]
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
@@ -55,6 +65,7 @@ struct ComposerMessageInputView: View {
                 onEmojiInsertionConsumed: onEmojiInsertionConsumed,
                 mentionInsertion: mentionInsertion,
                 onMentionInsertionConsumed: onMentionInsertionConsumed,
+                mentionSelections: $mentionSelections,
                 onMentionContextChange: onMentionContextChange,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend
@@ -181,6 +192,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     let onEmojiInsertionConsumed: (UUID) -> Void
     let mentionInsertion: ComposerMentionInsertion?
     let onMentionInsertionConsumed: (UUID) -> Void
+    @Binding var mentionSelections: [ComposerMentionSelection]
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
@@ -189,6 +201,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         Coordinator(
             text: $text,
             measuredHeight: $measuredHeight,
+            mentionSelections: $mentionSelections,
             onPasteMedia: onPasteMedia,
             onSend: onSend,
             onMentionContextChange: onMentionContextChange
@@ -237,6 +250,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.onSend = onSend
         context.coordinator.onEmojiInsertionConsumed = onEmojiInsertionConsumed
         context.coordinator.onMentionInsertionConsumed = onMentionInsertionConsumed
+        context.coordinator.mentionSelections = $mentionSelections
         context.coordinator.onMentionContextChange = onMentionContextChange
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
@@ -245,6 +259,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+        context.coordinator.synchronizeMentionMarkers(in: textView)
         context.coordinator.insertEmojiIfNeeded(emojiInsertion, into: textView)
         context.coordinator.insertMentionIfNeeded(mentionInsertion, into: textView)
         DispatchQueue.main.async {
@@ -265,6 +280,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var measuredHeight: Binding<CGFloat>
+        var mentionSelections: Binding<[ComposerMentionSelection]>
         var onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
         var onSend: () -> Void
         var onEmojiInsertionConsumed: (UUID) -> Void
@@ -277,6 +293,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         init(
             text: Binding<String>,
             measuredHeight: Binding<CGFloat>,
+            mentionSelections: Binding<[ComposerMentionSelection]>,
             onPasteMedia: @escaping ([OutgoingMediaPasteboardAttachment]) -> Void,
             onSend: @escaping () -> Void,
             onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in },
@@ -285,6 +302,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         ) {
             self.text = text
             self.measuredHeight = measuredHeight
+            self.mentionSelections = mentionSelections
             self.onPasteMedia = onPasteMedia
             self.onSend = onSend
             self.onEmojiInsertionConsumed = onEmojiInsertionConsumed
@@ -314,7 +332,22 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
                 return
             }
             textView.insertText(insertion.replacement, replacementRange: insertion.range)
+            let mentionRange = NSRange(
+                location: insertion.range.location,
+                length: (insertion.displayText as NSString).length
+            )
+            textView.textStorage?.addAttribute(
+                .composerMentionNpub,
+                value: insertion.npub,
+                range: mentionRange
+            )
+            textView.textStorage?.addAttribute(
+                .composerMentionDisplayText,
+                value: insertion.displayText,
+                range: mentionRange
+            )
             text.wrappedValue = textView.string
+            publishMentionSelections(for: textView)
             updateMeasuredHeight(for: textView)
             textView.window?.makeFirstResponder(textView)
             publishMentionContext(for: textView)
@@ -324,6 +357,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
+            publishMentionSelections(for: textView)
             updateMeasuredHeight(for: textView)
             publishMentionContext(for: textView)
         }
@@ -353,6 +387,73 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             return ComposerMentionContext(query: session.query, tokenRange: NSRange(session.range, in: full))
         }
 
+        func synchronizeMentionMarkers(in textView: NSTextView) {
+            let desired = mentionSelections.wrappedValue
+            guard validMentionSelections(in: textView, removingInvalid: false) != desired else { return }
+            let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+            textView.textStorage?.removeAttribute(.composerMentionNpub, range: fullRange)
+            textView.textStorage?.removeAttribute(.composerMentionDisplayText, range: fullRange)
+            for selection in desired where Self.isValid(selection, in: textView.string) {
+                textView.textStorage?.addAttribute(
+                    .composerMentionNpub,
+                    value: selection.npub,
+                    range: selection.range
+                )
+                textView.textStorage?.addAttribute(
+                    .composerMentionDisplayText,
+                    value: selection.displayText,
+                    range: selection.range
+                )
+            }
+            publishMentionSelections(for: textView)
+        }
+
+        private func publishMentionSelections(for textView: NSTextView) {
+            let selections = validMentionSelections(in: textView, removingInvalid: true)
+            if mentionSelections.wrappedValue != selections {
+                mentionSelections.wrappedValue = selections
+            }
+        }
+
+        private func validMentionSelections(
+            in textView: NSTextView,
+            removingInvalid: Bool
+        ) -> [ComposerMentionSelection] {
+            guard let storage = textView.textStorage else { return [] }
+            let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+            var selections: [ComposerMentionSelection] = []
+            var invalidRanges: [NSRange] = []
+            storage.enumerateAttribute(.composerMentionNpub, in: fullRange) { value, range, _ in
+                guard let npub = value as? String,
+                    let displayText = storage.attribute(
+                        .composerMentionDisplayText,
+                        at: range.location,
+                        effectiveRange: nil
+                    ) as? String
+                else { return }
+                let selection = ComposerMentionSelection(range: range, displayText: displayText, npub: npub)
+                if Self.isValid(selection, in: textView.string) {
+                    selections.append(selection)
+                } else {
+                    invalidRanges.append(range)
+                }
+            }
+            if removingInvalid {
+                for range in invalidRanges {
+                    storage.removeAttribute(.composerMentionNpub, range: range)
+                    storage.removeAttribute(.composerMentionDisplayText, range: range)
+                }
+            }
+            return selections.sorted { $0.location < $1.location }
+        }
+
+        private static func isValid(_ selection: ComposerMentionSelection, in text: String) -> Bool {
+            selection.location >= 0
+                && selection.length > 0
+                && NSMaxRange(selection.range) <= (text as NSString).length
+                && (text as NSString).substring(with: selection.range) == selection.displayText
+        }
+
         func handleMediaPaste() -> Bool {
             let attachments = OutgoingMediaPasteboardReader.attachments(from: .general)
             guard !attachments.isEmpty else { return false }
@@ -377,6 +478,11 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             }
         }
     }
+}
+
+private extension NSAttributedString.Key {
+    static let composerMentionNpub = NSAttributedString.Key("whitenoise.composerMentionNpub")
+    static let composerMentionDisplayText = NSAttributedString.Key("whitenoise.composerMentionDisplayText")
 }
 
 @MainActor

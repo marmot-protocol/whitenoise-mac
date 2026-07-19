@@ -37,10 +37,10 @@ extension WorkspaceState {
     }
 
     /// Rewrite display-name mentions to canonical npubs before the text leaves the composer.
-    func canonicalizeMentions(in text: String) -> String {
+    func canonicalizeMentions(in text: String, selections: [ComposerMentionSelection] = []) -> String {
         let roster = mentionRoster()
         guard !roster.isEmpty else { return text }
-        return ComposerMentionCanonicalizer.canonicalize(text, candidates: roster)
+        return ComposerMentionCanonicalizer.canonicalize(text, selections: selections, candidates: roster)
     }
 
     /// npub → sanitized display name from the roster already in cache (no FFI), used by the

@@ -25,21 +25,21 @@ private struct MessageDeletionConfirmationModifier: ViewModifier {
             ),
             titleVisibility: .visible,
             presenting: workspace.messagePendingDeletion
-        ) { message in
-            let capability = workspace.messageDeletionCapability(message)
+        ) { target in
+            let capability = workspace.messageDeletionCapability(target)
             if capability.canDeleteForEveryone {
                 Button(L10n.string("Delete for everyone"), role: .destructive) {
-                    Task { await workspace.deleteForEveryone(message) }
+                    Task { await workspace.deleteForEveryone(target) }
                 }
             }
             if capability.canDeleteForMe {
                 Button(L10n.string("Delete for me"), role: .destructive) {
-                    workspace.deleteForMe(message)
+                    workspace.deleteForMe(target)
                 }
             }
             Button(L10n.string("Cancel"), role: .cancel) {}
-        } message: { message in
-            Text(workspace.messageDeletionScopeExplanation(message))
+        } message: { target in
+            Text(workspace.messageDeletionScopeExplanation(target))
         }
     }
 }

@@ -21,6 +21,123 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct PureValueTests {
+    @Test func selectedMentionsCanonicalizeByPickedNpubDespiteDisplayNameCollision() {
+        let first = mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
+        let second = mentionCandidate(id: "second", displayName: "Alex", npub: "npub1pppp")
+        let draft = "Hi @Alex and @Alex"
+        let nsDraft = draft as NSString
+        let firstRange = nsDraft.range(of: "@Alex")
+        let secondRange = nsDraft.range(of: "@Alex", options: [], range: NSRange(location: 8, length: 10))
+        let selections = [
+            ComposerMentionSelection(range: firstRange, displayText: "@Alex", npub: first.npub),
+            ComposerMentionSelection(range: secondRange, displayText: "@Alex", npub: second.npub),
+        ]
+
+        #expect(
+            ComposerMentionCanonicalizer.canonicalize(
+                draft,
+                selections: selections,
+                candidates: [first, second]
+            ) == "Hi @npub1qqqq and @npub1pppp"
+        )
+    }
+
+    @Test func ambiguousTypedMentionIsNotGuessedWithoutPickerSelection() {
+        let candidates = [
+            mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq"),
+            mentionCandidate(id: "second", displayName: "Alex", npub: "npub1pppp"),
+        ]
+
+        #expect(
+            ComposerMentionCanonicalizer.canonicalize("Hi @Alex", candidates: candidates)
+                == "Hi @Alex"
+        )
+    }
+
+    @Test func selectedMentionIsIgnoredAfterItsVisibleTextIsEdited() {
+        let candidate = mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
+        let staleSelection = ComposerMentionSelection(
+            range: NSRange(location: 3, length: 5),
+            displayText: "@Alex",
+            npub: candidate.npub
+        )
+
+        #expect(
+            ComposerMentionCanonicalizer.canonicalize(
+                "Hi @Alec",
+                selections: [staleSelection],
+                candidates: []
+            ) == "Hi @Alec"
+        )
+    }
+
+    @Test func mentionDisplayResolverRequiresACompleteBech32TokenBoundary() {
+        let npub = "npub1qqqq"
+        let names = [npub: "Alex"]
+
+        #expect(MentionDisplayResolver.resolve(in: "Hi @\(npub)!", mentionNames: names) == "Hi @Alex!")
+        #expect(MentionDisplayResolver.resolve(in: "Hi @\(npub)x", mentionNames: names) == "Hi @\(npub)x")
+    }
+
+    @Test func mentionQueryTracksMidDraftCaretAndSuppressesCompleteNpub() throws {
+        let draft = "Before @Ale after"
+        let caret = try #require(draft.range(of: "@Ale")?.upperBound)
+        let session = try #require(ComposerMentionQuery.active(in: draft, upTo: caret))
+        #expect(session.query == "Ale")
+        #expect(String(draft[session.range]) == "@Ale")
+        #expect(ComposerMentionQuery.active(in: "email@example.com") == nil)
+        #expect(ComposerMentionQuery.looksLikeCompleteNpub("npub1" + String(repeating: "q", count: 58)))
+    }
+
+    @Test func mentionCandidateFilterMatchesAllIdentityFieldsAndCapsResults() {
+        let candidates = (0..<12).map { index in
+            mentionCandidate(
+                id: "member-\(index)",
+                displayName: index == 11 ? "Special Person" : "Member \(index)",
+                npub: "npub1qqq\(index)"
+            )
+        }
+        #expect(ComposerMentionQuery.filter(candidates, matching: "").count == 8)
+        #expect(ComposerMentionQuery.filter(candidates, matching: "special").map(\.id) == ["member-11"])
+        #expect(ComposerMentionQuery.filter(candidates, matching: "member-9").map(\.id) == ["member-9"])
+        #expect(ComposerMentionQuery.filter(candidates, matching: "npub1qqq10").map(\.id) == ["member-10"])
+    }
+
+    @Test func editedMessageAndHistoryResolveCanonicalMentionsButRetainWireText() async throws {
+        let npub = "npub1qqqq"
+        let base = MessageItem(
+            id: "message",
+            senderAccountIdHex: "sender",
+            senderName: "Sender",
+            body: "Original @\(npub)",
+            mentionNames: [npub: "Alex"],
+            sentAt: Date(timeIntervalSince1970: 1),
+            timelineAt: 1,
+            isOutgoing: false
+        )
+        let edited = base.applyingEdit(plaintext: "Edited @\(npub)")
+        #expect(edited.body == "Edited @Alex")
+        #expect(edited.wireBody == "Edited @\(npub)")
+
+        let store = await MessageTimelineStore.loaded(with: [base])
+        await store.replace(
+            with: [base],
+            editMutations: [
+                .upsert(
+                    MessageEditOverlay(
+                        targetMessageIdHex: base.id,
+                        editMessageIdHex: "edit",
+                        sender: "sender",
+                        plaintext: "Edited @\(npub)",
+                        timelineAt: 2
+                    )
+                )
+            ]
+        )
+        let history = await store.editHistory(forTarget: base.id)
+        #expect(history.map(\.text) == ["Original @Alex", "Edited @Alex"])
+    }
+
     @MainActor
     @Test func disappearingMessageCustomLabelFormatsCoreUInt64Value() async throws {
         // Regression for whitenoise-mac#212: values can originate from the core as
@@ -2227,6 +2344,20 @@ struct PureValueTests {
         #expect(firstSelectable)
         #expect(!secondSelectable)
     }
+}
+
+private func mentionCandidate(id: String, displayName: String, npub: String) -> ComposerMentionCandidate {
+    ComposerMentionCandidate(
+        details: GroupMemberDetailsFfi(
+            memberIdHex: id,
+            account: id,
+            local: false,
+            isAdmin: false,
+            isSelf: false,
+            npub: npub,
+            displayName: displayName
+        )
+    )
 }
 
 @MainActor

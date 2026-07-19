@@ -297,6 +297,7 @@ nonisolated struct MessageEditContext: Hashable {
     let senderName: String
     let originalBody: String
     let preservedDraft: String
+    let preservedMentionSelections: [ComposerMentionSelection]
     let preservedReplyContext: MessageReplyContext?
     let preservedMediaAttachments: [PendingMediaAttachment]
     let preservedMediaUploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]
@@ -1611,10 +1612,14 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let senderName: String
     let senderPictureURL: String?
     let body: String
+    /// Canonical plaintext used when editing or forwarding. For edited messages, `body` is the
+    /// roster-resolved display text while this retains stable npub mention tokens.
+    let wireBody: String
     /// Pre-rendered Markdown display model for the message body. The Marmot core supplies
     /// parsed tokens; `MessageItem` converts them once so SwiftUI body/layout passes do not
     /// rebuild attributed strings or enumerated block arrays while scrolling.
     let contentMarkdown: MarkdownDisplayDocument?
+    let mentionNames: MarkdownMentionNames
     let trimmedBody: String
     let sentAt: Date
     let timelineAt: UInt64
@@ -1659,6 +1664,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         senderName: String,
         senderPictureURL: String? = nil,
         body: String,
+        wireBody: String? = nil,
         contentMarkdown: MarkdownDocumentFfi? = nil,
         mentionNames: MarkdownMentionNames = [:],
         sentAt: Date,
@@ -1684,7 +1690,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.senderName = senderName
         self.senderPictureURL = senderPictureURL
         self.body = body
+        self.wireBody = wireBody ?? body
         self.contentMarkdown = contentMarkdown.map { MarkdownDisplayDocument(document: $0, mentionNames: mentionNames) }
+        self.mentionNames = mentionNames
         self.trimmedBody = trimmedBody
         self.sentAt = sentAt
         // `timelineAt` is normally supplied by the core mapping; the fallback derives it from
@@ -1743,7 +1751,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     }
 
     func applyingEdit(plaintext editedPlaintext: String) -> MessageItem {
-        let body = MessageItem.displayText(
+        let wireBody = MessageItem.displayText(
             presentation: presentation,
             plaintext: editedPlaintext,
             tags: [],
@@ -1751,6 +1759,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             invalidationStatus: invalidationStatus,
             hasMediaAttachments: !mediaAttachments.isEmpty
         )
+        let body = MentionDisplayResolver.resolve(in: wireBody, mentionNames: mentionNames)
         return MessageItem(
             id: id,
             groupIdHex: groupIdHex,
@@ -1760,7 +1769,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             senderName: senderName,
             senderPictureURL: senderPictureURL,
             body: body,
+            wireBody: wireBody,
             contentMarkdown: nil,
+            mentionNames: mentionNames,
             sentAt: sentAt,
             timelineAt: timelineAt,
             timelineKind: timelineKind,
@@ -1895,13 +1906,24 @@ nonisolated struct MessageDeletionCapability: Equatable {
     }
 }
 
+/// Immutable account/conversation scope captured when a deletion action is opened. Confirmation
+/// and async mutation paths use this instead of consulting the workspace's mutable selection.
+nonisolated struct MessageDeletionTarget: Hashable {
+    let message: MessageItem
+    let accountId: String
+    let accountRef: String
+    let groupIdHex: String
+    let isDirectConversation: Bool
+    let isSelfGroupAdmin: Bool
+}
+
 extension MessageItem {
     // Hand-written `Equatable`/`Hashable` so equality and hashing stay O(1) instead of
     // recursively walking `contentMarkdown`'s pre-rendered Markdown tree.
     //
     // `contentMarkdown` is a deterministic display projection of the message content
     // (the core's `contentTokens`), fully determined by the content-bearing fields
-    // compared below — chiefly `body`, `isDeleted`, and `presentation`. Two items that
+    // compared below — chiefly `body`, `mentionNames`, `isDeleted`, and `presentation`. Two items that
     // agree on those always carry the same AST, so excluding it from equality is sound
     // while avoiding an O(AST) traversal on every comparison. That traversal otherwise
     // ran for each row whenever SwiftUI diffed the transcript (and on any Set/Dictionary
@@ -1919,6 +1941,8 @@ extension MessageItem {
             && lhs.senderName == rhs.senderName
             && lhs.senderPictureURL == rhs.senderPictureURL
             && lhs.body == rhs.body
+            && lhs.wireBody == rhs.wireBody
+            && lhs.mentionNames == rhs.mentionNames
             && lhs.sentAt == rhs.sentAt
             && lhs.timelineAt == rhs.timelineAt
             && lhs.timelineKind == rhs.timelineKind

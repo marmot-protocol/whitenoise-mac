@@ -36,6 +36,24 @@ nonisolated struct ComposerMentionCandidate: Identifiable, Equatable, Sendable {
     }
 }
 
+/// A picker-selected mention tied to the exact visible range in the composer. Keeping the
+/// canonical npub here avoids re-identifying a selected member by a non-unique display name.
+nonisolated struct ComposerMentionSelection: Hashable, Sendable {
+    let location: Int
+    let length: Int
+    let displayText: String
+    let npub: String
+
+    init(range: NSRange, displayText: String, npub: String) {
+        location = range.location
+        length = range.length
+        self.displayText = displayText
+        self.npub = npub
+    }
+
+    var range: NSRange { NSRange(location: location, length: length) }
+}
+
 nonisolated enum ComposerMentionQuery {
     struct Session: Equatable {
         let atIndex: String.Index
@@ -106,30 +124,63 @@ nonisolated enum ComposerMentionCanonicalizer {
 
     /// Rewrite every "@DisplayName" in `text` that matches a candidate to "@npub…", so the wire
     /// format carries stable public keys rather than display names.
-    static func canonicalize(_ text: String, candidates: [ComposerMentionCandidate]) -> String {
+    static func canonicalize(
+        _ text: String,
+        selections: [ComposerMentionSelection] = [],
+        candidates: [ComposerMentionCandidate]
+    ) -> String {
         guard text.contains("@") else { return text }
+        let canonical = canonicalizeSelections(in: text, selections: selections)
         let replacements =
-            candidates
+            Dictionary(grouping: candidates, by: \.displayName)
+            .values
+            // A typed name is safe to infer only when every matching roster entry identifies the
+            // same npub. Picker selections above remain unambiguous even for duplicate names.
+            .compactMap { matches -> ComposerMentionCandidate? in
+                let npubs = Set(matches.map(\.npub).filter { !$0.isEmpty })
+                guard npubs.count == 1, let onlyNpub = npubs.first else { return nil }
+                return matches.first { $0.npub == onlyNpub }
+            }
             .filter { candidate in
                 !candidate.npub.isEmpty
                     && !candidate.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
             .sorted { $0.displayName.count > $1.displayName.count }
-        guard !replacements.isEmpty else { return text }
+        guard !replacements.isEmpty else { return canonical }
 
-        var canonical = ""
-        var index = text.startIndex
-        while index < text.endIndex {
-            if text[index] == "@",
-                leftBoundaryAllowsMention(at: index, in: text),
-                let match = matchCandidate(in: text, at: index, candidates: replacements)
+        var inferred = ""
+        var index = canonical.startIndex
+        while index < canonical.endIndex {
+            if canonical[index] == "@",
+                leftBoundaryAllowsMention(at: index, in: canonical),
+                let match = matchCandidate(in: canonical, at: index, candidates: replacements)
             {
-                canonical += "@\(match.candidate.npub)"
+                inferred += "@\(match.candidate.npub)"
                 index = match.endIndex
                 continue
             }
-            canonical.append(text[index])
-            index = text.index(after: index)
+            inferred.append(canonical[index])
+            index = canonical.index(after: index)
+        }
+        return inferred
+    }
+
+    private static func canonicalizeSelections(
+        in text: String,
+        selections: [ComposerMentionSelection]
+    ) -> String {
+        var canonical = text
+        for selection in selections.sorted(by: { $0.location > $1.location }) {
+            guard !selection.npub.isEmpty,
+                selection.location >= 0,
+                selection.length >= 0,
+                NSMaxRange(selection.range) <= (canonical as NSString).length,
+                (canonical as NSString).substring(with: selection.range) == selection.displayText
+            else { continue }
+            canonical = (canonical as NSString).replacingCharacters(
+                in: selection.range,
+                with: "@\(selection.npub)"
+            )
         }
         return canonical
     }
@@ -165,5 +216,48 @@ nonisolated enum ComposerMentionCanonicalizer {
                 || scalar == underscoreScalar
                 || scalar == slashScalar
         }
+    }
+}
+
+/// Converts canonical mention tokens back to roster display names for plain-text surfaces such as
+/// chat previews, edited-message bubbles, and edit history.
+nonisolated enum MentionDisplayResolver {
+    private static let bech32Characters = CharacterSet(charactersIn: "023456789acdefghjklmnpqrstuvwxyz")
+
+    static func resolve(in text: String, mentionNames: MarkdownMentionNames) -> String {
+        guard !mentionNames.isEmpty, text.contains("@npub1") else { return text }
+        let replacements = mentionNames.compactMap { npub, rawName -> (npub: String, name: String)? in
+            guard let name = PeerDisplayText.sanitize(rawName), !npub.isEmpty else { return nil }
+            return (npub, name)
+        }
+        guard !replacements.isEmpty else { return text }
+
+        var resolved = ""
+        var index = text.startIndex
+        while index < text.endIndex {
+            var match: (npub: String, name: String, end: String.Index)?
+            if text[index] == "@" {
+                let tokenStart = text.index(after: index)
+                for replacement in replacements where text[tokenStart...].hasPrefix(replacement.npub) {
+                    let end = text.index(tokenStart, offsetBy: replacement.npub.count)
+                    guard end == text.endIndex || !isBech32Character(text[end]) else { continue }
+                    match = (replacement.npub, replacement.name, end)
+                    break
+                }
+            }
+            if let match {
+                resolved += "@\(match.name)"
+                index = match.end
+            } else {
+                resolved.append(text[index])
+                index = text.index(after: index)
+            }
+        }
+        return resolved
+    }
+
+    private static func isBech32Character(_ character: Character) -> Bool {
+        !character.unicodeScalars.isEmpty
+            && character.unicodeScalars.allSatisfy { bech32Characters.contains($0) }
     }
 }
