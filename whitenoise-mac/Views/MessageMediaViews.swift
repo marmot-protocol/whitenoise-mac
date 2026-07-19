@@ -177,7 +177,8 @@ struct MessageBubble: View {
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
     @State private var isSelectable = false
-    @State private var isReactionSummaryPresented = false
+    @State private var isReactionViewerPresented = false
+    @State private var reactionViewerEmoji: String?
     let message: MessageItem
     let showsDebugMetadata: Bool
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
@@ -227,70 +228,17 @@ struct MessageBubble: View {
             }
 
             if message.supportsChatActions && !message.reactions.isEmpty {
-                HStack(spacing: 5) {
-                    ForEach(Array(message.reactions.prefix(5))) { reaction in
-                        Button {
-                            Task {
-                                if reaction.canRemoveOwnReaction {
-                                    await workspace.removeReaction(reaction, from: message)
-                                } else {
-                                    await workspace.react(to: message, emoji: reaction.emoji)
-                                }
-                            }
-                        } label: {
-                            Text(reaction.label)
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background {
-                                    // Own reactions get a gentle accent fill rather than a heavy
-                                    // ring, so a row of them reads as one cluster, not selected chips.
-                                    if reaction.canRemoveOwnReaction {
-                                        Capsule(style: .continuous)
-                                            .fill(Color.accentColor.opacity(0.16))
-                                            .overlay {
-                                                Capsule(style: .continuous)
-                                                    .strokeBorder(Color.accentColor.opacity(0.4), lineWidth: 1)
-                                            }
-                                    } else {
-                                        GlassCapsuleBackground()
-                                    }
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .contentShape(Capsule())
-                        .help(
-                            reaction.canRemoveOwnReaction
-                                ? "Remove \(reaction.emoji) reaction" : "React with \(reaction.emoji)")
-                    }
-                    if message.reactions.count > 5 {
-                        Button("+\(message.reactions.count - 5)") {
-                            isReactionSummaryPresented = true
-                        }
-                        .font(.caption.weight(.semibold))
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background { GlassCapsuleBackground() }
-                        .popover(isPresented: $isReactionSummaryPresented, arrowEdge: .bottom) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(L10n.string("Reactions"))
-                                    .font(.headline)
-                                ScrollView {
-                                    LazyVStack(spacing: 8) {
-                                        ForEach(message.reactions) { reaction in
-                                            reactionSummaryRow(reaction)
-                                        }
-                                    }
-                                }
-                                .frame(maxHeight: 260)
-                            }
-                            .padding(14)
-                            .frame(width: 220)
-                        }
-                    }
+                MessageReactionChips(reactions: message.reactions) { emoji in
+                    reactionViewerEmoji = emoji
+                    isReactionViewerPresented = true
                 }
-                .padding(.horizontal, 4)
+                // Hang the chips on the bubble's bottom edge (a slight upward overlap) instead of
+                // floating as a detached row, matching the sibling clients' bubble-bound reactions.
+                .padding(.horizontal, 10)
+                .padding(.top, -10)
+                .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
+                    MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
+                }
             }
         }
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
@@ -340,39 +288,6 @@ struct MessageBubble: View {
 
     private var showsInlineActions: Bool {
         message.supportsChatActions && (isHovering || isInlineActionPresentationActive)
-    }
-
-    @ViewBuilder
-    private func reactionSummaryRow(_ reaction: MessageReaction) -> some View {
-        if reaction.canRemoveOwnReaction {
-            Button {
-                Task {
-                    await workspace.removeReaction(reaction, from: message)
-                    isReactionSummaryPresented = false
-                }
-            } label: {
-                reactionSummaryLabel(reaction)
-            }
-            .buttonStyle(.plain)
-            .help(String(format: L10n.string("Remove %@ reaction"), reaction.emoji))
-        } else {
-            reactionSummaryLabel(reaction)
-        }
-    }
-
-    private func reactionSummaryLabel(_ reaction: MessageReaction) -> some View {
-        HStack {
-            Text(reaction.emoji)
-            Text("\(reaction.count)")
-                .foregroundStyle(.secondary)
-            Spacer()
-            if reaction.canRemoveOwnReaction {
-                Text(L10n.string("You"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .contentShape(Rectangle())
     }
 
     private var usesBubbleSurface: Bool {

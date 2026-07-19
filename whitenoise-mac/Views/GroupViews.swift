@@ -169,6 +169,8 @@ struct GroupDetailsSheet: View {
                     // non-member the same way it rejects sends (`invalid_transition`).
                     .disabled(snapshot.selfMembership != .member)
 
+                    GroupSharedMediaSection(groupIdHex: snapshot.groupIdHex)
+
                     Section {
                         if snapshot.members.isEmpty {
                             ContentUnavailableView("No members", systemImage: "person.2.slash")
@@ -189,8 +191,6 @@ struct GroupDetailsSheet: View {
                     } header: {
                         Text(snapshot.memberCountLabel)
                     }
-
-                    GroupSharedMediaSection(groupIdHex: snapshot.groupIdHex)
 
                     Section("Disappearing Messages") {
                         Picker(

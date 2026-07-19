@@ -1344,7 +1344,8 @@ private nonisolated extension MessageReaction {
                 emoji: reaction.emoji,
                 count: reaction.senders.count,
                 isOwn: activeAccountIdHex.map { reaction.senders.contains($0) } ?? false,
-                ownReactionMessageId: ownReactionIdsByEmoji[reaction.emoji]
+                ownReactionMessageId: ownReactionIdsByEmoji[reaction.emoji],
+                senders: reaction.senders
             )
         }
     }

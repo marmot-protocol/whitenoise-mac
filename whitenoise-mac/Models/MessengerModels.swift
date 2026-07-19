@@ -267,12 +267,15 @@ nonisolated struct MessageReaction: Identifiable, Hashable {
     let count: Int
     let isOwn: Bool
     let ownReactionMessageId: String?
+    /// Account-id-hex of everyone who reacted with this emoji, so the reaction viewer can list them.
+    let senders: [String]
 
-    init(emoji: String, count: Int, isOwn: Bool, ownReactionMessageId: String? = nil) {
+    init(emoji: String, count: Int, isOwn: Bool, ownReactionMessageId: String? = nil, senders: [String] = []) {
         self.emoji = emoji
         self.count = count
         self.isOwn = isOwn
         self.ownReactionMessageId = ownReactionMessageId
+        self.senders = senders
     }
 
     var id: String { emoji }
