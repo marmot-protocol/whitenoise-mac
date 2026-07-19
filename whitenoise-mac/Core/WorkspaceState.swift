@@ -873,7 +873,14 @@ final class WorkspaceState {
     var groupDetailsSnapshot: GroupDetailsSnapshot?
     var conversationMetadataByChat: [String: ConversationMetadata] = [:]
     @ObservationIgnored var conversationMetadataGenerationByChat: [String: UInt64] = [:]
+    /// Message ids the local account hid via "Delete for me", keyed by `accountId\u{1F}groupId`.
+    /// Filtered from the timeline projection so a local hide survives reprojection and restart, and
+    /// never publishes anything. Persisted in `UserDefaults` under `Self.hiddenMessagesDefaultsKey`.
+    @ObservationIgnored var hiddenMessageIdsByChat: [String: Set<String>] = [:]
     var selectedTimelineMessageIds: Set<String> = []
+    /// Message whose unified delete-confirmation surface is open, or `nil`. Drives the adaptive
+    /// dialog that offers only the scopes `messageDeletionCapability` permits.
+    var messagePendingDeletion: MessageItem?
     var messageInfoTarget: MessageItem?
     var forwardingMessageIds: [String] = []
     var isForwardPickerPresented = false
@@ -1400,6 +1407,7 @@ final class WorkspaceState {
         self.localNotificationCenter.setResponseHandler { [weak self] userInfo in
             self?.handleNotificationResponse(userInfo)
         }
+        loadHiddenMessages()
         ensureSelectedMessageTimelineStore()
     }
 

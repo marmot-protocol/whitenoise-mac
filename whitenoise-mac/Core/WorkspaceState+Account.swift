@@ -642,6 +642,7 @@ extension WorkspaceState {
         searchText = ""
         isChatListVisible = true
         clearAllComposerDrafts()
+        clearAllHiddenMessages()
         isRefreshing = false
         isSending = false
         authenticationMode = .landing
