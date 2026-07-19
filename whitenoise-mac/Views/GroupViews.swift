@@ -146,7 +146,8 @@ struct GroupDetailsSheet: View {
     /// Bounds the *total* (value × unit), not a raw per-unit cap, so large-but-valid values commit.
     private var customDurationSeconds: UInt64? {
         guard customDurationValue >= 1 else { return nil }
-        let (seconds, overflow) = customDurationValue
+        let (seconds, overflow) =
+            customDurationValue
             .multipliedReportingOverflow(by: customDurationUnit.seconds)
         return overflow ? nil : seconds
     }
