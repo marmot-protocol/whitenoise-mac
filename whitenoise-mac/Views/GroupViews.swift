@@ -10,6 +10,13 @@
 import AppKit
 import SwiftUI
 
+/// Disappearing-timer picker selection: a concrete preset/current value, or the "Custom…" entry
+/// that opens the value+unit editor rather than committing immediately.
+private enum DisappearingChoice: Hashable {
+    case preset(DisappearingMessageOption)
+    case customEntry
+}
+
 /// Units offered by the custom disappearing-timer picker.
 private enum CustomDurationUnit: String, CaseIterable, Identifiable {
     case minutes
@@ -307,22 +314,31 @@ struct GroupDetailsSheet: View {
 
                     Section("Disappearing Messages") {
                         Picker(
-                            selection: Binding(
-                                get: { DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs) },
-                                set: { option in
-                                    Task {
-                                        await workspace.setDisappearingMessages(
-                                            groupIdHex: snapshot.groupIdHex,
-                                            seconds: option.seconds
-                                        )
+                            selection: Binding<DisappearingChoice>(
+                                get: {
+                                    .preset(DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs))
+                                },
+                                set: { choice in
+                                    switch choice {
+                                    case .preset(let option):
+                                        Task {
+                                            await workspace.setDisappearingMessages(
+                                                groupIdHex: snapshot.groupIdHex,
+                                                seconds: option.seconds
+                                            )
+                                        }
+                                    case .customEntry:
+                                        seedCustomDuration(from: snapshot.disappearingMessageSecs)
+                                        isCustomDisappearingPresented = true
                                     }
                                 }
                             )
                         ) {
                             ForEach(DisappearingMessageOption.options(for: snapshot.disappearingMessageSecs)) {
                                 option in
-                                Text(option.label).tag(option)
+                                Text(option.label).tag(DisappearingChoice.preset(option))
                             }
+                            Text(L10n.string("Custom…")).tag(DisappearingChoice.customEntry)
                         } label: {
                             Label("Auto-delete after", systemImage: "timer")
                         }
@@ -331,14 +347,6 @@ struct GroupDetailsSheet: View {
                         .disabled(
                             workspace.hasInFlightGroupCommit || snapshot.selfMembership != .member
                         )
-
-                        Button {
-                            seedCustomDuration(from: snapshot.disappearingMessageSecs)
-                            isCustomDisappearingPresented = true
-                        } label: {
-                            Label(L10n.string("Custom…"), systemImage: "slider.horizontal.3")
-                        }
-                        .disabled(workspace.hasInFlightGroupCommit || snapshot.selfMembership != .member)
                         .popover(isPresented: $isCustomDisappearingPresented, arrowEdge: .bottom) {
                             customDurationPopover(groupIdHex: snapshot.groupIdHex)
                         }
