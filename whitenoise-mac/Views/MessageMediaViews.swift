@@ -1836,7 +1836,7 @@ struct MessageRowAction: Identifiable {
             actions.append(
                 MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {
                     dismiss()
-                    Task { await workspace.deleteMessage(message) }
+                    workspace.messagePendingDeletion = message
                 })
         }
         return actions

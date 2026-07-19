@@ -10817,7 +10817,7 @@ struct whitenoise_macTests {
         let timelineSubscriptionCount = runtime.timelineSubscriptionCount
 
         await state.react(to: message, emoji: "👍")
-        await state.deleteMessage(message)
+        await state.deleteForEveryone(message)
 
         #expect(runtime.chatListSubscriptionCount == chatListSubscriptionCount)
         #expect(runtime.timelineSubscriptionCount == timelineSubscriptionCount)
@@ -11117,7 +11117,7 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         await state.react(to: message, emoji: "👍")
-        await state.deleteMessage(message)
+        await state.deleteForEveryone(message)
 
         #expect(
             runtime.reactedMessage
@@ -11763,13 +11763,13 @@ struct whitenoise_macTests {
         await state.bootstrap()
 
         runtime.messageActionGateEnabled = true
-        async let firstDelete: Void = state.deleteMessage(message)
+        async let firstDelete: Void = state.deleteForEveryone(message)
         while !runtime.didReachMessageActionGate {
             await Task.yield()
         }
 
         // Overlapping repeated delete of the same message is dropped by the per-target guard.
-        await state.deleteMessage(message)
+        await state.deleteForEveryone(message)
         #expect(runtime.deleteMessageCallCount == 1)
 
         runtime.releaseMessageActionGate()
@@ -11813,9 +11813,55 @@ struct whitenoise_macTests {
         )
 
         await state.bootstrap()
-        await state.deleteMessage(message)
+        await state.deleteForEveryone(message)
 
         #expect(runtime.deletedMessage == nil)
+    }
+
+    @MainActor
+    @Test func deleteForMeHidesLocallyAndPublishesNothing() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
+        )
+        // Snapshot the shared defaults so the test never wipes real hidden-message state.
+        let hiddenDefaultsKey = WorkspaceState.hiddenMessagesDefaultsKey
+        let priorHidden = UserDefaults.standard.dictionary(forKey: hiddenDefaultsKey)
+        defer {
+            if let priorHidden {
+                UserDefaults.standard.set(priorHidden, forKey: hiddenDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: hiddenDefaultsKey)
+            }
+        }
+        let state = WorkspaceState(clientFactory: { runtime })
+        state.clearAllHiddenMessages()
+        let message = MessageItem(
+            id: "hide-on-this-device",
+            senderName: "Alice",
+            body: "Hide this just for me",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        await state.refreshConversationMetadata(for: chat)
+        let accountId = try #require(state.activeAccountId)
+
+        // A regular member may hide any message for themselves but not for everyone.
+        let capability = state.messageDeletionCapability(message)
+        #expect(capability.canDeleteForMe)
+        #expect(!capability.canDeleteForEveryone)
+
+        state.deleteForMe(message)
+
+        // Publishes nothing, records the hide, and filters it from a full window replace so it
+        // stays gone across reprojection and restart.
+        #expect(runtime.deletedMessage == nil)
+        #expect(state.hiddenMessageIds(accountId: accountId, groupIdHex: chat.id).contains(message.id))
+        #expect(state.filterHiddenMessages([message], groupIdHex: chat.id).isEmpty)
     }
 
     @MainActor
@@ -11839,7 +11885,7 @@ struct whitenoise_macTests {
         await state.refreshConversationMetadata(for: chat)
 
         #expect(state.canDeleteMessage(message))
-        await state.deleteMessage(message)
+        await state.deleteForEveryone(message)
         #expect(
             runtime.deletedMessage
                 == DeletedMessage(

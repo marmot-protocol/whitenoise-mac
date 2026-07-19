@@ -397,6 +397,7 @@ extension WorkspaceState {
         }
         lastMarkedReadMarkers[groupIdHex] = nil
         lastConfirmedReadMarkers[groupIdHex] = nil
+        purgeHiddenMessages(accountId: accountId, groupIdHex: groupIdHex)
     }
 
     /// After the selected chat was removed, leave its live resources and select the most recent
