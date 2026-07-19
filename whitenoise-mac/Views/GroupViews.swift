@@ -928,6 +928,7 @@ enum DisappearingMessageOption: Hashable, Identifiable {
         if seconds % 604_800 == 0 { return L10n.plural("%llu weeks", seconds / 604_800) }
         if seconds % 86_400 == 0 { return L10n.plural("%llu days", seconds / 86_400) }
         if seconds % 3_600 == 0 { return L10n.plural("%llu hours", seconds / 3_600) }
+        if seconds % 60 == 0 { return L10n.plural("%llu minutes", seconds / 60) }
         return L10n.plural("%llu seconds", seconds)
     }
 
