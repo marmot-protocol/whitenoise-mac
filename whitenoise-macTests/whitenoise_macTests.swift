@@ -11923,6 +11923,35 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func scopedDeletionTargetKeepsOriginatingConversationAfterChatSwitch() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        let directChat = try #require(state.activeChats.first { $0.id == "direct-group" })
+        state.selectChat(groupChat)
+        let message = MessageItem(
+            id: "scoped-delete",
+            senderName: "Desktop Account",
+            body: "Delete from the original group",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: true
+        )
+        let target = try #require(state.messageDeletionTarget(for: message))
+
+        state.selectChat(directChat)
+        await state.deleteForEveryone(target)
+
+        #expect(
+            runtime.deletedMessage
+                == DeletedMessage(groupIdHex: groupChat.id, targetMessageId: message.id)
+        )
+    }
+
+    @MainActor
     @Test func deleteForMeHidesLocallyAndPublishesNothing() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])

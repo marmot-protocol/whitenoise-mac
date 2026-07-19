@@ -1873,7 +1873,7 @@ struct MessageRowAction: Identifiable {
             actions.append(
                 MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {
                     dismiss()
-                    workspace.messagePendingDeletion = message
+                    workspace.messagePendingDeletion = workspace.messageDeletionTarget(for: message)
                 })
         }
         return actions

@@ -118,7 +118,7 @@ extension ChatItem {
         if text.isEmpty || isMediaOnlyChat {
             body = presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
         } else {
-            body = Self.resolvePreviewMentions(in: text, mentionNames: mentionNames)
+            body = MentionDisplayResolver.resolve(in: text, mentionNames: mentionNames)
         }
         guard presentation.isChatBubble,
             preview.sender != activeAccountIdHex,
@@ -131,18 +131,6 @@ extension ChatItem {
         return "\(PeerDisplayText.templateFragment(senderName)): \(body)"
     }
 
-    /// Rewrite canonical "@npub…" mentions in a chat-list preview to "@Display Name" for known
-    /// members. Only exact roster npubs are substituted, so there are no false positives; unknown
-    /// references keep their bech32 form. No-op when the roster isn't loaded for the row.
-    private static func resolvePreviewMentions(in text: String, mentionNames: MarkdownMentionNames) -> String {
-        guard !mentionNames.isEmpty, text.contains("npub1") else { return text }
-        var resolved = text
-        for (npub, rawName) in mentionNames {
-            guard let name = PeerDisplayText.sanitize(rawName) else { continue }
-            resolved = resolved.replacingOccurrences(of: "@\(npub)", with: "@\(name)")
-        }
-        return resolved
-    }
 }
 
 nonisolated enum MessageEditMutation: Equatable, Sendable {
