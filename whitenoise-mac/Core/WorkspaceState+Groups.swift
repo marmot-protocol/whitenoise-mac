@@ -288,13 +288,15 @@ extension WorkspaceState {
             // a member, the invite succeeded despite the read error — report success so the sheet
             // dismisses and a retry doesn't hit "already a member".
             await reloadChats(forceFreshSnapshot: true)
-            if groupDetailsSnapshot?.groupIdHex == groupIdHex {
-                await loadGroupDetails(groupIdHex: groupIdHex)
+            // Every await here suspends the actor, so re-validate the full presentation context
+            // after each one — not just the snapshot: a switch to another chat leaves the old
+            // snapshot temporarily intact (`loadGroupDetails` early-returns for a deselected
+            // group), and this error must not land in whatever the user is looking at now.
+            guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex) else {
+                return false
             }
-            // Those two awaits suspended the actor (and `loadGroupDetails` bumps the mutation
-            // generation), so re-validate the captured account/group before touching state — an
-            // account switch mid-reconcile must not write this error into a different workspace.
-            guard activeAccountId == accountId, groupDetailsSnapshot?.groupIdHex == groupIdHex else {
+            await loadGroupDetails(groupIdHex: groupIdHex)
+            guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex) else {
                 return false
             }
             let currentMemberIds = Set(groupDetailsSnapshot?.members.map(\.id) ?? [])
@@ -590,6 +592,19 @@ extension WorkspaceState {
         }
     }
 
+    /// The invite-failure reconciliation may only touch workspace state while the user is still
+    /// on the same account, with the same group selected, and its details still presented.
+    private func isInviteReconciliationTargetCurrent(accountId: String?, groupIdHex: String) -> Bool {
+        guard
+            activeAccountId == accountId,
+            isGroupDetailsPresented,
+            groupDetailsSnapshot?.groupIdHex == groupIdHex,
+            case .chat(let selectedGroupId) = selection,
+            selectedGroupId == groupIdHex
+        else { return false }
+        return true
+    }
+
     func setDisappearingMessages(groupIdHex: String, seconds: UInt64) async {
         guard let client, let activeAccount, !hasInFlightGroupCommit else { return }
         lastError = nil
@@ -604,15 +619,20 @@ extension WorkspaceState {
             )
             // Keep the mounted conversation header's timer in sync — it reads
             // `conversationMetadataByChat`, which the details reload below does not touch. Bump the
-            // metadata generation so an older in-flight `refreshConversationMetadata` (which
-            // captured the pre-change value) can't complete afterward and overwrite this.
+            // metadata generation unconditionally so an older in-flight
+            // `refreshConversationMetadata` (which captured the pre-change value) can't complete
+            // afterward and overwrite this — the race exists even while the cache is still empty.
+            conversationMetadataGenerationByChat[groupIdHex, default: 0] &+= 1
             if let existing = conversationMetadataByChat[groupIdHex] {
-                conversationMetadataGenerationByChat[groupIdHex, default: 0] &+= 1
                 conversationMetadataByChat[groupIdHex] = ConversationMetadata(
                     memberCount: existing.memberCount,
                     disappearingMessageSecs: seconds,
                     isSelfAdmin: existing.isSelfAdmin
                 )
+            } else if let chat = activeChats.first(where: { $0.id == groupIdHex }) {
+                // Nothing cached to patch: publish a fresh post-commit read instead (it re-bumps
+                // the generation itself, so it stays newest).
+                await refreshConversationMetadata(for: chat)
             }
             if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
                 await loadGroupDetails(groupIdHex: groupIdHex)

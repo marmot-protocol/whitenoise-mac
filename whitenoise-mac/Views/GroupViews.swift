@@ -57,7 +57,7 @@ struct GroupDetailsSheet: View {
     @State private var showRemoveLocallyConfirmation = false
     @State private var isAddMembersPresented = false
     @State private var isCustomDisappearingPresented = false
-    @State private var customDurationValue = 1
+    @State private var customDurationValue: UInt64 = 1
     @State private var customDurationUnit = CustomDurationUnit.days
     let chat: ChatItem
 
@@ -99,12 +99,13 @@ struct GroupDetailsSheet: View {
             return
         }
         for unit in CustomDurationUnit.allCases.reversed() where seconds % unit.seconds == 0 {
-            customDurationValue = Int(clamping: seconds / unit.seconds)
+            // Stays UInt64 end-to-end so any core value round-trips through Set unchanged.
+            customDurationValue = seconds / unit.seconds
             customDurationUnit = unit
             return
         }
         // Unreachable — the `.seconds` unit divides any value — but keeps the compiler happy.
-        customDurationValue = Int(clamping: seconds)
+        customDurationValue = seconds
         customDurationUnit = .seconds
     }
 
@@ -113,7 +114,7 @@ struct GroupDetailsSheet: View {
             Text(L10n.string("Custom duration"))
                 .font(.headline)
             HStack(spacing: 8) {
-                Stepper(value: $customDurationValue, in: 1...Int.max) {
+                Stepper(value: $customDurationValue, in: 1...UInt64.max) {
                     TextField("", value: $customDurationValue, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 64)
@@ -145,7 +146,7 @@ struct GroupDetailsSheet: View {
     /// Bounds the *total* (value × unit), not a raw per-unit cap, so large-but-valid values commit.
     private var customDurationSeconds: UInt64? {
         guard customDurationValue >= 1 else { return nil }
-        let (seconds, overflow) = UInt64(customDurationValue)
+        let (seconds, overflow) = customDurationValue
             .multipliedReportingOverflow(by: customDurationUnit.seconds)
         return overflow ? nil : seconds
     }
