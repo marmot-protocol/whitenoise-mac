@@ -186,6 +186,10 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private let directoryResolver: DirectoryResolver
     private let keyProvider: KeyProvider
     private let keyDeleter: KeyDeleter
+    // Keychain reads are synchronous XPC calls. Keep the immutable session key in memory and
+    // serialize first resolution with deletion so a concurrent purge cannot leave a stale key.
+    private let keyLock = NSLock()
+    private var cachedSymmetricKey: SymmetricKey?
     private let timestampProvider: TimestampProvider
     private let evictionPolicy: EvictionPolicy
     // Preparation and commit share one actor-isolated synchronous operation so at most one full
@@ -269,7 +273,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
         sweepStaleStagingDirectoriesIfNeeded(root: root)
         do {
-            symmetricKey = try keyProvider()
+            symmetricKey = try encryptionKey()
         } catch {
             return nil
         }
@@ -307,7 +311,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
             let symmetricKey: SymmetricKey
             do {
-                symmetricKey = try keyProvider()
+                symmetricKey = try encryptionKey()
             } catch {
                 return
             }
@@ -334,7 +338,6 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
 
     func purgeAll(removeEncryptionKey: Bool = false) async {
         let root = try? directoryResolver()
-        let deleteKey = keyDeleter
         let task = beginPurge(scope: .all) { [self] in
             var removalSucceeded = root != nil
             if let root, FileManager.default.fileExists(atPath: root.path) {
@@ -345,7 +348,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
                 }
             }
             if removeEncryptionKey {
-                deleteKey()
+                deleteEncryptionKey()
             }
             // An unresolved root or a failed removal can leave entries on disk — a zero footprint
             // would be a false zero the incremental accountant never reconciles, so nil it instead
@@ -368,7 +371,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
         sweepStaleStagingDirectoriesIfNeeded(root: root)
         do {
-            symmetricKey = try keyProvider()
+            symmetricKey = try encryptionKey()
         } catch {
             return
         }
@@ -406,6 +409,24 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             testingBeforeRemoveStaleStagingDirectories = hook
         }
     #endif
+
+    private func encryptionKey() throws -> SymmetricKey {
+        try keyLock.withLock {
+            if let cachedSymmetricKey {
+                return cachedSymmetricKey
+            }
+            let symmetricKey = try keyProvider()
+            cachedSymmetricKey = symmetricKey
+            return symmetricKey
+        }
+    }
+
+    private func deleteEncryptionKey() {
+        keyLock.withLock {
+            keyDeleter()
+            cachedSymmetricKey = nil
+        }
+    }
 
     private func waitForActivePurge(affecting accountDigest: String? = nil) async {
         while true {
