@@ -130,6 +130,15 @@ nonisolated enum MessageEditMutation: Equatable, Sendable {
     case retract(editMessageIdHex: String)
 }
 
+/// One revision of an edited message for the edit-history viewer: the original, then each
+/// accepted edit. `date` is derived from the record's second-granular `timelineAt`.
+nonisolated struct MessageEditVersion: Identifiable, Equatable, Sendable {
+    let id: String
+    let text: String
+    let date: Date
+    let isOriginal: Bool
+}
+
 nonisolated struct MessageEditOverlay: Equatable, Sendable {
     let targetMessageIdHex: String
     let editMessageIdHex: String
