@@ -2482,6 +2482,14 @@ nonisolated enum DisplayText {
         return "\(value.prefix(head))...\(value.suffix(tail))"
     }
 
+    /// A 12-hour-clock variant of `locale` so clock times always carry an AM/PM marker, even when
+    /// the region's default is 24-hour. Casing/format still follow the locale (e.g. "PM" vs "pm").
+    private static func twelveHourLocale(_ locale: Locale) -> Locale {
+        var components = Locale.Components(locale: locale)
+        components.hourCycle = .oneToTwelve
+        return Locale(components: components)
+    }
+
     static func initials(for value: String, fallback: String) -> String {
         let source = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : value
         let parts =
@@ -2497,7 +2505,7 @@ nonisolated enum DisplayText {
         -> String
     {
         if calendar.isDateInToday(date) {
-            return date.formatted(timeOnlyStyle.locale(locale))
+            return date.formatted(timeOnlyStyle.locale(twelveHourLocale(locale)))
         }
         if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
             return date.formatted(weekdayStyle.locale(locale))
@@ -2506,7 +2514,7 @@ nonisolated enum DisplayText {
     }
 
     static func messageTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
-        date.formatted(timeOnlyStyle.locale(locale))
+        date.formatted(timeOnlyStyle.locale(twelveHourLocale(locale)))
     }
 
     static func dateTimeTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
