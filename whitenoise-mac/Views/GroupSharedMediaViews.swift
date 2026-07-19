@@ -170,6 +170,7 @@ private struct SharedMediaThumbnail: View {
     @State private var image: NSImage?
     @State private var imageData: Data?
     @State private var didFail = false
+    @State private var actionError: String?
 
     private var isVideo: Bool { item.attachment.kind == .video }
 
@@ -184,9 +185,11 @@ private struct SharedMediaThumbnail: View {
         .disabled(!canOpen)
         .accessibilityLabel(item.attachment.fileName)
         .task(id: item.id) { await load() }
+        .sharedMediaErrorAlert($actionError)
     }
 
-    private var canOpen: Bool { isVideo || image != nil }
+    // A failed image stays activatable so tapping it retries the download.
+    private var canOpen: Bool { isVideo || image != nil || didFail }
 
     private var tileContent: some View {
         ZStack {
@@ -223,6 +226,9 @@ private struct SharedMediaThumbnail: View {
             await openVideo()
         } else if let imageData {
             onOpen(imageData)
+        } else if didFail {
+            didFail = false
+            await load()
         }
     }
 
@@ -243,7 +249,10 @@ private struct SharedMediaThumbnail: View {
         guard
             let data = await workspace.sharedMediaData(
                 for: item.reference, groupIdHex: item.groupIdHex, cache: false)
-        else { return }
+        else {
+            actionError = L10n.string("Couldn't download this video.")
+            return
+        }
         let download = MessageMediaDownload(
             payload: DownloadedMediaPayload(data: data),
             fileName: item.attachment.fileName,
@@ -253,7 +262,10 @@ private struct SharedMediaThumbnail: View {
         guard
             let url = await MessageMediaPlaybackFileStore.fileURL(
                 attachment: item.attachment, download: download)
-        else { return }
+        else {
+            actionError = L10n.string("Couldn't open this video.")
+            return
+        }
         let didOpen = NSWorkspace.shared.open(url)
         let delay: TimeInterval = didOpen ? 30 : 0
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
@@ -298,6 +310,7 @@ private struct SharedMediaFileRow: View {
     let item: GroupSharedMediaItem
 
     @State private var isSaving = false
+    @State private var saveError: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -327,6 +340,7 @@ private struct SharedMediaFileRow: View {
             }
         }
         .padding(.vertical, 2)
+        .sharedMediaErrorAlert($saveError)
     }
 
     private func save() async {
@@ -336,11 +350,38 @@ private struct SharedMediaFileRow: View {
         guard
             let data = await workspace.sharedMediaData(
                 for: item.reference, groupIdHex: item.groupIdHex, cache: false)
-        else { return }
+        else {
+            saveError = L10n.string("Couldn't download this file.")
+            return
+        }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = item.attachment.fileName
         panel.canCreateDirectories = true
+        // A cancelled panel is not an error.
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? data.write(to: url, options: .atomic)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+}
+
+extension View {
+    /// A cancelable alert bound to an optional message, used for shared-media file/video failures.
+    fileprivate func sharedMediaErrorAlert(_ message: Binding<String?>) -> some View {
+        alert(
+            L10n.string("Something went wrong"),
+            isPresented: Binding(
+                get: { message.wrappedValue != nil },
+                set: { presented in
+                    if !presented { message.wrappedValue = nil }
+                }
+            )
+        ) {
+            Button(L10n.string("OK"), role: .cancel) { message.wrappedValue = nil }
+        } message: {
+            Text(message.wrappedValue ?? "")
+        }
     }
 }

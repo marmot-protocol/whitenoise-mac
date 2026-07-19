@@ -59,8 +59,6 @@ struct GroupDetailsSheet: View {
     @State private var isCustomDisappearingPresented = false
     @State private var customDurationValue = 1
     @State private var customDurationUnit = CustomDurationUnit.days
-    /// Upper bound for a custom timer entry; 100k weeks stays well within `UInt64` seconds.
-    private static let maxCustomDurationValue = 100_000
     let chat: ChatItem
 
     private var hasProfileChanges: Bool {
@@ -115,7 +113,7 @@ struct GroupDetailsSheet: View {
             Text(L10n.string("Custom duration"))
                 .font(.headline)
             HStack(spacing: 8) {
-                Stepper(value: $customDurationValue, in: 1...Self.maxCustomDurationValue) {
+                Stepper(value: $customDurationValue, in: 1...Int.max) {
                     TextField("", value: $customDurationValue, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 64)
@@ -133,18 +131,27 @@ struct GroupDetailsSheet: View {
                 Button(L10n.string("Set")) { commitCustomDuration(groupIdHex: groupIdHex) }
                     .keyboardShortcut(.defaultAction)
                     .nativeGlassProminentButtonStyle()
+                    // Validate rather than clamp: disable Set for a non-positive or overflowing
+                    // total so a valid core value round-trips unchanged and nothing is silently
+                    // truncated.
+                    .disabled(customDurationSeconds == nil)
             }
         }
         .padding(16)
         .frame(width: 300)
     }
 
-    /// Clamp the (freely typed) value into range and multiply overflow-safely before committing, so
-    /// a huge entry can't trap on the `value * unit.seconds` conversion.
+    /// The entered duration in seconds, or `nil` when it isn't a positive value that fits `UInt64`.
+    /// Bounds the *total* (value × unit), not a raw per-unit cap, so large-but-valid values commit.
+    private var customDurationSeconds: UInt64? {
+        guard customDurationValue >= 1 else { return nil }
+        let (seconds, overflow) = UInt64(customDurationValue)
+            .multipliedReportingOverflow(by: customDurationUnit.seconds)
+        return overflow ? nil : seconds
+    }
+
     private func commitCustomDuration(groupIdHex: String) {
-        let clamped = UInt64(min(max(customDurationValue, 1), Self.maxCustomDurationValue))
-        let (seconds, overflow) = clamped.multipliedReportingOverflow(by: customDurationUnit.seconds)
-        guard !overflow else { return }
+        guard let seconds = customDurationSeconds else { return }
         isCustomDisappearingPresented = false
         Task { await workspace.setDisappearingMessages(groupIdHex: groupIdHex, seconds: seconds) }
     }

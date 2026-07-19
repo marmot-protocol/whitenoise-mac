@@ -291,6 +291,12 @@ extension WorkspaceState {
             if groupDetailsSnapshot?.groupIdHex == groupIdHex {
                 await loadGroupDetails(groupIdHex: groupIdHex)
             }
+            // Those two awaits suspended the actor (and `loadGroupDetails` bumps the mutation
+            // generation), so re-validate the captured account/group before touching state — an
+            // account switch mid-reconcile must not write this error into a different workspace.
+            guard activeAccountId == accountId, groupDetailsSnapshot?.groupIdHex == groupIdHex else {
+                return false
+            }
             let currentMemberIds = Set(groupDetailsSnapshot?.members.map(\.id) ?? [])
             if !currentMemberIds.isEmpty,
                 recipients.allSatisfy({ currentMemberIds.contains($0.accountIdHex) })
@@ -597,8 +603,11 @@ extension WorkspaceState {
                 disappearingMessageSecs: seconds
             )
             // Keep the mounted conversation header's timer in sync — it reads
-            // `conversationMetadataByChat`, which the details reload below does not touch.
+            // `conversationMetadataByChat`, which the details reload below does not touch. Bump the
+            // metadata generation so an older in-flight `refreshConversationMetadata` (which
+            // captured the pre-change value) can't complete afterward and overwrite this.
             if let existing = conversationMetadataByChat[groupIdHex] {
+                conversationMetadataGenerationByChat[groupIdHex, default: 0] &+= 1
                 conversationMetadataByChat[groupIdHex] = ConversationMetadata(
                     memberCount: existing.memberCount,
                     disappearingMessageSecs: seconds,
