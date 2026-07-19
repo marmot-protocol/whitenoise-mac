@@ -1637,6 +1637,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
 
+    /// The sender's avatar URL, passed through the remote-image policy for incoming-bubble avatars.
+    var senderSanitizedPictureURL: URL? { RemoteImageURLPolicy.sanitizedURL(from: senderPictureURL) }
+
     /// Plain text and a single Markdown paragraph can place compact metadata at
     /// the end of the final text line. Structured Markdown keeps a separate
     /// metadata row so its block semantics remain intact.
