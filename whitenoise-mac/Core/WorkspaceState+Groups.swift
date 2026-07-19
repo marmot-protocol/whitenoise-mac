@@ -607,6 +607,7 @@ extension WorkspaceState {
 
     func setDisappearingMessages(groupIdHex: String, seconds: UInt64) async {
         guard let client, let activeAccount, !hasInFlightGroupCommit else { return }
+        let accountId = activeAccount.id
         lastError = nil
         isUpdatingDisappearingMessages = true
         defer { isUpdatingDisappearingMessages = false }
@@ -617,6 +618,9 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 disappearingMessageSecs: seconds
             )
+            // The commit await may have suspended across an account switch — don't sync another
+            // account's header.
+            guard activeAccountId == accountId else { return }
             // Keep the mounted conversation header's timer in sync — it reads
             // `conversationMetadataByChat`, which the details reload below does not touch. Bump the
             // metadata generation unconditionally so an older in-flight
@@ -629,9 +633,10 @@ extension WorkspaceState {
                     disappearingMessageSecs: seconds,
                     isSelfAdmin: existing.isSelfAdmin
                 )
-            } else if let chat = activeChats.first(where: { $0.id == groupIdHex }) {
+            } else if let chat = chatItem(accountId: accountId, chatId: groupIdHex) {
                 // Nothing cached to patch: publish a fresh post-commit read instead (it re-bumps
-                // the generation itself, so it stays newest).
+                // the generation itself, so it stays newest). `chatItem` spans active *and*
+                // archived indexes, so an archived group that's open still gets its header updated.
                 await refreshConversationMetadata(for: chat)
             }
             if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
