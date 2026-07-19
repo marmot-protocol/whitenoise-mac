@@ -22,6 +22,7 @@ private nonisolated struct MediaReferenceIndexTaskFailure: Error {
 extension WorkspaceState {
     func clearAllComposerDrafts() {
         draftTextByConversation.removeAll()
+        composerMentionSelectionsByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
         editingMessageContextByConversation.removeAll()
         pendingMediaAttachmentsByConversation.removeAll()
@@ -32,6 +33,7 @@ extension WorkspaceState {
         for chatId in chatIds {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             draftTextByConversation[key] = nil
+            composerMentionSelectionsByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
             editingMessageContextByConversation[key] = nil
             pendingMediaAttachmentsByConversation[key] = nil
@@ -42,6 +44,9 @@ extension WorkspaceState {
     func clearComposerDrafts(forAccountId accountId: String) {
         for key in draftTextByConversation.keys.filter({ $0.accountId == accountId }) {
             draftTextByConversation[key] = nil
+        }
+        for key in composerMentionSelectionsByConversation.keys.filter({ $0.accountId == accountId }) {
+            composerMentionSelectionsByConversation[key] = nil
         }
         for key in replyDraftContextByConversation.keys.filter({ $0.accountId == accountId }) {
             replyDraftContextByConversation[key] = nil
@@ -573,6 +578,7 @@ extension WorkspaceState {
         replyDraftContextByConversation[draftKey] = nil
         if attachment.kind == .audio {
             draftTextByConversation[draftKey] = nil
+            composerMentionSelectionsByConversation[draftKey] = nil
         }
     }
 

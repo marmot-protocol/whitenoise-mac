@@ -446,7 +446,7 @@ final class MessageTimelineStore {
         var versions = [
             MessageEditVersion(
                 id: base.id,
-                text: base.body,
+                text: MentionDisplayResolver.resolve(in: base.wireBody, mentionNames: base.mentionNames),
                 date: Date(timeIntervalSince1970: TimeInterval(base.timelineAt)),
                 isOriginal: true
             )
@@ -454,7 +454,7 @@ final class MessageTimelineStore {
         versions += edits.map { edit in
             MessageEditVersion(
                 id: edit.editMessageIdHex,
-                text: edit.plaintext,
+                text: MentionDisplayResolver.resolve(in: edit.plaintext, mentionNames: base.mentionNames),
                 date: Date(timeIntervalSince1970: TimeInterval(edit.timelineAt)),
                 isOriginal: false
             )
@@ -763,9 +763,20 @@ final class WorkspaceState {
             guard let selectedComposerDraftKey else { return }
             if newValue.isEmpty {
                 draftTextByConversation[selectedComposerDraftKey] = nil
+                composerMentionSelectionsByConversation[selectedComposerDraftKey] = nil
             } else {
                 draftTextByConversation[selectedComposerDraftKey] = newValue
             }
+        }
+    }
+    var composerMentionSelections: [ComposerMentionSelection] {
+        get {
+            guard let selectedComposerDraftKey else { return [] }
+            return composerMentionSelectionsByConversation[selectedComposerDraftKey] ?? []
+        }
+        set {
+            guard let selectedComposerDraftKey else { return }
+            composerMentionSelectionsByConversation[selectedComposerDraftKey] = newValue.isEmpty ? nil : newValue
         }
     }
     var pendingMediaAttachments: [PendingMediaAttachment] {
@@ -914,9 +925,9 @@ final class WorkspaceState {
     /// never publishes anything. Persisted in `UserDefaults` under `Self.hiddenMessagesDefaultsKey`.
     @ObservationIgnored var hiddenMessageIdsByChat: [String: Set<String>] = [:]
     var selectedTimelineMessageIds: Set<String> = []
-    /// Message whose unified delete-confirmation surface is open, or `nil`. Drives the adaptive
+    /// Scoped message target whose unified delete-confirmation surface is open, or `nil`. Drives the adaptive
     /// dialog that offers only the scopes `messageDeletionCapability` permits.
-    var messagePendingDeletion: MessageItem?
+    var messagePendingDeletion: MessageDeletionTarget?
     /// Message whose edit-history sheet is open, or `nil`. Cleared when the selection changes.
     var messagePendingEditHistory: MessageItem?
     var messageInfoTarget: MessageItem?
@@ -944,6 +955,7 @@ final class WorkspaceState {
     var timelinePagingByChat: [String: TimelinePagingState] = [:]
     var timelineInitialLoadGroupId: String?
     var draftTextByConversation: [ComposerDraftKey: String] = [:]
+    var composerMentionSelectionsByConversation: [ComposerDraftKey: [ComposerMentionSelection]] = [:]
     var replyDraftContextByConversation: [ComposerDraftKey: MessageReplyContext] = [:]
     var editingMessageContextByConversation: [ComposerDraftKey: MessageEditContext] = [:]
     var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]

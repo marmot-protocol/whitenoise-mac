@@ -29,8 +29,25 @@ struct ComposerMentionContext: Equatable {
 /// `ComposerEmojiInsertion` but replacing the "@query" token rather than the current selection.
 struct ComposerMentionInsertion: Equatable {
     let id = UUID()
+    let scope: WorkspaceState.ComposerDraftKey
     let range: NSRange
-    let replacement: String
+    let expectedText: String
+    let displayText: String
+    let npub: String
+
+    init(
+        scope: WorkspaceState.ComposerDraftKey,
+        context: ComposerMentionContext,
+        candidate: ComposerMentionCandidate
+    ) {
+        self.scope = scope
+        range = context.tokenRange
+        expectedText = "@\(context.query)"
+        displayText = "@\(candidate.displayName)"
+        npub = candidate.npub
+    }
+
+    var replacement: String { "\(displayText) " }
 }
 
 struct ComposerMessageInputView: View {
@@ -40,6 +57,8 @@ struct ComposerMessageInputView: View {
     let onEmojiInsertionConsumed: (UUID) -> Void
     let mentionInsertion: ComposerMentionInsertion?
     let onMentionInsertionConsumed: (UUID) -> Void
+    @Binding var mentionSelections: [ComposerMentionSelection]
+    let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
@@ -55,6 +74,8 @@ struct ComposerMessageInputView: View {
                 onEmojiInsertionConsumed: onEmojiInsertionConsumed,
                 mentionInsertion: mentionInsertion,
                 onMentionInsertionConsumed: onMentionInsertionConsumed,
+                mentionSelections: $mentionSelections,
+                mentionContextScope: mentionContextScope,
                 onMentionContextChange: onMentionContextChange,
                 onPasteMedia: onPasteMedia,
                 onSend: onSend
@@ -174,13 +195,15 @@ nonisolated enum ComposerKeyboardShortcutPolicy {
     }
 }
 
-private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
+struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var measuredHeight: CGFloat
     let emojiInsertion: ComposerEmojiInsertion?
     let onEmojiInsertionConsumed: (UUID) -> Void
     let mentionInsertion: ComposerMentionInsertion?
     let onMentionInsertionConsumed: (UUID) -> Void
+    @Binding var mentionSelections: [ComposerMentionSelection]
+    let mentionContextScope: WorkspaceState.ComposerDraftKey?
     let onMentionContextChange: (ComposerMentionContext?) -> Void
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
@@ -189,6 +212,8 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         Coordinator(
             text: $text,
             measuredHeight: $measuredHeight,
+            mentionSelections: $mentionSelections,
+            mentionContextScope: mentionContextScope,
             onPasteMedia: onPasteMedia,
             onSend: onSend,
             onMentionContextChange: onMentionContextChange
@@ -237,6 +262,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         context.coordinator.onSend = onSend
         context.coordinator.onEmojiInsertionConsumed = onEmojiInsertionConsumed
         context.coordinator.onMentionInsertionConsumed = onMentionInsertionConsumed
+        context.coordinator.mentionSelections = $mentionSelections
         context.coordinator.onMentionContextChange = onMentionContextChange
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
@@ -245,6 +271,8 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
+        context.coordinator.synchronizeMentionMarkers(in: textView)
+        context.coordinator.synchronizeMentionContextScope(mentionContextScope, in: textView)
         context.coordinator.insertEmojiIfNeeded(emojiInsertion, into: textView)
         context.coordinator.insertMentionIfNeeded(mentionInsertion, into: textView)
         DispatchQueue.main.async {
@@ -265,6 +293,8 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var measuredHeight: Binding<CGFloat>
+        var mentionSelections: Binding<[ComposerMentionSelection]>
+        private var mentionContextScope: WorkspaceState.ComposerDraftKey?
         var onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
         var onSend: () -> Void
         var onEmojiInsertionConsumed: (UUID) -> Void
@@ -277,6 +307,8 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         init(
             text: Binding<String>,
             measuredHeight: Binding<CGFloat>,
+            mentionSelections: Binding<[ComposerMentionSelection]>,
+            mentionContextScope: WorkspaceState.ComposerDraftKey?,
             onPasteMedia: @escaping ([OutgoingMediaPasteboardAttachment]) -> Void,
             onSend: @escaping () -> Void,
             onEmojiInsertionConsumed: @escaping (UUID) -> Void = { _ in },
@@ -285,6 +317,8 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         ) {
             self.text = text
             self.measuredHeight = measuredHeight
+            self.mentionSelections = mentionSelections
+            self.mentionContextScope = mentionContextScope
             self.onPasteMedia = onPasteMedia
             self.onSend = onSend
             self.onEmojiInsertionConsumed = onEmojiInsertionConsumed
@@ -306,6 +340,10 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         func insertMentionIfNeeded(_ insertion: ComposerMentionInsertion?, into textView: NSTextView) {
             guard let insertion, insertion.id != lastMentionInsertionID else { return }
             lastMentionInsertionID = insertion.id
+            guard insertion.scope == mentionContextScope else {
+                onMentionInsertionConsumed(insertion.id)
+                return
+            }
             let bounds = NSRange(location: 0, length: (textView.string as NSString).length)
             // The token range was captured on an earlier text snapshot; drop it if the text has
             // since shrunk past it rather than inserting at a stale offset.
@@ -313,8 +351,25 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
                 onMentionInsertionConsumed(insertion.id)
                 return
             }
+            guard (textView.string as NSString).substring(with: insertion.range) == insertion.expectedText else {
+                onMentionInsertionConsumed(insertion.id)
+                return
+            }
             textView.insertText(insertion.replacement, replacementRange: insertion.range)
+            let mentionRange = NSRange(
+                location: insertion.range.location,
+                length: (insertion.displayText as NSString).length
+            )
+            ComposerMentionMarkerStore.add(
+                ComposerMentionSelection(
+                    range: mentionRange,
+                    displayText: insertion.displayText,
+                    npub: insertion.npub
+                ),
+                to: textView
+            )
             text.wrappedValue = textView.string
+            publishMentionSelections(for: textView)
             updateMeasuredHeight(for: textView)
             textView.window?.makeFirstResponder(textView)
             publishMentionContext(for: textView)
@@ -324,6 +379,7 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
+            publishMentionSelections(for: textView)
             updateMeasuredHeight(for: textView)
             publishMentionContext(for: textView)
         }
@@ -342,6 +398,16 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             onMentionContextChange(context)
         }
 
+        func synchronizeMentionContextScope(
+            _ scope: WorkspaceState.ComposerDraftKey?,
+            in textView: NSTextView
+        ) {
+            guard mentionContextScope != scope else { return }
+            mentionContextScope = scope
+            lastMentionContext = nil
+            publishMentionContext(for: textView)
+        }
+
         private static func mentionContext(in textView: NSTextView) -> ComposerMentionContext? {
             let selection = textView.selectedRange()
             guard selection.length == 0 else { return nil }
@@ -351,6 +417,20 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
                 !ComposerMentionQuery.looksLikeCompleteNpub(session.query)
             else { return nil }
             return ComposerMentionContext(query: session.query, tokenRange: NSRange(session.range, in: full))
+        }
+
+        func synchronizeMentionMarkers(in textView: NSTextView) {
+            let desired = mentionSelections.wrappedValue
+            guard ComposerMentionMarkerStore.selections(in: textView) != desired else { return }
+            ComposerMentionMarkerStore.replaceAll(with: desired, in: textView)
+            publishMentionSelections(for: textView)
+        }
+
+        private func publishMentionSelections(for textView: NSTextView) {
+            let selections = ComposerMentionMarkerStore.selections(in: textView)
+            if mentionSelections.wrappedValue != selections {
+                mentionSelections.wrappedValue = selections
+            }
         }
 
         func handleMediaPaste() -> Bool {
@@ -377,6 +457,124 @@ private struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             }
         }
     }
+}
+
+@MainActor
+enum ComposerMentionMarkerStore {
+    private struct Repair {
+        let oldRange: NSRange
+        let selection: ComposerMentionSelection
+    }
+
+    static func add(_ selection: ComposerMentionSelection, to textView: NSTextView) {
+        guard isExact(selection, in: textView.string), let storage = textView.textStorage else { return }
+        storage.addAttribute(.composerMentionNpub, value: selection.npub, range: selection.range)
+        storage.addAttribute(.composerMentionDisplayText, value: selection.displayText, range: selection.range)
+    }
+
+    static func replaceAll(with selections: [ComposerMentionSelection], in textView: NSTextView) {
+        guard let storage = textView.textStorage else { return }
+        let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+        storage.removeAttribute(.composerMentionNpub, range: fullRange)
+        storage.removeAttribute(.composerMentionDisplayText, range: fullRange)
+        for selection in selections {
+            add(selection, to: textView)
+        }
+    }
+
+    static func selections(in textView: NSTextView) -> [ComposerMentionSelection] {
+        guard let storage = textView.textStorage else { return [] }
+        let text = textView.string
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        guard fullRange.length > 0 else { return [] }
+        var selections: [ComposerMentionSelection] = []
+        var invalidRanges: [NSRange] = []
+        var repairs: [Repair] = []
+        storage.enumerateAttribute(.composerMentionNpub, in: fullRange) { value, range, _ in
+            guard let npub = value as? String,
+                let displayText = storage.attribute(
+                    .composerMentionDisplayText,
+                    at: range.location,
+                    effectiveRange: nil
+                ) as? String,
+                let normalizedRange = normalizedRange(
+                    for: displayText,
+                    within: range,
+                    in: text
+                )
+            else {
+                invalidRanges.append(range)
+                return
+            }
+            let selection = ComposerMentionSelection(
+                range: normalizedRange,
+                displayText: displayText,
+                npub: npub
+            )
+            selections.append(selection)
+            if normalizedRange != range {
+                repairs.append(Repair(oldRange: range, selection: selection))
+            }
+        }
+        guard !invalidRanges.isEmpty || !repairs.isEmpty else {
+            return selections.sorted { $0.location < $1.location }
+        }
+        storage.beginEditing()
+        for range in invalidRanges + repairs.map(\.oldRange) {
+            storage.removeAttribute(.composerMentionNpub, range: range)
+            storage.removeAttribute(.composerMentionDisplayText, range: range)
+        }
+        for repair in repairs {
+            add(repair.selection, to: textView)
+        }
+        storage.endEditing()
+        return selections.sorted { $0.location < $1.location }
+    }
+
+    private static func normalizedRange(
+        for displayText: String,
+        within attributedRange: NSRange,
+        in text: String
+    ) -> NSRange? {
+        let nsText = text as NSString
+        guard attributedRange.location >= 0,
+            attributedRange.length > 0,
+            NSMaxRange(attributedRange) <= nsText.length
+        else { return nil }
+        if nsText.substring(with: attributedRange) == displayText,
+            ComposerMentionCanonicalizer.isValidVisibleMention(attributedRange, in: text)
+        {
+            return attributedRange
+        }
+        let first = nsText.range(of: displayText, options: [], range: attributedRange)
+        guard first.location != NSNotFound,
+            ComposerMentionCanonicalizer.isValidVisibleMention(first, in: text)
+        else { return nil }
+        let remainingLocation = NSMaxRange(first)
+        if remainingLocation < NSMaxRange(attributedRange) {
+            let remaining = NSRange(
+                location: remainingLocation,
+                length: NSMaxRange(attributedRange) - remainingLocation
+            )
+            guard nsText.range(of: displayText, options: [], range: remaining).location == NSNotFound else {
+                return nil
+            }
+        }
+        return first
+    }
+
+    private static func isExact(_ selection: ComposerMentionSelection, in text: String) -> Bool {
+        selection.location >= 0
+            && selection.length > 0
+            && NSMaxRange(selection.range) <= (text as NSString).length
+            && (text as NSString).substring(with: selection.range) == selection.displayText
+            && ComposerMentionCanonicalizer.isValidVisibleMention(selection.range, in: text)
+    }
+}
+
+private extension NSAttributedString.Key {
+    static let composerMentionNpub = NSAttributedString.Key("whitenoise.composerMentionNpub")
+    static let composerMentionDisplayText = NSAttributedString.Key("whitenoise.composerMentionDisplayText")
 }
 
 @MainActor

@@ -487,6 +487,8 @@ private struct ConversationView: View {
                         // clear the gate here or the new transcript stays non-interactive until a scroll.
                         isActivelyScrolling = false
                         hoverSelectionCoordinator.reset()
+                        composerMentionContext = nil
+                        composerMentionInsertion = nil
                     }
                     .onChange(of: messageIDs.last) { _, newMessageId in
                         switch timelineNewestMessageScrollAction(
@@ -677,6 +679,8 @@ private struct ConversationView: View {
         // overlays open over a different transcript.
         .onChange(of: chat.id) { _, _ in
             imageGallery = nil
+            composerMentionContext = nil
+            composerMentionInsertion = nil
             workspace.cancelMessageSelection()
             workspace.cancelForwarding()
             workspace.messageInfoTarget = nil
@@ -711,9 +715,11 @@ private struct ConversationView: View {
             let candidates = workspace.mentionCandidates(matching: context.query)
             if !candidates.isEmpty {
                 ComposerMentionPicker(candidates: candidates) { candidate in
+                    guard let draftKey = workspace.selectedComposerDraftKey else { return }
                     composerMentionInsertion = ComposerMentionInsertion(
-                        range: context.tokenRange,
-                        replacement: "@\(candidate.displayName) "
+                        scope: draftKey,
+                        context: context,
+                        candidate: candidate
                     )
                     composerMentionContext = nil
                 }
@@ -782,6 +788,8 @@ private struct ConversationView: View {
                         guard composerMentionInsertion?.id == insertionID else { return }
                         composerMentionInsertion = nil
                     },
+                    mentionSelections: $workspace.composerMentionSelections,
+                    mentionContextScope: workspace.selectedComposerDraftKey,
                     onMentionContextChange: { context in
                         composerMentionContext = context
                         if context != nil {

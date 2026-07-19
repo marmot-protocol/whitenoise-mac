@@ -593,6 +593,7 @@ extension WorkspaceState {
             senderName: message.senderName,
             originalBody: message.body,
             preservedDraft: preservedDraft,
+            preservedMentionSelections: composerMentionSelectionsByConversation[draftKey] ?? [],
             preservedReplyContext: replyDraftContextByConversation[draftKey],
             preservedMediaAttachments: pendingMediaAttachmentsByConversation[draftKey] ?? [],
             preservedMediaUploadStates: pendingMediaUploadStatesByConversation[draftKey] ?? [:]
@@ -600,7 +601,8 @@ extension WorkspaceState {
         replyDraftContextByConversation[draftKey] = nil
         pendingMediaAttachmentsByConversation[draftKey] = nil
         pendingMediaUploadStatesByConversation[draftKey] = nil
-        draftTextByConversation[draftKey] = message.body
+        draftTextByConversation[draftKey] = message.wireBody
+        composerMentionSelectionsByConversation[draftKey] = nil
     }
 
     func cancelEditingMessage() {
@@ -608,6 +610,8 @@ extension WorkspaceState {
             let edit = editingMessageContextByConversation.removeValue(forKey: draftKey)
         else { return }
         draftTextByConversation[draftKey] = edit.preservedDraft.isEmpty ? nil : edit.preservedDraft
+        composerMentionSelectionsByConversation[draftKey] =
+            edit.preservedMentionSelections.isEmpty ? nil : edit.preservedMentionSelections
         replyDraftContextByConversation[draftKey] = edit.preservedReplyContext
         pendingMediaAttachmentsByConversation[draftKey] =
             edit.preservedMediaAttachments.isEmpty ? nil : edit.preservedMediaAttachments
@@ -678,7 +682,7 @@ extension WorkspaceState {
                 _ = try await client.sendText(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: chat.id,
-                    text: message.body
+                    text: message.wireBody
                 )
             }
             cancelForwarding()
@@ -688,17 +692,36 @@ extension WorkspaceState {
         }
     }
 
-    /// The authoritative deletion-scope model for `message` in the selected conversation. Both the
-    /// action UI and the mutation paths derive from this — button visibility is not the security
-    /// boundary (the mutations re-check the same capability).
-    func messageDeletionCapability(_ message: MessageItem) -> MessageDeletionCapability {
-        guard message.supportsChatActions, let selectedChat else { return .none }
-        return MessageDeletionCapability.resolve(
-            isActionable: true,
+    func messageDeletionTarget(for message: MessageItem) -> MessageDeletionTarget? {
+        guard message.supportsChatActions, let selectedChat, let activeAccount, let activeAccountId else {
+            return nil
+        }
+        return MessageDeletionTarget(
+            message: message,
+            accountId: activeAccountId,
+            accountRef: activeAccount.accountRef,
+            groupIdHex: selectedChat.id,
             isDirectConversation: selectedChat.isDirect,
-            isOwnMessage: message.isOutgoing,
             isSelfGroupAdmin: conversationMetadataByChat[selectedChat.id]?.isSelfAdmin == true
         )
+    }
+
+    /// The authoritative deletion-scope model captured when the action was opened. Both the action
+    /// UI and mutation path use this immutable target; the engine remains the final authority.
+    func messageDeletionCapability(_ target: MessageDeletionTarget) -> MessageDeletionCapability {
+        let message = target.message
+        guard message.supportsChatActions else { return .none }
+        return MessageDeletionCapability.resolve(
+            isActionable: true,
+            isDirectConversation: target.isDirectConversation,
+            isOwnMessage: message.isOutgoing,
+            isSelfGroupAdmin: target.isSelfGroupAdmin
+        )
+    }
+
+    func messageDeletionCapability(_ message: MessageItem) -> MessageDeletionCapability {
+        guard let target = messageDeletionTarget(for: message) else { return .none }
+        return messageDeletionCapability(target)
     }
 
     func canDeleteMessage(_ message: MessageItem) -> Bool {
@@ -707,8 +730,9 @@ extension WorkspaceState {
 
     /// Adaptive supporting copy for the delete-confirmation surface. Explains the offered scopes
     /// without admin-branding the action, per the unified model.
-    func messageDeletionScopeExplanation(_ message: MessageItem) -> String {
-        let capability = messageDeletionCapability(message)
+    func messageDeletionScopeExplanation(_ target: MessageDeletionTarget) -> String {
+        let message = target.message
+        let capability = messageDeletionCapability(target)
         guard capability.canDeleteForEveryone else {
             return L10n.string("This message will be hidden on this device only.")
         }
@@ -721,12 +745,15 @@ extension WorkspaceState {
     func deleteSelectedMessages() async {
         // Multi-select acts only on messages the user may delete for everyone — it must not
         // silently mix in local hides; single-message delete-for-me goes through the confirmation.
-        let messages = selectedTimelineMessagesForAction.filter {
-            messageDeletionCapability($0).canDeleteForEveryone
+        let targets = selectedTimelineMessagesForAction.compactMap { message -> MessageDeletionTarget? in
+            guard let target = messageDeletionTarget(for: message),
+                messageDeletionCapability(target).canDeleteForEveryone
+            else { return nil }
+            return target
         }
-        guard !messages.isEmpty else { return }
-        for message in messages {
-            await deleteForEveryone(message)
+        guard !targets.isEmpty else { return }
+        for target in targets {
+            await deleteForEveryone(target)
         }
         cancelMessageSelection()
     }
@@ -776,12 +803,17 @@ extension WorkspaceState {
     func removeReaction(_ reaction: MessageReaction, from message: MessageItem) async {
         guard message.supportsChatActions else { return }
         guard reaction.canRemoveOwnReaction, let reactionMessageId = reaction.ownReactionMessageId else { return }
-        guard let client, let activeAccount, let selectedChat else { return }
+        guard let client, let activeAccount, let activeAccountId, let selectedChat else { return }
         // Reentrancy guard: the removal deletes the reaction event, so key on its id
         // (shared namespace with `deleteMessage`) to drop a repeated in-flight removal.
-        guard !inFlightDeleteMessageIds.contains(reactionMessageId) else { return }
-        inFlightDeleteMessageIds.insert(reactionMessageId)
-        defer { inFlightDeleteMessageIds.remove(reactionMessageId) }
+        let inFlightKey = deleteInFlightKey(
+            accountId: activeAccountId,
+            groupIdHex: selectedChat.id,
+            messageId: reactionMessageId
+        )
+        guard !inFlightDeleteMessageIds.contains(inFlightKey) else { return }
+        inFlightDeleteMessageIds.insert(inFlightKey)
+        defer { inFlightDeleteMessageIds.remove(inFlightKey) }
         do {
             _ = try await client.deleteMessage(
                 accountRef: activeAccount.accountRef,
@@ -797,19 +829,29 @@ extension WorkspaceState {
     /// another member's group message). Re-checks the capability so a mis-rendered option can't
     /// drive an unauthorized retraction — the engine is the final authority, this is the local guard.
     func deleteForEveryone(_ message: MessageItem) async {
-        guard let client, let activeAccount, let selectedChat else { return }
-        guard messageDeletionCapability(message).canDeleteForEveryone else { return }
+        guard let target = messageDeletionTarget(for: message) else { return }
+        await deleteForEveryone(target)
+    }
+
+    func deleteForEveryone(_ target: MessageDeletionTarget) async {
+        let message = target.message
+        guard let client, messageDeletionCapability(target).canDeleteForEveryone else { return }
         // Reentrancy guard: drop a repeated delete of the same in-flight message.
-        guard !inFlightDeleteMessageIds.contains(message.id) else { return }
-        inFlightDeleteMessageIds.insert(message.id)
-        defer { inFlightDeleteMessageIds.remove(message.id) }
+        let inFlightKey = deleteInFlightKey(
+            accountId: target.accountId,
+            groupIdHex: target.groupIdHex,
+            messageId: message.id
+        )
+        guard !inFlightDeleteMessageIds.contains(inFlightKey) else { return }
+        inFlightDeleteMessageIds.insert(inFlightKey)
+        defer { inFlightDeleteMessageIds.remove(inFlightKey) }
         do {
             _ = try await client.deleteMessage(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: selectedChat.id,
+                accountRef: target.accountRef,
+                groupIdHex: target.groupIdHex,
                 targetMessageId: message.id
             )
-            clearComposerContextTargeting(message.id)
+            clearComposerContextTargeting(message.id, target: target)
         } catch {
             lastError = error.localizedDescription
         }
@@ -817,27 +859,46 @@ extension WorkspaceState {
 
     /// Delete for me: hide the message locally and persist the hidden id. Publishes nothing.
     func deleteForMe(_ message: MessageItem) {
-        guard let activeAccountId, let selectedChat else { return }
-        guard messageDeletionCapability(message).canDeleteForMe else { return }
-        hideMessageLocally(accountId: activeAccountId, groupIdHex: selectedChat.id, messageId: message.id)
-        clearComposerContextTargeting(message.id)
+        guard let target = messageDeletionTarget(for: message) else { return }
+        deleteForMe(target)
+    }
+
+    func deleteForMe(_ target: MessageDeletionTarget) {
+        let message = target.message
+        guard messageDeletionCapability(target).canDeleteForMe else { return }
+        hideMessageLocally(accountId: target.accountId, groupIdHex: target.groupIdHex, messageId: message.id)
+        clearComposerContextTargeting(message.id, target: target)
+    }
+
+    private func deleteInFlightKey(accountId: String, groupIdHex: String, messageId: String) -> String {
+        "\(accountId)\u{1F}\(groupIdHex)\u{1F}\(messageId)"
     }
 
     /// Drop any reply or in-progress edit in the selected conversation that targets `messageId`,
     /// so a deleted message can't remain a live reply/edit target.
-    private func clearComposerContextTargeting(_ messageId: String) {
-        if replyDraftContext?.targetMessageId == messageId {
-            replyDraftContext = nil
+    private func clearComposerContextTargeting(_ messageId: String, target: MessageDeletionTarget) {
+        let draftKey = ComposerDraftKey(accountId: target.accountId, chatId: target.groupIdHex)
+        if replyDraftContextByConversation[draftKey]?.targetMessageId == messageId {
+            replyDraftContextByConversation[draftKey] = nil
         }
-        if let draftKey = selectedComposerDraftKey,
-            editingMessageContextByConversation[draftKey]?.targetMessageId == messageId
+        if let edit = editingMessageContextByConversation[draftKey],
+            edit.targetMessageId == messageId
         {
-            cancelEditingMessage()
+            editingMessageContextByConversation[draftKey] = nil
+            draftTextByConversation[draftKey] = edit.preservedDraft.isEmpty ? nil : edit.preservedDraft
+            composerMentionSelectionsByConversation[draftKey] =
+                edit.preservedMentionSelections.isEmpty ? nil : edit.preservedMentionSelections
+            replyDraftContextByConversation[draftKey] = edit.preservedReplyContext
+            pendingMediaAttachmentsByConversation[draftKey] =
+                edit.preservedMediaAttachments.isEmpty ? nil : edit.preservedMediaAttachments
+            pendingMediaUploadStatesByConversation[draftKey] =
+                edit.preservedMediaUploadStates.isEmpty ? nil : edit.preservedMediaUploadStates
         }
     }
 
     func sendDraft() async {
-        let text = canonicalizeMentions(in: draftText.trimmingCharacters(in: .whitespacesAndNewlines))
+        let text = canonicalizeMentions(in: draftText, selections: composerMentionSelections)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let mediaAttachments = pendingMediaAttachments
         // `!isSending` is the reentrancy guard: `isSending` flips synchronously here,
         // but the model only suspends (and `draftText` is only cleared) at the `await`
@@ -870,6 +931,8 @@ extension WorkspaceState {
             )
             editingMessageContextByConversation[draftKey] = nil
             draftTextByConversation[draftKey] = editContext.preservedDraft.isEmpty ? nil : editContext.preservedDraft
+            composerMentionSelectionsByConversation[draftKey] =
+                editContext.preservedMentionSelections.isEmpty ? nil : editContext.preservedMentionSelections
             replyDraftContextByConversation[draftKey] = editContext.preservedReplyContext
             pendingMediaAttachmentsByConversation[draftKey] =
                 editContext.preservedMediaAttachments.isEmpty ? nil : editContext.preservedMediaAttachments
@@ -933,6 +996,7 @@ extension WorkspaceState {
             // switched chats during the `await` above they would wipe the newly selected
             // conversation's composer state instead of the one we just sent from.
             draftTextByConversation[draftKey] = nil
+            composerMentionSelectionsByConversation[draftKey] = nil
             replyDraftContextByConversation[draftKey] = nil
             pendingMediaAttachmentsByConversation[draftKey] = nil
             pendingMediaUploadStatesByConversation[draftKey] = nil
