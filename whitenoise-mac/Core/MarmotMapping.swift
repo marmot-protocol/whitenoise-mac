@@ -36,7 +36,8 @@ extension ChatItem {
         row: ChatListRowFfi,
         activeAccountIdHex: String?,
         directPeer: ChatPeerProfile? = nil,
-        groupAvatarURL: String? = nil
+        groupAvatarURL: String? = nil,
+        mentionNames: MarkdownMentionNames = [:]
     ) {
         let groupName = PeerDisplayText.sanitize(row.groupName) ?? ""
         let peerName = PeerDisplayText.sanitize(directPeer?.displayName)
@@ -51,7 +52,9 @@ extension ChatItem {
         } else {
             title = DisplayText.short(directPeer?.accountIdHex ?? row.groupIdHex)
         }
-        let preview = row.lastMessage.map { ChatItem.previewText(for: $0, activeAccountIdHex: activeAccountIdHex) }
+        let preview = row.lastMessage.map {
+            ChatItem.previewText(for: $0, activeAccountIdHex: activeAccountIdHex, mentionNames: mentionNames)
+        }
         let previewTimestamp = row.lastMessage?.timelineAt ?? 0
         let timestamp = previewTimestamp > 0 ? previewTimestamp : row.updatedAt
         let updatedAt = timestamp > 0 ? Date(timeIntervalSince1970: TimeInterval(timestamp)) : nil
@@ -82,7 +85,11 @@ extension ChatItem {
         )
     }
 
-    private static func previewText(for preview: ChatListMessagePreviewFfi, activeAccountIdHex: String?) -> String {
+    private static func previewText(
+        for preview: ChatListMessagePreviewFfi,
+        activeAccountIdHex: String?,
+        mentionNames: MarkdownMentionNames = [:]
+    ) -> String {
         if preview.deleted {
             return L10n.string("Message deleted")
         }
@@ -111,7 +118,7 @@ extension ChatItem {
         if text.isEmpty || isMediaOnlyChat {
             body = presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
         } else {
-            body = text
+            body = Self.resolvePreviewMentions(in: text, mentionNames: mentionNames)
         }
         guard presentation.isChatBubble,
             preview.sender != activeAccountIdHex,
@@ -122,6 +129,19 @@ extension ChatItem {
         }
 
         return "\(PeerDisplayText.templateFragment(senderName)): \(body)"
+    }
+
+    /// Rewrite canonical "@npub…" mentions in a chat-list preview to "@Display Name" for known
+    /// members. Only exact roster npubs are substituted, so there are no false positives; unknown
+    /// references keep their bech32 form. No-op when the roster isn't loaded for the row.
+    private static func resolvePreviewMentions(in text: String, mentionNames: MarkdownMentionNames) -> String {
+        guard !mentionNames.isEmpty, text.contains("npub1") else { return text }
+        var resolved = text
+        for (npub, rawName) in mentionNames {
+            guard let name = PeerDisplayText.sanitize(rawName) else { continue }
+            resolved = resolved.replacingOccurrences(of: "@\(npub)", with: "@\(name)")
+        }
+        return resolved
     }
 }
 
@@ -202,6 +222,7 @@ nonisolated extension MessageItem {
         record: TimelineMessageRecordFfi,
         activeAccountIdHex: String?,
         senderProfiles: [String: ChatPeerProfile],
+        mentionNames: MarkdownMentionNames = [:],
         editedPlaintext: String? = nil,
         isEdited: Bool = false,
         reactions: [MessageReaction],
@@ -253,6 +274,7 @@ nonisolated extension MessageItem {
                     invalidationStatus: record.invalidationStatus,
                     presentation: presentation
                 ),
+            mentionNames: mentionNames,
             sentAt: Date(timeIntervalSince1970: TimeInterval(record.timelineAt)),
             timelineAt: record.timelineAt,
             timelineKind: record.kind,
@@ -271,7 +293,8 @@ nonisolated extension MessageItem {
     static func timeline(
         from page: TimelinePageFfi,
         activeAccountIdHex: String?,
-        senderProfiles: [String: ChatPeerProfile] = [:]
+        senderProfiles: [String: ChatPeerProfile] = [:],
+        mentionNames: MarkdownMentionNames = [:]
     ) -> [MessageItem] {
         // MarmotKit returns an authoritative timeline window. Keep that order
         // intact: `timelineAt` is second-granular, and re-sorting in the client
@@ -282,6 +305,7 @@ nonisolated extension MessageItem {
                 record: record,
                 activeAccountIdHex: activeAccountIdHex,
                 senderProfiles: senderProfiles,
+                mentionNames: mentionNames,
                 reactions: MessageReaction.summarize(
                     record.reactions,
                     activeAccountIdHex: activeAccountIdHex

@@ -436,7 +436,11 @@ extension WorkspaceState {
         ChatItem(
             row: row,
             activeAccountIdHex: account.accountIdHex,
-            groupAvatarURL: firstNonBlank([row.avatarUrl])
+            groupAvatarURL: firstNonBlank([row.avatarUrl]),
+            // The no-enrich fast path (e.g. a live `newLastMessage`) can't fetch the roster, but a
+            // recently viewed group usually has it cached — resolve preview mentions when so, which
+            // covers the just-sent-message case; otherwise the reference keeps its bech32 form.
+            mentionNames: cachedMentionNames(groupIdHex: row.groupIdHex)
         )
     }
 
@@ -561,6 +565,7 @@ extension WorkspaceState {
         client: any MarmotRuntime
     ) async -> ChatItem {
         var directPeer: ChatPeerProfile?
+        var mentionNames: MarkdownMentionNames = [:]
         let groupAvatarURL = firstNonBlank([row.avatarUrl])
         if let members = await cachedGroupMembers(
             groupIdHex: row.groupIdHex,
@@ -573,6 +578,9 @@ extension WorkspaceState {
             guard !Task.isCancelled else {
                 return ChatItem(row: row, activeAccountIdHex: account.accountIdHex)
             }
+            // The roster is already in hand here, so resolving the preview's "@npub…" mentions to
+            // names costs only a dictionary build — no extra FFI on the chat-list path.
+            mentionNames = Self.mentionNames(from: members)
             directPeer = await directPeerProfile(
                 from: members,
                 activeAccount: account,
@@ -584,7 +592,8 @@ extension WorkspaceState {
             row: row,
             activeAccountIdHex: account.accountIdHex,
             directPeer: directPeer,
-            groupAvatarURL: groupAvatarURL
+            groupAvatarURL: groupAvatarURL,
+            mentionNames: mentionNames
         )
     }
 

@@ -1660,6 +1660,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         senderPictureURL: String? = nil,
         body: String,
         contentMarkdown: MarkdownDocumentFfi? = nil,
+        mentionNames: MarkdownMentionNames = [:],
         sentAt: Date,
         timelineAt: UInt64? = nil,
         timelineKind: UInt64 = 9,
@@ -1683,7 +1684,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.senderName = senderName
         self.senderPictureURL = senderPictureURL
         self.body = body
-        self.contentMarkdown = contentMarkdown.map(MarkdownDisplayDocument.init(document:))
+        self.contentMarkdown = contentMarkdown.map { MarkdownDisplayDocument(document: $0, mentionNames: mentionNames) }
         self.trimmedBody = trimmedBody
         self.sentAt = sentAt
         // `timelineAt` is normally supplied by the core mapping; the fallback derives it from
