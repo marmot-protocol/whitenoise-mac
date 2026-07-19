@@ -433,6 +433,35 @@ final class MessageTimelineStore {
             })
     }
 
+    /// The ordered edit history for `targetId` — oldest first: the original, then each accepted
+    /// edit by the target's own author. Empty when the message was never edited.
+    func editHistory(forTarget targetId: String) -> [MessageEditVersion] {
+        guard let base = baseMessagesById[targetId],
+            isValidEditTarget(base, editSender: base.senderAccountIdHex)
+        else { return [] }
+        let edits = editCandidatesById.values
+            .filter { $0.targetMessageIdHex == targetId && $0.sender == base.senderAccountIdHex }
+            .sorted { MessageEditOverlay.shouldPrefer($1, over: $0) }
+        guard !edits.isEmpty else { return [] }
+        var versions = [
+            MessageEditVersion(
+                id: base.id,
+                text: base.body,
+                date: Date(timeIntervalSince1970: TimeInterval(base.timelineAt)),
+                isOriginal: true
+            )
+        ]
+        versions += edits.map { edit in
+            MessageEditVersion(
+                id: edit.editMessageIdHex,
+                text: edit.plaintext,
+                date: Date(timeIntervalSince1970: TimeInterval(edit.timelineAt)),
+                isOriginal: false
+            )
+        }
+        return versions
+    }
+
     private func purgeEditCandidates(forRemovalIds removalIds: Set<String>) {
         guard !removalIds.isEmpty, !editCandidatesById.isEmpty else { return }
         editCandidatesById = editCandidatesById.filter { _, candidate in
@@ -710,10 +739,12 @@ final class WorkspaceState {
     var activeAccountId: String?
     var selection: WorkspaceSelection? {
         didSet {
-            // A pending delete-confirmation belongs to the conversation it was opened in; drop it
-            // when the selection changes so a stale dialog can't act on a different chat.
+            // A pending delete-confirmation or edit-history sheet belongs to the conversation it
+            // was opened in; drop both when the selection changes so a stale dialog can't act on a
+            // different chat.
             if oldValue != selection {
                 messagePendingDeletion = nil
+                messagePendingEditHistory = nil
             }
             dismissGroupImagePickerIfSelectedChatUnavailable()
             ensureSelectedMessageTimelineStore()
@@ -886,6 +917,8 @@ final class WorkspaceState {
     /// Message whose unified delete-confirmation surface is open, or `nil`. Drives the adaptive
     /// dialog that offers only the scopes `messageDeletionCapability` permits.
     var messagePendingDeletion: MessageItem?
+    /// Message whose edit-history sheet is open, or `nil`. Cleared when the selection changes.
+    var messagePendingEditHistory: MessageItem?
     var messageInfoTarget: MessageItem?
     var forwardingMessageIds: [String] = []
     var isForwardPickerPresented = false

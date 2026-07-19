@@ -739,6 +739,15 @@ extension WorkspaceState {
         copyTextHandler(text, concealed)
     }
 
+    /// Ordered edit history (oldest first) for `message` in the selected conversation, or empty
+    /// when it was never edited. Derived from the timeline store's retained edit overlays.
+    func editHistory(for message: MessageItem) -> [MessageEditVersion] {
+        guard case .chat(let groupIdHex) = selection,
+            let store = messageTimelineStores[groupIdHex]
+        else { return [] }
+        return store.editHistory(forTarget: message.id)
+    }
+
     func react(to message: MessageItem, emoji: String) async {
         guard message.supportsChatActions else { return }
         guard let client, let activeAccount, let selectedChat else { return }
