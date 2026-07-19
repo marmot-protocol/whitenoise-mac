@@ -923,10 +923,15 @@ final class WorkspaceState {
     var sharedMediaGroupId: String?
     var sharedMediaError: String?
     var isLoadingSharedMedia = false
-    /// Decrypted shared-media bytes keyed by plaintext hash, with an insertion-order list bounding
-    /// eviction. `@ObservationIgnored` — views read via the async loader, not by observing this.
+    /// Monotonic generation so a superseded `loadSharedMedia` can't clear the spinner or publish a
+    /// stale result/error into a newer load's state.
+    @ObservationIgnored var sharedMediaLoadGeneration: UInt64 = 0
+    /// Decrypted shared-media bytes keyed by account+group+plaintext-hash, with an insertion-order
+    /// list and running byte total bounding eviction. `@ObservationIgnored` — views read via the
+    /// async loader, not by observing this.
     @ObservationIgnored var sharedMediaThumbnailCache: [String: Data] = [:]
     @ObservationIgnored var sharedMediaThumbnailCacheOrder: [String] = []
+    @ObservationIgnored var sharedMediaThumbnailCacheBytes = 0
     var conversationMetadataByChat: [String: ConversationMetadata] = [:]
     @ObservationIgnored var conversationMetadataGenerationByChat: [String: UInt64] = [:]
     /// Message ids the local account hid via "Delete for me", keyed by `accountId\u{1F}groupId`.

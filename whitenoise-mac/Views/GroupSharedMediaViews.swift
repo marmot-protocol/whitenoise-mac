@@ -174,6 +174,21 @@ private struct SharedMediaThumbnail: View {
     private var isVideo: Bool { item.attachment.kind == .video }
 
     var body: some View {
+        // A `Button` (not a tap gesture) so tiles are keyboard/VoiceOver reachable.
+        Button {
+            Task { await open() }
+        } label: {
+            tileContent
+        }
+        .buttonStyle(.plain)
+        .disabled(!canOpen)
+        .accessibilityLabel(item.attachment.fileName)
+        .task(id: item.id) { await load() }
+    }
+
+    private var canOpen: Bool { isVideo || image != nil }
+
+    private var tileContent: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
@@ -181,6 +196,10 @@ private struct SharedMediaThumbnail: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
+            } else if isVideo {
+                // Static placeholder — videos aren't frame-extracted here, so never spin.
+                Image(systemName: "film")
+                    .foregroundStyle(.tertiary)
             } else if didFail {
                 Image(systemName: "photo")
                     .foregroundStyle(.tertiary)
@@ -197,11 +216,14 @@ private struct SharedMediaThumbnail: View {
         .aspectRatio(1, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard !isVideo, let imageData else { return }
+    }
+
+    private func open() async {
+        if isVideo {
+            await openVideo()
+        } else if let imageData {
             onOpen(imageData)
         }
-        .task(id: item.id) { await load() }
     }
 
     private func load() async {
@@ -213,6 +235,30 @@ private struct SharedMediaThumbnail: View {
         }
         imageData = data
         image = decoded
+    }
+
+    /// Open a video in the default player: decrypt (uncached), stage a temp file via the shared
+    /// playback store, hand off to LaunchServices, then clean up shortly after.
+    private func openVideo() async {
+        guard
+            let data = await workspace.sharedMediaData(
+                for: item.reference, groupIdHex: item.groupIdHex, cache: false)
+        else { return }
+        let download = MessageMediaDownload(
+            payload: DownloadedMediaPayload(data: data),
+            fileName: item.attachment.fileName,
+            mediaType: item.attachment.mediaType,
+            sizeBytes: UInt64(data.count)
+        )
+        guard
+            let url = await MessageMediaPlaybackFileStore.fileURL(
+                attachment: item.attachment, download: download)
+        else { return }
+        let didOpen = NSWorkspace.shared.open(url)
+        let delay: TimeInterval = didOpen ? 30 : 0
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
+            MediaPlaybackTempStore.remove(at: url)
+        }
     }
 }
 
@@ -286,7 +332,10 @@ private struct SharedMediaFileRow: View {
     private func save() async {
         isSaving = true
         defer { isSaving = false }
-        guard let data = await workspace.sharedMediaData(for: item.reference, groupIdHex: item.groupIdHex)
+        // `cache: false` — a saved file may be large and shouldn't sit in the thumbnail cache.
+        guard
+            let data = await workspace.sharedMediaData(
+                for: item.reference, groupIdHex: item.groupIdHex, cache: false)
         else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = item.attachment.fileName

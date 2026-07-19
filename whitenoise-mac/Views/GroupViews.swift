@@ -17,8 +17,10 @@ private enum DisappearingChoice: Hashable {
     case customEntry
 }
 
-/// Units offered by the custom disappearing-timer picker.
+/// Units offered by the custom disappearing-timer picker. `seconds` is included so any exact core
+/// value round-trips (e.g. a 90-second timer opens as "90 Seconds", not a truncated minute).
 private enum CustomDurationUnit: String, CaseIterable, Identifiable {
+    case seconds
     case minutes
     case hours
     case days
@@ -28,6 +30,7 @@ private enum CustomDurationUnit: String, CaseIterable, Identifiable {
 
     var seconds: UInt64 {
         switch self {
+        case .seconds: return 1
         case .minutes: return 60
         case .hours: return 3600
         case .days: return 86_400
@@ -37,6 +40,7 @@ private enum CustomDurationUnit: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .seconds: return L10n.string("Seconds")
         case .minutes: return L10n.string("Minutes")
         case .hours: return L10n.string("Hours")
         case .days: return L10n.string("Days")
@@ -55,6 +59,8 @@ struct GroupDetailsSheet: View {
     @State private var isCustomDisappearingPresented = false
     @State private var customDurationValue = 1
     @State private var customDurationUnit = CustomDurationUnit.days
+    /// Upper bound for a custom timer entry; 100k weeks stays well within `UInt64` seconds.
+    private static let maxCustomDurationValue = 100_000
     let chat: ChatItem
 
     private var hasProfileChanges: Bool {
@@ -95,12 +101,13 @@ struct GroupDetailsSheet: View {
             return
         }
         for unit in CustomDurationUnit.allCases.reversed() where seconds % unit.seconds == 0 {
-            customDurationValue = Int(seconds / unit.seconds)
+            customDurationValue = Int(clamping: seconds / unit.seconds)
             customDurationUnit = unit
             return
         }
-        customDurationValue = Int(seconds / CustomDurationUnit.minutes.seconds)
-        customDurationUnit = .minutes
+        // Unreachable — the `.seconds` unit divides any value — but keeps the compiler happy.
+        customDurationValue = Int(clamping: seconds)
+        customDurationUnit = .seconds
     }
 
     private func customDurationPopover(groupIdHex: String) -> some View {
@@ -108,10 +115,10 @@ struct GroupDetailsSheet: View {
             Text(L10n.string("Custom duration"))
                 .font(.headline)
             HStack(spacing: 8) {
-                Stepper(value: $customDurationValue, in: 1...999) {
+                Stepper(value: $customDurationValue, in: 1...Self.maxCustomDurationValue) {
                     TextField("", value: $customDurationValue, format: .number)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 56)
+                        .frame(width: 64)
                 }
                 Picker("", selection: $customDurationUnit) {
                     ForEach(CustomDurationUnit.allCases) { unit in
@@ -123,17 +130,23 @@ struct GroupDetailsSheet: View {
             }
             HStack {
                 Spacer()
-                Button(L10n.string("Set")) {
-                    let seconds = UInt64(max(1, customDurationValue)) * customDurationUnit.seconds
-                    isCustomDisappearingPresented = false
-                    Task { await workspace.setDisappearingMessages(groupIdHex: groupIdHex, seconds: seconds) }
-                }
-                .keyboardShortcut(.defaultAction)
-                .nativeGlassProminentButtonStyle()
+                Button(L10n.string("Set")) { commitCustomDuration(groupIdHex: groupIdHex) }
+                    .keyboardShortcut(.defaultAction)
+                    .nativeGlassProminentButtonStyle()
             }
         }
         .padding(16)
         .frame(width: 300)
+    }
+
+    /// Clamp the (freely typed) value into range and multiply overflow-safely before committing, so
+    /// a huge entry can't trap on the `value * unit.seconds` conversion.
+    private func commitCustomDuration(groupIdHex: String) {
+        let clamped = UInt64(min(max(customDurationValue, 1), Self.maxCustomDurationValue))
+        let (seconds, overflow) = clamped.multipliedReportingOverflow(by: customDurationUnit.seconds)
+        guard !overflow else { return }
+        isCustomDisappearingPresented = false
+        Task { await workspace.setDisappearingMessages(groupIdHex: groupIdHex, seconds: seconds) }
     }
 
     var body: some View {

@@ -283,6 +283,20 @@ extension WorkspaceState {
             guard
                 isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
             else { return false }
+            // `inviteMembersDetailed` can throw while reading post-commit details *after* the MLS
+            // invite already published. Refresh the roster and reconcile: if every recipient is now
+            // a member, the invite succeeded despite the read error — report success so the sheet
+            // dismisses and a retry doesn't hit "already a member".
+            await reloadChats(forceFreshSnapshot: true)
+            if groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                await loadGroupDetails(groupIdHex: groupIdHex)
+            }
+            let currentMemberIds = Set(groupDetailsSnapshot?.members.map(\.id) ?? [])
+            if !currentMemberIds.isEmpty,
+                recipients.allSatisfy({ currentMemberIds.contains($0.accountIdHex) })
+            {
+                return true
+            }
             lastError = error.localizedDescription
             return false
         }
@@ -582,6 +596,15 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 disappearingMessageSecs: seconds
             )
+            // Keep the mounted conversation header's timer in sync — it reads
+            // `conversationMetadataByChat`, which the details reload below does not touch.
+            if let existing = conversationMetadataByChat[groupIdHex] {
+                conversationMetadataByChat[groupIdHex] = ConversationMetadata(
+                    memberCount: existing.memberCount,
+                    disappearingMessageSecs: seconds,
+                    isSelfAdmin: existing.isSelfAdmin
+                )
+            }
             if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
                 await loadGroupDetails(groupIdHex: groupIdHex)
             }
