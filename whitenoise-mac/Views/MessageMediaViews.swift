@@ -891,15 +891,19 @@ struct MessageDocumentAttachmentRow: View {
 
     var body: some View {
         // A finished document opens on click of the whole row — no trailing retry/download glyph
-        // (the file is already in hand, especially for our own sends).
-        MessageAttachmentStatusRow(
-            systemImage: "doc",
-            title: download.fileName.nilIfBlank ?? attachment.fileName,
-            detail: mediaDetail,
-            isOutgoing: isOutgoing
-        )
-        .contentShape(Rectangle())
-        .onTapGesture { Task { await openAttachment() } }
+        // (the file is already in hand, especially for our own sends). A `Button` (not a tap
+        // gesture) keeps it reachable by keyboard/VoiceOver.
+        Button {
+            Task { await openAttachment() }
+        } label: {
+            MessageAttachmentStatusRow(
+                systemImage: "doc",
+                title: download.fileName.nilIfBlank ?? attachment.fileName,
+                detail: mediaDetail,
+                isOutgoing: isOutgoing
+            )
+        }
+        .buttonStyle(.plain)
         .help(L10n.string("Open"))
     }
 

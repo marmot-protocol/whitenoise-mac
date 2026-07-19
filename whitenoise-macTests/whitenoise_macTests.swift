@@ -7957,7 +7957,13 @@ struct whitenoise_macTests {
         #expect(state.messagesByChat["group"]?.first?.body == "The launch plan is ready.")
         #expect(
             state.messagesByChat["group"]?.first?.reactions == [
-                MessageReaction(emoji: "👍", count: 1, isOwn: true, ownReactionMessageId: "reaction")
+                MessageReaction(
+                    emoji: "👍",
+                    count: 1,
+                    isOwn: true,
+                    ownReactionMessageId: "reaction",
+                    senders: ["abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"]
+                )
             ])
     }
 

@@ -22,6 +22,7 @@ extension WorkspaceState {
         if sharedMediaGroupId != groupIdHex {
             sharedMediaRecords = []
             sharedMediaThumbnailCache.removeAll()
+            sharedMediaThumbnailCacheOrder.removeAll()
         }
         sharedMediaGroupId = groupIdHex
         sharedMediaError = nil
@@ -49,6 +50,7 @@ extension WorkspaceState {
         sharedMediaError = nil
         isLoadingSharedMedia = false
         sharedMediaThumbnailCache.removeAll()
+        sharedMediaThumbnailCacheOrder.removeAll()
     }
 
     /// Decrypt one shared-media reference's bytes, honoring the media-display privacy gate and the

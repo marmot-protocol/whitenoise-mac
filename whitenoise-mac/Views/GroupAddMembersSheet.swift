@@ -180,7 +180,7 @@ struct GroupAddMembersSheet: View {
         defer { isResolving = false }
         do {
             guard let recipient = try await workspace.resolveNewChatRecipient(for: trimmed) else {
-                resolveError = L10n.string("Enter a valid npub, profile link, or hex public key.")
+                resolveError = L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
                 return
             }
             if existingMemberIds.contains(recipient.accountIdHex) {
@@ -194,7 +194,7 @@ struct GroupAddMembersSheet: View {
             staged.append(recipient)
             query = ""
         } catch {
-            resolveError = L10n.string("Enter a valid npub, profile link, or hex public key.")
+            resolveError = L10n.string("Enter a valid NIP-05, npub, profile link, or hex public key.")
         }
     }
 }

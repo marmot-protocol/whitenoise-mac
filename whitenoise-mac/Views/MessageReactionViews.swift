@@ -175,9 +175,25 @@ struct MessageReactionDetailsView: View {
         }
     }
 
+    @ViewBuilder
     private func reactorRow(_ row: ReactorRow) -> some View {
         let canRemove = row.reactor.isSelf && row.reaction.canRemoveOwnReaction
-        return HStack(spacing: 10) {
+        if canRemove {
+            // A `Button` (not a tap gesture) so removing your reaction is keyboard/VoiceOver
+            // reachable.
+            Button {
+                Task { await workspace.removeReaction(row.reaction, from: message) }
+            } label: {
+                reactorRowContent(row, canRemove: true)
+            }
+            .buttonStyle(.plain)
+        } else {
+            reactorRowContent(row, canRemove: false)
+        }
+    }
+
+    private func reactorRowContent(_ row: ReactorRow, canRemove: Bool) -> some View {
+        HStack(spacing: 10) {
             ProfileImageAvatarView(
                 seed: row.reactor.accountIdHex,
                 initials: row.reactor.name,
@@ -202,9 +218,5 @@ struct MessageReactionDetailsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard canRemove else { return }
-            Task { await workspace.removeReaction(row.reaction, from: message) }
-        }
     }
 }
