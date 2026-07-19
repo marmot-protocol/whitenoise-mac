@@ -3698,9 +3698,12 @@ struct whitenoise_macTests {
         AppLanguage.refreshCachedLocale()
 
         let messageDate = Date(timeIntervalSince1970: 1_700_000_000)
+        // Message times force a 12-hour clock with a meridiem while still following the selected
+        // language, so the expected value forces the same hour cycle on the Spanish locale.
+        var components = Locale.Components(locale: Locale(identifier: AppLanguage.spanish.rawValue))
+        components.hourCycle = .oneToTwelve
         let expected = messageDate.formatted(
-            Date.FormatStyle(date: .omitted, time: .shortened)
-                .locale(Locale(identifier: AppLanguage.spanish.rawValue))
+            Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(components: components))
         )
 
         #expect(DisplayText.messageTimestamp(for: messageDate) == expected)
