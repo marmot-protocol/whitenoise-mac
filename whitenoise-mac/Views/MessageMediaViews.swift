@@ -71,6 +71,7 @@ extension EnvironmentValues {
 }
 
 struct ConversationMessageRow: View {
+    @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     var showsDebugMetadata = false
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
@@ -80,6 +81,34 @@ struct ConversationMessageRow: View {
     // so SwiftUI diffs each row by value and only re-runs the rows that actually changed
     // instead of invalidating every visible row on each page load / streaming update.
     var body: some View {
+        // Only chat bubbles are selectable; `toggleMessageSelection` ignores system/notice rows,
+        // so they must not show a checkbox or carry button semantics in selection mode.
+        if workspace.isTimelineSelectionMode, message.presentation.isChatBubble {
+            let isSelected = workspace.selectedTimelineMessageIds.contains(message.id)
+            HStack(alignment: .center, spacing: 8) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 24)
+                    .padding(.leading, 14)
+                content
+            }
+            .padding(.vertical, 1)
+            .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+            .contentShape(Rectangle())
+            .onTapGesture { workspace.toggleMessageSelection(message) }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityLabel(
+                isSelected ? L10n.string("Deselect message") : L10n.string("Select message")
+            )
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if message.presentation.isChatBubble {
             MessageBubble(
                 message: message,
@@ -261,30 +290,6 @@ struct MessageBubble: View {
                 inlineActions
             }
         }
-        .overlay(alignment: .leading) {
-            if workspace.isTimelineSelectionMode {
-                Button {
-                    workspace.toggleMessageSelection(message)
-                } label: {
-                    Image(
-                        systemName: workspace.selectedTimelineMessageIds.contains(message.id)
-                            ? "checkmark.circle.fill" : "circle"
-                    )
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(
-                        workspace.selectedTimelineMessageIds.contains(message.id)
-                            ? Color.accentColor : Color.secondary
-                    )
-                    .frame(width: 40, height: 40)
-                    .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(
-                    workspace.selectedTimelineMessageIds.contains(message.id)
-                        ? L10n.string("Deselect message") : L10n.string("Select message")
-                )
-            }
-        }
         .animation(.smooth(duration: 0.12), value: showsInlineActions)
         .frame(maxWidth: 660, alignment: message.isOutgoing ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
@@ -293,11 +298,6 @@ struct MessageBubble: View {
         .contextMenu {
             if !workspace.isTimelineSelectionMode {
                 MessageContextMenuItems(message: message)
-            }
-        }
-        .onTapGesture {
-            if workspace.isTimelineSelectionMode {
-                workspace.toggleMessageSelection(message)
             }
         }
         .onAppear {
