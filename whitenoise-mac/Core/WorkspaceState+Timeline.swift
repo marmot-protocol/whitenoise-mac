@@ -784,8 +784,8 @@ extension WorkspaceState {
     /// another member's group message). Re-checks the capability so a mis-rendered option can't
     /// drive an unauthorized retraction — the engine is the final authority, this is the local guard.
     func deleteForEveryone(_ message: MessageItem) async {
-        guard messageDeletionCapability(message).canDeleteForEveryone else { return }
         guard let client, let activeAccount, let selectedChat else { return }
+        guard messageDeletionCapability(message).canDeleteForEveryone else { return }
         // Reentrancy guard: drop a repeated delete of the same in-flight message.
         guard !inFlightDeleteMessageIds.contains(message.id) else { return }
         inFlightDeleteMessageIds.insert(message.id)
@@ -796,9 +796,7 @@ extension WorkspaceState {
                 groupIdHex: selectedChat.id,
                 targetMessageId: message.id
             )
-            if replyDraftContext?.targetMessageId == message.id {
-                replyDraftContext = nil
-            }
+            clearComposerContextTargeting(message.id)
         } catch {
             lastError = error.localizedDescription
         }
@@ -806,11 +804,22 @@ extension WorkspaceState {
 
     /// Delete for me: hide the message locally and persist the hidden id. Publishes nothing.
     func deleteForMe(_ message: MessageItem) {
-        guard messageDeletionCapability(message).canDeleteForMe else { return }
         guard let activeAccountId, let selectedChat else { return }
+        guard messageDeletionCapability(message).canDeleteForMe else { return }
         hideMessageLocally(accountId: activeAccountId, groupIdHex: selectedChat.id, messageId: message.id)
-        if replyDraftContext?.targetMessageId == message.id {
+        clearComposerContextTargeting(message.id)
+    }
+
+    /// Drop any reply or in-progress edit in the selected conversation that targets `messageId`,
+    /// so a deleted message can't remain a live reply/edit target.
+    private func clearComposerContextTargeting(_ messageId: String) {
+        if replyDraftContext?.targetMessageId == messageId {
             replyDraftContext = nil
+        }
+        if let draftKey = selectedComposerDraftKey,
+            editingMessageContextByConversation[draftKey]?.targetMessageId == messageId
+        {
+            cancelEditingMessage()
         }
     }
 

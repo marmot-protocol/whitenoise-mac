@@ -11825,6 +11825,16 @@ struct whitenoise_macTests {
         runtime.installGroupDetails(
             groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
         )
+        // Snapshot the shared defaults so the test never wipes real hidden-message state.
+        let hiddenDefaultsKey = WorkspaceState.hiddenMessagesDefaultsKey
+        let priorHidden = UserDefaults.standard.dictionary(forKey: hiddenDefaultsKey)
+        defer {
+            if let priorHidden {
+                UserDefaults.standard.set(priorHidden, forKey: hiddenDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: hiddenDefaultsKey)
+            }
+        }
         let state = WorkspaceState(clientFactory: { runtime })
         state.clearAllHiddenMessages()
         let message = MessageItem(
@@ -11852,8 +11862,6 @@ struct whitenoise_macTests {
         #expect(runtime.deletedMessage == nil)
         #expect(state.hiddenMessageIds(accountId: accountId, groupIdHex: chat.id).contains(message.id))
         #expect(state.filterHiddenMessages([message], groupIdHex: chat.id).isEmpty)
-
-        state.clearAllHiddenMessages()
     }
 
     @MainActor

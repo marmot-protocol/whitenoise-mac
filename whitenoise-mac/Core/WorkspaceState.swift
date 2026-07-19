@@ -710,6 +710,11 @@ final class WorkspaceState {
     var activeAccountId: String?
     var selection: WorkspaceSelection? {
         didSet {
+            // A pending delete-confirmation belongs to the conversation it was opened in; drop it
+            // when the selection changes so a stale dialog can't act on a different chat.
+            if oldValue != selection {
+                messagePendingDeletion = nil
+            }
             dismissGroupImagePickerIfSelectedChatUnavailable()
             ensureSelectedMessageTimelineStore()
         }

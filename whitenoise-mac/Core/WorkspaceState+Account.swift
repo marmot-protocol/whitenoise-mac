@@ -271,6 +271,7 @@ extension WorkspaceState {
             }
             try await client.removeAccount(accountRef: account.accountRef)
             clearComposerDrafts(forAccountId: removedAccountId)
+            purgeHiddenMessages(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
             accounts = try await accountItemsFromRuntime(client: client)
