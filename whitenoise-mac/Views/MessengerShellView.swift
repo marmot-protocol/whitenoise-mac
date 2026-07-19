@@ -715,8 +715,10 @@ private struct ConversationView: View {
             let candidates = workspace.mentionCandidates(matching: context.query)
             if !candidates.isEmpty {
                 ComposerMentionPicker(candidates: candidates) { candidate in
+                    guard let draftKey = workspace.selectedComposerDraftKey else { return }
                     composerMentionInsertion = ComposerMentionInsertion(
-                        range: context.tokenRange,
+                        scope: draftKey,
+                        context: context,
                         candidate: candidate
                     )
                     composerMentionContext = nil
@@ -787,6 +789,7 @@ private struct ConversationView: View {
                         composerMentionInsertion = nil
                     },
                     mentionSelections: $workspace.composerMentionSelections,
+                    mentionContextScope: workspace.selectedComposerDraftKey,
                     onMentionContextChange: { context in
                         composerMentionContext = context
                         if context != nil {

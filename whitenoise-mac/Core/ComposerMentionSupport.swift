@@ -175,7 +175,8 @@ nonisolated enum ComposerMentionCanonicalizer {
                 selection.location >= 0,
                 selection.length >= 0,
                 NSMaxRange(selection.range) <= (canonical as NSString).length,
-                (canonical as NSString).substring(with: selection.range) == selection.displayText
+                (canonical as NSString).substring(with: selection.range) == selection.displayText,
+                isValidVisibleMention(selection.range, in: canonical)
             else { continue }
             canonical = (canonical as NSString).replacingCharacters(
                 in: selection.range,
@@ -183,6 +184,24 @@ nonisolated enum ComposerMentionCanonicalizer {
             )
         }
         return canonical
+    }
+
+    static func isValidVisibleMention(_ range: NSRange, in text: String) -> Bool {
+        guard range.location >= 0,
+            range.length > 1,
+            NSMaxRange(range) <= (text as NSString).length,
+            let stringRange = Range(range, in: text),
+            text[stringRange].first == "@"
+        else { return false }
+        if stringRange.lowerBound > text.startIndex {
+            guard isNostrMentionBoundary(text[text.index(before: stringRange.lowerBound)]) else {
+                return false
+            }
+        }
+        if stringRange.upperBound < text.endIndex {
+            guard isNostrMentionBoundary(text[stringRange.upperBound]) else { return false }
+        }
+        return true
     }
 
     private static func matchCandidate(

@@ -71,6 +71,97 @@ struct PureValueTests {
         )
     }
 
+    @MainActor
+    @Test func selectedMentionMarkersSurviveBoundaryEditsAndRejectInternalEdits() throws {
+        let candidate = mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
+        let textView = NSTextView()
+        textView.isRichText = false
+        textView.string = "@Alex "
+        ComposerMentionMarkerStore.replaceAll(
+            with: [
+                ComposerMentionSelection(
+                    range: NSRange(location: 0, length: 5),
+                    displayText: "@Alex",
+                    npub: candidate.npub
+                )
+            ],
+            in: textView
+        )
+
+        textView.insertText("Hi ", replacementRange: NSRange(location: 0, length: 0))
+        var selections = ComposerMentionMarkerStore.selections(in: textView)
+        #expect(selections.map(\.range) == [NSRange(location: 3, length: 5)])
+
+        textView.insertText(",", replacementRange: NSRange(location: 8, length: 0))
+        selections = ComposerMentionMarkerStore.selections(in: textView)
+        #expect(selections.map(\.range) == [NSRange(location: 3, length: 5)])
+        #expect(
+            ComposerMentionCanonicalizer.canonicalize(
+                textView.string,
+                selections: selections,
+                candidates: [
+                    candidate,
+                    mentionCandidate(id: "second", displayName: "Alex", npub: "npub1pppp"),
+                ]
+            ) == "Hi @npub1qqqq, "
+        )
+
+        let editedMentionView = NSTextView()
+        editedMentionView.isRichText = false
+        editedMentionView.string = "@Alex "
+        ComposerMentionMarkerStore.replaceAll(
+            with: [
+                ComposerMentionSelection(
+                    range: NSRange(location: 0, length: 5),
+                    displayText: "@Alex",
+                    npub: candidate.npub
+                )
+            ],
+            in: editedMentionView
+        )
+        editedMentionView.insertText("x", replacementRange: NSRange(location: 3, length: 0))
+        #expect(ComposerMentionMarkerStore.selections(in: editedMentionView).isEmpty)
+    }
+
+    @MainActor
+    @Test func mentionCoordinatorRepublishesContextAndRejectsStaleInsertionAcrossChats() throws {
+        let firstScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "first")
+        let secondScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "second")
+        var boundText = "@Al"
+        var measuredHeight: CGFloat = 20
+        var boundSelections: [ComposerMentionSelection] = []
+        var publishedContexts: [ComposerMentionContext?] = []
+        var consumedInsertions: [UUID] = []
+        let coordinator = ComposerMessageTextViewRepresentable.Coordinator(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            measuredHeight: Binding(get: { measuredHeight }, set: { measuredHeight = $0 }),
+            mentionSelections: Binding(get: { boundSelections }, set: { boundSelections = $0 }),
+            mentionContextScope: firstScope,
+            onPasteMedia: { _ in },
+            onSend: {},
+            onMentionInsertionConsumed: { consumedInsertions.append($0) },
+            onMentionContextChange: { publishedContexts.append($0) }
+        )
+        let textView = NSTextView()
+        textView.string = boundText
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        coordinator.textDidChange(Notification(name: NSText.didChangeNotification, object: textView))
+        let firstContext = try #require(publishedContexts.last ?? nil)
+
+        coordinator.synchronizeMentionContextScope(secondScope, in: textView)
+        #expect(publishedContexts.compactMap { $0 }.count == 2)
+        #expect(publishedContexts.last ?? nil == firstContext)
+
+        let staleInsertion = ComposerMentionInsertion(
+            scope: firstScope,
+            context: firstContext,
+            candidate: mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
+        )
+        coordinator.insertMentionIfNeeded(staleInsertion, into: textView)
+        #expect(textView.string == "@Al")
+        #expect(consumedInsertions == [staleInsertion.id])
+    }
+
     @Test func mentionDisplayResolverRequiresACompleteBech32TokenBoundary() {
         let npub = "npub1qqqq"
         let names = [npub: "Alex"]
