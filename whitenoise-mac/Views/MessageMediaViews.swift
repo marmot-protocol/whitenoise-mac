@@ -890,14 +890,17 @@ struct MessageDocumentAttachmentRow: View {
     let isOutgoing: Bool
 
     var body: some View {
+        // A finished document opens on click of the whole row — no trailing retry/download glyph
+        // (the file is already in hand, especially for our own sends).
         MessageAttachmentStatusRow(
             systemImage: "doc",
             title: download.fileName.nilIfBlank ?? attachment.fileName,
             detail: mediaDetail,
             isOutgoing: isOutgoing
-        ) {
-            Task { await openAttachment() }
-        }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { Task { await openAttachment() } }
+        .help(L10n.string("Open"))
     }
 
     private var mediaDetail: String {
