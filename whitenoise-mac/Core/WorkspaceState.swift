@@ -266,6 +266,12 @@ final class MessageTimelineStore {
     /// Active kind-1009 edit candidates keyed by edit-event id. Retained across trim and
     /// authoritative window replaces that omit edit records; bounded by `windowLimit`.
     @ObservationIgnored private var editCandidatesById: [String: MessageEditOverlay] = [:]
+    /// The same candidates grouped by target id, rebuilt whenever the canonical id map changes.
+    /// Rendering a full window therefore visits only each row's candidates instead of rescanning
+    /// every retained edit for every row.
+    @ObservationIgnored private var editCandidatesByTargetId: [String: [MessageEditOverlay]] = [:]
+    /// Candidates inspected by the most recent full render pass. Diagnostic / test helper.
+    @ObservationIgnored private(set) var lastRenderEditCandidateVisitCount = 0
     private(set) var isLoaded: Bool
 
     init(messages: [MessageItem] = [], isLoaded: Bool = false) {
@@ -307,7 +313,7 @@ final class MessageTimelineStore {
         lookup = [:]
         indexById = [:]
         baseMessagesById = [:]
-        editCandidatesById = [:]
+        replaceEditCandidates(with: [:])
         isLoaded = false
     }
 
@@ -394,6 +400,7 @@ final class MessageTimelineStore {
     }
 
     private func applyEditMutations(_ mutations: [MessageEditMutation]) {
+        guard !mutations.isEmpty else { return }
         for mutation in mutations {
             switch mutation {
             case .upsert(let overlay):
@@ -402,35 +409,51 @@ final class MessageTimelineStore {
                 editCandidatesById.removeValue(forKey: editMessageIdHex)
             }
         }
+        rebuildEditCandidateTargetIndex()
     }
 
     @discardableResult
     private func recomputeAllRenderedMessages() -> Bool {
         var didChange = false
+        var candidateVisitCount = 0
         for index in messages.indices {
             let messageId = messages[index].id
             guard let base = baseMessagesById[messageId] else { continue }
-            let rendered = renderedMessage(from: base)
+            let renderResult = renderedMessage(from: base)
+            candidateVisitCount += renderResult.candidateVisitCount
+            let rendered = renderResult.message
             guard messages[index] != rendered else { continue }
             messages[index] = rendered
             lookup[messageId] = rendered
             didChange = true
         }
+        lastRenderEditCandidateVisitCount = candidateVisitCount
         return didChange
     }
 
-    private func renderedMessage(from base: MessageItem) -> MessageItem {
-        guard let edit = effectiveEdit(for: base.id, base: base) else { return base }
-        return base.applyingEdit(plaintext: edit.plaintext)
+    private func renderedMessage(from base: MessageItem) -> (message: MessageItem, candidateVisitCount: Int) {
+        let result = effectiveEdit(for: base.id, base: base)
+        guard let edit = result.edit else { return (base, result.candidateVisitCount) }
+        return (base.applyingEdit(plaintext: edit.plaintext), result.candidateVisitCount)
     }
 
-    private func effectiveEdit(for targetId: String, base: MessageItem) -> MessageEditOverlay? {
-        guard isValidEditTarget(base, editSender: base.senderAccountIdHex) else { return nil }
-        return editCandidatesById.values
-            .filter { $0.targetMessageIdHex == targetId && $0.sender == base.senderAccountIdHex }
-            .max(by: { lhs, rhs in
-                MessageEditOverlay.shouldPrefer(rhs, over: lhs)
-            })
+    private func effectiveEdit(
+        for targetId: String,
+        base: MessageItem
+    ) -> (edit: MessageEditOverlay?, candidateVisitCount: Int) {
+        guard isValidEditTarget(base, editSender: base.senderAccountIdHex),
+            let candidates = editCandidatesByTargetId[targetId]
+        else { return (nil, 0) }
+        var winner: MessageEditOverlay?
+        var candidateVisitCount = 0
+        for candidate in candidates {
+            candidateVisitCount += 1
+            guard candidate.sender == base.senderAccountIdHex else { continue }
+            if MessageEditOverlay.shouldPrefer(candidate, over: winner) {
+                winner = candidate
+            }
+        }
+        return (winner, candidateVisitCount)
     }
 
     /// The ordered edit history for `targetId` — oldest first: the original, then each accepted
@@ -439,8 +462,8 @@ final class MessageTimelineStore {
         guard let base = baseMessagesById[targetId],
             isValidEditTarget(base, editSender: base.senderAccountIdHex)
         else { return [] }
-        let edits = editCandidatesById.values
-            .filter { $0.targetMessageIdHex == targetId && $0.sender == base.senderAccountIdHex }
+        let edits = (editCandidatesByTargetId[targetId] ?? [])
+            .filter { $0.sender == base.senderAccountIdHex }
             .sorted { MessageEditOverlay.shouldPrefer($1, over: $0) }
         guard !edits.isEmpty else { return [] }
         var versions = [
@@ -464,18 +487,22 @@ final class MessageTimelineStore {
 
     private func purgeEditCandidates(forRemovalIds removalIds: Set<String>) {
         guard !removalIds.isEmpty, !editCandidatesById.isEmpty else { return }
-        editCandidatesById = editCandidatesById.filter { _, candidate in
-            !removalIds.contains(candidate.editMessageIdHex)
-                && !removalIds.contains(candidate.targetMessageIdHex)
-        }
+        replaceEditCandidates(
+            with: editCandidatesById.filter { _, candidate in
+                !removalIds.contains(candidate.editMessageIdHex)
+                    && !removalIds.contains(candidate.targetMessageIdHex)
+            }
+        )
     }
 
     private func pruneInvalidSenderCandidatesForMaterializedTargets() {
         guard !editCandidatesById.isEmpty else { return }
-        editCandidatesById = editCandidatesById.filter { _, candidate in
-            guard let base = baseMessagesById[candidate.targetMessageIdHex] else { return true }
-            return candidate.sender == base.senderAccountIdHex
-        }
+        replaceEditCandidates(
+            with: editCandidatesById.filter { _, candidate in
+                guard let base = baseMessagesById[candidate.targetMessageIdHex] else { return true }
+                return candidate.sender == base.senderAccountIdHex
+            }
+        )
     }
 
     private func pruneEditCandidates(windowLimit limit: Int) {
@@ -496,7 +523,7 @@ final class MessageTimelineStore {
         // evict a pending candidate from the target's actual author.
         var materializedWinnerIds = Set<String>()
         for (targetId, base) in baseMessagesById {
-            if let winner = effectiveEdit(for: targetId, base: base) {
+            if let winner = effectiveEdit(for: targetId, base: base).edit {
                 materializedWinnerIds.insert(winner.editMessageIdHex)
             }
         }
@@ -546,7 +573,19 @@ final class MessageTimelineStore {
                 kept[candidate.key] = candidate.value
             }
         }
-        editCandidatesById = kept
+        replaceEditCandidates(with: kept)
+    }
+
+    private func replaceEditCandidates(with candidates: [String: MessageEditOverlay]) {
+        editCandidatesById = candidates
+        rebuildEditCandidateTargetIndex()
+    }
+
+    private func rebuildEditCandidateTargetIndex() {
+        editCandidatesByTargetId = Dictionary(
+            grouping: editCandidatesById.values,
+            by: { $0.targetMessageIdHex }
+        )
     }
 
     private func isValidEditTarget(_ message: MessageItem, editSender: String) -> Bool {
