@@ -6480,6 +6480,123 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func timelineMediaProjectionKeepsMediaReferenceCacheForSuppressedDetachedWindowMedia() async throws {
+        // Regression for whitenoise-mac#631: inbound media newer than a detached (scrolled-back)
+        // window head is suppressed, so the per-group media-reference resolution cache for visible
+        // historical tiles must stay warm.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let accountItem = AccountItem(summary: account)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let chat = ChatItem(
+            id: "group",
+            title: "Test Group",
+            subtitle: "Group message",
+            preview: "Attachment",
+            updatedAt: nil,
+            avatarSeed: "group",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let timelineReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "historical.png",
+            ciphertextSha256: String(repeating: "a", count: 64),
+            plaintextSha256: String(repeating: "b", count: 64)
+        )
+        let historicalAttachment = MessageMediaAttachment(
+            id: "historical-media-message#0#\(timelineReference.plaintextSha256)",
+            reference: timelineReference
+        )
+        let historicalMessage = MessageItem(
+            id: "historical-media-message",
+            groupIdHex: "group",
+            senderName: "alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineAt: 1_700_000_000,
+            isOutgoing: false,
+            mediaAttachments: [historicalAttachment]
+        )
+        let state = WorkspaceState(
+            accounts: [accountItem],
+            chatsByAccount: [accountItem.id: [chat]],
+            messagesByChat: ["group": [historicalMessage]],
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = accountItem.id
+        state.selection = .chat("group")
+        state.timelinePagingByChat["group"] = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: true,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
+
+        let initial = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(initial.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        let suppressedReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "inbound.png",
+            ciphertextSha256: String(repeating: "c", count: 64),
+            plaintextSha256: String(repeating: "d", count: 64)
+        )
+        await state.applyTimelineProjection(
+            TimelineProjectionUpdateFfi(
+                groupIdHex: "group",
+                messages: [],
+                changes: [
+                    .upsert(
+                        trigger: .newMessage,
+                        message: timelineMessage(
+                            id: "inbound-media-message",
+                            groupIdHex: "group",
+                            sender: "alice",
+                            plaintext: "",
+                            recordedAt: 1_700_000_100,
+                            mediaJson: mediaJson(for: suppressedReference)
+                        ))
+                ],
+                chatListRow: nil,
+                chatListTrigger: .newLastMessage
+            ),
+            groupIdHex: "group",
+            account: accountItem,
+            client: runtime
+        )
+
+        #expect(state.messagesByChat["group"]?.map(\.id) == ["historical-media-message"])
+
+        let stillCachedMiss = try await state.resolvedMediaReference(
+            timelineReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(stillCachedMiss.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+    }
+
+    @MainActor
     @Test func workspaceCoalescesAndCachesSourceEpochZeroMediaReferenceResolution() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",

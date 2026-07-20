@@ -250,6 +250,7 @@ final class MessageTimelineStore {
         let didChange: Bool
         let didRemoveMessages: Bool
         let didTrimOlderMessages: Bool
+        let didChangeMediaAttachments: Bool
     }
 
     private(set) var messages: [MessageItem]
@@ -331,6 +332,16 @@ final class MessageTimelineStore {
         var didChange = false
         var didRemoveMessages = false
 
+        // Compare media-relevant upserts with the final lookup after trimming so suppressed or
+        // immediately-evicted rows do not trigger cache invalidation.
+        var mediaAttachmentsBeforeUpserts: [String: [MessageMediaAttachment]] = [:]
+        for item in upserts {
+            guard mediaAttachmentsBeforeUpserts[item.id] == nil else { continue }
+            let previous = lookup[item.id]?.mediaAttachments ?? []
+            guard !previous.isEmpty || !item.mediaAttachments.isEmpty else { continue }
+            mediaAttachmentsBeforeUpserts[item.id] = previous
+        }
+
         if !removalIds.isEmpty {
             let originalCount = messages.count
             let removedMessageIds = Set(messages.filter { removalIds.contains($0.id) }.map(\.id))
@@ -392,10 +403,15 @@ final class MessageTimelineStore {
         if didChange {
             isLoaded = true
         }
+        let didChangeMediaAttachments = mediaAttachmentsBeforeUpserts.contains { id, previous in
+            guard let retained = lookup[id] else { return false }
+            return previous != retained.mediaAttachments
+        }
         return ProjectionApplyResult(
             didChange: didChange,
             didRemoveMessages: didRemoveMessages,
-            didTrimOlderMessages: didTrimOlderMessages
+            didTrimOlderMessages: didTrimOlderMessages,
+            didChangeMediaAttachments: didChangeMediaAttachments
         )
     }
 
