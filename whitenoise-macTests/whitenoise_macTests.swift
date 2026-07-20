@@ -7602,9 +7602,9 @@ struct whitenoise_macTests {
         )
     }
 
-    @Test func visualMediaTileTapGestureRoutesRetryActionToDownload() throws {
-        // MessageVisualMediaTile is a SwiftUI gesture surface that the unit tests cannot
-        // tap directly here. Guard the wiring shape so a failed-tile retry action remains
+    @Test func visualMediaTilePrimaryActionRoutesRetryToDownload() throws {
+        // MessageVisualMediaTile is a SwiftUI control that the unit tests cannot activate
+        // directly here. Guard the wiring shape so a failed-tile retry action remains
         // connected to the explicit download entry point, while the pure decision helper
         // above guards that failed video tiles choose that action.
         let viewsURL =
@@ -7623,6 +7623,99 @@ struct whitenoise_macTests {
         #expect(tileSource.contains("MessageVisualMediaTileInteraction.tapAction"))
         #expect(tileSource.contains("case .retryDownload:"))
         #expect(tileSource.contains("Task { await workspace.loadMediaAttachment(attachment, for: message) }"))
+    }
+
+    @MainActor
+    @Test func visualMediaTileAccessibilityLabelMatchesPrimaryAction() {
+        #expect(
+            MessageVisualMediaTileInteraction.accessibilityLabel(for: .retryDownload)
+                == L10n.string("Retry download")
+        )
+        #expect(
+            MessageVisualMediaTileInteraction.accessibilityLabel(for: .openImageGallery)
+                == L10n.string("Open image")
+        )
+        #expect(MessageVisualMediaTileInteraction.accessibilityLabel(for: .none) == nil)
+    }
+
+    @MainActor
+    @Test func videoAttachmentPlayerAccessibilityLabelMatchesPlaybackState() {
+        #expect(
+            MessageVideoAttachmentPlayerAccessibility.label(
+                isPlaying: false,
+                isPreparingPlayback: false,
+                didFail: true
+            ) == L10n.string("Retry video")
+        )
+        #expect(
+            MessageVideoAttachmentPlayerAccessibility.label(
+                isPlaying: false,
+                isPreparingPlayback: true,
+                didFail: false
+            ) == L10n.string("Cancel video loading")
+        )
+        #expect(
+            MessageVideoAttachmentPlayerAccessibility.label(
+                isPlaying: true,
+                isPreparingPlayback: false,
+                didFail: false
+            ) == L10n.string("Pause video")
+        )
+        #expect(
+            MessageVideoAttachmentPlayerAccessibility.label(
+                isPlaying: false,
+                isPreparingPlayback: false,
+                didFail: false
+            ) == L10n.string("Play video")
+        )
+    }
+
+    @Test func mediaTilesExposeButtonAccessibilitySemantics() throws {
+        // MessageVisualMediaTile and MessageVideoAttachmentPlayer are SwiftUI surfaces
+        // the unit tests cannot activate directly. Guard their source contract: pointer,
+        // keyboard, and VoiceOver users must reach the same primary action through real
+        // Button controls with explicit labels instead of bare tap gestures.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+
+        let tileStart = try #require(source.range(of: "struct MessageVisualMediaTile: View {"))
+        let tileRest = source[tileStart.upperBound...]
+        let tileEnd = try #require(tileRest.range(of: "\nstruct MessageMediaAttachmentView: View {")?.lowerBound)
+        let tileSource = String(source[tileStart.lowerBound..<tileEnd])
+        let normalizedTileSource = tileSource.components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(tileSource.contains("Button(action: performPrimaryAction)"))
+        #expect(normalizedTileSource.contains(".buttonStyle(.plain)"))
+        #expect(
+            normalizedTileSource.contains(
+                "MessageVisualMediaTileInteraction.accessibilityLabel(for:tapAction)"
+            )
+        )
+        #expect(!tileSource.contains(".onTapGesture"))
+
+        let playerStart = try #require(source.range(of: "struct MessageVideoAttachmentPlayer: View {"))
+        let playerRest = source[playerStart.upperBound...]
+        let playerEnd = try #require(playerRest.range(of: "\nenum MessageMediaPlaybackFileStore {")?.lowerBound)
+        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+        let normalizedPlayerSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(playerSource.contains("@State private var isPlaying = false"))
+        #expect(playerSource.contains("Button(action: activatePlayback)"))
+        #expect(normalizedPlayerSource.contains(".buttonStyle(.plain)"))
+        #expect(playerSource.contains("MessageVideoAttachmentPlayerAccessibility.label("))
+        #expect(normalizedPlayerSource.contains(".accessibilityElement(children:.ignore)"))
+        #expect(normalizedPlayerSource.contains(".allowsHitTesting(false)"))
+        #expect(playerSource.contains("if isPlaying {"))
+        #expect(!playerSource.contains("if player.timeControlStatus == .playing {"))
+        #expect(playerSource.contains("isPlaying = true"))
+        #expect(playerSource.contains("isPlaying = false"))
+        #expect(!playerSource.contains(".onTapGesture"))
     }
 
     @Test func imageGalleryProvidesDismissalNavigationAndAccessibilityAffordances() throws {
