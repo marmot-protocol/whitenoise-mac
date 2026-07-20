@@ -937,7 +937,7 @@ struct PureValueTests {
         )
 
         #expect(store.lookup["target"]?.body == "Edited")
-        #expect(store.editCandidateLookupWidth(forTarget: "target") == 1)
+        #expect(store.lastRenderEditCandidateVisitCount == 1)
     }
 
     @MainActor
