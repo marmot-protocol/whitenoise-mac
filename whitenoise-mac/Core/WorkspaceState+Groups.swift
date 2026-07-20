@@ -593,6 +593,7 @@ extension WorkspaceState {
                 closeGroupDetails()
             }
             if case .chat(let selectedGroupId) = selection, selectedGroupId == groupIdHex {
+                leaveActiveConversation()
                 stopTimelineListener()
                 selection = nil
                 pruneMessageCache(keeping: nil)
@@ -692,6 +693,7 @@ extension WorkspaceState {
                 closeGroupDetails()
             }
             if case .chat(let selectedGroupId) = selection, selectedGroupId == groupIdHex {
+                leaveActiveConversation()
                 stopTimelineListener()
                 selection = nil
                 pruneMessageCache(keeping: nil)
