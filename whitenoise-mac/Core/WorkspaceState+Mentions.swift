@@ -18,7 +18,14 @@ extension WorkspaceState {
         guard let selectedChat, !selectedChat.isDirect,
             let members = groupMemberDetailsCache[selectedChat.id]
         else { return [] }
-        return members.filter { !$0.isSelf }.map(ComposerMentionCandidate.init(details:))
+        if let cached = mentionRosterCache[selectedChat.id] { return cached }
+
+        let roster = members.filter { !$0.isSelf }.map(ComposerMentionCandidate.init(details:))
+        mentionRosterCache[selectedChat.id] = roster
+        #if DEBUG
+            mentionRosterBuildCount += 1
+        #endif
+        return roster
     }
 
     /// The candidates the picker should show for an active `@query`, capped and boundary-filtered.
