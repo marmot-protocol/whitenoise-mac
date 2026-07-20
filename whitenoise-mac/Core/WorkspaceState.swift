@@ -977,6 +977,9 @@ final class WorkspaceState {
     @ObservationIgnored var sharedMediaThumbnailCacheBytes = 0
     var conversationMetadataByChat: [String: ConversationMetadata] = [:]
     @ObservationIgnored var conversationMetadataGenerationByChat: [String: UInt64] = [:]
+    /// Survives cache clearing so a late pre-teardown refresh cannot regain ownership when the
+    /// same account and group recreate an identical per-chat generation token.
+    @ObservationIgnored var conversationMetadataEpoch: UInt64 = 0
     /// Message ids the local account hid via "Delete for me", keyed by `accountId\u{1F}groupId`.
     /// Filtered from the timeline projection so a local hide survives reprojection and restart, and
     /// never publishes anything. Persisted in `UserDefaults` under `Self.hiddenMessagesDefaultsKey`.
