@@ -101,8 +101,7 @@ extension WorkspaceState {
         closeNewChatComposer()
         resetComposeContacts()
         pruneMessageCache(keeping: groupIdHex)
-        conversationMetadataByChat.removeAll()
-        conversationMetadataGenerationByChat.removeAll()
+        clearConversationMetadata()
         clearMediaReferenceResolutionCache()
         // Lookup caches are scoped to the active account's view (directory display names and
         // group membership visibility can differ per account); drop them on switch so the new
@@ -348,8 +347,7 @@ extension WorkspaceState {
         // process-lifetime image cache; profile metadata alone is not enough. See #177/#288.
         RemoteImageLoader.shared.clearCache()
         timelinePagingByChat.removeAll()
-        conversationMetadataByChat.removeAll()
-        conversationMetadataGenerationByChat.removeAll()
+        clearConversationMetadata()
         accountUnreadByIdHex.removeAll()
         // Read markers are keyed by groupIdHex; leaving them behind both retains a
         // record of which messages the signed-out identity read and lets a recurring
@@ -636,8 +634,7 @@ extension WorkspaceState {
         resetMediaDownloadStateStores()
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
-        conversationMetadataByChat.removeAll()
-        conversationMetadataGenerationByChat.removeAll()
+        clearConversationMetadata()
         accountUnreadByIdHex.removeAll()
         // "Delete All Local Data" must also evict decoded peer/group avatars held in the
         // process-lifetime decoded-image cache; those images derive from attacker-controlled

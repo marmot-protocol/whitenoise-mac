@@ -19,9 +19,12 @@ extension WorkspaceState {
     func refreshConversationMetadata(for chat: ChatItem) async {
         conversationMetadataGenerationByChat[chat.id, default: 0] &+= 1
         let generation = conversationMetadataGenerationByChat[chat.id] ?? 0
+        let epoch = conversationMetadataEpoch
 
         guard !chat.isDirect, let client, let activeAccount, let accountId = activeAccountId else {
-            if conversationMetadataGenerationByChat[chat.id] == generation {
+            if conversationMetadataEpoch == epoch,
+                conversationMetadataGenerationByChat[chat.id] == generation
+            {
                 conversationMetadataByChat[chat.id] = nil
             }
             return
@@ -38,6 +41,7 @@ extension WorkspaceState {
             let (resolvedDetails, resolvedManagement) = try await (details, management)
             guard
                 activeAccountId == accountId,
+                conversationMetadataEpoch == epoch,
                 conversationMetadataGenerationByChat[chat.id] == generation
             else { return }
             conversationMetadataByChat[chat.id] = ConversationMetadata(
@@ -48,10 +52,17 @@ extension WorkspaceState {
         } catch {
             guard
                 activeAccountId == accountId,
+                conversationMetadataEpoch == epoch,
                 conversationMetadataGenerationByChat[chat.id] == generation
             else { return }
             conversationMetadataByChat[chat.id] = nil
         }
+    }
+
+    func clearConversationMetadata() {
+        conversationMetadataEpoch &+= 1
+        conversationMetadataByChat.removeAll()
+        conversationMetadataGenerationByChat.removeAll()
     }
 
     func showGroupDetails(for chat: ChatItem) async {

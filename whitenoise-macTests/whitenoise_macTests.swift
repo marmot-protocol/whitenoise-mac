@@ -12483,6 +12483,48 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func teardownInvalidatesHeldConversationMetadataRefreshAfterSameAccountReturns() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        let accountId = try #require(state.activeAccountId)
+        state.conversationMetadataGenerationByChat[chat.id] = 0
+
+        runtime.groupDetailsGateEnabled = true
+        async let staleRefresh: Void = state.refreshConversationMetadata(for: chat)
+        while !runtime.didReachGroupDetailsGate {
+            await Task.yield()
+        }
+
+        state.resetActiveAccountUIState()
+        state.activeAccountId = nil
+
+        var currentDetails = groupDetailsFixture(
+            selfAccountIdHex: account.accountIdHex,
+            selfIsAdmin: false
+        )
+        currentDetails.group.disappearingMessageSecs = 120
+        runtime.installGroupDetails(currentDetails)
+        state.activeAccountId = accountId
+        await state.refreshConversationMetadata(for: chat)
+
+        let currentMetadata = try #require(state.conversationMetadataByChat[chat.id])
+        #expect(currentMetadata.disappearingMessageSecs == 120)
+        #expect(!currentMetadata.isSelfAdmin)
+
+        runtime.releaseGroupDetailsGate()
+        _ = await staleRefresh
+
+        // A pre-teardown request must not regain ownership when the generation dictionary is
+        // rebuilt for the same account and group. See #628 adversarial review.
+        #expect(state.conversationMetadataByChat[chat.id] == currentMetadata)
+    }
+
+    @MainActor
     @Test func messageActionsRemoveOwnReactionByDeletingReactionEvent() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
