@@ -1648,9 +1648,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// The sender's avatar URL, passed through the remote-image policy for incoming-bubble avatars.
     var senderSanitizedPictureURL: URL? { RemoteImageURLPolicy.sanitizedURL(from: senderPictureURL) }
 
-    /// Plain text and a single Markdown paragraph can place compact metadata at
-    /// the end of the final text line. Structured Markdown keeps a separate
-    /// metadata row so its block semantics remain intact.
+    /// Plain text and a single Markdown paragraph reserve the metadata slot at the
+    /// end of the final text line (under the bottom-trailing overlay). Structured
+    /// Markdown reserves a separate row so its block semantics remain intact.
     var supportsInlineMetadata: Bool {
         contentMarkdown == nil || contentMarkdown?.inlineParagraph != nil
     }
