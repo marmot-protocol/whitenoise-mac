@@ -386,6 +386,58 @@ struct PureValueTests {
         )
     }
 
+    @MainActor
+    @Test func emojiInsertionDefersObservableWritesUntilAfterViewUpdate() async {
+        var boundText = ""
+        var measuredHeight: CGFloat = -1
+        var measuredHeightWriteCount = 0
+        var boundSelections: [ComposerMentionSelection] = []
+        var consumedInsertions: [UUID] = []
+        let coordinator = ComposerMessageTextViewRepresentable.Coordinator(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            measuredHeight: Binding(
+                get: { measuredHeight },
+                set: {
+                    measuredHeight = $0
+                    measuredHeightWriteCount += 1
+                }
+            ),
+            mentionSelections: Binding(
+                get: { boundSelections },
+                set: { boundSelections = $0 }
+            ),
+            mentionContextScope: nil,
+            onPasteMedia: { _ in },
+            onSend: {},
+            onEmojiInsertionConsumed: { consumedInsertions.append($0) }
+        )
+        let textView = NSTextView()
+        textView.string = boundText
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        let insertion = ComposerEmojiInsertion(emoji: "🐾")
+
+        coordinator.scheduleEmojiInsertion(insertion, into: textView)
+        coordinator.scheduleEmojiInsertion(insertion, into: textView)
+
+        #expect(textView.string.isEmpty)
+        #expect(boundText.isEmpty)
+        #expect(measuredHeight == -1)
+        #expect(measuredHeightWriteCount == 0)
+        #expect(consumedInsertions.isEmpty)
+
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+
+        #expect(textView.string == "🐾")
+        #expect(boundText == "🐾")
+        #expect(measuredHeight > -1)
+        #expect(measuredHeightWriteCount == 1)
+        #expect(consumedInsertions == [insertion.id])
+    }
+
     @Test func composerReturnKeyPolicySendsPlainReturnOnly() async throws {
         #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: NSEvent.ModifierFlags()) == .send)
         #expect(ComposerKeyboardShortcutPolicy.returnKeyAction(for: .shift) == .insertLineBreak)

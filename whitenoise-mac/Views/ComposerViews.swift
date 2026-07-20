@@ -273,7 +273,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         }
         context.coordinator.synchronizeMentionMarkers(in: textView)
         context.coordinator.synchronizeMentionContextScope(mentionContextScope, in: textView)
-        context.coordinator.insertEmojiIfNeeded(emojiInsertion, into: textView)
+        context.coordinator.scheduleEmojiInsertion(emojiInsertion, into: textView)
         context.coordinator.insertMentionIfNeeded(mentionInsertion, into: textView)
         DispatchQueue.main.async {
             context.coordinator.updateMeasuredHeight(for: textView)
@@ -326,15 +326,17 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
             self.onMentionContextChange = onMentionContextChange
         }
 
-        func insertEmojiIfNeeded(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
+        func scheduleEmojiInsertion(_ insertion: ComposerEmojiInsertion?, into textView: NSTextView) {
             guard let insertion, insertion.id != lastEmojiInsertionID else { return }
             lastEmojiInsertionID = insertion.id
-            let selectedRange = textView.selectedRange()
-            textView.insertText(insertion.emoji, replacementRange: selectedRange)
-            text.wrappedValue = textView.string
-            updateMeasuredHeight(for: textView)
-            textView.window?.makeFirstResponder(textView)
-            onEmojiInsertionConsumed(insertion.id)
+            DispatchQueue.main.async { [self] in
+                let selectedRange = textView.selectedRange()
+                textView.insertText(insertion.emoji, replacementRange: selectedRange)
+                text.wrappedValue = textView.string
+                updateMeasuredHeight(for: textView)
+                textView.window?.makeFirstResponder(textView)
+                onEmojiInsertionConsumed(insertion.id)
+            }
         }
 
         func insertMentionIfNeeded(_ insertion: ComposerMentionInsertion?, into textView: NSTextView) {
