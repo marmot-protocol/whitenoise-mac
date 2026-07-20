@@ -6870,7 +6870,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func mediaDownloadFinishingAfterTimelinePruneDoesNotPublishPlaintext() async throws {
+    @Test func mediaDownloadCoalescesAcrossChatSwitchBeforeFirstFetchCompletes() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -6950,25 +6950,81 @@ struct whitenoise_macTests {
         )
 
         runtime.mediaDownloadGateEnabled = true
-        async let load: Void = state.loadMediaAttachment(attachment, for: message)
-        while !runtime.didReachMediaDownloadGate {
-            await Task.yield()
+        defer {
+            runtime.releaseMediaDownloadGate()
+            runtime.mediaDownloadGateEnabled = false
         }
+        let load = Task { await state.loadMediaAttachment(attachment, for: message) }
+        guard await waitFor({ runtime.didReachMediaDownloadGate }) else {
+            Issue.record("Expected first media download to reach the fake runtime gate")
+            return
+        }
+        #expect(state.mediaAttachmentDownloadTasks[cacheKey.cacheID] != nil)
 
-        state.replaceMessages([], groupIdHex: "group")
-        #expect(state.mediaDownloads[key] == nil)
+        state.selection = .chat("other-group")
+        // Model AutomaticMediaDownloadModifier.onDisappear: the view stops waiting, but the
+        // underlying FFI download can remain in flight and must stay joinable by the returning tile.
+        load.cancel()
+        await load.value
         #expect(stateStore.state == .idle)
+        state.replaceMessages([], groupIdHex: "group")
+        state.pruneMediaDownloadCache(keeping: "other-group")
+        #expect(state.mediaDownloads[key] == nil)
+        #expect(state.mediaAttachmentDownloadTasks[cacheKey.cacheID] != nil)
+
+        state.selection = .chat("group")
+        state.replaceMessages([message], groupIdHex: "group")
+        let recreatedStateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
+        #expect(recreatedStateStore !== stateStore)
+        #expect(recreatedStateStore.state == .idle)
+
+        // Model AutomaticMediaDownloadModifier: replacement load starts while the first
+        // runtime download is still gated, before the prune-era fetch can finish.
+        async let replacementLoad: Void = state.loadMediaAttachment(attachment, for: message)
+        let replacementEngaged = await waitFor {
+            if case .loading = recreatedStateStore.state {
+                return true
+            }
+            return runtime.downloadMediaCallCount > 1
+        }
+        guard replacementEngaged else {
+            Issue.record("Expected replacement media load to engage while the first runtime download is gated")
+            return
+        }
+        #expect(runtime.downloadMediaCallCount == 1)
 
         runtime.releaseMediaDownloadGate()
-        await load
-        for _ in 0..<20 where !state.mediaDiskStoreTasks.isEmpty {
-            await Task.yield()
+        await replacementLoad
+        guard
+            await waitFor({
+                state.mediaDiskStoreTasks.isEmpty && state.mediaAttachmentDownloadTasks.isEmpty
+            })
+        else {
+            Issue.record("Expected media download and disk-cache store tasks to finish")
+            return
         }
 
-        #expect(state.mediaDownloads[key] == nil)
         #expect(stateStore.state == .idle)
+        guard case .loaded(let loadedFromCoalescedFetch) = recreatedStateStore.state else {
+            Issue.record("Expected recreated store to load from the coalesced runtime download")
+            return
+        }
+        #expect(loadedFromCoalescedFetch.data == plaintext)
         #expect(state.mediaDiskStoreTasks.isEmpty)
-        #expect(await mediaDiskCache.cachedDownload(for: cacheKey) == nil)
+        guard let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) else {
+            Issue.record("Expected pruned late download to persist to encrypted disk cache")
+            return
+        }
+        #expect(cachedDownload.data == plaintext)
+        #expect(runtime.downloadMediaCallCount == 1)
+
+        await state.loadMediaAttachment(attachment, for: message)
+        guard case .loaded(let loaded) = recreatedStateStore.state else {
+            Issue.record("Expected recreated store to load from disk cache without re-downloading")
+            return
+        }
+        #expect(loaded.data == plaintext)
+        #expect(runtime.downloadMediaCallCount == 1)
     }
 
     @MainActor
@@ -7051,6 +7107,7 @@ struct whitenoise_macTests {
         while !runtime.didReachMediaDownloadGate {
             await Task.yield()
         }
+        #expect(state.mediaAttachmentDownloadTasks[cacheKey.cacheID] != nil)
 
         await state.deleteAllData()
         #expect(!fileManager.fileExists(atPath: root.path))
@@ -7062,6 +7119,7 @@ struct whitenoise_macTests {
         }
 
         #expect(state.mediaDiskStoreTasks.isEmpty)
+        #expect(state.mediaAttachmentDownloadTasks.isEmpty)
         if case .loaded = stateStore.state {
             Issue.record("Late download should not update loaded state after deleteAllData()")
         }
