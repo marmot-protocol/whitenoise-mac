@@ -4493,6 +4493,86 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func messageEditAcceptsNip10RelayHintedTargetTag() async throws {
+        let editRecord = timelineMessage(
+            id: "edit",
+            groupIdHex: "group",
+            sender: "alice",
+            plaintext: "Edited",
+            kind: 1_009,
+            tags: [MessageTagFfi(values: ["e", "target", "wss://relay.example", "reply"])],
+            recordedAt: 1_800_000_030
+        )
+
+        #expect(
+            MessageEditOverlay.mutations(from: [editRecord]) == [
+                .upsert(
+                    MessageEditOverlay(
+                        targetMessageIdHex: "target",
+                        editMessageIdHex: "edit",
+                        sender: "alice",
+                        plaintext: "Edited",
+                        timelineAt: 1_800_000_030
+                    ))
+            ])
+    }
+
+    @MainActor
+    @Test func messageEditUsesFirstValidTargetWhenAdditionalETagsArePresent() async throws {
+        let editRecord = timelineMessage(
+            id: "edit",
+            groupIdHex: "group",
+            sender: "alice",
+            plaintext: "Edited",
+            kind: 1_009,
+            tags: [
+                MessageTagFfi(values: ["e", "target"]),
+                MessageTagFfi(values: ["e", "reply-target", "wss://relay.example", "reply"]),
+            ],
+            recordedAt: 1_800_000_030
+        )
+
+        #expect(
+            MessageEditOverlay.mutations(from: [editRecord]) == [
+                .upsert(
+                    MessageEditOverlay(
+                        targetMessageIdHex: "target",
+                        editMessageIdHex: "edit",
+                        sender: "alice",
+                        plaintext: "Edited",
+                        timelineAt: 1_800_000_030
+                    ))
+            ])
+    }
+
+    @MainActor
+    @Test func messageEditWithoutValidTargetRetractsCandidate() async throws {
+        let missingTarget = timelineMessage(
+            id: "missing-target",
+            groupIdHex: "group",
+            sender: "alice",
+            plaintext: "Edited",
+            kind: 1_009,
+            recordedAt: 1_800_000_030
+        )
+        let blankTarget = timelineMessage(
+            id: "blank-target",
+            groupIdHex: "group",
+            sender: "alice",
+            plaintext: "Edited",
+            kind: 1_009,
+            tags: [MessageTagFfi(values: ["e", "   ", "wss://relay.example"])],
+            recordedAt: 1_800_000_031
+        )
+
+        #expect(
+            MessageEditOverlay.mutations(from: [missingTarget, blankTarget]) == [
+                .retract(editMessageIdHex: "missing-target"),
+                .retract(editMessageIdHex: "blank-target"),
+            ])
+    }
+
+    @MainActor
     @Test func timelineStoreIgnoresKind1009EditsFromDifferentAuthors() async throws {
         let page = TimelinePageFfi(
             messages: [
