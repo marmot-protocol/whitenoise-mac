@@ -39,7 +39,8 @@ nonisolated enum RemoteImageURLPolicy {
     /// bytes under the response-size cap and never trips the per-request stall timeout.
     static let downloadResourceTimeout: TimeInterval = 60
 
-    /// Returns true if `url` is safe to fetch: `https` scheme with a non-empty, public host.
+    /// Returns true if `url` is safe to fetch: `https`, no embedded userinfo, and a non-empty,
+    /// public host.
     ///
     /// "Public host" means the host is not a literal private/loopback/link-local/unspecified
     /// IP address and not an obvious local hostname (`localhost`, `*.local`). This is the SSRF
@@ -54,6 +55,10 @@ nonisolated enum RemoteImageURLPolicy {
     /// local-hostname vectors (which is what the attacker can set without controlling DNS).
     static func isAllowed(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "https" else { return false }
+        // Reject embedded userinfo before host-based checks. A peer-controlled
+        // avatar URL like `https://trusted.example@evil.example` connects to
+        // `evil.example` but reads as the trusted host to a human.
+        guard url.user == nil, url.password == nil else { return false }
         guard let host = url.host, !host.isEmpty else { return false }
         guard !isDisallowedHost(host) else { return false }
         return true

@@ -1527,6 +1527,23 @@ struct PureValueTests {
                 == "https://cdn.example/p.png")
     }
 
+    @Test func remoteImagePolicyRejectsEmbeddedUserinfoHostConfusion() async throws {
+        // Profile picture URLs are attacker-controlled Nostr metadata. Embedded userinfo can make
+        // the URL read like a trusted host while URL parsing fetches from the attacker's host;
+        // match MarkdownLinkPolicy and reject any user/password component before allowing a fetch.
+        for raw in [
+            "https://trusted.example@evil.example/x.png",
+            "https://cdn.example@evil.example/avatar.png",
+            "https://user:pass@evil.example/x.png",
+            "https://:pass@evil.example/x.png",
+            "https://user@evil.example/x.png",
+        ] {
+            let url = try #require(URL(string: raw))
+            #expect(!RemoteImageURLPolicy.isAllowed(url), "expected rejection for \(raw)")
+            #expect(RemoteImageURLPolicy.sanitizedURL(from: raw) == nil, "expected nil for \(raw)")
+        }
+    }
+
     @Test func remoteImageCollectorReturnsAllBytesUnderCap() async throws {
         // Several chunks spanning typical OS delivery sizes should round-trip byte-for-byte.
         let chunkSize = 64 * 1024
