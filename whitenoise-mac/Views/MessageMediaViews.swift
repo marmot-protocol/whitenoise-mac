@@ -1439,6 +1439,7 @@ struct MessageImageGalleryOverlay: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.opacity(0.92)
+                    .onTapGesture(perform: onClose)
 
                 imageContent
                     .frame(
@@ -1470,6 +1471,7 @@ struct MessageImageGalleryOverlay: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.white)
                         .help("Close")
+                        .accessibilityLabel("Close")
                     }
                     .padding(.horizontal, 22)
                     .padding(.top, 18)
@@ -1479,23 +1481,31 @@ struct MessageImageGalleryOverlay: View {
 
                 if canNavigate {
                     HStack {
-                        navigationButton(systemName: "chevron.left", isEnabled: selectedIndex > 0) {
+                        navigationButton(
+                            systemName: "chevron.left",
+                            accessibilityLabel: "Previous image",
+                            isEnabled: selectedIndex > 0
+                        ) {
                             selectedIndex = max(0, selectedIndex - 1)
                         }
+                        .keyboardShortcut(.leftArrow, modifiers: [])
 
                         Spacer()
 
                         navigationButton(
                             systemName: "chevron.right",
+                            accessibilityLabel: "Next image",
                             isEnabled: selectedIndex < presentation.imageAttachments.count - 1
                         ) {
                             selectedIndex = min(presentation.imageAttachments.count - 1, selectedIndex + 1)
                         }
+                        .keyboardShortcut(.rightArrow, modifiers: [])
                     }
                     .padding(.horizontal, 22)
                 }
             }
         }
+        .onExitCommand(perform: onClose)
     }
 
     @ViewBuilder
@@ -1509,6 +1519,7 @@ struct MessageImageGalleryOverlay: View {
 
     private func navigationButton(
         systemName: String,
+        accessibilityLabel: String,
         isEnabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -1521,7 +1532,8 @@ struct MessageImageGalleryOverlay: View {
         .buttonStyle(.plain)
         .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.28))
         .disabled(!isEnabled)
-        .help(systemName == "chevron.left" ? "Previous image" : "Next image")
+        .help(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 

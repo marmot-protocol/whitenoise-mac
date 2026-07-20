@@ -7161,6 +7161,34 @@ struct whitenoise_macTests {
         #expect(tileSource.contains("Task { await workspace.loadMediaAttachment(attachment, for: message) }"))
     }
 
+    @Test func imageGalleryProvidesDismissalNavigationAndAccessibilityAffordances() throws {
+        // MessageImageGalleryOverlay is SwiftUI event wiring, so guard its source contract:
+        // pointer and keyboard users can dismiss it, keyboard users can page through images,
+        // and VoiceOver receives explicit labels for every icon-only control.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let overlayStart = try #require(source.range(of: "struct MessageImageGalleryOverlay: View {"))
+        let rest = source[overlayStart.upperBound...]
+        let overlayEnd = try #require(rest.range(of: "\nstruct MessageImageGalleryContent: View {")?.lowerBound)
+        let overlaySource = String(source[overlayStart.lowerBound..<overlayEnd])
+        let normalizedSource = overlaySource.components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(normalizedSource.contains(".onTapGesture(perform:onClose)"))
+        #expect(normalizedSource.contains(".onExitCommand(perform:onClose)"))
+        #expect(normalizedSource.contains(".keyboardShortcut(.leftArrow,modifiers:[])"))
+        #expect(normalizedSource.contains(".keyboardShortcut(.rightArrow,modifiers:[])"))
+        #expect(normalizedSource.contains(".accessibilityLabel(\"Close\")"))
+        #expect(normalizedSource.contains(".accessibilityLabel(accessibilityLabel)"))
+        #expect(overlaySource.contains("accessibilityLabel: \"Previous image\""))
+        #expect(overlaySource.contains("accessibilityLabel: \"Next image\""))
+    }
+
     @Test func automaticMediaDownloadCancelsWhenTileLeavesViewport() throws {
         // AutomaticMediaDownloadModifier is SwiftUI lifecycle wiring, so exercise its source
         // contract directly: the task must be retained and cancelled both on scroll-out and
