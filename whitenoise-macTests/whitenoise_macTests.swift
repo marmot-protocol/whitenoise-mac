@@ -489,6 +489,17 @@ struct whitenoise_macTests {
             running: false
         )
         runtime.createdAccount = secondary
+        state.composeContacts = [
+            ComposeContact(
+                accountIdHex: String(repeating: "2", count: 64),
+                npub: "npub1primarycontact",
+                displayName: "Primary contact",
+                pictureURL: "https://example.com/primary-contact.png",
+                lastActivity: Date()
+            )
+        ]
+        state.isLoadingComposeContacts = true
+        state.composeContactsGeneration = 41
         state.showLogin()
         state.loginIdentity = "nsec1backup"
         await state.login()
@@ -502,6 +513,9 @@ struct whitenoise_macTests {
         let allAccountsRunning = state.accounts.allSatisfy { $0.isRunning }
         #expect(allAccountsRunning)
         #expect(state.activeAccountId == "Backup Account")
+        #expect(state.composeContacts.isEmpty)
+        #expect(!state.isLoadingComposeContacts)
+        #expect(state.composeContactsGeneration == 42)
     }
 
     @MainActor
@@ -1469,13 +1483,27 @@ struct whitenoise_macTests {
         )
         state.lastMarkedReadMarkers["shared-group"] = marker
         state.lastConfirmedReadMarkers["shared-group"] = marker
+        state.composeContacts = [
+            ComposeContact(
+                accountIdHex: String(repeating: "2", count: 64),
+                npub: "npub1accountacontact",
+                displayName: "Account A contact",
+                pictureURL: "https://example.com/account-a.png",
+                lastActivity: Date()
+            )
+        ]
+        state.isLoadingComposeContacts = true
+        state.composeContactsGeneration = 41
 
         state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
 
-        // Live account switches must not inherit groupIdHex-keyed read markers from
-        // the previous identity. See #429.
+        // Live account switches must not inherit groupIdHex-keyed read markers or the
+        // previous identity's compose-flow contact directory. See #429/#588.
         #expect(state.lastMarkedReadMarkers.isEmpty)
         #expect(state.lastConfirmedReadMarkers.isEmpty)
+        #expect(state.composeContacts.isEmpty)
+        #expect(!state.isLoadingComposeContacts)
+        #expect(state.composeContactsGeneration == 42)
         #expect(state.activeAccountId == backupAccount.id)
     }
 
@@ -1635,12 +1663,23 @@ struct whitenoise_macTests {
         state.newChatDescription = "Private chat description"
         state.newChatRecipient = recipient
         state.newChatRecipients = [recipient]
+        state.composeContacts = [
+            ComposeContact(
+                accountIdHex: recipient.accountIdHex,
+                npub: recipient.npub,
+                displayName: recipient.displayName,
+                pictureURL: recipient.pictureURL,
+                lastActivity: Date()
+            )
+        ]
+        state.isLoadingComposeContacts = true
+        state.composeContactsGeneration = 41
 
         state.resetActiveAccountUIState()
 
         // Sign-out and active-account removal share this reset path; group-scoped
-        // roster/details, invite queries, image-picker results, and new-chat recipients
-        // must not survive account teardown. See #398.
+        // roster/details, invite queries, image-picker results, new-chat recipients,
+        // and the compose contact directory must not survive account teardown. See #398/#588.
         #expect(!state.isGroupDetailsPresented)
         #expect(state.groupDetailsSnapshot == nil)
         #expect(state.groupProfileDraftName.isEmpty)
@@ -1654,6 +1693,9 @@ struct whitenoise_macTests {
         #expect(state.newChatDescription.isEmpty)
         #expect(state.newChatRecipient == nil)
         #expect(state.newChatRecipients.isEmpty)
+        #expect(state.composeContacts.isEmpty)
+        #expect(!state.isLoadingComposeContacts)
+        #expect(state.composeContactsGeneration == 42)
     }
 
     @MainActor
@@ -16086,6 +16128,28 @@ struct whitenoise_macTests {
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecordingMeterTask == nil)
         #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @MainActor
+    @Test func resetToNewInstallStateClearsComposeContacts() {
+        let state = WorkspaceState.preview()
+        state.composeContacts = [
+            ComposeContact(
+                accountIdHex: String(repeating: "2", count: 64),
+                npub: "npub1accountacontact",
+                displayName: "Account A contact",
+                pictureURL: "https://example.com/account-a.png",
+                lastActivity: Date()
+            )
+        ]
+        state.isLoadingComposeContacts = true
+        state.composeContactsGeneration = 41
+
+        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+
+        #expect(state.composeContacts.isEmpty)
+        #expect(!state.isLoadingComposeContacts)
+        #expect(state.composeContactsGeneration == 42)
     }
 
     @MainActor

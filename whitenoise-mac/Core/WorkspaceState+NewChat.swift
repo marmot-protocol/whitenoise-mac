@@ -280,6 +280,14 @@ extension WorkspaceState {
         creatingDirectChatIdHex = nil
     }
 
+    /// Drops the active account's compose directory and invalidates any refresh that is
+    /// still fetching group rosters, preventing it from restoring contacts after teardown.
+    func resetComposeContacts() {
+        composeContacts = []
+        isLoadingComposeContacts = false
+        composeContactsGeneration &+= 1
+    }
+
     func beginNewChatLookup() -> UInt64 {
         newChatLookupGeneration &+= 1
         return newChatLookupGeneration

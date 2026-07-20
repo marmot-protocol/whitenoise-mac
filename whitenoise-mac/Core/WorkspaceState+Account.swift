@@ -99,6 +99,7 @@ extension WorkspaceState {
         chatListFilter = .active
         archivingChatId = nil
         closeNewChatComposer()
+        resetComposeContacts()
         pruneMessageCache(keeping: groupIdHex)
         conversationMetadataByChat.removeAll()
         conversationMetadataGenerationByChat.removeAll()
@@ -366,6 +367,7 @@ extension WorkspaceState {
     private func resetAccountScopedGroupAndNewChatUIState() {
         isNewChatComposerVisible = false
         resetNewChatComposer()
+        resetComposeContacts()
         isResolvingNewChat = false
         isCreatingChat = false
 
@@ -597,6 +599,7 @@ extension WorkspaceState {
         }
 
         accounts = refreshed
+        resetComposeContacts()
         activeAccountId = preferredAccount.id
         invalidateNotificationSettingsOperations()
         UserDefaults.standard.set(preferredAccount.id, forKey: Self.activeAccountKey)
