@@ -974,6 +974,8 @@ private nonisolated enum MessageMediaParser {
     // but keeps its own policy name so it can diverge from outgoing media limits.
     private static let maxFallbackAttachmentsPerMessage =
         OutgoingMediaDraftProcessor.maxAttachmentCount
+    private static let maxFallbackLocatorsPerAttachment =
+        maxFallbackAttachmentsPerMessage
     private static let logger = Logger(subsystem: "com.whitenoise.media", category: "MessageMediaParser")
 
     static func attachments(
@@ -1191,7 +1193,9 @@ private nonisolated enum MessageMediaParser {
                 let kind = String(locator[..<split])
                 let value = String(locator[locator.index(after: split)...])
                 guard !kind.isEmpty, !value.isEmpty else { continue }
-                locators.append(MediaLocatorFfi(kind: kind, value: value))
+                if locators.count < maxFallbackLocatorsPerAttachment {
+                    locators.append(MediaLocatorFfi(kind: kind, value: value))
+                }
                 continue
             }
             guard let split = field.firstIndex(of: " ") else { continue }
@@ -1224,7 +1228,7 @@ private nonisolated enum MessageMediaParser {
 
     private static func locators(fromJSONObject value: Any?) -> [MediaLocatorFfi] {
         guard let locators = value as? [Any] else { return [] }
-        return locators.compactMap { locator in
+        return locators.prefix(maxFallbackLocatorsPerAttachment).compactMap { locator in
             guard let locator = locator as? [String: Any],
                 let kind = string(locator, keys: ["kind"]),
                 let value = string(locator, keys: ["value"])
