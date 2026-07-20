@@ -740,7 +740,7 @@ nonisolated extension MessageItem {
             return nil
         }
         // Fast path: an unstyled single-paragraph message renders identically to the plain
-        // `Text(message.body)` fallback, which is dramatically cheaper for SwiftUI to size
+        // `Text(message.rawBubbleDisplayBody)` fallback, which is dramatically cheaper for SwiftUI to size
         // than the Markdown block/inline view tree (VStack → ForEach → MarkdownBlockView →
         // MarkdownInlineText → fixed-size Text). Most chat messages are exactly this, and
         // sizing/re-measuring that tree for ~100–200 rows during scroll-anchor resolution was
