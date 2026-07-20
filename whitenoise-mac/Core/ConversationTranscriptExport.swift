@@ -407,7 +407,8 @@ nonisolated enum ConversationTranscriptExport {
 
     private static func markerURL(for messageIdHex: String, in markersDirectory: URL) -> URL {
         let (shard, filename) = markerComponents(for: messageIdHex)
-        return markersDirectory
+        return
+            markersDirectory
             .appendingPathComponent(shard, isDirectory: true)
             .appendingPathComponent(filename, isDirectory: false)
     }
