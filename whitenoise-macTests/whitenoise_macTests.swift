@@ -7227,6 +7227,42 @@ struct whitenoise_macTests {
         #expect(normalizedSource.contains("MessageMediaPlaybackFileStore.remove(at:url)"))
     }
 
+    @Test func audioPlayerStopsWhenTileLeavesViewport() throws {
+        // MessageAudioAttachmentPlayer lives inside the deliberately eager transcript VStack,
+        // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
+        // must stop playback and cancel the progress monitor through the same stopPlayback path.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let playerStart = try #require(source.range(of: "struct MessageAudioAttachmentPlayer: View {"))
+        let rest = source[playerStart.upperBound...]
+        let playerEnd = try #require(rest.range(of: "\nstruct MessageVideoAttachmentPlayer: View {")?.lowerBound)
+        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+
+        let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(
+            normalizedSource.contains(
+                ".onScrollVisibilityChange(threshold:0.01){isVisibleinguard!isVisibleelse{return}stopPlayback()}"
+            )
+        )
+        #expect(
+            normalizedSource.contains(
+                "privatefuncstopPlayback(){playbackPreparationID=nil"
+            )
+        )
+        #expect(
+            normalizedSource.contains(
+                "privatefuncfinishPlayback(){playbackMonitor?.cancel()playbackMonitor=nil"
+            )
+        )
+    }
+
     @MainActor
     @Test func loadMediaAttachmentRetriesFromFailedState() async throws {
         let account = AccountSummaryFfi(
