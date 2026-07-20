@@ -364,7 +364,9 @@ extension WorkspaceState {
         let currentPaging = timelinePagingByChat[groupIdHex]
         // Keep "Delete for me" hides out of every full window replace, not just the incremental path.
         let visibleMessages = filterHiddenMessages(mappedMessages, groupIdHex: groupIdHex)
-        TimelineSignpost.store.interval("replaceMessages", count: visibleMessages.count) {
+        let didChangeMediaAttachments = TimelineSignpost.store.interval(
+            "replaceMessages", count: visibleMessages.count
+        ) {
             replaceMessages(
                 visibleMessages,
                 groupIdHex: groupIdHex,
@@ -376,6 +378,9 @@ extension WorkspaceState {
                 ),
                 editMutations: editMutations
             )
+        }
+        if didChangeMediaAttachments {
+            clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
         }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
@@ -1190,12 +1195,13 @@ extension WorkspaceState {
         }
     }
 
+    @discardableResult
     func replaceMessages(
         _ messages: [MessageItem],
         groupIdHex: String,
         paging: TimelinePagingState? = nil,
         editMutations: [MessageEditMutation] = []
-    ) {
+    ) -> Bool {
         // The window is already ordered, deduped, and capped by the runtime subscription,
         // so render it as-is. The per-chat id/lookup caches live on the store
         // (`MessageTimelineStore.replace` rebuilds them); we only mark this chat as the one
@@ -1209,7 +1215,7 @@ extension WorkspaceState {
 
         cachedMessageChatIds = [groupIdHex]
         messageTimelineStores = [groupIdHex: timelineStore]
-        timelineStore.replace(
+        let didChangeMediaAttachments = timelineStore.replace(
             with: messages,
             editMutations: editMutations,
             windowLimit: Self.timelineWindowLimit
@@ -1221,6 +1227,7 @@ extension WorkspaceState {
         }
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
         pruneMediaDownloadCache(keeping: groupIdHex)
+        return didChangeMediaAttachments
     }
 
     func finalizeTimelineStoreMutation(

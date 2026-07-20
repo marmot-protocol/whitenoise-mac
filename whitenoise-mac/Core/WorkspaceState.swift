@@ -273,6 +273,9 @@ final class MessageTimelineStore {
     @ObservationIgnored private var editCandidatesByTargetId: [String: [MessageEditOverlay]] = [:]
     /// Candidates inspected by the most recent full render pass. Diagnostic / test helper.
     @ObservationIgnored private(set) var lastRenderEditCandidateVisitCount = 0
+    /// Earliest sort key of a media-changing upsert suppressed from a detached window.
+    /// Consumed when an authoritative replace first retains media at/after this key.
+    @ObservationIgnored private var pendingSuppressedMediaSortKey: TimelineSortKey?
     private(set) var isLoaded: Bool
 
     init(messages: [MessageItem] = [], isLoaded: Bool = false) {
@@ -296,7 +299,13 @@ final class MessageTimelineStore {
         MessageTimelineStore(messages: messages, isLoaded: true)
     }
 
-    func replace(with messages: [MessageItem], editMutations: [MessageEditMutation] = [], windowLimit: Int? = nil) {
+    @discardableResult
+    func replace(
+        with messages: [MessageItem],
+        editMutations: [MessageEditMutation] = [],
+        windowLimit: Int? = nil
+    ) -> Bool {
+        let priorLookup = lookup
         let bases = Self.deduplicatedMessages(messages)
         self.messages = bases
         baseMessagesById = Dictionary(bases.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
@@ -306,6 +315,7 @@ final class MessageTimelineStore {
         pruneEditCandidates(windowLimit: windowLimit ?? max(bases.count, 1))
         _ = recomputeAllRenderedMessages()
         self.isLoaded = true
+        return consumeMediaAttachmentInvalidation(afterAuthoritativeReplace: bases, priorLookup: priorLookup)
     }
 
     func clear() {
@@ -315,6 +325,7 @@ final class MessageTimelineStore {
         indexById = [:]
         baseMessagesById = [:]
         replaceEditCandidates(with: [:])
+        pendingSuppressedMediaSortKey = nil
         isLoaded = false
     }
 
@@ -406,6 +417,17 @@ final class MessageTimelineStore {
         let didChangeMediaAttachments = mediaAttachmentsBeforeUpserts.contains { id, previous in
             guard let retained = lookup[id] else { return false }
             return previous != retained.mediaAttachments
+        }
+        if didChangeMediaAttachments {
+            pendingSuppressedMediaSortKey = nil
+        } else {
+            for item in upserts {
+                guard let previous = mediaAttachmentsBeforeUpserts[item.id] else { continue }
+                guard lookup[item.id] == nil else { continue }
+                guard !previous.isEmpty || !item.mediaAttachments.isEmpty else { continue }
+                guard previous != item.mediaAttachments else { continue }
+                recordPendingSuppressedMediaSortKey(for: item)
+            }
         }
         return ProjectionApplyResult(
             didChange: didChange,
@@ -655,6 +677,42 @@ final class MessageTimelineStore {
         for index in startIndex..<messages.endIndex {
             indexById[messages[index].id] = index
         }
+    }
+
+    private func recordPendingSuppressedMediaSortKey(for item: MessageItem) {
+        guard !item.mediaAttachments.isEmpty else { return }
+        let key = TimelineSortKey(item)
+        if let existing = pendingSuppressedMediaSortKey, key >= existing {
+            return
+        }
+        pendingSuppressedMediaSortKey = key
+    }
+
+    private func consumeMediaAttachmentInvalidation(
+        afterAuthoritativeReplace bases: [MessageItem],
+        priorLookup: [String: MessageItem]
+    ) -> Bool {
+        let didChangeMediaAttachments = bases.contains { item in
+            guard let previous = priorLookup[item.id] else { return false }
+            let previousAttachments = previous.mediaAttachments
+            let nextAttachments = item.mediaAttachments
+            guard !previousAttachments.isEmpty || !nextAttachments.isEmpty else { return false }
+            return previousAttachments != nextAttachments
+        }
+        if didChangeMediaAttachments {
+            pendingSuppressedMediaSortKey = nil
+            return true
+        }
+        guard let watermark = pendingSuppressedMediaSortKey else { return false }
+        guard
+            bases.contains(where: { item in
+                !item.mediaAttachments.isEmpty && TimelineSortKey(item) >= watermark
+            })
+        else {
+            return false
+        }
+        pendingSuppressedMediaSortKey = nil
+        return true
     }
 
     private func insertionIndex(for item: MessageItem) -> Int {

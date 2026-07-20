@@ -833,6 +833,29 @@ struct PureValueTests {
         #expect(!store.containsMessage(id: "N"))
         #expect(result.didChange)
         #expect(!result.didChangeMediaAttachments)
+
+        // #631: media added by unrelated backward pagination must not consume the pending
+        // invalidation. It fires once the suppressed media row is actually retained.
+        let olderMedia = MessageMediaAttachment(
+            id: "older-attachment",
+            reference: mediaReference(fileName: "older.png", mediaType: "image/png")
+        )
+        let pagingOlderMedia = store.replace(with: [
+            message(id: "O", timelineAt: 90, mediaAttachments: [olderMedia]),
+            message(id: "L", timelineAt: 95),
+        ])
+        #expect(!pagingOlderMedia)
+
+        let retainedSuppressedMedia = store.replace(with: [
+            message(id: "L", timelineAt: 95),
+            message(id: "N", timelineAt: 98, mediaAttachments: [suppressedMedia]),
+        ])
+        #expect(retainedSuppressedMedia)
+        #expect(
+            !store.replace(with: [
+                message(id: "L", timelineAt: 95),
+                message(id: "N", timelineAt: 98, mediaAttachments: [suppressedMedia]),
+            ]))
     }
 
     @MainActor
