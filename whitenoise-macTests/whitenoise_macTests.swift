@@ -5865,19 +5865,21 @@ struct whitenoise_macTests {
                     groupIdHex: "group",
                     sender: "alice",
                     plaintext: "",
-                    tags: [MessageTagFfi(values: [
-                        "imeta",
-                        "locator \(overKind) https://blob.example/over-kind",
-                        "locator blossom \(overValue)",
-                        "locator \(boundaryKind) \(boundaryValue)",
-                        "locator blossom https://blob.example/valid",
-                        "ciphertext_sha256 \(reference.ciphertextSha256)",
-                        "plaintext_sha256 \(reference.plaintextSha256)",
-                        "nonce \(reference.nonceHex)",
-                        "filename \(reference.fileName)",
-                        "m \(reference.mediaType)",
-                        "v \(reference.version)",
-                    ])],
+                    tags: [
+                        MessageTagFfi(values: [
+                            "imeta",
+                            "locator \(overKind) https://blob.example/over-kind",
+                            "locator blossom \(overValue)",
+                            "locator \(boundaryKind) \(boundaryValue)",
+                            "locator blossom https://blob.example/valid",
+                            "ciphertext_sha256 \(reference.ciphertextSha256)",
+                            "plaintext_sha256 \(reference.plaintextSha256)",
+                            "nonce \(reference.nonceHex)",
+                            "filename \(reference.fileName)",
+                            "m \(reference.mediaType)",
+                            "v \(reference.version)",
+                        ])
+                    ],
                     recordedAt: 1_700_000_000
                 )
             ],
