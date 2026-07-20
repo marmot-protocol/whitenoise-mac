@@ -57,7 +57,10 @@ struct GroupDetailsSheet: View {
     @State private var showRemoveLocallyConfirmation = false
     @State private var isAddMembersPresented = false
     @State private var isCustomDisappearingPresented = false
-    @State private var customDurationValue: UInt64 = 1
+    // Kept as an exactly parsed decimal string: `UInt64.Stride` is `Int`, so any
+    // range-based numeric control spanning past `Int.max` traps in stride math,
+    // and narrowing to `Int` silently clamps large core values.
+    @State private var customDurationText = "1"
     @State private var customDurationUnit = CustomDurationUnit.days
     let chat: ChatItem
 
@@ -94,18 +97,18 @@ struct GroupDetailsSheet: View {
     /// unit that divides it evenly so a 4-week timer opens as "4 weeks".
     private func seedCustomDuration(from seconds: UInt64) {
         guard seconds > 0 else {
-            customDurationValue = 1
+            customDurationText = "1"
             customDurationUnit = .days
             return
         }
         for unit in CustomDurationUnit.allCases.reversed() where seconds % unit.seconds == 0 {
-            // Stays UInt64 end-to-end so any core value round-trips through Set unchanged.
-            customDurationValue = seconds / unit.seconds
+            // Stays UInt64-exact so any core value round-trips through Set unchanged.
+            customDurationText = String(seconds / unit.seconds)
             customDurationUnit = unit
             return
         }
         // Unreachable — the `.seconds` unit divides any value — but keeps the compiler happy.
-        customDurationValue = seconds
+        customDurationText = String(seconds)
         customDurationUnit = .seconds
     }
 
@@ -114,10 +117,18 @@ struct GroupDetailsSheet: View {
             Text(L10n.string("Custom duration"))
                 .font(.headline)
             HStack(spacing: 8) {
-                Stepper(value: $customDurationValue, in: 1...UInt64.max) {
-                    TextField("", value: $customDurationValue, format: .number)
+                // Closure-based stepper: no range, so no stride arithmetic to
+                // trap on; the parsed value saturates at the UInt64 bounds.
+                Stepper {
+                    TextField("", text: $customDurationText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 64)
+                } onIncrement: {
+                    guard let value = customDurationValue, value < UInt64.max else { return }
+                    customDurationText = String(value + 1)
+                } onDecrement: {
+                    guard let value = customDurationValue, value > 1 else { return }
+                    customDurationText = String(value - 1)
                 }
                 Picker("", selection: $customDurationUnit) {
                     ForEach(CustomDurationUnit.allCases) { unit in
@@ -142,12 +153,17 @@ struct GroupDetailsSheet: View {
         .frame(width: 300)
     }
 
+    /// The entered count, exactly parsed; `nil` for anything that isn't a decimal `UInt64`.
+    private var customDurationValue: UInt64? {
+        UInt64(customDurationText.trimmingCharacters(in: .whitespaces))
+    }
+
     /// The entered duration in seconds, or `nil` when it isn't a positive value that fits `UInt64`.
     /// Bounds the *total* (value × unit), not a raw per-unit cap, so large-but-valid values commit.
     private var customDurationSeconds: UInt64? {
-        guard customDurationValue >= 1 else { return nil }
+        guard let value = customDurationValue, value >= 1 else { return nil }
         let (seconds, overflow) =
-            customDurationValue
+            value
             .multipliedReportingOverflow(by: customDurationUnit.seconds)
         return overflow ? nil : seconds
     }
