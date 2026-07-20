@@ -1542,7 +1542,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func prepareForActiveAccountSwitchClearsReadMarkers() async throws {
+    @Test func prepareForActiveAccountSwitchClearsAccountScopedResidue() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -1574,6 +1574,8 @@ struct whitenoise_macTests {
         )
         state.lastMarkedReadMarkers["shared-group"] = marker
         state.lastConfirmedReadMarkers["shared-group"] = marker
+        state.deliveredNotificationKeys.insert("notif-from-primary")
+        state.deliveredNotificationKeyOrder.append("notif-from-primary")
         state.composeContacts = [
             ComposeContact(
                 accountIdHex: String(repeating: "2", count: 64),
@@ -1588,10 +1590,12 @@ struct whitenoise_macTests {
 
         state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
 
-        // Live account switches must not inherit groupIdHex-keyed read markers or the
-        // previous identity's compose-flow contact directory. See #429/#588.
+        // Live account switches must not inherit account-scoped residue from the
+        // previous identity. See #429/#588/#646.
         #expect(state.lastMarkedReadMarkers.isEmpty)
         #expect(state.lastConfirmedReadMarkers.isEmpty)
+        #expect(state.deliveredNotificationKeys.isEmpty)
+        #expect(state.deliveredNotificationKeyOrder.isEmpty)
         #expect(state.composeContacts.isEmpty)
         #expect(!state.isLoadingComposeContacts)
         #expect(state.composeContactsGeneration == 42)
