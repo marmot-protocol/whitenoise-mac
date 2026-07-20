@@ -1542,7 +1542,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func prepareForActiveAccountSwitchClearsAccountScopedResidue() async throws {
+    @Test func prepareForActiveAccountSwitchClearsReadMarkers() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -1574,8 +1574,6 @@ struct whitenoise_macTests {
         )
         state.lastMarkedReadMarkers["shared-group"] = marker
         state.lastConfirmedReadMarkers["shared-group"] = marker
-        state.deliveredNotificationKeys.insert("notif-from-primary")
-        state.deliveredNotificationKeyOrder.append("notif-from-primary")
         state.composeContacts = [
             ComposeContact(
                 accountIdHex: String(repeating: "2", count: 64),
@@ -1590,12 +1588,10 @@ struct whitenoise_macTests {
 
         state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
 
-        // Live account switches must not inherit account-scoped residue from the
-        // previous identity. See #429/#588/#646.
+        // Live account switches must not inherit groupIdHex-keyed read markers or the
+        // previous identity's compose-flow contact directory. See #429/#588.
         #expect(state.lastMarkedReadMarkers.isEmpty)
         #expect(state.lastConfirmedReadMarkers.isEmpty)
-        #expect(state.deliveredNotificationKeys.isEmpty)
-        #expect(state.deliveredNotificationKeyOrder.isEmpty)
         #expect(state.composeContacts.isEmpty)
         #expect(!state.isLoadingComposeContacts)
         #expect(state.composeContactsGeneration == 42)
@@ -19413,6 +19409,75 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func accountSwitchPreservesClientWideNotificationReplayDeduplication() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let accountA = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installNotificationSettings(
+            accountRef: accountA.label,
+            settings: notificationSettings(for: accountA, localEnabled: true)
+        )
+        runtime.installNotificationSettings(
+            accountRef: accountB.label,
+            settings: notificationSettings(for: accountB, localEnabled: true)
+        )
+        UserDefaults.standard.set(accountA.label, forKey: WorkspaceState.activeAccountKey)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        let messageIdHex = String(repeating: "f", count: 64)
+        let accountAKey = "message:\(accountA.accountIdHex):\(messageIdHex)"
+        let accountBKey = "message:\(accountB.accountIdHex):\(messageIdHex)"
+        let accountAUpdate = notificationUpdate(
+            account: accountA,
+            notificationKey: accountAKey,
+            senderName: "Alice",
+            previewText: "For account A.",
+            messageIdHex: messageIdHex
+        )
+
+        await state.bootstrap()
+        await state.handleNotificationUpdate(accountAUpdate)
+        state.prepareForActiveAccountSwitch(
+            to: AccountItem(summary: accountB),
+            preservingMessageCacheFor: nil
+        )
+        await state.handleNotificationUpdate(accountAUpdate)
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: accountB,
+                notificationKey: accountBKey,
+                senderName: "Alice",
+                previewText: "For account B.",
+                messageIdHex: messageIdHex
+            ))
+
+        // The listener is client-wide, so an account-A replay can still arrive after
+        // switching to B. MDK account-namespaces keys, allowing B's distinct update
+        // through while the replay remains suppressed. See #646.
+        #expect(notificationCenter.postedRequests.map(\.identifier) == [accountAKey, accountBKey])
+    }
+
+    @MainActor
     @Test func activeSelectedChatNotificationPostsLocalAlertWhenConversationWindowIsHidden() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -22637,7 +22702,8 @@ private func notificationUpdate(
     previewText: String,
     isDm: Bool = true,
     groupName: String? = nil,
-    isFromSelf: Bool = false
+    isFromSelf: Bool = false,
+    messageIdHex: String? = nil
 ) -> NotificationUpdateFfi {
     NotificationUpdateFfi(
         notificationKey: notificationKey,
@@ -22649,7 +22715,7 @@ private func notificationUpdate(
         groupName: groupName,
         isDm: isDm,
         isMention: false,
-        messageIdHex: "\(notificationKey)-message",
+        messageIdHex: messageIdHex ?? "\(notificationKey)-message",
         sender: NotificationUserFfi(
             accountIdHex: isFromSelf
                 ? account.accountIdHex : "alice1234567890alice1234567890alice1234567890alice1234567890",

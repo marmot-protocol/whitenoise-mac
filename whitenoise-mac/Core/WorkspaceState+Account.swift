@@ -111,13 +111,9 @@ extension WorkspaceState {
         clearGroupMemberCache()
         // Read markers are keyed by groupIdHex only; stale entries from the
         // previous account suppress the first legitimate advance for a shared
-        // group id under the new identity. Notification keys are likewise
-        // account-scoped and can suppress a genuine delivery after a collision.
-        // See #429/#646.
+        // group id under the new identity. See #429.
         lastMarkedReadMarkers.removeAll()
         lastConfirmedReadMarkers.removeAll()
-        deliveredNotificationKeys.removeAll()
-        deliveredNotificationKeyOrder.removeAll()
         refreshObservabilityRuntime()
     }
 
