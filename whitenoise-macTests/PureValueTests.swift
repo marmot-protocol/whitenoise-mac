@@ -2178,6 +2178,10 @@ struct PureValueTests {
             "https://[::2]/x.png",  // IPv4-compatible 0.0.0.2, inside 0.0.0.0/8
             "https://[::ffff]/x.png",  // IPv4-compatible 0.0.255.255
             "https://[2001:db8::5]/x.png",  // documentation range 2001:db8::/32, non-routable
+            "https://[2002:c0a8:0101::1]/x.png",  // 6to4 gateway 192.168.1.1
+            "https://[2002:7f00:0001::]/x.png",  // 6to4 gateway 127.0.0.1
+            "https://[2001:0:0808:0808:0:0:3f57:fefe]/x.png",  // Teredo client 192.168.1.1 (XOR obfuscated)
+            "https://[2001:0:c0a8:0101:0:0:f7f7:f7f7]/x.png",  // Teredo server 192.168.1.1 (direct)
         ] {
             #expect(
                 RemoteImageURLPolicy.sanitizedURL(from: raw) == nil,
@@ -2190,6 +2194,10 @@ struct PureValueTests {
         // Adjacent to the RFC 8215 /48.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[64:ff9b:2::1]/x.png") != nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[2606:4700:4700::1111]/x.png") != nil)
+        // 6to4 and Teredo with embedded-public IPv4 are not blanket-rejected.
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[2002:0808:0808::1]/x.png") != nil)
+        #expect(
+            RemoteImageURLPolicy.sanitizedURL(from: "https://[2001:0:0808:0808:0:0:f7f7:f7f7]/x.png") != nil)
     }
 
     @Test func markdownInlineBuilderDropsUnsafeMarkdownLinks() async throws {
