@@ -18,6 +18,29 @@ nonisolated struct ChatEmojiCatalogEntry: Codable, Identifiable, Hashable {
     }
 }
 
+nonisolated struct ChatEmojiCatalog {
+    let entries: [ChatEmojiCatalogEntry]
+
+    private let lookup: [String: ChatEmojiCatalogEntry]
+    private let entriesByGroup: [Int: [ChatEmojiCatalogEntry]]
+
+    init(entries: [ChatEmojiCatalogEntry]) {
+        self.entries = entries
+        lookup = Dictionary(entries.map { ($0.emoji, $0) }, uniquingKeysWith: { first, _ in first })
+        entriesByGroup = Dictionary(grouping: entries, by: \.group)
+    }
+
+    static let empty = ChatEmojiCatalog(entries: [])
+
+    func entries(forGroup group: Int) -> [ChatEmojiCatalogEntry] {
+        entriesByGroup[group] ?? []
+    }
+
+    func recents(from emojiOrder: [String]) -> [ChatEmojiCatalogEntry] {
+        emojiOrder.compactMap { lookup[$0] }
+    }
+}
+
 nonisolated enum ChatEmojiSearch {
     static func results(
         in entries: [ChatEmojiCatalogEntry],
@@ -85,15 +108,15 @@ private struct ChatEmojiCategory: Identifiable {
 
 @MainActor
 private final class ChatEmojiPickerModel: ObservableObject {
-    @Published private(set) var entries: [ChatEmojiCatalogEntry] = []
+    @Published private(set) var catalog = ChatEmojiCatalog.empty
     @Published private(set) var didFail = false
 
-    private static var cachedEntries: [ChatEmojiCatalogEntry]?
+    private static var cachedCatalog: ChatEmojiCatalog?
 
     func load() async {
-        guard entries.isEmpty else { return }
-        if let cachedEntries = Self.cachedEntries {
-            entries = cachedEntries
+        guard catalog.entries.isEmpty else { return }
+        if let cachedCatalog = Self.cachedCatalog {
+            catalog = cachedCatalog
             return
         }
         guard let url = Bundle.main.url(forResource: "emoji", withExtension: "json") else {
@@ -101,12 +124,13 @@ private final class ChatEmojiPickerModel: ObservableObject {
             return
         }
         do {
-            let decoded = try await Task.detached(priority: .userInitiated) {
+            let catalog = try await Task.detached(priority: .userInitiated) {
                 let data = try Data(contentsOf: url, options: [.mappedIfSafe])
-                return try JSONDecoder().decode([ChatEmojiCatalogEntry].self, from: data)
+                let entries = try JSONDecoder().decode([ChatEmojiCatalogEntry].self, from: data)
+                return ChatEmojiCatalog(entries: entries)
             }.value
-            Self.cachedEntries = decoded
-            entries = decoded
+            Self.cachedCatalog = catalog
+            self.catalog = catalog
         } catch {
             didFail = true
         }
@@ -177,7 +201,7 @@ struct ChatEmojiPicker: View {
 
     @ViewBuilder
     private var emojiGrid: some View {
-        if model.entries.isEmpty, !model.didFail {
+        if model.catalog.entries.isEmpty, !model.didFail {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.didFail {
             ContentUnavailableView("Emoji unavailable", systemImage: "face.dashed")
@@ -185,8 +209,7 @@ struct ChatEmojiPicker: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
                     if query.isEmpty {
-                        let lookup = Dictionary(uniqueKeysWithValues: model.entries.map { ($0.emoji, $0) })
-                        let recents = ChatEmojiRecents.values.compactMap { lookup[$0] }
+                        let recents = model.catalog.recents(from: ChatEmojiRecents.values)
                         if !recents.isEmpty {
                             emojiSection(title: L10n.string("Recently used"), entries: recents)
                                 .id("recent")
@@ -194,14 +217,14 @@ struct ChatEmojiPicker: View {
                         ForEach(ChatEmojiCategory.all) { category in
                             emojiSection(
                                 title: category.title,
-                                entries: model.entries.filter { $0.group == category.id }
+                                entries: model.catalog.entries(forGroup: category.id)
                             )
                             .id("category-\(category.id)")
                         }
                     } else {
                         emojiSection(
                             title: L10n.string("Search results"),
-                            entries: ChatEmojiSearch.results(in: model.entries, query: query)
+                            entries: ChatEmojiSearch.results(in: model.catalog.entries, query: query)
                         )
                     }
                 }
