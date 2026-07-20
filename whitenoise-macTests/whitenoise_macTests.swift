@@ -13066,38 +13066,66 @@ struct whitenoise_macTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
     }
 
-    @Test func conversationTranscriptExportCancellationPreservesExistingDestinationAndRemovesPartialFile() throws {
+    @Test func conversationTranscriptExportDoesNotStageBesideSelectedDestination() throws {
         let files = try transcriptExportTestFiles()
         defer { try? FileManager.default.removeItem(at: files.root) }
-        let original = Data("existing transcript".utf8)
-        try original.write(to: files.destination)
+        try Data("existing transcript".utf8).write(to: files.destination)
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
         runtime.timelineMessagesHandler = { _ in
             TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
         }
 
-        #expect(throws: CancellationError.self) {
-            try ConversationTranscriptExport.export(
-                client: runtime,
-                accountRef: "Desktop Account",
-                groupIdHex: "group",
-                groupName: "Test Group",
-                to: files.destination,
-                scratchDirectory: files.scratch,
-                checkCancellation: {
-                    let names = try FileManager.default.contentsOfDirectory(atPath: files.root.path)
-                    if names.contains(where: { $0.hasSuffix(".partial") }) {
-                        throw CancellationError()
-                    }
+        _ = try ConversationTranscriptExport.export(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            groupName: "Test Group",
+            to: files.destination,
+            scratchDirectory: files.scratch,
+            checkCancellation: {
+                let names = try FileManager.default.contentsOfDirectory(atPath: files.root.path)
+                if names.contains(where: { $0.hasSuffix(".partial") }) {
+                    throw CancellationError()
                 }
-            )
-        }
-        #expect(try Data(contentsOf: files.destination) == original)
+            }
+        )
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: files.destination)) as? [String: Any]
+        )
+        #expect(json["event_count"] as? Int == 0)
         #expect(
             try FileManager.default.contentsOfDirectory(atPath: files.root.path).sorted()
                 == [files.destination.lastPathComponent, files.scratch.lastPathComponent].sorted()
         )
         #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
+    }
+
+    @Test func conversationTranscriptExportExcludesDecryptedScratchFromBackups() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        _ = try ConversationTranscriptExport.export(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            groupName: "Test Group",
+            to: files.destination,
+            scratchDirectory: files.scratch,
+            checkCancellation: {
+                let scratchRoots = try FileManager.default.contentsOfDirectory(
+                    at: files.scratch,
+                    includingPropertiesForKeys: [.isExcludedFromBackupKey]
+                )
+                for scratchRoot in scratchRoots {
+                    let values = try scratchRoot.resourceValues(forKeys: [.isExcludedFromBackupKey])
+                    #expect(values.isExcludedFromBackup == true)
+                }
+            }
+        )
     }
 
     @Test func conversationTranscriptExportAtomicallyReplacesExistingDestination() throws {

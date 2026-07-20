@@ -12,6 +12,7 @@ nonisolated enum ConversationTranscriptExport {
         /// the current cursor. Surfacing this prevents silently truncating the transcript.
         case emptyPageWithMoreHistory
         case unableToCreateTemporaryFile(URL)
+        case unableToCreateReplacementDirectory(URL)
         case invalidSpoolData
         case destinationIsDirectory(URL)
 
@@ -23,6 +24,8 @@ nonisolated enum ConversationTranscriptExport {
                     + "cursor could not advance, so older messages could not be loaded."
             case .unableToCreateTemporaryFile(let url):
                 return "Transcript export could not create a temporary file at \(url.path)."
+            case .unableToCreateReplacementDirectory(let url):
+                return "Transcript export could not prepare a temporary file for \(url.path)."
             case .invalidSpoolData:
                 return "Transcript export could not read its temporary data."
             case .destinationIsDirectory(let url):
@@ -103,7 +106,7 @@ nonisolated enum ConversationTranscriptExport {
     /// Paginates newest-to-oldest into bounded disk chunks, then replays the chunks oldest-first.
     /// A disk-backed message-id index preserves whole-export deduplication without retaining every
     /// record or id in memory. The selected destination is published only after the complete JSON
-    /// document has been written and synchronized to a sibling temporary file.
+    /// document has been written and synchronized in a sandbox-compatible replacement directory.
     static func export(
         client: any MarmotRuntime,
         accountRef: String,
@@ -121,19 +124,14 @@ nonisolated enum ConversationTranscriptExport {
             .appendingPathComponent("WhiteNoiseTranscriptExport-\(UUID().uuidString)", isDirectory: true)
         let chunksDirectory = scratchRoot.appendingPathComponent("chunks", isDirectory: true)
         let markersDirectory = scratchRoot.appendingPathComponent("message-ids", isDirectory: true)
-        // Register cleanup before the first directory operation: creating `chunks` can create the
-        // export root even if creating `message-ids` fails immediately afterward.
         defer { try? fileManager.removeItem(at: scratchRoot) }
-        try fileManager.createDirectory(
-            at: chunksDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
+        try createProtectedDirectory(
+            at: scratchRoot,
+            excludeFromBackup: true,
+            fileManager: fileManager
         )
-        try fileManager.createDirectory(
-            at: markersDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        try createProtectedDirectory(at: chunksDirectory, fileManager: fileManager)
+        try createProtectedDirectory(at: markersDirectory, fileManager: fileManager)
 
         let summary = try spoolTranscript(
             client: client,
@@ -146,13 +144,15 @@ nonisolated enum ConversationTranscriptExport {
         )
         try checkCancellation()
 
-        let temporaryURL = temporaryDestinationURL(for: destinationURL)
-        var shouldRemoveTemporaryFile = true
-        defer {
-            if shouldRemoveTemporaryFile {
-                try? fileManager.removeItem(at: temporaryURL)
-            }
-        }
+        let replacementDirectory = try makeReplacementDirectory(
+            for: destinationURL,
+            fileManager: fileManager
+        )
+        defer { try? fileManager.removeItem(at: replacementDirectory) }
+        let temporaryURL = replacementDirectory.appendingPathComponent(
+            destinationURL.lastPathComponent,
+            isDirectory: false
+        )
 
         try writeDocument(
             groupIdHex: groupIdHex,
@@ -167,7 +167,6 @@ nonisolated enum ConversationTranscriptExport {
         )
         try checkCancellation()
         try publish(temporaryURL: temporaryURL, to: destinationURL, fileManager: fileManager)
-        shouldRemoveTemporaryFile = false
 
         return ExportResult(eventCount: summary.eventCount, destinationURL: destinationURL)
     }
@@ -208,15 +207,7 @@ nonisolated enum ConversationTranscriptExport {
 
             if !page.messages.isEmpty {
                 let chunkURL = chunksDirectory.appendingPathComponent(chunkFilename(chunkCount))
-                guard
-                    fileManager.createFile(
-                        atPath: chunkURL.path,
-                        contents: nil,
-                        attributes: [.posixPermissions: 0o600]
-                    )
-                else {
-                    throw ExportError.unableToCreateTemporaryFile(chunkURL)
-                }
+                try createProtectedFile(at: chunkURL, fileManager: fileManager)
                 let handle = try FileHandle(forWritingTo: chunkURL)
                 defer { try? handle.close() }
 
@@ -231,15 +222,11 @@ nonisolated enum ConversationTranscriptExport {
                             fileManager: fileManager
                         )
                         if !fileManager.fileExists(atPath: markerURL.path) {
-                            guard
-                                fileManager.createFile(
-                                    atPath: markerURL.path,
-                                    contents: data(for: nextOccurrence),
-                                    attributes: [.posixPermissions: 0o600]
-                                )
-                            else {
-                                throw ExportError.unableToCreateTemporaryFile(markerURL)
-                            }
+                            try createProtectedFile(
+                                at: markerURL,
+                                contents: data(for: nextOccurrence),
+                                fileManager: fileManager
+                            )
                             uniqueEventCount += 1
                         }
 
@@ -290,15 +277,7 @@ nonisolated enum ConversationTranscriptExport {
         fileManager: FileManager,
         checkCancellation: @Sendable () throws -> Void
     ) throws {
-        guard
-            fileManager.createFile(
-                atPath: temporaryURL.path,
-                contents: nil,
-                attributes: [.posixPermissions: 0o600]
-            )
-        else {
-            throw ExportError.unableToCreateTemporaryFile(temporaryURL)
-        }
+        try createProtectedFile(at: temporaryURL, fileManager: fileManager)
 
         let handle = try FileHandle(forWritingTo: temporaryURL)
         defer { try? handle.close() }
@@ -380,10 +359,63 @@ nonisolated enum ConversationTranscriptExport {
         }
     }
 
-    private static func temporaryDestinationURL(for destinationURL: URL) -> URL {
-        destinationURL.deletingLastPathComponent().appendingPathComponent(
-            ".\(destinationURL.lastPathComponent).\(UUID().uuidString).partial",
-            isDirectory: false
+    private static func makeReplacementDirectory(
+        for destinationURL: URL,
+        fileManager: FileManager
+    ) throws -> URL {
+        do {
+            return try fileManager.url(
+                for: .itemReplacementDirectory,
+                in: .userDomainMask,
+                appropriateFor: destinationURL,
+                create: true
+            )
+        } catch {
+            throw ExportError.unableToCreateReplacementDirectory(destinationURL)
+        }
+    }
+
+    private static func createProtectedDirectory(
+        at url: URL,
+        excludeFromBackup: Bool = false,
+        fileManager: FileManager
+    ) throws {
+        try fileManager.createDirectory(
+            at: url,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: url.path
+        )
+        if excludeFromBackup {
+            var protectedURL = url
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try protectedURL.setResourceValues(values)
+        }
+    }
+
+    private static func createProtectedFile(
+        at url: URL,
+        contents: Data? = nil,
+        fileManager: FileManager
+    ) throws {
+        guard
+            fileManager.createFile(
+                atPath: url.path,
+                contents: contents,
+                attributes: [.posixPermissions: 0o600]
+            )
+        else {
+            throw ExportError.unableToCreateTemporaryFile(url)
+        }
+        // Some macOS volumes downgrade or reject explicit protection changes. Keep the export
+        // usable there, but request the strongest class whenever the volume accepts it.
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: url.path
         )
     }
 
@@ -396,11 +428,7 @@ nonisolated enum ConversationTranscriptExport {
         let (shard, filename) = markerComponents(for: messageIdHex)
         let shardDirectory = markersDirectory.appendingPathComponent(shard, isDirectory: true)
         if preparedShards.insert(shard).inserted {
-            try fileManager.createDirectory(
-                at: shardDirectory,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
+            try createProtectedDirectory(at: shardDirectory, fileManager: fileManager)
         }
         return shardDirectory.appendingPathComponent(filename, isDirectory: false)
     }
