@@ -1168,7 +1168,7 @@ struct PrivacySecuritySettingsView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
-                .disabled(workspace.isDeletingAllData)
+                .disabled(workspace.isAccountMutationInProgress)
 
                 Text("Reset White Noise to a newly installed state on this Mac.")
                     .foregroundStyle(.secondary)
