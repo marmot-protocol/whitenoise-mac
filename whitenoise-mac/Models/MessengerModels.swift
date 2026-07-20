@@ -394,7 +394,7 @@ nonisolated final class DownloadedMediaPayload: @unchecked Sendable, Hashable {
     }
 }
 
-nonisolated struct MessageMediaDownload: Hashable {
+nonisolated struct MessageMediaDownload: Hashable, Sendable {
     let payload: DownloadedMediaPayload
     let fileName: String
     let mediaType: String

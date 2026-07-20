@@ -755,6 +755,8 @@ final class WorkspaceState {
     @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
     @ObservationIgnored var mediaReferenceIndexGeneration: UInt64 = 0
     @ObservationIgnored var mediaDiskStoreTasks: [String: MediaDiskStoreTask] = [:]
+    @ObservationIgnored var mediaAttachmentDownloadTasks: [String: MediaAttachmentDownloadTask] = [:]
+    @ObservationIgnored var nextMediaAttachmentDownloadTaskToken: UInt64 = 0
     @ObservationIgnored var isMediaDiskStoreGloballySuppressed = false
     @ObservationIgnored var mediaDiskStoreSuppressedAccountIds = Set<String>()
     @ObservationIgnored var mediaDiskStoreAccountGenerations: [String: UInt64] = [:]
@@ -1400,6 +1402,11 @@ final class WorkspaceState {
         var accountId: String
         var token: UInt64
         var task: Task<Void, Never>
+    }
+
+    struct MediaAttachmentDownloadTask {
+        var token: UInt64
+        var task: Task<MessageMediaDownload, Error>
     }
 
     /// Raw output of the per-account bootstrap/settings FFI lookups.
