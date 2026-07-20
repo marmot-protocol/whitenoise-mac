@@ -409,6 +409,28 @@ struct PureValueTests {
         #expect(ChatEmojiSearch.results(in: entries, query: "face").map(\.emoji) == ["😂", "😀"])
     }
 
+    @Test func emojiCatalogPreservesEntriesPartitionsByGroupAndToleratesDuplicateEmojiKeys() {
+        let entries = [
+            ChatEmojiCatalogEntry(emoji: "😀", name: "grinning face", group: 0, keywords: []),
+            ChatEmojiCatalogEntry(emoji: "👋", name: "waving hand", group: 1, keywords: []),
+            ChatEmojiCatalogEntry(emoji: "🐶", name: "dog", group: 2, keywords: []),
+            ChatEmojiCatalogEntry(emoji: "❤️", name: "red heart", group: 7, keywords: []),
+            ChatEmojiCatalogEntry(emoji: "❤️", name: "duplicate heart", group: 7, keywords: []),
+        ]
+        let catalog = ChatEmojiCatalog(entries: entries)
+
+        #expect(catalog.entries == entries)
+        #expect(catalog.entries(forGroup: 0).map(\.emoji) == ["😀"])
+        #expect(catalog.entries(forGroup: 1).map(\.emoji) == ["👋"])
+        #expect(catalog.entries(forGroup: 2).map(\.emoji) == ["🐶"])
+        #expect(catalog.entries(forGroup: 3).isEmpty)
+        #expect(catalog.entries(forGroup: 7).map(\.name) == ["red heart", "duplicate heart"])
+        #expect(
+            catalog.recents(from: ["👋", "❤️", "😀", "missing"]).map(\.name)
+                == ["waving hand", "red heart", "grinning face"]
+        )
+    }
+
     @Test func onlyOutgoingPlainTextMessagesCanEnterComposerEditing() async throws {
         let outgoing = MessageItem(
             id: "outgoing",
