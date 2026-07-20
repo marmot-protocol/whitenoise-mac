@@ -126,7 +126,7 @@ extension WorkspaceState {
                 let document = ConversationTranscriptExport.makeDocument(
                     groupIdHex: groupIdHex,
                     groupName: groupName,
-                    messages: messages
+                    chronologicallySortedMessages: messages
                 )
                 return (try ConversationTranscriptExport.encodeJSONString(document), document.eventCount)
             }
