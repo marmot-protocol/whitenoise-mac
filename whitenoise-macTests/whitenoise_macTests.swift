@@ -12379,16 +12379,6 @@ struct whitenoise_macTests {
         let secondId = String(repeating: "2", count: 64)
         let records = [
             timelineMessage(
-                id: secondId,
-                groupIdHex: "group",
-                sender: String(repeating: "a", count: 64),
-                plaintext: "final answer",
-                kind: 9,
-                tags: [MessageTagFfi(values: ["stream", "abcd"])],
-                recordedAt: 2,
-                agentTextStreamJson: #"{"status":"finalized"}"#
-            ),
-            timelineMessage(
                 id: firstId,
                 groupIdHex: "group",
                 sender: String(repeating: "b", count: 64),
@@ -12398,12 +12388,22 @@ struct whitenoise_macTests {
                 recordedAt: 1,
                 agentTextStreamJson: #"{"status":"started"}"#
             ),
+            timelineMessage(
+                id: secondId,
+                groupIdHex: "group",
+                sender: String(repeating: "a", count: 64),
+                plaintext: "final answer",
+                kind: 9,
+                tags: [MessageTagFfi(values: ["stream", "abcd"])],
+                recordedAt: 2,
+                agentTextStreamJson: #"{"status":"finalized"}"#
+            ),
         ]
 
         let document = ConversationTranscriptExport.makeDocument(
             groupIdHex: "group",
             groupName: "Hermes 2",
-            messages: records,
+            chronologicallySortedMessages: records,
             exportedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
 
