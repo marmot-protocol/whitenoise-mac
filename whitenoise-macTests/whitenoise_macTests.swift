@@ -12617,6 +12617,33 @@ struct whitenoise_macTests {
         #expect(json["truncated"] as? Bool == true)
     }
 
+    @Test func conversationTranscriptExportMarksExactLimitTruncatedWhenMoreHistoryExists() throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let records = (1...2).map { index in
+            timelineMessage(
+                id: String(repeating: String(index), count: 64),
+                groupIdHex: "group",
+                sender: String(repeating: "a", count: 64),
+                plaintext: "message \(index)",
+                recordedAt: UInt64(index)
+            )
+        }
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: records, hasMoreBefore: true, hasMoreAfter: false)
+        }
+
+        let result = try ConversationTranscriptExport.fetchMessages(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            messageLimit: 2
+        )
+
+        #expect(result.messages.map(\.messageIdHex) == records.map(\.messageIdHex))
+        #expect(result.truncated)
+        #expect(runtime.timelineMessageQueries.count == 1)
+    }
+
     @Test func conversationTranscriptExportDoesNotTruncateACompleteLimit() throws {
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
         let records = (1...2).map { index in
