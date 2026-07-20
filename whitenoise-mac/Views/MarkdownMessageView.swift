@@ -45,7 +45,7 @@ struct MarkdownMessageView: View {
             // ScrollView/LazyVStack scroll-anchor resolution into a multi-second main-thread
             // layout loop on send (Instruments: continuous SelectionOverlay.updateNSView /
             // ScrollViewAdjustedState.adjustOffsetIfNeeded). See whitenoise-mac#205.
-            textWithMetadata(Text(message.body))
+            textWithMetadata(Text(message.rawBubbleDisplayBody))
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
         }

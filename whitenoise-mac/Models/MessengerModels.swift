@@ -1655,6 +1655,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         contentMarkdown == nil || contentMarkdown?.inlineParagraph != nil
     }
 
+    /// Body text shown when the bubble uses the plain `Text` fallback instead of the
+    /// pre-rendered Markdown AST. Strips bidi embedding/override/isolate controls while
+    /// preserving unrelated format characters such as ZWJ/ZWNJ.
+    var rawBubbleDisplayBody: String {
+        PeerDisplayText.strippingBidiControls(body)
+    }
+
     // `nonisolated` so the timeline record → view-model mapping (`MessageItem.timeline`)
     // can build items in the off-main window/projection closure (whitenoise-mac#285)
     // without inheriting the module's default main-actor isolation.

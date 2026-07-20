@@ -179,6 +179,65 @@ struct PeerDisplayTextTests {
         #expect(body.contains(isolated("Team Two")))
     }
 
+    @Test func plainTimelineFastPathStripsBidiForRawBubbleDisplay() async throws {
+        let zwj = "\u{200D}"
+        let zwnj = "\u{200C}"
+        let maliciousPlaintext = "\(rtlOverride)safe.txt\(ltrIsolate)👨\(zwj)👩\(zwnj)👧"
+        let plainTokens = MarkdownDocumentFfi(
+            blocks: [.paragraph(inlines: [.text(content: maliciousPlaintext)])],
+            truncated: false
+        )
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "plain-bidi",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: maliciousPlaintext,
+                    recordedAt: 1_700_000_000,
+                    contentTokens: plainTokens
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let message = try #require(
+            MessageItem.timeline(from: page, activeAccountIdHex: "self").first
+        )
+        let expectedDisplay = "safe.txt👨\(zwj)👩\(zwnj)👧"
+
+        #expect(message.contentMarkdown == nil)
+        #expect(message.body == maliciousPlaintext)
+        #expect(message.rawBubbleDisplayBody == expectedDisplay)
+        #expect(!containsBidiEmbeddingOrIsolate(message.rawBubbleDisplayBody))
+        #expect(message.rawBubbleDisplayBody.unicodeScalars.contains { $0.value == 0x200D })
+        #expect(message.rawBubbleDisplayBody.unicodeScalars.contains { $0.value == 0x200C })
+    }
+
+    @Test func applyingEditStripsBidiForRawBubbleDisplay() async throws {
+        let zwj = "\u{200D}"
+        let zwnj = "\u{200C}"
+        let maliciousPlaintext = "\(rtlOverride)safe.txt\(ltrIsolate)👨\(zwj)👩\(zwnj)👧"
+        let base = MessageItem(
+            id: "message",
+            senderName: "Alice",
+            body: "Original",
+            sentAt: Date(timeIntervalSince1970: 1),
+            isOutgoing: false
+        )
+        let edited = base.applyingEdit(plaintext: maliciousPlaintext)
+        let expectedDisplay = "safe.txt👨\(zwj)👩\(zwnj)👧"
+
+        #expect(edited.contentMarkdown == nil)
+        #expect(edited.isEdited)
+        #expect(edited.body == maliciousPlaintext)
+        #expect(edited.rawBubbleDisplayBody == expectedDisplay)
+        #expect(!containsBidiEmbeddingOrIsolate(edited.rawBubbleDisplayBody))
+        #expect(edited.rawBubbleDisplayBody.unicodeScalars.contains { $0.value == 0x200D })
+        #expect(edited.rawBubbleDisplayBody.unicodeScalars.contains { $0.value == 0x200C })
+    }
+
     @Test func legacyGroupSystemPayloadTextIsSanitized() async throws {
         let page = TimelinePageFfi(
             messages: [
@@ -202,6 +261,13 @@ struct PeerDisplayTextTests {
     }
 }
 
+private func containsBidiEmbeddingOrIsolate(_ text: String) -> Bool {
+    text.unicodeScalars.contains { scalar in
+        let value = scalar.value
+        return (0x202A...0x202E).contains(value) || (0x2066...0x2069).contains(value)
+    }
+}
+
 private func timelineMessage(
     id: String,
     groupIdHex: String,
@@ -209,6 +275,7 @@ private func timelineMessage(
     plaintext: String,
     kind: UInt64 = 9,
     recordedAt: UInt64,
+    contentTokens: MarkdownDocumentFfi = MarkdownDocumentFfi(blocks: [], truncated: false),
     groupSystem: GroupSystemEventFfi? = nil
 ) -> TimelineMessageRecordFfi {
     TimelineMessageRecordFfi(
@@ -218,7 +285,7 @@ private func timelineMessage(
         groupIdHex: groupIdHex,
         sender: sender,
         plaintext: plaintext,
-        contentTokens: MarkdownDocumentFfi(blocks: [], truncated: false),
+        contentTokens: contentTokens,
         kind: kind,
         tags: [],
         timelineAt: recordedAt,
