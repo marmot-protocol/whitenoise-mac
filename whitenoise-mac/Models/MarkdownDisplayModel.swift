@@ -35,38 +35,82 @@ nonisolated struct MarkdownDisplayDocument {
     /// than preserving nested structure.
     fileprivate static let maxDepth = 32
 
+    /// Upper bound on SwiftUI-producing display nodes per message (top-level and nested
+    /// blocks, list items, table rows, and table cells). Inline AST nodes collapse into a
+    /// single `AttributedString`/`Text` and do not consume slots. Prevents attacker-crafted
+    /// wide tables or long lists from materializing thousands of non-lazy `Grid`/`ForEach`
+    /// children in one bubble.
+    static let maxDisplayNodes = 256
+
     init(document: MarkdownDocumentFfi, mentionNames: MarkdownMentionNames = [:]) {
         var swiftTruncated = false
+        var budget = MarkdownDisplayBudget(limit: Self.maxDisplayNodes)
         self.blocks = Self.makeBlocks(
             from: document.blocks,
             remainingDepth: Self.maxDepth,
             mentionNames: mentionNames,
+            budget: &budget,
             truncated: &swiftTruncated
         )
-        self.truncated = document.truncated || swiftTruncated
+        self.truncated = document.truncated || swiftTruncated || budget.didTruncate
     }
 
     fileprivate static func makeBlocks(
         from blocks: [MarkdownBlockFfi],
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
+        budget: inout MarkdownDisplayBudget,
         truncated: inout Bool
     ) -> [MarkdownDisplayBlockNode] {
         guard remainingDepth > 0 else {
             truncated = truncated || !blocks.isEmpty
             return []
         }
-        return blocks.enumerated().map { index, block in
-            MarkdownDisplayBlockNode(
-                id: index,
-                block: MarkdownDisplayBlock(
-                    block,
-                    remainingDepth: remainingDepth,
-                    mentionNames: mentionNames,
-                    truncated: &truncated
+        var result: [MarkdownDisplayBlockNode] = []
+        for (index, block) in blocks.enumerated() {
+            guard budget.takeOne() else { break }
+            result.append(
+                MarkdownDisplayBlockNode(
+                    id: index,
+                    block: MarkdownDisplayBlock(
+                        block,
+                        remainingDepth: remainingDepth,
+                        mentionNames: mentionNames,
+                        budget: &budget,
+                        truncated: &truncated
+                    )
                 )
             )
         }
+        return result
+    }
+}
+
+nonisolated fileprivate struct MarkdownDisplayBudget {
+    private(set) var remaining: Int
+    private(set) var didTruncate = false
+
+    init(limit: Int) {
+        remaining = limit
+    }
+
+    /// Reserves up to `count` display-node slots; returns how many were granted.
+    mutating func take(_ count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        if remaining <= 0 {
+            didTruncate = true
+            return 0
+        }
+        let granted = min(count, remaining)
+        remaining -= granted
+        if granted < count {
+            didTruncate = true
+        }
+        return granted
+    }
+
+    mutating func takeOne() -> Bool {
+        take(1) == 1
     }
 }
 
@@ -85,7 +129,13 @@ nonisolated enum MarkdownDisplayBlock {
     case table(header: [MarkdownDisplayTableCell], rows: [MarkdownDisplayTableRow])
     case mathBlock(String)
 
-    init(_ block: MarkdownBlockFfi, remainingDepth: Int, mentionNames: MarkdownMentionNames, truncated: inout Bool) {
+    fileprivate init(
+        _ block: MarkdownBlockFfi,
+        remainingDepth: Int,
+        mentionNames: MarkdownMentionNames,
+        budget: inout MarkdownDisplayBudget,
+        truncated: inout Bool
+    ) {
         switch block {
         case .paragraph(let inlines):
             self = .paragraph(
@@ -116,6 +166,7 @@ nonisolated enum MarkdownDisplayBlock {
                     from: blocks,
                     remainingDepth: remainingDepth - 1,
                     mentionNames: mentionNames,
+                    budget: &budget,
                     truncated: &truncated
                 )
             )
@@ -126,29 +177,32 @@ nonisolated enum MarkdownDisplayBlock {
                     items: items,
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
+                    budget: &budget,
                     truncated: &truncated
                 )
             )
         case .table(_, let header, let rows):
-            self = .table(
-                header: Self.tableCells(
-                    from: header,
+            let headerCount = budget.take(header.count)
+            let displayHeader = Self.tableCells(
+                from: Array(header.prefix(headerCount)),
+                remainingDepth: remainingDepth,
+                mentionNames: mentionNames,
+                truncated: &truncated
+            )
+            var displayRows: [MarkdownDisplayTableRow] = []
+            for (rowIndex, row) in rows.enumerated() {
+                guard budget.takeOne() else { break }
+                let cellCount = budget.take(row.count)
+                let cells = Self.tableCells(
+                    from: Array(row.prefix(cellCount)),
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
                     truncated: &truncated
-                ),
-                rows: rows.enumerated().map { rowIndex, row in
-                    MarkdownDisplayTableRow(
-                        id: rowIndex,
-                        cells: Self.tableCells(
-                            from: row,
-                            remainingDepth: remainingDepth,
-                            mentionNames: mentionNames,
-                            truncated: &truncated
-                        )
-                    )
-                }
-            )
+                )
+                guard row.isEmpty || !cells.isEmpty else { break }
+                displayRows.append(MarkdownDisplayTableRow(id: rowIndex, cells: cells))
+            }
+            self = .table(header: displayHeader, rows: displayRows)
         case .mathBlock(let content):
             self = .mathBlock(PeerDisplayText.strippingBidiControls(content))
         @unknown default:
@@ -161,20 +215,29 @@ nonisolated enum MarkdownDisplayBlock {
         items: [MarkdownListItemFfi],
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
+        budget: inout MarkdownDisplayBudget,
         truncated: inout Bool
     ) -> [MarkdownDisplayListItem] {
-        items.enumerated().map { index, item in
-            MarkdownDisplayListItem(
-                id: index,
-                marker: listMarker(kind: kind, item: item, index: index),
-                blocks: MarkdownDisplayDocument.makeBlocks(
-                    from: item.blocks,
-                    remainingDepth: remainingDepth - 1,
-                    mentionNames: mentionNames,
-                    truncated: &truncated
+        var result: [MarkdownDisplayListItem] = []
+        for (index, item) in items.enumerated() {
+            guard budget.takeOne() else { break }
+            let blocks = MarkdownDisplayDocument.makeBlocks(
+                from: item.blocks,
+                remainingDepth: remainingDepth - 1,
+                mentionNames: mentionNames,
+                budget: &budget,
+                truncated: &truncated
+            )
+            guard item.blocks.isEmpty || !blocks.isEmpty else { break }
+            result.append(
+                MarkdownDisplayListItem(
+                    id: index,
+                    marker: listMarker(kind: kind, item: item, index: index),
+                    blocks: blocks
                 )
             )
         }
+        return result
     }
 
     private static func listMarker(
