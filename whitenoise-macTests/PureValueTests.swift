@@ -2211,6 +2211,73 @@ struct PureValueTests {
             RemoteImageURLPolicy.sanitizedURL(from: "https://[2001:0:0808:0808:0:0:f7f7:f7f7]/x.png") != nil)
     }
 
+    @Test func markdownDisplayStripsBidiControlsFromPeerControlledText() async throws {
+        let rtlOverride = "\u{202E}"
+        let ltrIsolate = "\u{2066}"
+        let zwj = "\u{200D}"
+
+        let spoofedLinkLabel = "\(rtlOverride)moc.elpmaxe//:sptth\(ltrIsolate)"
+        let linkAttributed = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .link(
+                    dest: "https://evil.example/phish",
+                    title: nil,
+                    children: [.text(content: spoofedLinkLabel)]
+                )
+            ],
+            remainingDepth: 32
+        )
+        #expect(!containsBidiEmbeddingOrIsolate(String(linkAttributed.characters)))
+        #expect(String(linkAttributed.characters) == "moc.elpmaxe//:sptth")
+        #expect(links(in: linkAttributed).map(\.absoluteString) == ["https://evil.example/phish"])
+
+        let spoofedAutolinkURL = "\(rtlOverride)https://example.com\(ltrIsolate)"
+        let autolinkAttributed = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.autolink(url: spoofedAutolinkURL, kind: .uri)],
+            remainingDepth: 32
+        )
+        #expect(!containsBidiEmbeddingOrIsolate(String(autolinkAttributed.characters)))
+        #expect(String(autolinkAttributed.characters) == "https://example.com")
+        let expectedAutolink = MarkdownLinkPolicy.sanitizedURL(from: spoofedAutolinkURL)
+        #expect(links(in: autolinkAttributed) == (expectedAutolink.map { [$0] } ?? []))
+
+        let familyEmoji = "👨\(zwj)👩\(zwj)👧"
+        let plainAttributed = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.text(content: familyEmoji)],
+            remainingDepth: 32
+        )
+        #expect(String(plainAttributed.characters) == familyEmoji)
+        #expect(
+            String(plainAttributed.characters).unicodeScalars.contains { $0.value == 0x200D }
+        )
+
+        let document = MarkdownDisplayDocument(
+            document: MarkdownDocumentFfi(
+                blocks: [
+                    .codeBlock(
+                        kind: .fenced,
+                        info: "",
+                        content: "\(rtlOverride)secret\(ltrIsolate)"
+                    ),
+                    .mathBlock(content: "\(rtlOverride)x^2\(ltrIsolate)"),
+                ],
+                truncated: false
+            )
+        )
+        guard case .codeBlock(let codeContent) = document.blocks.first?.block else {
+            Issue.record("expected a code block")
+            return
+        }
+        #expect(codeContent == "secret")
+        #expect(!containsBidiEmbeddingOrIsolate(codeContent))
+        guard case .mathBlock(let mathContent) = document.blocks.last?.block else {
+            Issue.record("expected a math block")
+            return
+        }
+        #expect(mathContent == "x^2")
+        #expect(!containsBidiEmbeddingOrIsolate(mathContent))
+    }
+
     @Test func markdownInlineBuilderDropsUnsafeMarkdownLinks() async throws {
         let safe = MarkdownDisplayInlineBuilder.attributedString(
             from: [
@@ -2407,6 +2474,13 @@ struct PureValueTests {
             dim: nil,
             thumbhash: nil
         )
+    }
+
+    private func containsBidiEmbeddingOrIsolate(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            let value = scalar.value
+            return (0x202A...0x202E).contains(value) || (0x2066...0x2069).contains(value)
+        }
     }
 
     private func links(in attributed: AttributedString) -> [URL] {

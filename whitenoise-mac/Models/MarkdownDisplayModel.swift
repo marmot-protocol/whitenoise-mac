@@ -109,7 +109,7 @@ nonisolated enum MarkdownDisplayBlock {
         case .thematicBreak:
             self = .thematicBreak
         case .codeBlock(_, _, let content):
-            self = .codeBlock(content)
+            self = .codeBlock(PeerDisplayText.strippingBidiControls(content))
         case .blockQuote(let blocks):
             self = .blockQuote(
                 MarkdownDisplayDocument.makeBlocks(
@@ -150,7 +150,7 @@ nonisolated enum MarkdownDisplayBlock {
                 }
             )
         case .mathBlock(let content):
-            self = .mathBlock(content)
+            self = .mathBlock(PeerDisplayText.strippingBidiControls(content))
         @unknown default:
             self = .paragraph(AttributedString())
         }
@@ -392,7 +392,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         intent: InlinePresentationIntent,
         link: URL?
     ) -> AttributedString {
-        var attributed = AttributedString(string)
+        var attributed = AttributedString(PeerDisplayText.strippingBidiControls(string))
         if !intent.isEmpty {
             attributed.inlinePresentationIntent = intent
         }
