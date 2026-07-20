@@ -5,6 +5,20 @@ nonisolated enum PeerDisplayText {
     private static let firstStrongIsolate = "\u{2068}"
     private static let popDirectionalIsolate = "\u{2069}"
 
+    /// Removes bidi embedding, override, and isolate controls (U+202A–U+202E,
+    /// U+2066–U+2069) while preserving unrelated format characters such as ZWJ.
+    static func strippingBidiControls(_ text: String) -> String {
+        String(
+            String.UnicodeScalarView(
+                text.unicodeScalars.filter { scalar in
+                    let value = scalar.value
+                    if (0x202A...0x202E).contains(value) { return false }
+                    if (0x2066...0x2069).contains(value) { return false }
+                    return true
+                })
+        )
+    }
+
     /// Strips Unicode format controls (`Cf`), control characters (`Cc`), and line/
     /// paragraph separators (`Zl`/`Zp`), including bidi embedding/override/isolate
     /// scalars (U+202A–U+202E, U+2066–U+2069), then treats an all-blank result as absent.
