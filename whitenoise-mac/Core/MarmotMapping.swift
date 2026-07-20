@@ -184,17 +184,10 @@ nonisolated struct MessageEditOverlay: Equatable, Sendable {
     }
 
     fileprivate static func editTargetMessageId(in tags: [MessageTagFfi]) -> String? {
-        var target: String?
-        for tag in tags where tag.values.first == "e" {
-            guard tag.values.count == 2,
-                let candidate = tag.values.dropFirst().first?.nilIfBlank,
-                target == nil
-            else {
-                return nil
-            }
-            target = candidate
-        }
-        return target
+        tags.lazy
+            .filter { $0.values.first == "e" }
+            .compactMap { $0.values.dropFirst().first?.nilIfBlank }
+            .first
     }
 }
 
