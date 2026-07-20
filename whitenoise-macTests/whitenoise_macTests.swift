@@ -6875,7 +6875,7 @@ struct whitenoise_macTests {
             runtime.mediaDownloadGateEnabled = false
         }
         async let load: Void = state.loadMediaAttachment(attachment, for: message)
-        guard await waitFor { runtime.didReachMediaDownloadGate } else {
+        guard await waitFor({ runtime.didReachMediaDownloadGate }) else {
             Issue.record("Expected first media download to reach the fake runtime gate")
             return
         }
@@ -6907,7 +6907,7 @@ struct whitenoise_macTests {
         runtime.releaseMediaDownloadGate()
         await load
         await replacementLoad
-        guard await waitFor { state.mediaDiskStoreTasks.isEmpty } else {
+        guard await waitFor({ state.mediaDiskStoreTasks.isEmpty }) else {
             Issue.record("Expected media disk-cache store tasks to finish")
             return
         }
