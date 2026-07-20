@@ -31,3 +31,4 @@ Vendored/MarmotKit/MARMOT_VERSION
 *.log
 *.swp
 .idea/
+reviews/
