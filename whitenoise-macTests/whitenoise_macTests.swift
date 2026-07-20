@@ -5769,8 +5769,8 @@ struct whitenoise_macTests {
                     groupIdHex: "group",
                     sender: "alice",
                     plaintext: "",
-                    recordedAt: 1_700_000_000,
-                    tags: [MessageTagFfi(values: tagValues)]
+                    tags: [MessageTagFfi(values: tagValues)],
+                    recordedAt: 1_700_000_000
                 )
             ],
             hasMoreBefore: false,
