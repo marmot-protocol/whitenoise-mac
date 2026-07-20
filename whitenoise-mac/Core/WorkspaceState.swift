@@ -908,6 +908,9 @@ final class WorkspaceState {
     /// Synchronous guard for the mic-permission await in `startVoiceRecording()` so a second
     /// tap cannot interleave and orphan a hot recorder (#391).
     var isPreparingVoiceRecording = false
+    /// Bumped by `cancelVoiceRecording()` so an in-flight mic-permission await cannot resume
+    /// and create a recorder after navigation tears down the composer (#441).
+    var voiceRecordingPreparationGeneration: UInt64 = 0
     var voiceRecordingSamples: [CGFloat] = []
     var voiceRecordingDurationSeconds: Double = 0
     /// Per-target reentrancy guards for message actions. `react`/`deleteMessage`
@@ -1116,6 +1119,7 @@ final class WorkspaceState {
     /// Injectable clock for peer-profile cache TTL decisions, so tests can drive cache
     /// expiry deterministically (whitenoise-mac#8). Defaults to the system clock.
     let nowProvider: @MainActor () -> Date
+    let microphoneAccessProvider: @MainActor () async -> Bool
     var client: (any MarmotRuntime)?
     var observabilityRuntimeConfiguration: ObservabilityRuntimeConfiguration?
     var notificationTask: Task<Void, Never>?
@@ -1562,6 +1566,9 @@ final class WorkspaceState {
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
         nip05Resolver: (any NIP05Resolving)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
+        microphoneAccessProvider: @escaping @MainActor () async -> Bool = {
+            await WorkspaceState.requestSystemMicrophoneAccess()
+        },
         mediaDiskCache: MessageMediaDiskCache = .shared,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
@@ -1578,6 +1585,7 @@ final class WorkspaceState {
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.nip05Resolver = nip05Resolver ?? NIP05Resolver()
         self.nowProvider = nowProvider
+        self.microphoneAccessProvider = microphoneAccessProvider
         self.mediaDiskCache = mediaDiskCache
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
