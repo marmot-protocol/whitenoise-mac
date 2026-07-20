@@ -911,11 +911,13 @@ extension WorkspaceState {
     func storeGroupMembers(_ members: [GroupMemberDetailsFfi], for groupIdHex: String) {
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
+        mentionRosterCache[groupIdHex] = nil
         groupMemberDetailsCache[groupIdHex] = members
     }
 
     func invalidateGroupMembers(for groupIdHex: String) {
         groupMemberDetailsCache[groupIdHex] = nil
+        mentionRosterCache[groupIdHex] = nil
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
         readStateMetadataEnrichmentAttempts.remove(groupIdHex)
@@ -923,6 +925,7 @@ extension WorkspaceState {
 
     func clearGroupMemberCache() {
         groupMemberDetailsCache.removeAll()
+        mentionRosterCache.removeAll()
         for lookup in groupMemberDetailsLookups.values {
             lookup.task.cancel()
         }
@@ -962,7 +965,7 @@ extension WorkspaceState {
         if groupMemberDetailsLookups[groupIdHex]?.token == token {
             groupMemberDetailsLookups[groupIdHex] = nil
             if activeAccountId == account.id, let members {
-                groupMemberDetailsCache[groupIdHex] = members
+                storeGroupMembers(members, for: groupIdHex)
             }
         }
         return members
