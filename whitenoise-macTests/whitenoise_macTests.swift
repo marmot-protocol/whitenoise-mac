@@ -18136,6 +18136,41 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func telemetryBuildConfigDefaultsUnsetDeploymentEnvironmentToDevelopment() async throws {
+        let config = TelemetryBuildConfig.current(
+            infoDictionary: [
+                "CFBundleShortVersionString": "2026.6",
+                "CFBundleVersion": "12",
+            ],
+            environment: [:]
+        )
+
+        #expect(config.deploymentEnvironment == "development")
+
+        let runtimeResource = config.runtimeConfig(installId: "install-id").resource
+        #expect(runtimeResource?.deploymentEnvironment == "development")
+    }
+
+    @MainActor
+    @Test func telemetryBuildConfigMapsUnrecognizedDeploymentEnvironmentToUnknown() async throws {
+        let config = TelemetryBuildConfig.current(
+            infoDictionary: [
+                "WhiteNoiseTelemetryBearerToken": "release-otlp-token",
+                "WhiteNoiseTelemetryEnvironment": "prod",
+                "CFBundleShortVersionString": "2026.6",
+                "CFBundleVersion": "12",
+            ],
+            environment: [:]
+        )
+
+        #expect(config.bearerToken == "release-otlp-token")
+        #expect(config.deploymentEnvironment == "unknown")
+
+        let runtimeResource = config.runtimeConfig(installId: "install-id").resource
+        #expect(runtimeResource?.deploymentEnvironment == "unknown")
+    }
+
+    @MainActor
     @Test func privacySecuritySettingsLoadAndPersistTelemetryAndAuditToggles() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",

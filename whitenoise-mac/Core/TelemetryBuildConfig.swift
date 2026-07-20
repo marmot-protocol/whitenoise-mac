@@ -148,7 +148,7 @@ struct TelemetryBuildConfig: Equatable {
         case "production", "staging", "development", "test":
             return environment
         default:
-            return "development"
+            return "unknown"
         }
     }
 
