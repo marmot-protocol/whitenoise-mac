@@ -284,6 +284,21 @@ extension WorkspaceState {
                     reference: reference
                 )
             }
+            let mediaDownload = MessageMediaDownload(
+                payload: DownloadedMediaPayload(
+                    id: "\(key)|\(UUID().uuidString)",
+                    data: download.plaintext
+                ),
+                fileName: download.fileName,
+                mediaType: download.mediaType,
+                sizeBytes: download.sizeBytes
+            )
+            scheduleMediaDiskCacheStore(
+                mediaDownload,
+                for: cacheKey,
+                accountId: accountId,
+                storeGuard: storeGuard
+            )
             guard
                 canPublishMediaDownloadState(
                     forKey: key,
@@ -295,22 +310,7 @@ extension WorkspaceState {
                 stateStore.update(.idle)
                 return
             }
-            let mediaDownload = MessageMediaDownload(
-                payload: DownloadedMediaPayload(
-                    id: "\(key)|\(UUID().uuidString)",
-                    data: download.plaintext
-                ),
-                fileName: download.fileName,
-                mediaType: download.mediaType,
-                sizeBytes: download.sizeBytes
-            )
             stateStore.update(.loaded(mediaDownload))
-            scheduleMediaDiskCacheStore(
-                mediaDownload,
-                for: cacheKey,
-                accountId: accountId,
-                storeGuard: storeGuard
-            )
         } catch is CancellationError {
             guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
                 stateStore.update(.idle)

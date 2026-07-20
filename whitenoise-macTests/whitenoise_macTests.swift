@@ -6790,7 +6790,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func mediaDownloadFinishingAfterTimelinePruneDoesNotPublishPlaintext() async throws {
+    @Test func mediaDownloadFinishingAfterTimelinePruneCachesWithoutPublishingPlaintext() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -6879,16 +6879,34 @@ struct whitenoise_macTests {
         #expect(state.mediaDownloads[key] == nil)
         #expect(stateStore.state == .idle)
 
+        state.replaceMessages([message], groupIdHex: "group")
+        let recreatedStateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
+        #expect(recreatedStateStore !== stateStore)
+        #expect(recreatedStateStore.state == .idle)
+
         runtime.releaseMediaDownloadGate()
         await load
         for _ in 0..<20 where !state.mediaDiskStoreTasks.isEmpty {
             await Task.yield()
         }
 
-        #expect(state.mediaDownloads[key] == nil)
         #expect(stateStore.state == .idle)
+        #expect(recreatedStateStore.state == .idle)
         #expect(state.mediaDiskStoreTasks.isEmpty)
-        #expect(await mediaDiskCache.cachedDownload(for: cacheKey) == nil)
+        guard let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) else {
+            Issue.record("Expected pruned late download to persist to encrypted disk cache")
+            return
+        }
+        #expect(cachedDownload.data == plaintext)
+        #expect(runtime.downloadMediaCallCount == 1)
+
+        await state.loadMediaAttachment(attachment, for: message)
+        guard case .loaded(let loaded) = recreatedStateStore.state else {
+            Issue.record("Expected recreated store to load from disk cache without re-downloading")
+            return
+        }
+        #expect(loaded.data == plaintext)
+        #expect(runtime.downloadMediaCallCount == 1)
     }
 
     @MainActor
