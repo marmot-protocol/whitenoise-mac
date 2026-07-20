@@ -42,9 +42,9 @@ nonisolated enum RemoteImageURLPolicy {
     /// Returns true if `url` is safe to fetch: `https` scheme with a non-empty, public host.
     ///
     /// "Public host" means the host is not a literal private/loopback/link-local/unspecified
-    /// IP address and not an obvious local hostname (`localhost`, `*.local`). This is the SSRF
-    /// guard: attacker-controlled avatar URLs must not be able to reach the viewer's internal
-    /// network.
+    /// IP address and not an obvious local hostname (`localhost`, `*.localhost`, `*.local`). This
+    /// is the SSRF guard: attacker-controlled avatar URLs must not be able to reach the viewer's
+    /// internal network.
     ///
     /// Limitation (documented, not silently ignored): a *public-looking* DNS hostname can still
     /// resolve to a private IP (DNS rebinding), because `URLSession` performs its own resolution
@@ -76,8 +76,9 @@ nonisolated enum RemoteImageURLPolicy {
 
         if normalized.isEmpty { return true }
 
-        // Obvious local hostnames. mDNS `.local` names resolve on the local link only.
-        if normalized == "localhost" || normalized.hasSuffix(".local") {
+        // RFC 6761 reserves the entire `.localhost` namespace for loopback; mDNS `.local` names
+        // resolve on the local link only.
+        if normalized == "localhost" || normalized.hasSuffix(".localhost") || normalized.hasSuffix(".local") {
             return true
         }
 

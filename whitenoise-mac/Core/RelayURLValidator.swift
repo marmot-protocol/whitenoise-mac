@@ -10,8 +10,8 @@ import Foundation
 ///
 /// - `wss://` (TLS) relays are always accepted and considered secure.
 /// - `ws://` (cleartext) relays are accepted **only** when they point at a
-///   loopback host (`localhost`, `127.0.0.0/8`, `::1`), to keep local/dev
-///   relays usable. They are still flagged as insecure for the UI.
+///   loopback host (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`), to keep
+///   local/dev relays usable. They are still flagged as insecure for the UI.
 /// - Any other `ws://` relay, or any other scheme, is rejected.
 nonisolated enum RelayURLValidator {
     nonisolated enum Classification: Equatable {
@@ -118,7 +118,8 @@ nonisolated enum RelayURLValidator {
             normalized.removeLast()
         }
 
-        if normalized == "localhost" {
+        // RFC 6761 reserves the entire `.localhost` namespace for loopback.
+        if normalized == "localhost" || normalized.hasSuffix(".localhost") {
             return true
         }
 

@@ -1483,6 +1483,8 @@ struct PureValueTests {
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://[::1]/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost/x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://localhost./x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://profile.localhost/x.png") == nil)
+        #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://profile.localhost./x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://printer.local./x.png") == nil)
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://127.0.0.1./x.png") == nil)
         // whitenoise-mac#243: broadcast / multicast / reserved / CGNAT are non-public too,
@@ -1685,6 +1687,7 @@ struct PureValueTests {
         for url in [
             "ws://localhost",
             "ws://localhost:7000",
+            "ws://relay.localhost",
             "ws://127.0.0.1",
             "ws://127.0.0.1:8080/relay",
             "ws://127.1.2.3",
@@ -1701,6 +1704,7 @@ struct PureValueTests {
             "ws://localhost.",
             "ws://LOCALHOST.:7000",
             "ws://localhost..",
+            "ws://relay.localhost.:7000",
             "ws://127.0.0.1.",
             "ws://127.0.0.1.:8080/relay",
             "ws://127.0.0.1..",
@@ -2043,6 +2047,11 @@ struct PureValueTests {
         #expect(NIP05Identifier("npub1qqq@evil.example") != nil)
     }
 
+    @Test func nip05IdentifierRejectsReservedLocalhostNamespace() async throws {
+        #expect(NIP05Identifier("alice@app.localhost") == nil)
+        #expect(NIP05Identifier("alice@app.localhost.") == nil)
+    }
+
     @Test func nip05RedirectPolicyCapsRedirectHopsPerTask() async throws {
         // Delegate methods are exercised directly, no task is ever resumed so nothing touches
         // the network.
@@ -2100,6 +2109,8 @@ struct PureValueTests {
             "https://[fe80::1]/",
             "http://localhost/admin",
             "http://localhost./admin",
+            "https://foo.localhost:8080/x",
+            "https://foo.localhost.:8080/x",
             "https://printer.local/status",
             "https://printer.local./status",
             // Obfuscated loopback literal (decimal form of 127.0.0.1).
