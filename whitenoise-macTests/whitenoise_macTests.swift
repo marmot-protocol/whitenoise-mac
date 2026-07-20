@@ -6480,6 +6480,184 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func timelineMediaProjectionDefersMediaReferenceCacheInvalidationUntilRetained() async throws {
+        // Regression for whitenoise-mac#631: inbound media newer than a detached window head is
+        // suppressed without invalidating the cache, then invalidates once the row is retained.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let accountItem = AccountItem(summary: account)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let chat = ChatItem(
+            id: "group",
+            title: "Test Group",
+            subtitle: "Group message",
+            preview: "Attachment",
+            updatedAt: nil,
+            avatarSeed: "group",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let historicalMessage = MessageItem(
+            id: "historical-text-message",
+            groupIdHex: "group",
+            senderName: "alice",
+            body: "historical",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineAt: 1_700_000_000,
+            isOutgoing: false
+        )
+        let inboundReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "image/png",
+            fileName: "inbound.png",
+            ciphertextSha256: String(repeating: "c", count: 64),
+            plaintextSha256: String(repeating: "d", count: 64)
+        )
+        let state = WorkspaceState(
+            accounts: [accountItem],
+            chatsByAccount: [accountItem.id: [chat]],
+            messagesByChat: ["group": [historicalMessage]],
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = accountItem.id
+        state.selection = .chat("group")
+        state.timelinePagingByChat["group"] = TimelinePagingState(
+            hasMoreBefore: true,
+            hasMoreAfter: true,
+            isLoadingBefore: false,
+            isLoadingAfter: false
+        )
+
+        let initial = try await state.resolvedMediaReference(
+            inboundReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(initial.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        let fullReference = mediaAttachmentReference(
+            sourceEpoch: 11,
+            mediaType: "image/png",
+            fileName: "inbound.png",
+            ciphertextSha256: inboundReference.ciphertextSha256,
+            plaintextSha256: inboundReference.plaintextSha256
+        )
+        runtime.installMediaRecord(
+            MediaRecordFfi(
+                messageIdHex: "inbound-media-message",
+                attachmentIndex: 0,
+                direction: "inbound",
+                groupIdHex: "group",
+                sender: "alice",
+                reference: fullReference,
+                caption: nil,
+                recordedAt: 1_700_000_100,
+                receivedAt: 1_700_000_100
+            ),
+            download: MediaDownloadResultFfi(
+                plaintext: Data([0x01, 0x02, 0x03, 0x04]),
+                fileName: "inbound.png",
+                mediaType: "image/png",
+                sizeBytes: 4
+            )
+        )
+        await state.applyTimelineProjection(
+            TimelineProjectionUpdateFfi(
+                groupIdHex: "group",
+                messages: [],
+                changes: [
+                    .upsert(
+                        trigger: .newMessage,
+                        message: timelineMessage(
+                            id: "inbound-media-message",
+                            groupIdHex: "group",
+                            sender: "alice",
+                            plaintext: "",
+                            recordedAt: 1_700_000_100,
+                            mediaJson: mediaJson(for: inboundReference)
+                        ))
+                ],
+                chatListRow: nil,
+                chatListTrigger: .newLastMessage
+            ),
+            groupIdHex: "group",
+            account: accountItem,
+            client: runtime
+        )
+
+        #expect(state.messagesByChat["group"]?.map(\.id) == ["historical-text-message"])
+
+        let stillCachedMiss = try await state.resolvedMediaReference(
+            inboundReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(stillCachedMiss.sourceEpoch == 0)
+        #expect(runtime.listMediaCallCount == 1)
+
+        let acceptedRecords = [
+            timelineMessage(
+                id: "historical-text-message",
+                groupIdHex: "group",
+                sender: "alice",
+                plaintext: "historical",
+                recordedAt: 1_700_000_000
+            ),
+            timelineMessage(
+                id: "inbound-media-message",
+                groupIdHex: "group",
+                sender: "alice",
+                plaintext: "",
+                recordedAt: 1_700_000_100,
+                mediaJson: mediaJson(for: inboundReference)
+            ),
+        ]
+        let subscription = FakeTimelineMessagesSubscription(
+            messages: acceptedRecords,
+            limit: acceptedRecords.count,
+            windowCap: acceptedRecords.count
+        )
+        state.activeTimelineSubscription = subscription
+        state.activeTimelineGroupId = "group"
+        let acceptedPage = try #require(subscription.snapshot())
+        await state.applyTimelineWindow(
+            acceptedPage,
+            groupIdHex: "group",
+            account: accountItem,
+            client: runtime,
+            owner: .subscription(subscription)
+        )
+        #expect(
+            state.messagesByChat["group"]?.map(\.id) == [
+                "historical-text-message",
+                "inbound-media-message",
+            ])
+
+        let refreshed = try await state.resolvedMediaReference(
+            inboundReference,
+            accountId: accountItem.id,
+            accountRef: accountItem.accountRef,
+            groupIdHex: "group",
+            client: runtime
+        )
+        #expect(refreshed.sourceEpoch == fullReference.sourceEpoch)
+        #expect(runtime.listMediaCallCount == 2)
+    }
+
+    @MainActor
     @Test func workspaceCoalescesAndCachesSourceEpochZeroMediaReferenceResolution() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
