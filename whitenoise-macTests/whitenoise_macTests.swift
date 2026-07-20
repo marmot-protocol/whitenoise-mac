@@ -12568,7 +12568,80 @@ struct whitenoise_macTests {
         let data = try ConversationTranscriptExport.encodeJSON(document)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(json["group_name"] as? String == "Hermes 2")
+        #expect(json["truncated"] as? Bool == false)
         #expect((json["events"] as? [[String: Any]])?.count == 2)
+    }
+
+    @Test func conversationTranscriptExportStopsAtLimitAndMarksOlderEventsTruncated() throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let records = (1...3).map { index in
+            timelineMessage(
+                id: String(repeating: String(index), count: 64),
+                groupIdHex: "group",
+                sender: String(repeating: "a", count: 64),
+                plaintext: "message \(index)",
+                recordedAt: UInt64(index)
+            )
+        }
+        runtime.timelineMessagesHandler = { query in
+            switch query.before {
+            case nil:
+                return TimelinePageFfi(messages: [records[2]], hasMoreBefore: true, hasMoreAfter: false)
+            case 3:
+                return TimelinePageFfi(messages: [records[0], records[1]], hasMoreBefore: true, hasMoreAfter: true)
+            default:
+                return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: true)
+            }
+        }
+
+        let result = try ConversationTranscriptExport.fetchMessages(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            messageLimit: 2
+        )
+        let document = ConversationTranscriptExport.makeDocument(
+            groupIdHex: "group",
+            groupName: "Test Group",
+            chronologicallySortedMessages: result.messages,
+            truncated: result.truncated
+        )
+        let json = try #require(
+            JSONSerialization.jsonObject(with: ConversationTranscriptExport.encodeJSON(document)) as? [String: Any]
+        )
+
+        #expect(result.messages.map(\.messageIdHex) == [records[1].messageIdHex, records[2].messageIdHex])
+        #expect(result.truncated)
+        #expect(runtime.timelineMessageQueries.count == 2)
+        #expect(json["event_count"] as? Int == 2)
+        #expect(json["truncated"] as? Bool == true)
+    }
+
+    @Test func conversationTranscriptExportDoesNotTruncateACompleteLimit() throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let records = (1...2).map { index in
+            timelineMessage(
+                id: String(repeating: String(index), count: 64),
+                groupIdHex: "group",
+                sender: String(repeating: "a", count: 64),
+                plaintext: "message \(index)",
+                recordedAt: UInt64(index)
+            )
+        }
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: records, hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        let result = try ConversationTranscriptExport.fetchMessages(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            messageLimit: 2
+        )
+
+        #expect(result.messages.count == 2)
+        #expect(!result.truncated)
+        #expect(runtime.timelineMessageQueries.count == 1)
     }
 
     @Test func conversationTranscriptExportFailsWhenEmptyPageReportsMoreHistory() throws {
@@ -12598,7 +12671,7 @@ struct whitenoise_macTests {
         }
 
         #expect(throws: ConversationTranscriptExport.ExportError.self) {
-            try ConversationTranscriptExport.fetchAllMessages(
+            try ConversationTranscriptExport.fetchMessages(
                 client: runtime,
                 accountRef: "Desktop Account",
                 groupIdHex: "group"
@@ -12628,7 +12701,7 @@ struct whitenoise_macTests {
         }
 
         #expect(throws: ConversationTranscriptExport.ExportError.self) {
-            try ConversationTranscriptExport.fetchAllMessages(
+            try ConversationTranscriptExport.fetchMessages(
                 client: runtime,
                 accountRef: "Desktop Account",
                 groupIdHex: "group"
@@ -12644,12 +12717,13 @@ struct whitenoise_macTests {
             TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
         }
 
-        let messages = try ConversationTranscriptExport.fetchAllMessages(
+        let result = try ConversationTranscriptExport.fetchMessages(
             client: runtime,
             accountRef: "Desktop Account",
             groupIdHex: "group"
         )
-        #expect(messages.isEmpty)
+        #expect(result.messages.isEmpty)
+        #expect(!result.truncated)
     }
 
     @Test func conversationTranscriptExportCancelsBeforeFetchingNextPage() async {
@@ -12679,7 +12753,7 @@ struct whitenoise_macTests {
         }
 
         let exportTask = Task.detached { () throws -> Void in
-            _ = try ConversationTranscriptExport.fetchAllMessages(
+            _ = try ConversationTranscriptExport.fetchMessages(
                 client: runtime,
                 accountRef: "Desktop Account",
                 groupIdHex: "group"

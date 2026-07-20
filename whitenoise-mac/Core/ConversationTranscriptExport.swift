@@ -6,6 +6,13 @@ import MarmotKit
 /// thread under the project's default `@MainActor` isolation.
 nonisolated enum ConversationTranscriptExport {
     static let pageLimit: UInt32 = 200
+    /// Bounds the records and encoded copies retained by the clipboard-only export path.
+    static let maximumEventCount = 1_000
+
+    struct FetchResult {
+        var messages: [TimelineMessageRecordFfi]
+        var truncated: Bool
+    }
 
     enum ExportError: LocalizedError {
         /// The FFI reported more history exists (`hasMoreBefore == true`) but the `before`
@@ -30,6 +37,7 @@ nonisolated enum ConversationTranscriptExport {
         var groupIdHex: String
         var groupName: String
         var eventCount: Int
+        var truncated: Bool
         var events: [Event]
 
         enum CodingKeys: String, CodingKey {
@@ -38,6 +46,7 @@ nonisolated enum ConversationTranscriptExport {
             case groupIdHex = "group_id_hex"
             case groupName = "group_name"
             case eventCount = "event_count"
+            case truncated
             case events
         }
     }
@@ -80,12 +89,14 @@ nonisolated enum ConversationTranscriptExport {
         }
     }
 
-    static func fetchAllMessages(
+    static func fetchMessages(
         client: any MarmotRuntime,
         accountRef: String,
         groupIdHex: String,
+        messageLimit: Int = maximumEventCount,
         checkCancellation: @Sendable () throws -> Void = { try Task.checkCancellation() }
-    ) throws -> [TimelineMessageRecordFfi] {
+    ) throws -> FetchResult {
+        precondition(messageLimit > 0)
         var collectedById: [String: TimelineMessageRecordFfi] = [:]
         var before: UInt64?
         var beforeMessageId: String?
@@ -107,6 +118,13 @@ nonisolated enum ConversationTranscriptExport {
             try checkCancellation()
             for message in page.messages {
                 collectedById[message.messageIdHex] = message
+            }
+
+            if collectedById.count > messageLimit
+                || (collectedById.count == messageLimit && page.hasMoreBefore)
+            {
+                let messages = Array(sortChronologically(Array(collectedById.values)).suffix(messageLimit))
+                return FetchResult(messages: messages, truncated: true)
             }
 
             guard page.hasMoreBefore else { break }
@@ -133,13 +151,17 @@ nonisolated enum ConversationTranscriptExport {
             beforeMessageId = nextBeforeMessageId
         }
 
-        return sortChronologically(Array(collectedById.values))
+        return FetchResult(
+            messages: sortChronologically(Array(collectedById.values)),
+            truncated: false
+        )
     }
 
     static func makeDocument(
         groupIdHex: String,
         groupName: String,
         chronologicallySortedMessages messages: [TimelineMessageRecordFfi],
+        truncated: Bool = false,
         exportedAt: Date = Date()
     ) -> Document {
         let events = messages.enumerated().map { index, record in
@@ -167,6 +189,7 @@ nonisolated enum ConversationTranscriptExport {
             groupIdHex: groupIdHex,
             groupName: groupName,
             eventCount: events.count,
+            truncated: truncated,
             events: events
         )
     }

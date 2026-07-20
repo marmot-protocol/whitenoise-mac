@@ -114,10 +114,10 @@ extension WorkspaceState {
             let groupIdHex = snapshot.groupIdHex
             let groupName = snapshot.name
             let detailsGeneration = groupDetailsLoadGeneration
-            // Paginates the whole transcript via blocking FFI and JSON-encodes it; keep it
-            // off the main thread so a large export does not freeze the UI.
+            // Paginates a bounded suffix of the transcript via blocking FFI and JSON-encodes it;
+            // keep it off the main thread so a large export does not freeze the UI.
             let export = try await runOffMainCancellable { checkCancellation -> (json: String, eventCount: Int) in
-                let messages = try ConversationTranscriptExport.fetchAllMessages(
+                let result = try ConversationTranscriptExport.fetchMessages(
                     client: client,
                     accountRef: accountRef,
                     groupIdHex: groupIdHex,
@@ -126,7 +126,8 @@ extension WorkspaceState {
                 let document = ConversationTranscriptExport.makeDocument(
                     groupIdHex: groupIdHex,
                     groupName: groupName,
-                    chronologicallySortedMessages: messages
+                    chronologicallySortedMessages: result.messages,
+                    truncated: result.truncated
                 )
                 return (try ConversationTranscriptExport.encodeJSONString(document), document.eventCount)
             }
