@@ -902,6 +902,45 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func messageTimelineStoreIndexesEditCandidatesByTarget() async throws {
+        // Regression for whitenoise-mac#586: rendering one materialized row must inspect only
+        // that target's candidates, not every retained edit in the timeline window.
+        let store = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000)
+        ])
+        var mutations = (0..<199).map { index in
+            editUpsert(
+                makeEditOverlay(
+                    target: "unrelated-\(index)",
+                    editId: "unrelated-edit-\(index)",
+                    plaintext: "Unrelated \(index)",
+                    timelineAt: 1_800_000_001 + UInt64(index)
+                )
+            )
+        }
+        mutations.append(
+            editUpsert(
+                makeEditOverlay(
+                    editId: "target-edit",
+                    plaintext: "Edited",
+                    timelineAt: 1_800_000_200
+                )
+            )
+        )
+
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: mutations,
+            anchoredToNewest: true,
+            windowLimit: 200
+        )
+
+        #expect(store.lookup["target"]?.body == "Edited")
+        #expect(store.lastRenderEditCandidateVisitCount == 1)
+    }
+
+    @MainActor
     @Test func messageTimelineStoreReplaceReappliesStoredEditsAcrossWindowChanges() async throws {
         // Regression for whitenoise-mac#419: replace() rebuilds indexes before validating targets,
         // and stored overlays survive authoritative replaces that omit the edit record.
