@@ -18,6 +18,10 @@ private nonisolated struct MediaReferenceIndexTaskFailure: Error {
     let underlying: Error
 }
 
+private nonisolated struct MediaAttachmentDownloadTaskFailure: Error {
+    let underlying: Error
+}
+
 @MainActor
 extension WorkspaceState {
     func clearAllComposerDrafts() {
@@ -277,13 +281,17 @@ extension WorkspaceState {
                 return
             }
 
-            let download = try await withMediaAttachmentDownloadTimeout {
-                try await client.downloadMedia(
-                    accountRef: accountRef,
-                    groupIdHex: groupIdHex,
-                    reference: reference
-                )
-            }
+            let download = try await sharedMessageMediaDownload(
+                cacheID: cacheKey.cacheID,
+                cacheKey: cacheKey,
+                mediaDownloadKey: key,
+                accountId: accountId,
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                reference: reference,
+                client: client,
+                storeGuard: storeGuard
+            )
             guard
                 canPublishMediaDownloadState(
                     forKey: key,
@@ -295,22 +303,7 @@ extension WorkspaceState {
                 stateStore.update(.idle)
                 return
             }
-            let mediaDownload = MessageMediaDownload(
-                payload: DownloadedMediaPayload(
-                    id: "\(key)|\(UUID().uuidString)",
-                    data: download.plaintext
-                ),
-                fileName: download.fileName,
-                mediaType: download.mediaType,
-                sizeBytes: download.sizeBytes
-            )
-            stateStore.update(.loaded(mediaDownload))
-            scheduleMediaDiskCacheStore(
-                mediaDownload,
-                for: cacheKey,
-                accountId: accountId,
-                storeGuard: storeGuard
-            )
+            stateStore.update(.loaded(download))
         } catch is CancellationError {
             guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else {
                 stateStore.update(.idle)
@@ -666,15 +659,16 @@ extension WorkspaceState {
             return
         }
 
-        let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
+        let groupPrefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
         let retainedKeys = retainedMediaDownloadKeys(groupIdHex: groupIdHex, accountId: activeAccountId)
         let removedKeys = mediaDownloads.keys.filter { key in
-            guard key.hasPrefix(prefix) else { return true }
+            guard key.hasPrefix(groupPrefix) else { return true }
             return !retainedKeys.contains(key)
         }
         for key in removedKeys {
+            guard let store = mediaDownloads[key] else { continue }
             // Notify any lingering per-attachment observers before dropping the store.
-            mediaDownloads[key]?.update(.idle)
+            store.update(.idle)
             mediaDownloads[key] = nil
         }
     }
@@ -700,8 +694,129 @@ extension WorkspaceState {
             store.update(.idle)
         }
         mediaDownloads.removeAll()
+        cancelAllMediaAttachmentDownloadTasks()
         clearMediaReferenceResolutionCache()
         MessageAudioMetadataCache.shared.clear()
+    }
+
+    private func sharedMessageMediaDownload(
+        cacheID: String,
+        cacheKey: MessageMediaDiskCacheKey,
+        mediaDownloadKey: String,
+        accountId: String,
+        accountRef: String,
+        groupIdHex: String,
+        reference: MediaAttachmentReferenceFfi,
+        client: any MarmotRuntime,
+        storeGuard: MediaDiskStoreGuard
+    ) async throws -> MessageMediaDownload {
+        let tracked = mediaAttachmentDownloadTask(
+            cacheID: cacheID,
+            cacheKey: cacheKey,
+            mediaDownloadKey: mediaDownloadKey,
+            accountId: accountId,
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            reference: reference,
+            client: client,
+            storeGuard: storeGuard
+        )
+        let task = tracked.task
+        do {
+            return try await withMediaAttachmentDownloadTimeout { [task] in
+                do {
+                    return try await task.value
+                } catch {
+                    throw MediaAttachmentDownloadTaskFailure(underlying: error)
+                }
+            }
+        } catch let failure as MediaAttachmentDownloadTaskFailure {
+            throw failure.underlying
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch is MediaAttachmentDownloadTimeoutError {
+            throw MediaAttachmentDownloadTimeoutError()
+        }
+    }
+
+    private func mediaAttachmentDownloadTask(
+        cacheID: String,
+        cacheKey: MessageMediaDiskCacheKey,
+        mediaDownloadKey: String,
+        accountId: String,
+        accountRef: String,
+        groupIdHex: String,
+        reference: MediaAttachmentReferenceFfi,
+        client: any MarmotRuntime,
+        storeGuard: MediaDiskStoreGuard
+    ) -> MediaAttachmentDownloadTask {
+        if let existing = mediaAttachmentDownloadTasks[cacheID] {
+            return existing
+        }
+
+        nextMediaAttachmentDownloadTaskToken &+= 1
+        let token = nextMediaAttachmentDownloadTaskToken
+        let downloadTask = Task.detached(priority: .userInitiated) {
+            [client, accountRef, groupIdHex, reference, mediaDownloadKey] in
+            let download = try await client.downloadMedia(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex,
+                reference: reference
+            )
+            return MessageMediaDownload(
+                payload: DownloadedMediaPayload(
+                    id: "\(mediaDownloadKey)|\(UUID().uuidString)",
+                    data: download.plaintext
+                ),
+                fileName: download.fileName,
+                mediaType: download.mediaType,
+                sizeBytes: download.sizeBytes
+            )
+        }
+        let tracked = MediaAttachmentDownloadTask(
+            token: token,
+            task: downloadTask
+        )
+        mediaAttachmentDownloadTasks[cacheID] = tracked
+        Task { @MainActor [weak self, downloadTask, cacheID, cacheKey, accountId, storeGuard, token] in
+            defer {
+                self?.finishMediaAttachmentDownloadTask(cacheID: cacheID, token: token)
+            }
+            do {
+                let download = try await downloadTask.value
+                guard let self,
+                    self.mediaAttachmentDownloadTasks[cacheID]?.token == token,
+                    self.isMediaDiskStoreAllowed(forAccountId: accountId, storeGuard: storeGuard)
+                else {
+                    return
+                }
+                self.scheduleMediaDiskCacheStore(
+                    download,
+                    for: cacheKey,
+                    accountId: accountId,
+                    storeGuard: storeGuard
+                )
+                if let storeTask = self.mediaDiskStoreTasks[cacheID]?.task {
+                    await storeTask.value
+                }
+            } catch {
+                // Underlying failures are surfaced to waiters; cleanup happens in defer.
+            }
+        }
+        return tracked
+    }
+
+    private func finishMediaAttachmentDownloadTask(cacheID: String, token: UInt64) {
+        guard mediaAttachmentDownloadTasks[cacheID]?.token == token else { return }
+        mediaAttachmentDownloadTasks[cacheID] = nil
+    }
+
+    private func cancelAllMediaAttachmentDownloadTasks() {
+        let tracked = Array(mediaAttachmentDownloadTasks.values)
+        mediaAttachmentDownloadTasks.removeAll()
+        for entry in tracked {
+            entry.task.cancel()
+        }
     }
 
     func resolvedMediaReference(
