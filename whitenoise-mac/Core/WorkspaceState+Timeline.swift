@@ -18,9 +18,9 @@ private enum ComposerMediaUploadPresentation {
     static let uploadedAcknowledgementDelayNanoseconds: UInt64 = 300_000_000
 }
 
-/// Ownership token for subscription, initial-load, or post-send timeline window applies.
-/// Re-checked after every suspension in `applyTimelineWindow` so a superseded listener
-/// or query cannot overwrite a replacement for the same account/chat.
+/// Ownership token for subscription, initial-load, or post-send timeline applies.
+/// Re-checked after every suspension in window and projection paths so a superseded
+/// listener or query cannot overwrite a replacement for the same account/chat.
 enum TimelineWindowOwner {
     case subscription(TimelineMessagesSubscription)
     case loadGeneration(UInt64)
@@ -383,9 +383,10 @@ extension WorkspaceState {
     private func canApplyTimelineWindow(
         groupIdHex: String,
         accountId: String,
-        owner: TimelineWindowOwner
+        owner: TimelineWindowOwner?
     ) -> Bool {
         guard activeAccountId == accountId, selectedChat?.id == groupIdHex else { return false }
+        guard let owner else { return true }
         switch owner {
         case .subscription(let expectedSubscription):
             guard activeTimelineGroupId == groupIdHex,
@@ -437,7 +438,8 @@ extension WorkspaceState {
                 runtimeUpdate.update,
                 groupIdHex: groupIdHex,
                 account: account,
-                client: client
+                client: client,
+                owner: .subscription(subscription)
             )
         }
     }
@@ -450,9 +452,16 @@ extension WorkspaceState {
         _ update: TimelineProjectionUpdateFfi,
         groupIdHex: String,
         account: AccountItem,
-        client: any MarmotRuntime
+        client: any MarmotRuntime,
+        owner: TimelineWindowOwner? = nil
     ) async {
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                owner: owner
+            )
+        else { return }
         guard update.groupIdHex == groupIdHex else { return }
 
         // Partition the delta into upserts (need mapping) and removals. An empty
@@ -488,7 +497,24 @@ extension WorkspaceState {
             )
         }
         let mentionNames = cachedMentionNames(groupIdHex: groupIdHex)
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                owner: owner
+            )
+        else { return }
+
+        #if DEBUG
+            await passTimelineApplyMapGateIfArmed()
+            guard
+                canApplyTimelineWindow(
+                    groupIdHex: groupIdHex,
+                    accountId: account.id,
+                    owner: owner
+                )
+            else { return }
+        #endif
         // Map only the changed records off the main actor (same pure transformation as the
         // window path), then re-check the selection guard after the await before mutating
         // the store (whitenoise-mac#285). Capture the plain `accountIdHex` before hopping
@@ -505,7 +531,13 @@ extension WorkspaceState {
                 mentionNames: mentionNames
             )
         }
-        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                owner: owner
+            )
+        else { return }
 
         let paging = timelinePagingByChat[groupIdHex] ?? .empty
         // The window is "anchored" to the live head while there is no newer history to
@@ -530,6 +562,15 @@ extension WorkspaceState {
             guard !currentAttachments.isEmpty || !upsert.mediaAttachments.isEmpty else { return false }
             return currentAttachments != upsert.mediaAttachments
         }
+
+        guard
+            canApplyTimelineWindow(
+                groupIdHex: groupIdHex,
+                accountId: account.id,
+                owner: owner
+            )
+        else { return }
+
         if introducesMediaChange {
             clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
         }
