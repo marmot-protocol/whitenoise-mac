@@ -1159,11 +1159,17 @@ final class WorkspaceState {
     /// need members to identify direct chats and provide member-name fallbacks, so cache just
     /// that membership slice and invalidate it on membership-changing subscription events.
     var groupMemberDetailsCache: [String: [GroupMemberDetailsFfi]] = [:]
+    /// Mention-picker projections derived from `groupMemberDetailsCache`. Kept outside Observation
+    /// so reading or populating the cache from a view body does not schedule another render.
+    @ObservationIgnored var mentionRosterCache: [String: [ComposerMentionCandidate]] = [:]
     var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
     var readStateMetadataEnrichmentAttempts = Set<String>()
     var nextGroupMemberDetailsLookupToken: UInt64 = 0
 
     #if DEBUG
+        /// Test-only instrumentation for verifying mention roster projections are reused.
+        @ObservationIgnored var mentionRosterBuildCount = 0
+
         /// Test-only instrumentation: the number of times `messageSenderProfiles` had to fetch the
         /// group member list to build the sender-name fallback map. In the all-resolved steady
         /// state this must stay flat across timeline windows (whitenoise-mac#171). Not read by

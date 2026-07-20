@@ -194,6 +194,35 @@ struct PureValueTests {
         #expect(ComposerMentionQuery.filter(candidates, matching: "npub1qqq10").map(\.id) == ["member-10"])
     }
 
+    @MainActor
+    @Test func mentionRosterReusesCandidatesUntilGroupMembersChange() {
+        let account = AccountItem.samples[0]
+        let group = ChatItem.samples[0]
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [group]],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(group.id)
+
+        let local = mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true)
+        let alice = mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice")
+        state.storeGroupMembers([local, alice], for: group.id)
+
+        #expect(state.mentionRoster().map(\.id) == ["alice"])
+        #expect(state.mentionRoster().map(\.id) == ["alice"])
+        #expect(state.mentionRosterBuildCount == 1)
+
+        let bob = mentionMember(id: "bob", displayName: "Bob", npub: "npub1bob")
+        state.storeGroupMembers([local, bob], for: group.id)
+
+        #expect(state.mentionRoster().map(\.id) == ["bob"])
+        #expect(state.mentionRosterBuildCount == 2)
+    }
+
     @Test func editedMessageAndHistoryResolveCanonicalMentionsButRetainWireText() async throws {
         let npub = "npub1qqqq"
         let base = MessageItem(
@@ -2477,16 +2506,23 @@ struct PureValueTests {
 }
 
 private func mentionCandidate(id: String, displayName: String, npub: String) -> ComposerMentionCandidate {
-    ComposerMentionCandidate(
-        details: GroupMemberDetailsFfi(
-            memberIdHex: id,
-            account: id,
-            local: false,
-            isAdmin: false,
-            isSelf: false,
-            npub: npub,
-            displayName: displayName
-        )
+    ComposerMentionCandidate(details: mentionMember(id: id, displayName: displayName, npub: npub))
+}
+
+private func mentionMember(
+    id: String,
+    displayName: String,
+    npub: String,
+    isSelf: Bool = false
+) -> GroupMemberDetailsFfi {
+    GroupMemberDetailsFfi(
+        memberIdHex: id,
+        account: id,
+        local: isSelf,
+        isAdmin: false,
+        isSelf: isSelf,
+        npub: npub,
+        displayName: displayName
     )
 }
 
