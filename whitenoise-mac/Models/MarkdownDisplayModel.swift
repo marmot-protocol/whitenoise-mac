@@ -199,6 +199,7 @@ nonisolated enum MarkdownDisplayBlock {
                     mentionNames: mentionNames,
                     truncated: &truncated
                 )
+                guard row.isEmpty || !cells.isEmpty else { break }
                 displayRows.append(MarkdownDisplayTableRow(id: rowIndex, cells: cells))
             }
             self = .table(header: displayHeader, rows: displayRows)
@@ -220,17 +221,19 @@ nonisolated enum MarkdownDisplayBlock {
         var result: [MarkdownDisplayListItem] = []
         for (index, item) in items.enumerated() {
             guard budget.takeOne() else { break }
+            let blocks = MarkdownDisplayDocument.makeBlocks(
+                from: item.blocks,
+                remainingDepth: remainingDepth - 1,
+                mentionNames: mentionNames,
+                budget: &budget,
+                truncated: &truncated
+            )
+            guard item.blocks.isEmpty || !blocks.isEmpty else { break }
             result.append(
                 MarkdownDisplayListItem(
                     id: index,
                     marker: listMarker(kind: kind, item: item, index: index),
-                    blocks: MarkdownDisplayDocument.makeBlocks(
-                        from: item.blocks,
-                        remainingDepth: remainingDepth - 1,
-                        mentionNames: mentionNames,
-                        budget: &budget,
-                        truncated: &truncated
-                    )
+                    blocks: blocks
                 )
             )
         }

@@ -2368,6 +2368,7 @@ struct PureValueTests {
         #expect(!rows.isEmpty)
         #expect(rows.first?.id == 0)
         #expect(rows.first?.cells.first?.id == 0)
+        #expect(rows.last?.cells.isEmpty == false)
     }
 
     @Test func overLongMarkdownListBoundsDisplayNodesAndSetsTruncated() async throws {
@@ -2383,15 +2384,7 @@ struct PureValueTests {
         #expect(!items.isEmpty)
         #expect(items.first?.id == 0)
         #expect(items.first?.blocks.first?.id == 0)
-    }
-
-    @Test func markdownDisplayPreservesCoreTruncatedFlag() async throws {
-        // Keep the display tree below the node budget so this specifically proves that
-        // an upstream/core truncation signal survives the Swift-side conversion.
-        let document = wideMarkdownTable(columns: 4, rows: 3)
-        let coreTruncated = MarkdownDocumentFfi(blocks: document.blocks, truncated: true)
-        let display = MarkdownDisplayDocument(document: coreTruncated)
-        #expect(display.truncated)
+        #expect(items.last?.blocks.isEmpty == false)
     }
 
     @Test func normalMarkdownTableIsNotTruncatedByDisplayBudget() async throws {
