@@ -10,12 +10,58 @@
 import AppKit
 import SwiftUI
 
+/// Disappearing-timer picker selection: a concrete preset/current value, or the "Custom…" entry
+/// that opens the value+unit editor rather than committing immediately.
+private enum DisappearingChoice: Hashable {
+    case preset(DisappearingMessageOption)
+    case customEntry
+}
+
+/// Units offered by the custom disappearing-timer picker. `seconds` is included so any exact core
+/// value round-trips (e.g. a 90-second timer opens as "90 Seconds", not a truncated minute).
+private enum CustomDurationUnit: String, CaseIterable, Identifiable {
+    case seconds
+    case minutes
+    case hours
+    case days
+    case weeks
+
+    var id: String { rawValue }
+
+    var seconds: UInt64 {
+        switch self {
+        case .seconds: return 1
+        case .minutes: return 60
+        case .hours: return 3600
+        case .days: return 86_400
+        case .weeks: return 604_800
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .seconds: return L10n.string("Seconds")
+        case .minutes: return L10n.string("Minutes")
+        case .hours: return L10n.string("Hours")
+        case .days: return L10n.string("Days")
+        case .weeks: return L10n.string("Weeks")
+        }
+    }
+}
+
 struct GroupDetailsSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showArchiveConfirmation = false
     @State private var showLeaveConfirmation = false
     @State private var showSelfDemoteConfirmation = false
     @State private var showRemoveLocallyConfirmation = false
+    @State private var isAddMembersPresented = false
+    @State private var isCustomDisappearingPresented = false
+    // Kept as an exactly parsed decimal string: `UInt64.Stride` is `Int`, so any
+    // range-based numeric control spanning past `Int.max` traps in stride math,
+    // and narrowing to `Int` silently clamps large core values.
+    @State private var customDurationText = "1"
+    @State private var customDurationUnit = CustomDurationUnit.days
     let chat: ChatItem
 
     private var hasProfileChanges: Bool {
@@ -27,6 +73,107 @@ struct GroupDetailsSheet: View {
 
     private var headerAvatarURL: URL? {
         GroupDetailsHeaderAvatar.sanitizedURL(snapshot: workspace.groupDetailsSnapshot, fallback: chat)
+    }
+
+    /// Under the group name: the disappearing-message timer as a bare icon + duration (no label)
+    /// when it's on, otherwise the member count.
+    @ViewBuilder
+    private var headerSubtitle: some View {
+        if let snapshot = workspace.groupDetailsSnapshot, snapshot.disappearingMessagesEnabled {
+            HStack(spacing: 4) {
+                Image(systemName: "timer")
+                Text(DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs).label)
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+        } else {
+            Text(workspace.groupDetailsSnapshot?.memberCountLabel ?? "Group details")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Prefill the custom-duration fields from the group's current timer, choosing the largest
+    /// unit that divides it evenly so a 4-week timer opens as "4 weeks".
+    private func seedCustomDuration(from seconds: UInt64) {
+        guard seconds > 0 else {
+            customDurationText = "1"
+            customDurationUnit = .days
+            return
+        }
+        for unit in CustomDurationUnit.allCases.reversed() where seconds % unit.seconds == 0 {
+            // Stays UInt64-exact so any core value round-trips through Set unchanged.
+            customDurationText = String(seconds / unit.seconds)
+            customDurationUnit = unit
+            return
+        }
+        // Unreachable — the `.seconds` unit divides any value — but keeps the compiler happy.
+        customDurationText = String(seconds)
+        customDurationUnit = .seconds
+    }
+
+    private func customDurationPopover(groupIdHex: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n.string("Custom duration"))
+                .font(.headline)
+            HStack(spacing: 8) {
+                // Closure-based stepper: no range, so no stride arithmetic to
+                // trap on; the parsed value saturates at the UInt64 bounds.
+                Stepper {
+                    TextField("", text: $customDurationText)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 64)
+                        .accessibilityLabel(L10n.string("Duration value"))
+                } onIncrement: {
+                    guard let value = customDurationValue, value < UInt64.max else { return }
+                    customDurationText = String(value + 1)
+                } onDecrement: {
+                    guard let value = customDurationValue, value > 1 else { return }
+                    customDurationText = String(value - 1)
+                }
+                // Real label for VoiceOver, hidden from the visual layout.
+                Picker(L10n.string("Duration unit"), selection: $customDurationUnit) {
+                    ForEach(CustomDurationUnit.allCases) { unit in
+                        Text(unit.label).tag(unit)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 120)
+            }
+            HStack {
+                Spacer()
+                Button(L10n.string("Set")) { commitCustomDuration(groupIdHex: groupIdHex) }
+                    .keyboardShortcut(.defaultAction)
+                    .nativeGlassProminentButtonStyle()
+                    // Validate rather than clamp: disable Set for a non-positive or overflowing
+                    // total so a valid core value round-trips unchanged and nothing is silently
+                    // truncated.
+                    .disabled(customDurationSeconds == nil)
+            }
+        }
+        .padding(16)
+        .frame(width: 300)
+    }
+
+    /// The entered count, exactly parsed; `nil` for anything that isn't a decimal `UInt64`.
+    private var customDurationValue: UInt64? {
+        UInt64(customDurationText.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// The entered duration in seconds, or `nil` when it isn't a positive value that fits `UInt64`.
+    /// Bounds the *total* (value × unit), not a raw per-unit cap, so large-but-valid values commit.
+    private var customDurationSeconds: UInt64? {
+        guard let value = customDurationValue, value >= 1 else { return nil }
+        let (seconds, overflow) =
+            value
+            .multipliedReportingOverflow(by: customDurationUnit.seconds)
+        return overflow ? nil : seconds
+    }
+
+    private func commitCustomDuration(groupIdHex: String) {
+        guard let seconds = customDurationSeconds else { return }
+        isCustomDisappearingPresented = false
+        Task { await workspace.setDisappearingMessages(groupIdHex: groupIdHex, seconds: seconds) }
     }
 
     var body: some View {
@@ -46,9 +193,7 @@ struct GroupDetailsSheet: View {
                     Text(workspace.groupDetailsSnapshot?.name ?? chat.title)
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
-                    Text(workspace.groupDetailsSnapshot?.memberCountLabel ?? "Group details")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    headerSubtitle
                 }
 
                 Spacer()
@@ -56,6 +201,22 @@ struct GroupDetailsSheet: View {
                 if workspace.isLoadingGroupDetails {
                     ProgressView()
                         .controlSize(.small)
+                }
+
+                if let snapshot = workspace.groupDetailsSnapshot,
+                    snapshot.canInvite, snapshot.selfMembership == .member
+                {
+                    Button {
+                        isAddMembersPresented = true
+                    } label: {
+                        Image(systemName: "person.badge.plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 30, height: 30)
+                            .background { MessagesCircleControlBackground() }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.hasInFlightGroupCommit)
+                    .help(L10n.string("Add members"))
                 }
 
                 GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat") {
@@ -168,7 +329,9 @@ struct GroupDetailsSheet: View {
                     // non-member the same way it rejects sends (`invalid_transition`).
                     .disabled(snapshot.selfMembership != .member)
 
-                    Section("Members") {
+                    GroupSharedMediaSection(groupIdHex: snapshot.groupIdHex)
+
+                    Section {
                         if snapshot.members.isEmpty {
                             ContentUnavailableView("No members", systemImage: "person.2.slash")
                                 .frame(minHeight: 120)
@@ -177,26 +340,45 @@ struct GroupDetailsSheet: View {
                                 GroupMemberRow(member: member)
                             }
                         }
+                        if snapshot.canInvite && snapshot.selfMembership == .member {
+                            Button {
+                                isAddMembersPresented = true
+                            } label: {
+                                Label(L10n.string("Add members"), systemImage: "person.badge.plus")
+                            }
+                            .disabled(workspace.hasInFlightGroupCommit)
+                        }
+                    } header: {
+                        Text(snapshot.memberCountLabel)
                     }
 
                     Section("Disappearing Messages") {
                         Picker(
-                            selection: Binding(
-                                get: { DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs) },
-                                set: { option in
-                                    Task {
-                                        await workspace.setDisappearingMessages(
-                                            groupIdHex: snapshot.groupIdHex,
-                                            seconds: option.seconds
-                                        )
+                            selection: Binding<DisappearingChoice>(
+                                get: {
+                                    .preset(DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs))
+                                },
+                                set: { choice in
+                                    switch choice {
+                                    case .preset(let option):
+                                        Task {
+                                            await workspace.setDisappearingMessages(
+                                                groupIdHex: snapshot.groupIdHex,
+                                                seconds: option.seconds
+                                            )
+                                        }
+                                    case .customEntry:
+                                        seedCustomDuration(from: snapshot.disappearingMessageSecs)
+                                        isCustomDisappearingPresented = true
                                     }
                                 }
                             )
                         ) {
                             ForEach(DisappearingMessageOption.options(for: snapshot.disappearingMessageSecs)) {
                                 option in
-                                Text(option.label).tag(option)
+                                Text(option.label).tag(DisappearingChoice.preset(option))
                             }
+                            Text(L10n.string("Custom…")).tag(DisappearingChoice.customEntry)
                         } label: {
                             Label("Auto-delete after", systemImage: "timer")
                         }
@@ -205,6 +387,9 @@ struct GroupDetailsSheet: View {
                         .disabled(
                             workspace.hasInFlightGroupCommit || snapshot.selfMembership != .member
                         )
+                        .popover(isPresented: $isCustomDisappearingPresented, arrowEdge: .bottom) {
+                            customDurationPopover(groupIdHex: snapshot.groupIdHex)
+                        }
 
                         if snapshot.disappearingMessagesEnabled {
                             Button {
@@ -214,33 +399,6 @@ struct GroupDetailsSheet: View {
                             }
                             .disabled(workspace.isSecureDeletingExpired)
                             .help(L10n.string("Securely prune already-expired messages on this device"))
-                        }
-                    }
-
-                    if snapshot.canInvite && snapshot.selfMembership == .member {
-                        Section("Invite") {
-                            HStack(spacing: 10) {
-                                TextField(
-                                    "NIP-05, npub, profile link, or hex public key",
-                                    text: $workspace.groupInviteMemberQuery
-                                )
-                                .textFieldStyle(.roundedBorder)
-
-                                Button {
-                                    Task { await workspace.inviteMemberToSelectedGroup() }
-                                } label: {
-                                    Label(
-                                        workspace.isInvitingGroupMember
-                                            ? L10n.string("Inviting...") : L10n.string("Invite"),
-                                        systemImage: "person.badge.plus")
-                                }
-                                .disabled(
-                                    workspace.hasInFlightGroupCommit
-                                        || workspace.groupInviteMemberQuery.trimmingCharacters(
-                                            in: .whitespacesAndNewlines
-                                        ).isEmpty
-                                )
-                            }
                         }
                     }
 
@@ -377,6 +535,17 @@ struct GroupDetailsSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             MessagesTranscriptBackground()
+        }
+        .task(id: chat.id) {
+            await workspace.loadSharedMedia(groupIdHex: chat.id)
+        }
+        .onDisappear {
+            workspace.clearSharedMedia()
+        }
+        .sheet(isPresented: $isAddMembersPresented) {
+            GroupAddMembersSheet(
+                existingMemberIds: Set(workspace.groupDetailsSnapshot?.members.map(\.id) ?? [])
+            )
         }
         .confirmationDialog(
             archiveConfirmationTitle,
@@ -788,8 +957,19 @@ enum DisappearingMessageOption: Hashable, Identifiable {
         case .oneDay: return L10n.plural("%llu days", UInt64(1))
         case .oneWeek: return L10n.plural("%llu weeks", UInt64(1))
         case .oneMonth: return L10n.plural("%llu months", UInt64(1))
-        case .custom(let value): return L10n.plural("%llu seconds", value)
+        case .custom(let value): return Self.humanDuration(value)
         }
+    }
+
+    /// A whole-unit human duration for non-preset values (e.g. a 4-week timer reads "4 weeks"
+    /// rather than a raw seconds count). Uses the largest unit that divides evenly.
+    static func humanDuration(_ seconds: UInt64) -> String {
+        if seconds == 0 { return L10n.string("Off") }
+        if seconds % 604_800 == 0 { return L10n.plural("%llu weeks", seconds / 604_800) }
+        if seconds % 86_400 == 0 { return L10n.plural("%llu days", seconds / 86_400) }
+        if seconds % 3_600 == 0 { return L10n.plural("%llu hours", seconds / 3_600) }
+        if seconds % 60 == 0 { return L10n.plural("%llu minutes", seconds / 60) }
+        return L10n.plural("%llu seconds", seconds)
     }
 
     /// The matching preset for `seconds`, or a `.custom` wrapper when none match.

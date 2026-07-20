@@ -1266,6 +1266,27 @@ struct ConversationHeader: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
 
+    /// Under the chat title: the disappearing-message timer as a bare clock icon + duration (no
+    /// "Disappearing messages:" label) when it's on, otherwise the usual member/DM subtitle.
+    @ViewBuilder
+    private var headerSubtitle: some View {
+        let metadata = workspace.conversationMetadataByChat[chat.id]
+        if let metadata, metadata.disappearingMessageSecs > 0 {
+            HStack(spacing: 4) {
+                Image(systemName: "timer")
+                Text(DisappearingMessageOption.option(for: metadata.disappearingMessageSecs).label)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        } else {
+            Text(metadata?.subtitle ?? chat.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
     var body: some View {
         @Bindable var workspace = workspace
 
@@ -1312,10 +1333,7 @@ struct ConversationHeader: View {
                                 .lineLimit(1)
                                 .foregroundStyle(.primary)
 
-                            Text(workspace.conversationMetadataByChat[chat.id]?.subtitle ?? chat.subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                            headerSubtitle
                         }
                     }
                     .contentShape(Rectangle())
