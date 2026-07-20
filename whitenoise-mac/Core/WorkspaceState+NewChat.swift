@@ -354,6 +354,11 @@ extension WorkspaceState {
     }
 
     func memberRefCandidate(for query: String) async throws -> String {
+        if let url = URL(string: query),
+            let reference = MarmotProfileLink.profileReference(from: url)
+        {
+            return "nostr:\(reference)"
+        }
         // A query carrying a nostr marker must never resolve as NIP-05 — an embedded `@domain`
         // would fire a request at that host before the authoritative FFI parse runs.
         if MarkdownLinkPolicy.containsNostrReferenceMarker(query) {

@@ -16968,6 +16968,16 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func pastedMarmotProfileLinkBecomesNostrMemberRefCandidate() async throws {
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        let payload = MarmotProfileLink.qrPayload(npub: "npub1alyce")
+
+        #expect(state.looksLikeMemberRef(payload))
+        let candidate = try await state.memberRefCandidate(for: payload)
+        #expect(candidate == "nostr:npub1alyce")
+    }
+
+    @MainActor
     @Test func resolvingNewChatRecipientUsesNIP05() async throws {
         let account = desktopAccount()
         let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
