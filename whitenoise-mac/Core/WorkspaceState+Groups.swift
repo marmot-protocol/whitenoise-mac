@@ -12,6 +12,7 @@ import Foundation
 import MarmotKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 import UserNotifications
 
 @MainActor
@@ -93,10 +94,28 @@ extension WorkspaceState {
         groupTranscriptExportStatus = nil
     }
 
-    func startCopySelectedGroupTranscriptJSON() {
-        guard groupTranscriptExportTask == nil, !isExportingGroupTranscript else { return }
+    static func chooseTranscriptExportDestination(suggestedFilename: String) -> URL? {
+        let panel = NSSavePanel()
+        panel.title = L10n.string("Export Transcript")
+        panel.prompt = L10n.string("Export")
+        panel.nameFieldStringValue = suggestedFilename
+        panel.allowedContentTypes = [.json]
+        panel.allowsOtherFileTypes = false
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    func startExportSelectedGroupTranscript() {
+        guard groupTranscriptExportTask == nil,
+            !isExportingGroupTranscript,
+            groupDetailsSnapshot != nil
+        else { return }
+        let filename = ConversationTranscriptExport.suggestedFilename(exportedAt: nowProvider())
+        guard let destinationURL = transcriptExportDestinationPicker(filename) else { return }
         groupTranscriptExportTask = Task { [weak self] in
-            await self?.copySelectedGroupTranscriptJSON()
+            await self?.exportSelectedGroupTranscript(to: destinationURL)
         }
     }
 
@@ -104,7 +123,7 @@ extension WorkspaceState {
         groupTranscriptExportTask?.cancel()
     }
 
-    func copySelectedGroupTranscriptJSON() async {
+    func exportSelectedGroupTranscript(to destinationURL: URL) async {
         defer { groupTranscriptExportTask = nil }
 
         guard !isExportingGroupTranscript,
@@ -125,21 +144,19 @@ extension WorkspaceState {
             let groupIdHex = snapshot.groupIdHex
             let groupName = snapshot.name
             let detailsGeneration = groupDetailsLoadGeneration
-            // Paginates the whole transcript via blocking FFI and JSON-encodes it; keep it
-            // off the main thread so a large export does not freeze the UI.
-            let export = try await runOffMainCancellable { checkCancellation -> (json: String, eventCount: Int) in
-                let messages = try ConversationTranscriptExport.fetchAllMessages(
+            let exportedAt = nowProvider()
+            // Pagination, bounded disk spooling, and event-by-event JSON encoding all block.
+            // Keep the complete export off the main thread so the save sheet remains responsive.
+            let export = try await runOffMainCancellable { checkCancellation in
+                try ConversationTranscriptExport.export(
                     client: client,
                     accountRef: accountRef,
                     groupIdHex: groupIdHex,
+                    groupName: groupName,
+                    to: destinationURL,
+                    exportedAt: exportedAt,
                     checkCancellation: checkCancellation
                 )
-                let document = ConversationTranscriptExport.makeDocument(
-                    groupIdHex: groupIdHex,
-                    groupName: groupName,
-                    chronologicallySortedMessages: messages
-                )
-                return (try ConversationTranscriptExport.encodeJSONString(document), document.eventCount)
             }
             guard !Task.isCancelled,
                 activeAccountId == accountId,
@@ -147,14 +164,14 @@ extension WorkspaceState {
                 isGroupDetailsPresented,
                 groupDetailsSnapshot == snapshot
             else { return }
-            copyText(export.json)
             let statusFormat =
                 export.eventCount == 1
-                ? L10n.string("Copied transcript JSON for %d event.")
-                : L10n.string("Copied transcript JSON for %d events.")
+                ? L10n.string("Exported %d transcript event to %@.")
+                : L10n.string("Exported %d transcript events to %@.")
             groupTranscriptExportStatus = String(
                 format: statusFormat,
-                export.eventCount
+                export.eventCount,
+                export.destinationURL.path
             )
         } catch is CancellationError {
             // User navigated away, switched accounts, or closed details. Treat as an intentional

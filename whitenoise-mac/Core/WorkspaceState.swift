@@ -1036,6 +1036,7 @@ final class WorkspaceState {
     let appActivationHandler: @MainActor (_ ignoringOtherApps: Bool) -> Void
     let conversationWindowVisibilityProvider: @MainActor () -> Bool
     let copyTextHandler: @MainActor (String, Bool) -> Void
+    let transcriptExportDestinationPicker: @MainActor (String) -> URL?
     let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     let groupImageSearchClient: any GroupImageSearchClient
     let nip05Resolver: any NIP05Resolving
@@ -1482,6 +1483,8 @@ final class WorkspaceState {
             WorkspaceState.defaultConversationWindowVisibilityProvider()
         },
         copyTextHandler: @escaping @MainActor (String, Bool) -> Void = WorkspaceState.copyToGeneralPasteboard,
+        transcriptExportDestinationPicker: @escaping @MainActor (String) -> URL? =
+            WorkspaceState.chooseTranscriptExportDestination,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = {
             TelemetryBuildConfig.current()
         },
@@ -1500,6 +1503,7 @@ final class WorkspaceState {
         self.appActivationHandler = appActivationHandler
         self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
         self.copyTextHandler = copyTextHandler
+        self.transcriptExportDestinationPicker = transcriptExportDestinationPicker
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.nip05Resolver = nip05Resolver ?? NIP05Resolver()

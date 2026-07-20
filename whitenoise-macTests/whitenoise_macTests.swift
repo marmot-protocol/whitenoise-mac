@@ -1643,7 +1643,7 @@ struct whitenoise_macTests {
         state.groupProfileDraftName = "Private group name"
         state.groupProfileDraftDescription = "Private group description"
         state.groupInviteMemberQuery = "npub1pryvateynvyte"
-        state.groupTranscriptExportStatus = "Copied transcript JSON for 1 event."
+        state.groupTranscriptExportStatus = "Exported 1 transcript event to /tmp/transcript.json."
         let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
 
         state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
@@ -1660,7 +1660,9 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func groupTranscriptExportDoesNotCopyAfterAccountSwitch() async throws {
+    @Test func groupTranscriptExportDoesNotPublishAfterAccountSwitch() async throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         let primary = desktopAccount()
         let backup = AccountSummaryFfi(
             label: "Backup Account",
@@ -1697,9 +1699,8 @@ struct whitenoise_macTests {
             return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
         }
 
-        var copiedText: String?
         let state = WorkspaceState(
-            copyTextHandler: { text, _ in copiedText = text },
+            transcriptExportDestinationPicker: { _ in files.destination },
             clientFactory: { runtime }
         )
 
@@ -1710,20 +1711,17 @@ struct whitenoise_macTests {
         let groupChat = try #require(state.activeChats.first { $0.id == "group" })
         await state.showGroupDetails(for: groupChat)
 
-        // Call the async helper directly (rather than startCopySelectedGroupTranscriptJSON)
-        // so this test isolates the post-await stale-account guard from task cancellation.
-        async let export: Void = state.copySelectedGroupTranscriptJSON()
+        state.startExportSelectedGroupTranscript()
+        let exportTask = try #require(state.groupTranscriptExportTask)
         #expect(await waitForSemaphore(exportEntered, timeout: .now() + 2) == .success)
 
         let backupAccount = try #require(state.accounts.first { $0.id == "Backup Account" })
         state.prepareForActiveAccountSwitch(to: backupAccount, preservingMessageCacheFor: nil)
         releaseExport.signal()
-        await export
+        await exportTask.value
 
-        // Even if the off-main export survives cancellation long enough to return, its completion
-        // must not write account A's decrypted transcript or status after switching to account B.
         #expect(state.activeAccountId == backupAccount.id)
-        #expect(copiedText == nil)
+        #expect(!FileManager.default.fileExists(atPath: files.destination.path))
         #expect(state.groupTranscriptExportStatus == nil)
     }
 
@@ -12724,7 +12722,58 @@ struct whitenoise_macTests {
         #expect(copiedText == "public-key-value")
     }
 
-    @Test func conversationTranscriptExportEncodesTimelineEventFieldsInOrder() throws {
+    @Test func conversationTranscriptExportWritesEveryPagedEventChronologically() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-transcript-export-tests-\(UUID().uuidString)", isDirectory: true)
+        let scratchDirectory = root.appendingPathComponent("scratch", isDirectory: true)
+        let destination = root.appendingPathComponent("complete-transcript.json")
+        try fileManager.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.installMessages(
+            (0..<1_005).map { index in
+                appMessage(
+                    id: String(format: "%064x", index + 1),
+                    groupIdHex: "group",
+                    sender: String(repeating: "a", count: 64),
+                    plaintext: "message \(index)",
+                    kind: 9,
+                    recordedAt: UInt64(index + 1)
+                )
+            },
+            groupIdHex: "group"
+        )
+
+        let result = try ConversationTranscriptExport.export(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            groupName: "Test Group",
+            to: destination,
+            exportedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            fileManager: fileManager,
+            scratchDirectory: scratchDirectory
+        )
+
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: destination)) as? [String: Any]
+        )
+        let events = try #require(json["events"] as? [[String: Any]])
+        #expect(result.eventCount == 1_005)
+        #expect(json["event_count"] as? Int == 1_005)
+        #expect(events.count == 1_005)
+        #expect(events.first?["content"] as? String == "message 0")
+        #expect(events.last?["content"] as? String == "message 1004")
+        #expect(events.compactMap { $0["index"] as? Int } == Array(0..<1_005))
+        #expect(runtime.timelineMessageQueries.count >= 6)
+        #expect(try fileManager.contentsOfDirectory(atPath: scratchDirectory.path).isEmpty)
+    }
+
+    @Test func conversationTranscriptExportPreservesDocumentAndEventSchema() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         let firstId = String(repeating: "1", count: 64)
         let secondId = String(repeating: "2", count: 64)
         let records = [
@@ -12749,24 +12798,86 @@ struct whitenoise_macTests {
                 agentTextStreamJson: #"{"status":"finalized"}"#
             ),
         ]
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: records, hasMoreBefore: false, hasMoreAfter: false)
+        }
 
-        let document = ConversationTranscriptExport.makeDocument(
+        _ = try ConversationTranscriptExport.export(
+            client: runtime,
+            accountRef: "Desktop Account",
             groupIdHex: "group",
             groupName: "Hermes 2",
-            chronologicallySortedMessages: records,
-            exportedAt: Date(timeIntervalSince1970: 1_700_000_000)
+            to: files.destination,
+            exportedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            scratchDirectory: files.scratch
         )
 
-        #expect(document.eventCount == 2)
-        #expect(document.events.map(\.messageIdHex) == [firstId, secondId])
-        #expect(document.events[0].kind == 1311)
-        #expect(document.events[1].content == "final answer")
-        #expect(document.events[1].agentTextStreamJson == #"{"status":"finalized"}"#)
-
-        let data = try ConversationTranscriptExport.encodeJSON(document)
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: files.destination)) as? [String: Any]
+        )
+        let events = try #require(json["events"] as? [[String: Any]])
+        #expect(json["v"] as? Int == 1)
+        #expect(json["exported_at"] as? String == "2023-11-14T22:13:20Z")
+        #expect(json["group_id_hex"] as? String == "group")
         #expect(json["group_name"] as? String == "Hermes 2")
-        #expect((json["events"] as? [[String: Any]])?.count == 2)
+        #expect(json["event_count"] as? Int == 2)
+        #expect(events.compactMap { $0["message_id_hex"] as? String } == [firstId, secondId])
+        #expect(events[0]["kind"] as? Int == 1311)
+        #expect(events[1]["content"] as? String == "final answer")
+        #expect(events[1]["agent_text_stream_json"] as? String == #"{"status":"finalized"}"#)
+    }
+
+    @Test func conversationTranscriptExportDeduplicatesAcrossPageBoundaries() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let oldest = timelineMessage(
+            id: String(repeating: "1", count: 64),
+            groupIdHex: "group",
+            sender: String(repeating: "a", count: 64),
+            plaintext: "oldest",
+            recordedAt: 1
+        )
+        let boundary = timelineMessage(
+            id: String(repeating: "2", count: 64),
+            groupIdHex: "group",
+            sender: String(repeating: "a", count: 64),
+            plaintext: "boundary",
+            recordedAt: 2
+        )
+        let newest = timelineMessage(
+            id: String(repeating: "3", count: 64),
+            groupIdHex: "group",
+            sender: String(repeating: "a", count: 64),
+            plaintext: "newest",
+            recordedAt: 3
+        )
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { query in
+            if query.before == nil {
+                return TimelinePageFfi(
+                    messages: [newest, boundary], hasMoreBefore: true, hasMoreAfter: false)
+            }
+            return TimelinePageFfi(
+                messages: [boundary, oldest], hasMoreBefore: false, hasMoreAfter: true)
+        }
+
+        let result = try ConversationTranscriptExport.export(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            groupName: "Test Group",
+            to: files.destination,
+            scratchDirectory: files.scratch
+        )
+
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: files.destination)) as? [String: Any]
+        )
+        let events = try #require(json["events"] as? [[String: Any]])
+        #expect(result.eventCount == 3)
+        #expect(events.compactMap { $0["content"] as? String } == ["oldest", "boundary", "newest"])
+        #expect(events.compactMap { $0["index"] as? Int } == [0, 1, 2])
     }
 
     @Test func conversationTranscriptExportFailsWhenEmptyPageReportsMoreHistory() throws {
@@ -12795,13 +12906,20 @@ struct whitenoise_macTests {
             return TimelinePageFfi(messages: [], hasMoreBefore: true, hasMoreAfter: false)
         }
 
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         #expect(throws: ConversationTranscriptExport.ExportError.self) {
-            try ConversationTranscriptExport.fetchAllMessages(
+            try ConversationTranscriptExport.export(
                 client: runtime,
                 accountRef: "Desktop Account",
-                groupIdHex: "group"
+                groupIdHex: "group",
+                groupName: "Test Group",
+                to: files.destination,
+                scratchDirectory: files.scratch
             )
         }
+        #expect(!FileManager.default.fileExists(atPath: files.destination.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
     }
 
     @Test func conversationTranscriptExportFailsWhenNonEmptyPageDoesNotAdvanceCursor() throws {
@@ -12825,13 +12943,20 @@ struct whitenoise_macTests {
             TimelinePageFfi(messages: [boundary], hasMoreBefore: true, hasMoreAfter: false)
         }
 
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         #expect(throws: ConversationTranscriptExport.ExportError.self) {
-            try ConversationTranscriptExport.fetchAllMessages(
+            try ConversationTranscriptExport.export(
                 client: runtime,
                 accountRef: "Desktop Account",
-                groupIdHex: "group"
+                groupIdHex: "group",
+                groupName: "Test Group",
+                to: files.destination,
+                scratchDirectory: files.scratch
             )
         }
+        #expect(!FileManager.default.fileExists(atPath: files.destination.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
     }
 
     @Test func conversationTranscriptExportStopsCleanlyWhenEmptyPageHasNoMoreHistory() throws {
@@ -12842,15 +12967,27 @@ struct whitenoise_macTests {
             TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
         }
 
-        let messages = try ConversationTranscriptExport.fetchAllMessages(
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let result = try ConversationTranscriptExport.export(
             client: runtime,
             accountRef: "Desktop Account",
-            groupIdHex: "group"
+            groupIdHex: "group",
+            groupName: "Empty Group",
+            to: files.destination,
+            scratchDirectory: files.scratch
         )
-        #expect(messages.isEmpty)
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: files.destination)) as? [String: Any]
+        )
+        #expect(result.eventCount == 0)
+        #expect(json["event_count"] as? Int == 0)
+        #expect((json["events"] as? [Any])?.isEmpty == true)
     }
 
-    @Test func conversationTranscriptExportCancelsBeforeFetchingNextPage() async {
+    @Test func conversationTranscriptExportCancelsBeforeFetchingNextPage() async throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
         let firstId = String(repeating: "1", count: 64)
         let firstPageEntered = DispatchSemaphore(value: 0)
@@ -12877,10 +13014,13 @@ struct whitenoise_macTests {
         }
 
         let exportTask = Task.detached { () throws -> Void in
-            _ = try ConversationTranscriptExport.fetchAllMessages(
+            _ = try ConversationTranscriptExport.export(
                 client: runtime,
                 accountRef: "Desktop Account",
-                groupIdHex: "group"
+                groupIdHex: "group",
+                groupName: "Test Group",
+                to: files.destination,
+                scratchDirectory: files.scratch
             )
         }
         #expect(await waitForSemaphore(firstPageEntered, timeout: .now() + 2) == .success)
@@ -12897,6 +13037,126 @@ struct whitenoise_macTests {
             Issue.record("Expected CancellationError, got \(error)")
         }
         #expect(runtime.timelineMessageQueries.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: files.destination.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
+    }
+
+    @Test func conversationTranscriptExportSurfacesFileCreationFailureAndCleansScratch() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let missingDestination = files.root
+            .appendingPathComponent("missing", isDirectory: true)
+            .appendingPathComponent("transcript.json")
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        #expect(throws: ConversationTranscriptExport.ExportError.self) {
+            try ConversationTranscriptExport.export(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group",
+                groupName: "Test Group",
+                to: missingDestination,
+                scratchDirectory: files.scratch
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: missingDestination.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
+    }
+
+    @Test func conversationTranscriptExportCancellationPreservesExistingDestinationAndRemovesPartialFile() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let original = Data("existing transcript".utf8)
+        try original.write(to: files.destination)
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        #expect(throws: CancellationError.self) {
+            try ConversationTranscriptExport.export(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group",
+                groupName: "Test Group",
+                to: files.destination,
+                scratchDirectory: files.scratch,
+                checkCancellation: {
+                    let names = try FileManager.default.contentsOfDirectory(atPath: files.root.path)
+                    if names.contains(where: { $0.hasSuffix(".partial") }) {
+                        throw CancellationError()
+                    }
+                }
+            )
+        }
+        #expect(try Data(contentsOf: files.destination) == original)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: files.root.path).sorted()
+                == [files.destination.lastPathComponent, files.scratch.lastPathComponent].sorted()
+        )
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
+    }
+
+    @Test func conversationTranscriptExportAtomicallyReplacesExistingDestination() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        try Data("existing transcript".utf8).write(to: files.destination)
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        let result = try ConversationTranscriptExport.export(
+            client: runtime,
+            accountRef: "Desktop Account",
+            groupIdHex: "group",
+            groupName: "Test Group",
+            to: files.destination,
+            scratchDirectory: files.scratch
+        )
+
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: files.destination)) as? [String: Any]
+        )
+        #expect(result.eventCount == 0)
+        #expect(json["event_count"] as? Int == 0)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: files.root.path).sorted()
+                == [files.destination.lastPathComponent, files.scratch.lastPathComponent].sorted()
+        )
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
+    }
+
+    @Test func conversationTranscriptExportPublishFailureRemovesPartialFile() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        try FileManager.default.createDirectory(at: files.destination, withIntermediateDirectories: false)
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        #expect(throws: ConversationTranscriptExport.ExportError.self) {
+            try ConversationTranscriptExport.export(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group",
+                groupName: "Test Group",
+                to: files.destination,
+                scratchDirectory: files.scratch
+            )
+        }
+        var isDirectory: ObjCBool = false
+        #expect(FileManager.default.fileExists(atPath: files.destination.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: files.root.path).sorted()
+                == [files.destination.lastPathComponent, files.scratch.lastPathComponent].sorted()
+        )
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
     }
 
     @MainActor
@@ -15350,7 +15610,9 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func groupDetailsTranscriptExportCopiesPagedTimelineJSON() async throws {
+    @Test func groupDetailsTranscriptExportWritesPagedTimelineJSONOffMain() async throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
@@ -15368,9 +15630,16 @@ struct whitenoise_macTests {
             groupIdHex: "group"
         )
 
-        var copiedText = ""
+        var copiedText: String?
+        var suggestedFilename: String?
+        let exportedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let state = WorkspaceState(
             copyTextHandler: { text, _ in copiedText = text },
+            transcriptExportDestinationPicker: { filename in
+                suggestedFilename = filename
+                return files.destination
+            },
+            nowProvider: { exportedAt },
             clientFactory: { runtime }
         )
 
@@ -15382,10 +15651,14 @@ struct whitenoise_macTests {
         }
 
         await state.showGroupDetails(for: groupChat)
-        await state.copySelectedGroupTranscriptJSON()
+        runtime.clearSyncCallThreadRecords()
+        state.startExportSelectedGroupTranscript()
+        let exportTask = try #require(state.groupTranscriptExportTask)
+        await exportTask.value
 
-        let data = Data(copiedText.utf8)
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: files.destination)) as? [String: Any]
+        )
         let events = try #require(json["events"] as? [[String: Any]])
         #expect(json["group_id_hex"] as? String == "group")
         #expect(json["group_name"] as? String == "Test Group")
@@ -15395,11 +15668,19 @@ struct whitenoise_macTests {
         #expect(runtime.timelineMessageQueries.count >= 2)
         #expect(runtime.timelineMessageQueries.first?.limit == ConversationTranscriptExport.pageLimit)
         #expect(runtime.timelineMessageQueries.dropFirst().first?.before != nil)
-        #expect(state.groupTranscriptExportStatus == "Copied transcript JSON for 205 events.")
+        #expect(runtime.syncCallThreadRecord("timelineMessages").allSatisfy { !$0 })
+        #expect(suggestedFilename == "White Noise Transcript 2023-11-14T22-13-20Z.json")
+        #expect(copiedText == nil)
+        #expect(
+            state.groupTranscriptExportStatus
+                == "Exported 205 transcript events to \(files.destination.path)."
+        )
     }
 
     @MainActor
     @Test func groupDetailsTranscriptExportCancelsTrackedTaskBeforeNextPage() async throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
@@ -15427,9 +15708,8 @@ struct whitenoise_macTests {
             return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
         }
 
-        var copiedText = ""
         let state = WorkspaceState(
-            copyTextHandler: { text, _ in copiedText = text },
+            transcriptExportDestinationPicker: { _ in files.destination },
             clientFactory: { runtime }
         )
 
@@ -15441,7 +15721,7 @@ struct whitenoise_macTests {
         }
 
         await state.showGroupDetails(for: groupChat)
-        state.startCopySelectedGroupTranscriptJSON()
+        state.startExportSelectedGroupTranscript()
         let exportTask = try #require(state.groupTranscriptExportTask)
         let deadline = Date().addingTimeInterval(2)
         while !firstPageGate.didReach && Date() < deadline {
@@ -15457,7 +15737,7 @@ struct whitenoise_macTests {
         await exportTask.value
 
         #expect(runtime.timelineMessageQueries.count == 1)
-        #expect(copiedText.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: files.destination.path))
         #expect(state.lastError == nil)
         #expect(!state.isExportingGroupTranscript)
         #expect(state.groupTranscriptExportTask == nil)
@@ -15465,6 +15745,8 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func marmotDeepLinkDoesNotCancelInProgressTranscriptExport() async throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
@@ -15488,16 +15770,15 @@ struct whitenoise_macTests {
             )
         }
 
-        var copiedText = ""
         let state = WorkspaceState(
-            copyTextHandler: { text, _ in copiedText = text },
+            transcriptExportDestinationPicker: { _ in files.destination },
             clientFactory: { runtime }
         )
 
         await state.bootstrap()
         let groupChat = try #require(state.activeChats.first)
         await state.showGroupDetails(for: groupChat)
-        state.startCopySelectedGroupTranscriptJSON()
+        state.startExportSelectedGroupTranscript()
         let exportTask = try #require(state.groupTranscriptExportTask)
         let deadline = Date().addingTimeInterval(2)
         while !firstPageGate.didReach && Date() < deadline {
@@ -15508,7 +15789,7 @@ struct whitenoise_macTests {
         }
         #expect(firstPageGate.didReach)
 
-        let blockedStatus = "Finish copying the current transcript before opening this link."
+        let blockedStatus = "Finish exporting the current transcript before opening this link."
         state.handleDeepLinkURL(URL(string: "marmot://profile/npub1p0p")!)
         let deepLinkHandled = await waitFor {
             state.backgroundStatus == blockedStatus || state.isNewChatComposerVisible
@@ -15524,8 +15805,11 @@ struct whitenoise_macTests {
         firstPageGate.release()
         await exportTask.value
 
-        #expect(!copiedText.isEmpty)
-        #expect(state.groupTranscriptExportStatus == "Copied transcript JSON for 1 event.")
+        #expect(FileManager.default.fileExists(atPath: files.destination.path))
+        #expect(
+            state.groupTranscriptExportStatus
+                == "Exported 1 transcript event to \(files.destination.path)."
+        )
         #expect(state.groupTranscriptExportTask == nil)
     }
 
@@ -22642,6 +22926,25 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
     }
 
     return TimelinePageFfi(messages: timelineMessages, hasMoreBefore: false, hasMoreAfter: false)
+}
+
+private struct TranscriptExportTestFiles: Sendable {
+    let root: URL
+    let scratch: URL
+    let destination: URL
+}
+
+private func transcriptExportTestFiles() throws -> TranscriptExportTestFiles {
+    let fileManager = FileManager.default
+    let root = fileManager.temporaryDirectory
+        .appendingPathComponent("whitenoise-transcript-export-tests-\(UUID().uuidString)", isDirectory: true)
+    let scratch = root.appendingPathComponent("scratch", isDirectory: true)
+    try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
+    return TranscriptExportTestFiles(
+        root: root,
+        scratch: scratch,
+        destination: root.appendingPathComponent("transcript.json")
+    )
 }
 
 private func pagedTimeline(

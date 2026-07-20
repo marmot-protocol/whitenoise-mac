@@ -86,7 +86,7 @@ assert_plist_nonempty "$INFO_PLIST" "WhiteNoiseTelemetryOTLPEndpoint"
 
 assert_entitlement_true "com.apple.security.app-sandbox"
 assert_entitlement_true "com.apple.security.network.client"
-assert_entitlement_true "com.apple.security.files.user-selected.read-only"
+assert_entitlement_true "com.apple.security.files.user-selected.read-write"
 assert_entitlement_true "com.apple.security.device.audio-input"
 
 assert_build_setting_equals "PRODUCT_BUNDLE_IDENTIFIER" "dev.ipf.whitenoise.mac"
@@ -95,7 +95,7 @@ assert_build_setting_equals "INFOPLIST_FILE" "Config/Info.plist"
 assert_build_setting_equals "CODE_SIGN_ENTITLEMENTS" "whitenoise-mac/whitenoise-mac.entitlements"
 assert_build_setting_equals "ENABLE_HARDENED_RUNTIME" "YES"
 assert_build_setting_equals "ENABLE_APP_SANDBOX" "YES"
-assert_build_setting_equals "ENABLE_USER_SELECTED_FILES" "readonly"
+assert_build_setting_equals "ENABLE_USER_SELECTED_FILES" "readwrite"
 assert_build_setting_equals "MACOSX_DEPLOYMENT_TARGET" "15.6"
 
 marmot_platform="$(plist_value "$MARMOT_XCFRAMEWORK_INFO" "AvailableLibraries:0:SupportedPlatform")"
