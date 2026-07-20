@@ -5698,6 +5698,99 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func directMediaJSONCapsWideLocatorArrays() async throws {
+        // Regression for whitenoise-mac#629: attachment count is capped, but a single direct
+        // JSON reference must also bound its `locators` array so one attachment cannot retain
+        // an unbounded locator list for equality and rendering.
+        let cap = OutgoingMediaDraftProcessor.maxAttachmentCount
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        let locators: [[String: String]] = (0..<(cap + 15)).map { index in
+            ["kind": "blossom", "value": "https://blob.example/locator-\(index)"]
+        }
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "wide-direct-locators",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJSONString(fromJSONObject: [
+                        "ciphertext_sha256": reference.ciphertextSha256,
+                        "plaintext_sha256": reference.plaintextSha256,
+                        "nonce": reference.nonceHex,
+                        "file_name": reference.fileName,
+                        "media_type": reference.mediaType,
+                        "version": reference.version,
+                        "locators": locators,
+                    ])
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+        let attachment = try #require(message.mediaAttachments.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(attachment.reference.locators.count == cap)
+        #expect(
+            attachment.reference.locators.map(\.value)
+                == (0..<cap).map { "https://blob.example/locator-\($0)" }
+        )
+    }
+
+    @MainActor
+    @Test func imetaFallbackCapsWideLocatorFields() async throws {
+        // Regression for whitenoise-mac#629: excess `locator` imeta fields must be capped
+        // without dropping the attachment when required fields follow the wide locator run.
+        let cap = OutgoingMediaDraftProcessor.maxAttachmentCount
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        var tagValues = ["imeta"]
+        tagValues.append(
+            contentsOf: (0..<(cap + 15)).map { index in
+                "locator blossom https://blob.example/locator-\(index)"
+            }
+        )
+        tagValues.append(contentsOf: [
+            "ciphertext_sha256 \(reference.ciphertextSha256)",
+            "plaintext_sha256 \(reference.plaintextSha256)",
+            "nonce \(reference.nonceHex)",
+            "filename \(reference.fileName)",
+            "m \(reference.mediaType)",
+            "v \(reference.version)",
+        ])
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "wide-imeta-locators",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    tags: [MessageTagFfi(values: tagValues)]
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+        let attachment = try #require(message.mediaAttachments.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(attachment.reference.locators.count == cap)
+        #expect(
+            attachment.reference.locators.map(\.value)
+                == (0..<cap).map { "https://blob.example/locator-\($0)" }
+        )
+        #expect(attachment.reference.fileName == reference.fileName)
+    }
+
+    @MainActor
     @Test func booleanMediaJSONStringAliasValuesFallThroughAndBadLocatorsAreDropped() async throws {
         // `string(_:keys:)` searches aliases in order. A boolean at an earlier alias
         // should be treated as malformed for that key, not as "1" and not as a reason
