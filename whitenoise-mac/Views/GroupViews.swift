@@ -123,6 +123,7 @@ struct GroupDetailsSheet: View {
                     TextField("", text: $customDurationText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 64)
+                        .accessibilityLabel(L10n.string("Duration value"))
                 } onIncrement: {
                     guard let value = customDurationValue, value < UInt64.max else { return }
                     customDurationText = String(value + 1)
@@ -130,7 +131,8 @@ struct GroupDetailsSheet: View {
                     guard let value = customDurationValue, value > 1 else { return }
                     customDurationText = String(value - 1)
                 }
-                Picker("", selection: $customDurationUnit) {
+                // Real label for VoiceOver, hidden from the visual layout.
+                Picker(L10n.string("Duration unit"), selection: $customDurationUnit) {
                     ForEach(CustomDurationUnit.allCases) { unit in
                         Text(unit.label).tag(unit)
                     }
