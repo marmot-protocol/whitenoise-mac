@@ -345,7 +345,7 @@ struct MessageBubble: View {
             if !message.trimmedBody.isEmpty {
                 MarkdownMessageView(
                     message: message,
-                    trailingMetadata: showsInlineMetadata ? inlineMetadataText : nil
+                    trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
                 )
                 .font(.system(size: 15.5))
                 .foregroundStyle(message.isOutgoing ? .white : .primary)
@@ -355,8 +355,8 @@ struct MessageBubble: View {
                 .multilineTextAlignment(.leading)
             }
 
-            if showsSeparateMetadata {
-                compactMetadata
+            if showsReservedMetadataRow {
+                compactMetadata.hidden()
             }
         }
         // One hover-gated selection gate for the whole bubble: `.textSelection(.enabled)`
@@ -364,6 +364,14 @@ struct MessageBubble: View {
         // active bubble (`isSelectable`) is backed by a selection NSView. Non-active bubbles
         // get no modifier (Text is non-selectable by default). See whitenoise-mac#205.
         .textSelectable(isSelectable)
+        // Metadata is pinned to the bubble's bottom-trailing corner no matter how the text
+        // wraps. The inline spacer (flowing text) or hidden row (structured Markdown, empty
+        // body) above reserves the space this overlay occupies, so it never covers content.
+        .overlay(alignment: .bottomTrailing) {
+            if showsBubbleMetadata {
+                compactMetadata
+            }
+        }
         .padding(.horizontal, 13)
         .padding(.vertical, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
@@ -375,47 +383,46 @@ struct MessageBubble: View {
         .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
     }
 
+    private var showsBubbleMetadata: Bool {
+        !message.isDeleted
+    }
+
     private var showsInlineMetadata: Bool {
-        !message.isDeleted && !showsDebugMetadata && message.supportsInlineMetadata
+        showsBubbleMetadata && !showsDebugMetadata && message.supportsInlineMetadata
     }
 
-    private var showsSeparateMetadata: Bool {
-        !message.isDeleted && (!showsInlineMetadata || message.trimmedBody.isEmpty)
+    private var showsReservedMetadataRow: Bool {
+        showsBubbleMetadata && (!showsInlineMetadata || message.trimmedBody.isEmpty)
     }
 
-    private var inlineMetadataText: Text {
-        let color = metadataColor
-        var result = Text("  ")
+    /// Transparent replica of `compactMetadata`, appended to the final text line so the
+    /// wrapped text reserves room under the pinned overlay. Same strings and fonts as the
+    /// visible copy so their widths track; interaction (the edit-history control) lives on
+    /// the overlay, so this carries no link.
+    private var inlineMetadataSpacer: Text {
+        var result = Text(verbatim: "  ")
         if message.isEdited {
-            // "Edited" is a tappable link (routed to the edit-history sheet via the message-link
-            // handler) while staying inline with the message's trailing metadata.
-            var edited = AttributedString("Edited ")
-            edited.foregroundColor = color
-            edited.font = .system(size: 10.5, weight: .medium)
-            if let url = URL(string: "\(WorkspaceState.editHistoryMessageURLScheme):\(message.id)") {
-                edited.link = url
-            }
-            result = result + Text(edited)
+            result =
+                result
+                + Text("Edited").font(.system(size: 10.5, weight: .medium))
+                + Text(verbatim: " ")
         }
         result =
             result
             + Text(message.timeLabel)
             .font(.system(size: 10.5, weight: .medium).monospacedDigit())
-            .foregroundColor(color)
         if message.invalidationStatus != nil {
             result =
-                result + Text(" ")
+                result + Text(verbatim: " ")
                 + Text(Image(systemName: "exclamationmark.circle.fill"))
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundColor(.red)
         } else if message.isOutgoing {
             result =
-                result + Text(" ")
+                result + Text(verbatim: " ")
                 + Text(Image(systemName: "checkmark"))
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundColor(color)
         }
-        return result
+        return result.foregroundColor(.clear)
     }
 
     private var metadataColor: Color {
