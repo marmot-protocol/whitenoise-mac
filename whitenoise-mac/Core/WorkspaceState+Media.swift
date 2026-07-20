@@ -666,15 +666,22 @@ extension WorkspaceState {
             return
         }
 
-        let prefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
+        let accountPrefix = [activeAccountId, ""].joined(separator: "\u{1F}")
+        let groupPrefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
         let retainedKeys = retainedMediaDownloadKeys(groupIdHex: groupIdHex, accountId: activeAccountId)
         let removedKeys = mediaDownloads.keys.filter { key in
-            guard key.hasPrefix(prefix) else { return true }
+            guard key.hasPrefix(groupPrefix) else { return true }
             return !retainedKeys.contains(key)
         }
         for key in removedKeys {
+            guard let store = mediaDownloads[key] else { continue }
+            if case .loading = store.state, key.hasPrefix(accountPrefix) {
+                // Keep this account's in-flight downloads across chat pruning so a reappearing
+                // tile reuses the same store instead of starting a second runtime call.
+                continue
+            }
             // Notify any lingering per-attachment observers before dropping the store.
-            mediaDownloads[key]?.update(.idle)
+            store.update(.idle)
             mediaDownloads[key] = nil
         }
     }

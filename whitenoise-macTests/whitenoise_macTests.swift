@@ -6790,7 +6790,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func mediaDownloadFinishingAfterTimelinePruneCachesWithoutPublishingPlaintext() async throws {
+    @Test func mediaDownloadCoalescesAcrossChatSwitchBeforeFirstFetchCompletes() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
         UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
@@ -6880,14 +6880,18 @@ struct whitenoise_macTests {
             return
         }
 
+        state.selection = .chat("other-group")
         state.replaceMessages([], groupIdHex: "group")
-        #expect(state.mediaDownloads[key] == nil)
-        #expect(stateStore.state == .idle)
+        state.pruneMediaDownloadCache(keeping: "other-group")
+        let preservedLoadingStore = try #require(state.mediaDownloads[key])
+        #expect(preservedLoadingStore === stateStore)
+        #expect(stateStore.state == .loading)
 
+        state.selection = .chat("group")
         state.replaceMessages([message], groupIdHex: "group")
         let recreatedStateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
-        #expect(recreatedStateStore !== stateStore)
-        #expect(recreatedStateStore.state == .idle)
+        #expect(recreatedStateStore === stateStore)
+        #expect(recreatedStateStore.state == .loading)
 
         // Model AutomaticMediaDownloadModifier: replacement load starts while the first
         // runtime download is still gated, before the prune-era fetch can finish.
@@ -6912,11 +6916,11 @@ struct whitenoise_macTests {
             return
         }
 
-        #expect(stateStore.state == .idle)
-        guard case .loaded(let loadedFromCoalescedFetch) = recreatedStateStore.state else {
-            Issue.record("Expected recreated store to load from the coalesced runtime download")
+        guard case .loaded(let loadedFromCoalescedFetch) = stateStore.state else {
+            Issue.record("Expected preserved store to load from the coalesced runtime download")
             return
         }
+        #expect(recreatedStateStore.state == stateStore.state)
         #expect(loadedFromCoalescedFetch.data == plaintext)
         #expect(state.mediaDiskStoreTasks.isEmpty)
         guard let cachedDownload = await mediaDiskCache.cachedDownload(for: cacheKey) else {
