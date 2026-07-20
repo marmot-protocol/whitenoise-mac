@@ -1599,6 +1599,24 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func resetActiveAccountUIStateClearsConversationMetadata() {
+        let state = WorkspaceState.preview()
+        state.conversationMetadataByChat["shared-group"] = ConversationMetadata(
+            memberCount: 3,
+            disappearingMessageSecs: 60,
+            isSelfAdmin: true
+        )
+        state.conversationMetadataGenerationByChat["shared-group"] = 41
+
+        state.resetActiveAccountUIState()
+
+        // Sign-out and active-account removal share this reset path; metadata keyed only by
+        // group id must not leak the previous identity's role or group details. See #628.
+        #expect(state.conversationMetadataByChat.isEmpty)
+        #expect(state.conversationMetadataGenerationByChat.isEmpty)
+    }
+
+    @MainActor
     @Test func prepareForActiveAccountSwitchClosesGroupDetails() async throws {
         let primary = desktopAccount()
         let backup = AccountSummaryFfi(
@@ -16509,6 +16527,24 @@ struct whitenoise_macTests {
         #expect(state.composeContacts.isEmpty)
         #expect(!state.isLoadingComposeContacts)
         #expect(state.composeContactsGeneration == 42)
+    }
+
+    @MainActor
+    @Test func resetToNewInstallStateClearsConversationMetadata() {
+        let state = WorkspaceState.preview()
+        state.conversationMetadataByChat["shared-group"] = ConversationMetadata(
+            memberCount: 3,
+            disappearingMessageSecs: 60,
+            isSelfAdmin: true
+        )
+        state.conversationMetadataGenerationByChat["shared-group"] = 41
+
+        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+
+        // A full local-data wipe must not retain metadata describing the departed identity's
+        // group role, membership, or disappearing-message timer. See #628.
+        #expect(state.conversationMetadataByChat.isEmpty)
+        #expect(state.conversationMetadataGenerationByChat.isEmpty)
     }
 
     @MainActor
