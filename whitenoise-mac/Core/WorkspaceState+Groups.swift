@@ -247,6 +247,69 @@ extension WorkspaceState {
         }
     }
 
+    /// Invite one or more already-resolved recipients in a single group commit. Recipients carry a
+    /// normalized `npub` from the new-chat resolver, so no per-entry re-normalization is needed.
+    /// Returns `true` when the commit succeeded so the caller can dismiss only on success.
+    @discardableResult
+    func inviteMembers(_ recipients: [NewChatRecipient]) async -> Bool {
+        guard let client,
+            let activeAccount,
+            let snapshot = groupDetailsSnapshot,
+            !hasInFlightGroupCommit
+        else { return false }
+        let memberRefs = recipients.map(\.npub).filter { !$0.isEmpty }
+        guard !memberRefs.isEmpty else { return false }
+        let accountId = activeAccount.id
+        let groupIdHex = snapshot.groupIdHex
+        let generation = beginGroupDetailsMutation()
+
+        lastError = nil
+        isInvitingGroupMember = true
+        defer { isInvitingGroupMember = false }
+
+        do {
+            let result = try await client.inviteMembersDetailed(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex,
+                memberRefs: memberRefs
+            )
+            guard
+                isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
+            else { return false }
+            applyGroupMutationResult(result)
+            await reloadChats(forceFreshSnapshot: true)
+            return true
+        } catch {
+            guard
+                isCurrentGroupDetailsMutation(generation: generation, accountId: accountId, groupIdHex: groupIdHex)
+            else { return false }
+            // `inviteMembersDetailed` can throw while reading post-commit details *after* the MLS
+            // invite already published. Refresh the roster and reconcile: if every recipient is now
+            // a member, the invite succeeded despite the read error — report success so the sheet
+            // dismisses and a retry doesn't hit "already a member".
+            await reloadChats(forceFreshSnapshot: true)
+            // Every await here suspends the actor, so re-validate the full presentation context
+            // after each one — not just the snapshot: a switch to another chat leaves the old
+            // snapshot temporarily intact (`loadGroupDetails` early-returns for a deselected
+            // group), and this error must not land in whatever the user is looking at now.
+            guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex) else {
+                return false
+            }
+            await loadGroupDetails(groupIdHex: groupIdHex)
+            guard isInviteReconciliationTargetCurrent(accountId: accountId, groupIdHex: groupIdHex) else {
+                return false
+            }
+            let currentMemberIds = Set(groupDetailsSnapshot?.members.map(\.id) ?? [])
+            if !currentMemberIds.isEmpty,
+                recipients.allSatisfy({ currentMemberIds.contains($0.accountIdHex) })
+            {
+                return true
+            }
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
     func acceptGroupInvite(for chat: ChatItem) async {
         // DMs are 2-person MLS groups, so their welcomes are accepted the same way.
         await acceptGroupInvite(groupIdHex: chat.id)
@@ -529,8 +592,22 @@ extension WorkspaceState {
         }
     }
 
+    /// The invite-failure reconciliation may only touch workspace state while the user is still
+    /// on the same account, with the same group selected, and its details still presented.
+    private func isInviteReconciliationTargetCurrent(accountId: String?, groupIdHex: String) -> Bool {
+        guard
+            activeAccountId == accountId,
+            isGroupDetailsPresented,
+            groupDetailsSnapshot?.groupIdHex == groupIdHex,
+            case .chat(let selectedGroupId) = selection,
+            selectedGroupId == groupIdHex
+        else { return false }
+        return true
+    }
+
     func setDisappearingMessages(groupIdHex: String, seconds: UInt64) async {
         guard let client, let activeAccount, !hasInFlightGroupCommit else { return }
+        let accountId = activeAccount.id
         lastError = nil
         isUpdatingDisappearingMessages = true
         defer { isUpdatingDisappearingMessages = false }
@@ -541,6 +618,27 @@ extension WorkspaceState {
                 groupIdHex: groupIdHex,
                 disappearingMessageSecs: seconds
             )
+            // The commit await may have suspended across an account switch — don't sync another
+            // account's header.
+            guard activeAccountId == accountId else { return }
+            // Keep the mounted conversation header's timer in sync — it reads
+            // `conversationMetadataByChat`, which the details reload below does not touch. Bump the
+            // metadata generation unconditionally so an older in-flight
+            // `refreshConversationMetadata` (which captured the pre-change value) can't complete
+            // afterward and overwrite this — the race exists even while the cache is still empty.
+            conversationMetadataGenerationByChat[groupIdHex, default: 0] &+= 1
+            if let existing = conversationMetadataByChat[groupIdHex] {
+                conversationMetadataByChat[groupIdHex] = ConversationMetadata(
+                    memberCount: existing.memberCount,
+                    disappearingMessageSecs: seconds,
+                    isSelfAdmin: existing.isSelfAdmin
+                )
+            } else if let chat = chatItem(accountId: accountId, chatId: groupIdHex) {
+                // Nothing cached to patch: publish a fresh post-commit read instead (it re-bumps
+                // the generation itself, so it stays newest). `chatItem` spans active *and*
+                // archived indexes, so an archived group that's open still gets its header updated.
+                await refreshConversationMetadata(for: chat)
+            }
             if isGroupDetailsPresented, groupDetailsSnapshot?.groupIdHex == groupIdHex {
                 await loadGroupDetails(groupIdHex: groupIdHex)
             }
