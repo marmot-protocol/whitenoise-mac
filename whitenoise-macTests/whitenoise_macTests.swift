@@ -5791,6 +5791,114 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func directMediaJSONBoundsFallbackLocatorUTF8Bytes() async throws {
+        // Regression for whitenoise-mac#673: reject oversized locators whole; limits are UTF-8 bytes.
+        let twoByte = "é"
+        let boundaryKind = String(repeating: twoByte, count: 32)
+        let overKind = String(repeating: twoByte, count: 33)
+        let boundaryValue = String(repeating: twoByte, count: 1024)
+        let overValue = String(repeating: twoByte, count: 1025)
+        #expect(boundaryKind.utf8.count == 64)
+        #expect(overKind.utf8.count == 66)
+        #expect(boundaryValue.utf8.count == 2048)
+        #expect(overValue.utf8.count == 2050)
+
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "bounded-direct-locators",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    mediaJson: mediaJSONString(fromJSONObject: [
+                        "ciphertext_sha256": reference.ciphertextSha256,
+                        "plaintext_sha256": reference.plaintextSha256,
+                        "nonce": reference.nonceHex,
+                        "file_name": reference.fileName,
+                        "media_type": reference.mediaType,
+                        "version": reference.version,
+                        "locators": [
+                            ["kind": overKind, "value": "https://blob.example/over-kind"],
+                            ["kind": "blossom", "value": overValue],
+                            ["kind": boundaryKind, "value": boundaryValue],
+                            ["kind": "blossom", "value": "https://blob.example/valid"],
+                        ],
+                    ])
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+        let attachment = try #require(message.mediaAttachments.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(attachment.reference.locators.count == 2)
+        #expect(attachment.reference.locators[0].kind == boundaryKind)
+        #expect(attachment.reference.locators[0].value == boundaryValue)
+        #expect(attachment.reference.locators[1].kind == "blossom")
+        #expect(attachment.reference.locators[1].value == "https://blob.example/valid")
+    }
+
+    @MainActor
+    @Test func imetaFallbackBoundsLocatorUTF8Bytes() async throws {
+        // Regression for whitenoise-mac#673: same locator bounds for imeta fallback parsing.
+        let twoByte = "é"
+        let boundaryKind = String(repeating: twoByte, count: 32)
+        let overKind = String(repeating: twoByte, count: 33)
+        let boundaryValue = String(repeating: twoByte, count: 1024)
+        let overValue = String(repeating: twoByte, count: 1025)
+        #expect(boundaryKind.utf8.count == 64)
+        #expect(overKind.utf8.count == 66)
+        #expect(boundaryValue.utf8.count == 2048)
+        #expect(overValue.utf8.count == 2050)
+
+        let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "bounded-imeta-locators",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "",
+                    tags: [MessageTagFfi(values: [
+                        "imeta",
+                        "locator \(overKind) https://blob.example/over-kind",
+                        "locator blossom \(overValue)",
+                        "locator \(boundaryKind) \(boundaryValue)",
+                        "locator blossom https://blob.example/valid",
+                        "ciphertext_sha256 \(reference.ciphertextSha256)",
+                        "plaintext_sha256 \(reference.plaintextSha256)",
+                        "nonce \(reference.nonceHex)",
+                        "filename \(reference.fileName)",
+                        "m \(reference.mediaType)",
+                        "v \(reference.version)",
+                    ])],
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let message = try #require(messages.first)
+        let attachment = try #require(message.mediaAttachments.first)
+
+        #expect(message.mediaAttachments.count == 1)
+        #expect(attachment.reference.locators.count == 2)
+        #expect(attachment.reference.locators[0].kind == boundaryKind)
+        #expect(attachment.reference.locators[0].value == boundaryValue)
+        #expect(attachment.reference.locators[1].kind == "blossom")
+        #expect(attachment.reference.locators[1].value == "https://blob.example/valid")
+        #expect(attachment.reference.fileName == reference.fileName)
+    }
+
+    @MainActor
     @Test func booleanMediaJSONStringAliasValuesFallThroughAndBadLocatorsAreDropped() async throws {
         // `string(_:keys:)` searches aliases in order. A boolean at an earlier alias
         // should be treated as malformed for that key, not as "1" and not as a reason
