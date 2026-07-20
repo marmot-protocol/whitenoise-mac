@@ -127,7 +127,8 @@ nonisolated enum RemoteImageURLPolicy {
     /// ULA `fc00::/7`, link-local `fe80::/10`, multicast `ff00::/8`, documentation
     /// `2001:db8::/32`, RFC 8215 local-use translation `64:ff9b:1::/48`, and the IPv4-embedding
     /// forms (mapped `::ffff:a.b.c.d`, translated `::ffff:0:a.b.c.d`, NAT64 `64:ff9b::a.b.c.d`,
-    /// and IPv4-compatible `::a.b.c.d`) whose embedded IPv4 is itself private.
+    /// and IPv4-compatible `::a.b.c.d`, 6to4 `2002::/16`, and Teredo `2001:0000::/32`) whose embedded
+    /// IPv4 is itself private.
     private static func isPrivateIPv6(_ groups: [UInt16]) -> Bool {
         guard groups.count == 8 else { return true }  // be conservative on anything unparseable
 
@@ -167,12 +168,27 @@ nonisolated enum RemoteImageURLPolicy {
         if groups[0...5].allSatisfy({ $0 == 0 }), groups[6] != 0 || groups[7] != 0 {
             return isPrivateIPv4(embeddedIPv4(groups))
         }
+        // 6to4 `2002:WWXX:YYZZ::/16` — the next two groups are the gateway IPv4 literal.
+        if first == 0x2002 {
+            return isPrivateIPv4(ipv4FromGroups(groups[1], groups[2]))
+        }
+        // Teredo `2001:0000::/32` — server IPv4 in groups 2–3 (literal), client IPv4 in
+        // groups 6–7 XOR'd with `0xFFFF` per 16-bit group (RFC 4380).
+        if first == 0x2001, groups[1] == 0x0000 {
+            if isPrivateIPv4(ipv4FromGroups(groups[2], groups[3])) { return true }
+            if isPrivateIPv4(ipv4FromGroups(groups[6] ^ 0xFFFF, groups[7] ^ 0xFFFF)) { return true }
+            return false
+        }
 
         return false
     }
 
+    private static func ipv4FromGroups(_ high: UInt16, _ low: UInt16) -> (UInt8, UInt8, UInt8, UInt8) {
+        (UInt8(high >> 8), UInt8(high & 0xFF), UInt8(low >> 8), UInt8(low & 0xFF))
+    }
+
     private static func embeddedIPv4(_ groups: [UInt16]) -> (UInt8, UInt8, UInt8, UInt8) {
-        (UInt8(groups[6] >> 8), UInt8(groups[6] & 0xFF), UInt8(groups[7] >> 8), UInt8(groups[7] & 0xFF))
+        ipv4FromGroups(groups[6], groups[7])
     }
 
     /// Parses a raw profile string into a fetchable URL, applying the same trimming the UI uses
