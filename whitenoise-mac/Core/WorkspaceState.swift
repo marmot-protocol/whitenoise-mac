@@ -1165,8 +1165,8 @@ final class WorkspaceState {
             )
         }
 
-        /// Issue #529 regression support: when armed, the first `applyTimelineWindow` map pass
-        /// suspends until `releaseTimelineApplyMapGate()` is invoked.
+        /// Timeline ownership regression support: when armed, the first window or projection
+        /// map pass suspends until `releaseTimelineApplyMapGate()` is invoked.
         var timelineApplyMapGateEnabled = false
         private(set) var didReachTimelineApplyMapGate = false
         private var timelineApplyMapGateContinuation: CheckedContinuation<Void, Never>?
