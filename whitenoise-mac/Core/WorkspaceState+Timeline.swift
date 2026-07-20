@@ -364,7 +364,9 @@ extension WorkspaceState {
         let currentPaging = timelinePagingByChat[groupIdHex]
         // Keep "Delete for me" hides out of every full window replace, not just the incremental path.
         let visibleMessages = filterHiddenMessages(mappedMessages, groupIdHex: groupIdHex)
-        TimelineSignpost.store.interval("replaceMessages", count: visibleMessages.count) {
+        let didChangeMediaAttachments = TimelineSignpost.store.interval(
+            "replaceMessages", count: visibleMessages.count
+        ) {
             replaceMessages(
                 visibleMessages,
                 groupIdHex: groupIdHex,
@@ -376,6 +378,9 @@ extension WorkspaceState {
                 ),
                 editMutations: editMutations
             )
+        }
+        if didChangeMediaAttachments {
+            clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
         }
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
@@ -548,21 +553,6 @@ extension WorkspaceState {
         let anchored = !paging.hasMoreAfter
         let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
 
-        // Only invalidate the per-group media-reference resolution cache when a projection
-        // actually introduces new or changed media attachments. A single media send emits a
-        // burst of projection deltas (new row, delivery-state transitions, relay echo,
-        // per-relay acks) that re-carry the same media fields; clearing on every one of those
-        // re-runs full media resolution for visible `sourceEpoch == 0` tiles. Comparing the
-        // mapped `MessageItem.mediaAttachments` against the current store entry (still
-        // pre-mutation here — `applyProjection` mutates it below) skips the clear for those
-        // pure delivery-state/projection ticks. Read against `timelineStore.lookup` because it
-        // holds the current pre-mutation entry for any message already in the rendered window.
-        let introducesMediaChange = mappedUpserts.contains { upsert in
-            let currentAttachments = timelineStore.lookup[upsert.id]?.mediaAttachments ?? []
-            guard !currentAttachments.isEmpty || !upsert.mediaAttachments.isEmpty else { return false }
-            return currentAttachments != upsert.mediaAttachments
-        }
-
         guard
             canApplyTimelineWindow(
                 groupIdHex: groupIdHex,
@@ -570,10 +560,6 @@ extension WorkspaceState {
                 owner: owner
             )
         else { return }
-
-        if introducesMediaChange {
-            clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
-        }
 
         // Keep "Delete for me" messages out of the window across every reprojection.
         let (visibleUpserts, visibleRemovals) = partitionHiddenMessages(
@@ -591,6 +577,10 @@ extension WorkspaceState {
         }
         guard result.didChange else { return }
 
+        if result.didChangeMediaAttachments {
+            clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
+        }
+
         finalizeTimelineStoreMutation(
             groupIdHex: groupIdHex,
             paging: TimelinePagingState(
@@ -601,7 +591,7 @@ extension WorkspaceState {
             ),
             pruneMediaDownloads: result.didRemoveMessages
                 || result.didTrimOlderMessages
-                || introducesMediaChange
+                || result.didChangeMediaAttachments
         )
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
@@ -1205,12 +1195,13 @@ extension WorkspaceState {
         }
     }
 
+    @discardableResult
     func replaceMessages(
         _ messages: [MessageItem],
         groupIdHex: String,
         paging: TimelinePagingState? = nil,
         editMutations: [MessageEditMutation] = []
-    ) {
+    ) -> Bool {
         // The window is already ordered, deduped, and capped by the runtime subscription,
         // so render it as-is. The per-chat id/lookup caches live on the store
         // (`MessageTimelineStore.replace` rebuilds them); we only mark this chat as the one
@@ -1224,7 +1215,7 @@ extension WorkspaceState {
 
         cachedMessageChatIds = [groupIdHex]
         messageTimelineStores = [groupIdHex: timelineStore]
-        timelineStore.replace(
+        let didChangeMediaAttachments = timelineStore.replace(
             with: messages,
             editMutations: editMutations,
             windowLimit: Self.timelineWindowLimit
@@ -1236,6 +1227,7 @@ extension WorkspaceState {
         }
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
         pruneMediaDownloadCache(keeping: groupIdHex)
+        return didChangeMediaAttachments
     }
 
     func finalizeTimelineStoreMutation(

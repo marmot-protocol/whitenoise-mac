@@ -794,14 +794,19 @@ struct PureValueTests {
         // current newest row and upserts a row newer than the post-removal head must suppress
         // that upsert — a detached window must not grow a new head — matching the runtime's
         // apply_projection_to_window.
-        func message(id: String, timelineAt: UInt64) -> MessageItem {
+        func message(
+            id: String,
+            timelineAt: UInt64,
+            mediaAttachments: [MessageMediaAttachment] = []
+        ) -> MessageItem {
             MessageItem(
                 id: id,
                 senderName: "sender",
                 body: id,
                 sentAt: Date(timeIntervalSince1970: 1_700_000_000),
                 timelineAt: timelineAt,
-                isOutgoing: false
+                isOutgoing: false,
+                mediaAttachments: mediaAttachments
             )
         }
 
@@ -813,8 +818,12 @@ struct PureValueTests {
 
         // The delta removes the current newest row M and upserts N(98). After M is gone the true
         // head is L(95); N(98) is strictly newer and must not become a new head.
+        let suppressedMedia = MessageMediaAttachment(
+            id: "suppressed-attachment",
+            reference: mediaReference(fileName: "suppressed.png", mediaType: "image/png")
+        )
         let result = store.applyProjection(
-            upserts: [message(id: "N", timelineAt: 98)],
+            upserts: [message(id: "N", timelineAt: 98, mediaAttachments: [suppressedMedia])],
             removals: ["M"],
             anchoredToNewest: false,
             windowLimit: 10
@@ -823,6 +832,30 @@ struct PureValueTests {
         #expect(store.messages.map(\.id) == ["L"])
         #expect(!store.containsMessage(id: "N"))
         #expect(result.didChange)
+        #expect(!result.didChangeMediaAttachments)
+
+        // #631: media added by unrelated backward pagination must not consume the pending
+        // invalidation. It fires once the suppressed media row is actually retained.
+        let olderMedia = MessageMediaAttachment(
+            id: "older-attachment",
+            reference: mediaReference(fileName: "older.png", mediaType: "image/png")
+        )
+        let pagingOlderMedia = store.replace(with: [
+            message(id: "O", timelineAt: 90, mediaAttachments: [olderMedia]),
+            message(id: "L", timelineAt: 95),
+        ])
+        #expect(!pagingOlderMedia)
+
+        let retainedSuppressedMedia = store.replace(with: [
+            message(id: "L", timelineAt: 95),
+            message(id: "N", timelineAt: 98, mediaAttachments: [suppressedMedia]),
+        ])
+        #expect(retainedSuppressedMedia)
+        #expect(
+            !store.replace(with: [
+                message(id: "L", timelineAt: 95),
+                message(id: "N", timelineAt: 98, mediaAttachments: [suppressedMedia]),
+            ]))
     }
 
     @MainActor
