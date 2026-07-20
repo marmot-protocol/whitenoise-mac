@@ -19472,8 +19472,8 @@ struct whitenoise_macTests {
             ))
 
         // The listener is client-wide, so an account-A replay can still arrive after
-        // switching to B. MDK account-namespaces keys, allowing B's distinct update
-        // through while the replay remains suppressed. See #646.
+        // switching to B. The vendored MDK account-namespaces keys, allowing B's
+        // distinct update through while the replay remains suppressed. See #646.
         #expect(notificationCenter.postedRequests.map(\.identifier) == [accountAKey, accountBKey])
     }
 
