@@ -7642,28 +7642,18 @@ struct whitenoise_macTests {
     @Test func videoAttachmentPlayerAccessibilityLabelMatchesPlaybackState() {
         #expect(
             MessageVideoAttachmentPlayerAccessibility.label(
-                isPlaying: false,
                 isPreparingPlayback: false,
                 didFail: true
             ) == L10n.string("Retry video")
         )
         #expect(
             MessageVideoAttachmentPlayerAccessibility.label(
-                isPlaying: false,
                 isPreparingPlayback: true,
                 didFail: false
             ) == L10n.string("Cancel video loading")
         )
         #expect(
             MessageVideoAttachmentPlayerAccessibility.label(
-                isPlaying: true,
-                isPreparingPlayback: false,
-                didFail: false
-            ) == L10n.string("Pause video")
-        )
-        #expect(
-            MessageVideoAttachmentPlayerAccessibility.label(
-                isPlaying: false,
                 isPreparingPlayback: false,
                 didFail: false
             ) == L10n.string("Play video")
@@ -7674,7 +7664,9 @@ struct whitenoise_macTests {
         // MessageVisualMediaTile and MessageVideoAttachmentPlayer are SwiftUI surfaces
         // the unit tests cannot activate directly. Guard their source contract: pointer,
         // keyboard, and VoiceOver users must reach the same primary action through real
-        // Button controls with explicit labels instead of bare tap gestures.
+        // Button controls with explicit labels instead of bare tap gestures. Once playback
+        // starts, the live VideoPlayer must sit outside that button so AVKit controls stay
+        // interactive and exposed to assistive technologies.
         let viewsURL =
             URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -7705,17 +7697,36 @@ struct whitenoise_macTests {
         let playerSource = String(source[playerStart.lowerBound..<playerEnd])
         let normalizedPlayerSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
 
-        #expect(playerSource.contains("@State private var isPlaying = false"))
+        #expect(playerSource.contains("if let player {"))
+        #expect(playerSource.contains("VideoPlayer(player: player)"))
         #expect(playerSource.contains("Button(action: activatePlayback)"))
         #expect(normalizedPlayerSource.contains(".buttonStyle(.plain)"))
         #expect(playerSource.contains("MessageVideoAttachmentPlayerAccessibility.label("))
-        #expect(normalizedPlayerSource.contains(".accessibilityElement(children:.ignore)"))
-        #expect(normalizedPlayerSource.contains(".allowsHitTesting(false)"))
-        #expect(playerSource.contains("if isPlaying {"))
-        #expect(!playerSource.contains("if player.timeControlStatus == .playing {"))
-        #expect(playerSource.contains("isPlaying = true"))
-        #expect(playerSource.contains("isPlaying = false"))
+        #expect(!normalizedPlayerSource.contains(".allowsHitTesting(false)"))
+        #expect(!normalizedPlayerSource.contains(".accessibilityElement(children:.ignore)"))
+        #expect(!playerSource.contains("@State private var isPlaying"))
+        #expect(!playerSource.contains("Pause video"))
         #expect(!playerSource.contains(".onTapGesture"))
+
+        let livePlayerBranch = try #require(
+            playerSource.range(
+                of: "if let player {",
+                options: [],
+                range: nil,
+                locale: nil
+            )
+        )
+        let elseBranch = try #require(
+            playerSource.range(
+                of: "} else {",
+                options: [],
+                range: livePlayerBranch.upperBound..<playerSource.endIndex,
+                locale: nil
+            )
+        )
+        let livePlayerSource = String(playerSource[livePlayerBranch.upperBound..<elseBranch.lowerBound])
+        #expect(livePlayerSource.contains("VideoPlayer(player: player)"))
+        #expect(!livePlayerSource.contains("Button(action:"))
     }
 
     @Test func imageGalleryProvidesDismissalNavigationAndAccessibilityAffordances() throws {

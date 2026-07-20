@@ -629,19 +629,12 @@ enum MessageVisualMediaTileInteraction {
 }
 
 enum MessageVideoAttachmentPlayerAccessibility {
-    static func label(
-        isPlaying: Bool,
-        isPreparingPlayback: Bool,
-        didFail: Bool
-    ) -> String {
+    static func label(isPreparingPlayback: Bool, didFail: Bool) -> String {
         if didFail {
             return L10n.string("Retry video")
         }
         if isPreparingPlayback {
             return L10n.string("Cancel video loading")
-        }
-        if isPlaying {
-            return L10n.string("Pause video")
         }
         return L10n.string("Play video")
     }
@@ -1254,7 +1247,6 @@ struct MessageVideoAttachmentPlayer: View {
     @State private var player: AVPlayer?
     @State private var playbackURL: URL?
     @State private var isLoading = false
-    @State private var isPlaying = false
     @State private var didFail = false
     @State private var playbackPreparationID: UUID?
     @State private var playbackTask: Task<Void, Never>?
@@ -1265,52 +1257,26 @@ struct MessageVideoAttachmentPlayer: View {
     }
 
     var body: some View {
-        Button(action: activatePlayback) {
-            ZStack {
-                if let player {
-                    VideoPlayer(player: player)
-                        .frame(width: sideLength, height: sideLength)
-                        .background(Color.black)
-                        .allowsHitTesting(false)
-                } else {
-                    Color.black.opacity(0.86)
-                    Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 48)
-                        .background(Color.black.opacity(0.45), in: Circle())
-
-                    VStack {
-                        Spacer()
-                        Text(download.fileName.nilIfBlank ?? attachment.fileName)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.86))
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                            .padding(.bottom, 8)
-                    }
+        ZStack {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(width: sideLength, height: sideLength)
+                    .background(Color.black)
+            } else {
+                Button(action: activatePlayback) {
+                    playbackPlaceholder
                 }
-
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                        .frame(width: 42, height: 42)
-                        .background(Color.black.opacity(0.45), in: Circle())
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    MessageVideoAttachmentPlayerAccessibility.label(
+                        isPreparingPlayback: isPreparingPlayback,
+                        didFail: didFail
+                    )
+                )
             }
-            .frame(width: sideLength, height: sideLength)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            MessageVideoAttachmentPlayerAccessibility.label(
-                isPlaying: isPlaying,
-                isPreparingPlayback: isPreparingPlayback,
-                didFail: didFail
-            )
-        )
+        .frame(width: sideLength, height: sideLength)
+        .contentShape(Rectangle())
         // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
         // does not trigger onDisappear. Tear down here as well to release the player and delete
         // its decrypted playback scratch file as soon as the tile is no longer visible.
@@ -1331,6 +1297,37 @@ struct MessageVideoAttachmentPlayer: View {
         .onChange(of: download.payload.id) { _, _ in
             resetForAttachmentChange()
         }
+    }
+
+    private var playbackPlaceholder: some View {
+        ZStack {
+            Color.black.opacity(0.86)
+            Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 48, height: 48)
+                .background(Color.black.opacity(0.45), in: Circle())
+
+            VStack {
+                Spacer()
+                Text(download.fileName.nilIfBlank ?? attachment.fileName)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+            }
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color.black.opacity(0.45), in: Circle())
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .contentShape(Rectangle())
     }
 
     private func activatePlayback() {
@@ -1356,17 +1353,6 @@ struct MessageVideoAttachmentPlayer: View {
     @MainActor
     private func togglePlayback() async {
         guard !Task.isCancelled else { return }
-
-        if let player {
-            if isPlaying {
-                player.pause()
-                isPlaying = false
-            } else {
-                player.play()
-                isPlaying = true
-            }
-            return
-        }
 
         if isPreparingPlayback {
             stopPlayback()
@@ -1418,7 +1404,6 @@ struct MessageVideoAttachmentPlayer: View {
         player = next
         observeEndOfPlayback(for: next)
         next.play()
-        isPlaying = true
     }
 
     /// Seeks the playhead back to the start when the item plays to completion so the next tap
@@ -1432,9 +1417,6 @@ struct MessageVideoAttachmentPlayer: View {
             queue: .main
         ) { _ in
             player.seek(to: .zero)
-            Task { @MainActor in
-                isPlaying = false
-            }
         }
     }
 
@@ -1450,7 +1432,6 @@ struct MessageVideoAttachmentPlayer: View {
     private func stopPlayback() {
         playbackPreparationID = nil
         isLoading = false
-        isPlaying = false
         removeEndOfPlaybackObserver()
         player?.pause()
         player = nil
