@@ -22425,6 +22425,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func deleteGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
         deleteGroupLocalCallCount += 1
         locallyDeletedGroupIds.append(groupIdHex)
+        guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else { return false }
+        groups.remove(at: index)
+        groupDetailsById[groupIdHex] = nil
+        groupManagementStateById[groupIdHex] = nil
         return true
     }
 
