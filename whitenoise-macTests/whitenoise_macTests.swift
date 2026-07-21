@@ -13045,8 +13045,13 @@ struct whitenoise_macTests {
         let files = try transcriptExportTestFiles()
         defer { try? FileManager.default.removeItem(at: files.root) }
         let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let pageLimit = Int(ConversationTranscriptExport.pageLimit)
+        let highVolumePageCount = 25
+        let messageCount = pageLimit * highVolumePageCount
+        let naturalExhaustionQueryCount = (messageCount + pageLimit - 1) / pageLimit
+        let cancellationQueryCount = naturalExhaustionQueryCount - 1
         runtime.installMessages(
-            (0..<5_000).map { index in
+            (0..<messageCount).map { index in
                 appMessage(
                     id: String(format: "%064x", index + 1),
                     groupIdHex: "group",
@@ -13068,14 +13073,14 @@ struct whitenoise_macTests {
                 to: files.destination,
                 scratchDirectory: files.scratch,
                 checkCancellation: {
-                    if runtime.timelineMessageQueries.count >= 25 {
+                    if runtime.timelineMessageQueries.count >= cancellationQueryCount {
                         throw CancellationError()
                     }
                 }
             )
         }
 
-        #expect(runtime.timelineMessageQueries.count == 25)
+        #expect(runtime.timelineMessageQueries.count == cancellationQueryCount)
         #expect(!FileManager.default.fileExists(atPath: files.destination.path))
         #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
     }
