@@ -3197,6 +3197,53 @@ struct whitenoise_macTests {
         #expect(cacheFiles.filter { $0.hasSuffix("payload.bin") }.count == 2)
     }
 
+    @Test func messageMediaDiskCacheRestoresReplacementAfterCommitMoveFailure() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let plaintext = Data("replacement remains recoverable".utf8)
+        let key = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: plaintext)
+        )
+        let original = MessageMediaDownload(
+            data: plaintext,
+            fileName: "original.jpg",
+            mediaType: "image/jpeg",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "original"
+        )
+        let replacement = MessageMediaDownload(
+            data: plaintext,
+            fileName: "replacement.jpg",
+            mediaType: "image/jpeg",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "replacement"
+        )
+
+        await cache.store(original, for: key)
+        #expect(cache.testingTrackedFootprintIsInitialized())
+
+        let moveAttempts = AtomicCounter()
+        cache.testingSetBeforePreparedEntryMoveHook {
+            if moveAttempts.increment() == 1 {
+                throw FakeMarmotRuntimeError.unused
+            }
+        }
+        await cache.store(replacement, for: key)
+
+        #expect(try #require(await cache.cachedDownload(for: key)).fileName == "original.jpg")
+        #expect(!cache.testingTrackedFootprintIsInitialized())
+
+        await cache.store(replacement, for: key)
+        #expect(try #require(await cache.cachedDownload(for: key)).fileName == "replacement.jpg")
+        #expect(cache.testingTrackedFootprintIsInitialized())
+    }
+
     @Test func messageMediaDiskCacheEvictsAfterManyStoresUnderCap() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

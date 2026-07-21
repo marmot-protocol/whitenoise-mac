@@ -220,6 +220,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
     private var didSweepStagingDirectories = false
     #if DEBUG
         private var testingBeforeRemoveStaleStagingDirectories: (@Sendable () -> Void)?
+        private var testingBeforePreparedEntryMove: (@Sendable () throws -> Void)?
     #endif
     // Updated under `fileMutationLock` on commit and eviction. Tracks committed entries only;
     // live staging bytes are sampled separately when enforcing the byte cap.
@@ -408,6 +409,14 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         func testingSetBeforeStagingSweepHook(_ hook: @escaping @Sendable () -> Void) {
             testingBeforeRemoveStaleStagingDirectories = hook
         }
+
+        func testingSetBeforePreparedEntryMoveHook(_ hook: @escaping @Sendable () throws -> Void) {
+            testingBeforePreparedEntryMove = hook
+        }
+
+        func testingTrackedFootprintIsInitialized() -> Bool {
+            fileMutationLock.withLock { trackedFootprint != nil }
+        }
     #endif
 
     private func encryptionKey() throws -> SymmetricKey {
@@ -559,14 +568,28 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             ? Self.entryByteCount(at: prepared.finalDirectory)
             : 0
         let committedByteCount = Self.entryByteCount(at: prepared.stagingDirectory)
+        var replacementBackup: URL?
 
         do {
             try FileManager.default.createDirectory(
                 at: prepared.finalDirectory.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try? FileManager.default.removeItem(at: prepared.finalDirectory)
+            if isReplacement {
+                let backup =
+                    prepared.stagingDirectory.deletingLastPathComponent()
+                    .appendingPathComponent("replacement-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.moveItem(at: prepared.finalDirectory, to: backup)
+                replacementBackup = backup
+            }
+            #if DEBUG
+                try testingBeforePreparedEntryMove?()
+            #endif
             try FileManager.default.moveItem(at: prepared.stagingDirectory, to: prepared.finalDirectory)
+            if let replacementBackup {
+                try FileManager.default.removeItem(at: replacementBackup)
+                Self.removeEmptyDirectory(replacementBackup.deletingLastPathComponent())
+            }
             updateTrackedFootprintAfterCommit(
                 isNewEntry: !isReplacement,
                 committedByteCount: committedByteCount,
@@ -575,7 +598,21 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
             )
             enforceEvictionPolicy(root: prepared.root)
         } catch {
-            try? FileManager.default.removeItem(at: prepared.stagingDirectory)
+            Self.discardPreparedEntry(prepared)
+            if let replacementBackup,
+                FileManager.default.fileExists(atPath: replacementBackup.path)
+            {
+                if FileManager.default.fileExists(atPath: prepared.finalDirectory.path) {
+                    try? FileManager.default.removeItem(at: replacementBackup)
+                } else {
+                    try? FileManager.default.moveItem(at: replacementBackup, to: prepared.finalDirectory)
+                }
+                Self.removeEmptyDirectory(replacementBackup.deletingLastPathComponent())
+            }
+            // Any failed filesystem sequence may have removed, restored, or partially committed
+            // an entry. Force the next store to reconcile from disk instead of carrying a false
+            // byte/entry count forward.
+            trackedFootprint = nil
         }
     }
 
