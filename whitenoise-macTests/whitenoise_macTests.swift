@@ -15790,6 +15790,28 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func archivedFilterCacheHitRetainsObservationDependency() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+        await state.setChatArchived(chat, archived: true)
+
+        _ = state.filteredArchivedChats(matching: "")
+        let invalidated = ObservationInvalidationFlag()
+        withObservationTracking {
+            _ = state.filteredArchivedChats(matching: "")
+        } onChange: {
+            invalidated.markInvalidated()
+        }
+
+        state.archivedChatsByAccount[account.label] = []
+        #expect(invalidated.value)
+    }
+
+    @MainActor
     @Test func chatListFilterShowsArchivedChatsOnlyWhenSelected() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -16124,6 +16146,27 @@ struct whitenoise_macTests {
         runtime.releaseGroupMutationGate()
         await firstArchive
 
+        #expect(runtime.setGroupArchivedCallCount == 1)
+        #expect(!state.isArchivingGroup)
+    }
+
+    @MainActor
+    @Test func groupDetailsOnlyCloseAfterArchiveCommits() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = try await openInstalledGroupDetails(runtime: runtime)
+
+        runtime.setGroupArchivedError = FakeMarmotRuntimeError.unused
+        await state.setSelectedGroupArchived(true)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.activeChats.contains { $0.id == "group" })
+        #expect(state.archivedChats.isEmpty)
+
+        runtime.setGroupArchivedError = nil
+        state.archivingChatId = "another-chat"
+        await state.setSelectedGroupArchived(true)
+        #expect(state.isGroupDetailsPresented)
         #expect(runtime.setGroupArchivedCallCount == 1)
         #expect(!state.isArchivingGroup)
     }
@@ -18120,6 +18163,10 @@ struct whitenoise_macTests {
 
         #expect(state.archivedChatsByAccount[account.id]?.contains { $0.id == chatId } == true)
         #expect(state.draftTextByConversation[draftKey] == "see you at 6")
+        #expect(state.selection == nil)
+        #expect(state.selectedChat == nil)
+        #expect(state.timelineTask == nil)
+        #expect(!state.cachedMessageChatIds.contains(chatId))
     }
 
     @MainActor
@@ -21980,6 +22027,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var updateGroupProfileCallCount = 0
     private(set) var archivedGroup: ArchivedGroup?
     private(set) var setGroupArchivedCallCount = 0
+    var setGroupArchivedError: Error?
     private(set) var leftGroupIdHex: String?
     private(set) var leaveGroupCallCount = 0
     private(set) var acceptedInviteGroupIds: [String] = []
@@ -23019,6 +23067,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi {
         setGroupArchivedCallCount += 1
         await groupMutationGate.passIfArmed()
+        if let setGroupArchivedError { throw setGroupArchivedError }
         archivedGroup = ArchivedGroup(groupIdHex: groupIdHex, archived: archived)
         guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else {
             throw FakeMarmotRuntimeError.unused

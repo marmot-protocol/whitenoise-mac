@@ -1706,6 +1706,9 @@ final class WorkspaceState {
 
     func filteredArchivedChats(matching query: String) -> [ChatItem] {
         guard let activeAccountId else { return [] }
+        // Read the observed list before a cache-hit return so each SwiftUI evaluation keeps the
+        // archived section subscribed to live archive and metadata updates.
+        let chats = archivedChatsByAccount[activeAccountId] ?? []
         let generation = archivedChatListGenerationByAccount[activeAccountId] ?? 0
         if let cache = filteredArchivedChatsCache,
             cache.accountId == activeAccountId,
@@ -1715,7 +1718,7 @@ final class WorkspaceState {
             return cache.result
         }
 
-        let result = ChatFilter.filtered(archivedChatsByAccount[activeAccountId] ?? [], query: query)
+        let result = ChatFilter.filtered(chats, query: query)
         filteredArchivedChatsCache = FilteredChatsCache(
             accountId: activeAccountId,
             generation: generation,
