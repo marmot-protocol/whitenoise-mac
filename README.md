@@ -137,7 +137,7 @@ before relaunching.
 ## Security & privacy
 
 White Noise runs in the macOS **App Sandbox** with a minimal entitlement set:
-network client access (for Nostr relays) and read-only access to user-selected
+network client access (for Nostr relays) and read/write access to user-selected
 files. End-to-end encryption, group state, and key management are handled by
 the Marmot/MLS core in `MarmotKit` rather than in app code.
 

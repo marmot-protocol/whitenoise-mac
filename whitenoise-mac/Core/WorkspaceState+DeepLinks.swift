@@ -62,7 +62,7 @@ extension WorkspaceState {
 
         guard !isExportingGroupTranscript, groupTranscriptExportTask == nil else {
             backgroundStatus = L10n.string(
-                "Finish copying the current transcript before opening this link."
+                "Finish exporting the current transcript before opening this link."
             )
             return
         }

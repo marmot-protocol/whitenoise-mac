@@ -465,18 +465,24 @@ struct GroupDetailsSheet: View {
                         Section("Developer") {
                             HStack(spacing: 10) {
                                 Button {
-                                    workspace.startCopySelectedGroupTranscriptJSON()
+                                    workspace.startExportSelectedGroupTranscript()
                                 } label: {
                                     Label(
                                         workspace.isExportingGroupTranscript
-                                            ? L10n.string("Copying Transcript...")
-                                            : L10n.string("Copy Transcript JSON"),
-                                        systemImage: "doc.on.doc"
+                                            ? L10n.string("Exporting Transcript…")
+                                            : L10n.string("Export Transcript…"),
+                                        systemImage: "square.and.arrow.down"
                                     )
                                 }
                                 .disabled(workspace.isExportingGroupTranscript)
 
-                                if let status = workspace.groupTranscriptExportStatus {
+                                if workspace.isExportingGroupTranscript {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Button(L10n.string("Cancel"), role: .cancel) {
+                                        workspace.cancelGroupTranscriptExport()
+                                    }
+                                } else if let status = workspace.groupTranscriptExportStatus {
                                     Label(status, systemImage: "checkmark.circle")
                                         .font(.callout)
                                         .foregroundStyle(.green)
