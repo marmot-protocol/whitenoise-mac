@@ -16871,6 +16871,69 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func decliningSelectedGroupInviteLeavesActiveConversation() async throws {
+        let account = desktopAccount()
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        details.group.pendingConfirmation = true
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(details)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let selectedChat = try #require(state.selectedChat)
+        let recordingURL = try armInProgressVoiceRecording(on: state)
+        defer { state.cancelVoiceRecording() }
+        let transcriptExportTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        state.groupTranscriptExportTask = transcriptExportTask
+        defer { transcriptExportTask.cancel() }
+
+        await state.declineGroupInvite(for: selectedChat)
+
+        #expect(state.selection != .chat(selectedChat.id))
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: recordingURL.path))
+        #expect(transcriptExportTask.isCancelled)
+        transcriptExportTask.cancel()
+        await transcriptExportTask.value
+    }
+
+    @MainActor
+    @Test func deletingSelectedGroupLocallyLeavesActiveConversation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let selectedChat = try #require(state.selectedChat)
+        let recordingURL = try armInProgressVoiceRecording(on: state)
+        defer { state.cancelVoiceRecording() }
+        let transcriptExportTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+            }
+        }
+        state.groupTranscriptExportTask = transcriptExportTask
+        defer { transcriptExportTask.cancel() }
+
+        await state.deleteGroupLocally(groupIdHex: selectedChat.id)
+
+        #expect(runtime.locallyDeletedGroupIds == [selectedChat.id])
+        #expect(state.selection != .chat(selectedChat.id))
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecordingMeterTask == nil)
+        #expect(!FileManager.default.fileExists(atPath: recordingURL.path))
+        #expect(transcriptExportTask.isCancelled)
+        transcriptExportTask.cancel()
+        await transcriptExportTask.value
+    }
+
+    @MainActor
     @Test func activeAccountNotificationResponseStopsInProgressVoiceRecordingBeforeChatSwitch() async throws {
         // #374: tapping a same-account notification is an implicit chat switch. It must run
         // the same conversation teardown as `selectChat` before the composer belongs to the
@@ -22472,6 +22535,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func deleteGroupLocal(accountRef: String, groupIdHex: String) async throws -> Bool {
         deleteGroupLocalCallCount += 1
         locallyDeletedGroupIds.append(groupIdHex)
+        guard let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) else { return false }
+        groups.remove(at: index)
+        groupDetailsById[groupIdHex] = nil
+        groupManagementStateById[groupIdHex] = nil
         return true
     }
 
