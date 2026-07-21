@@ -219,6 +219,14 @@ extension WorkspaceState {
         } else {
             selectedChatWasRemoved = false
         }
+        let selectedActiveChatMovedToArchive: Bool
+        if case .chat(let selectedGroupId) = selection {
+            selectedActiveChatMovedToArchive =
+                previousActiveChatIds.contains(selectedGroupId)
+                && nextArchivedChatIds.contains(selectedGroupId)
+        } else {
+            selectedActiveChatMovedToArchive = false
+        }
 
         for groupId in removedChatIds {
             teardownRemovedChatPerChatState(groupIdHex: groupId, accountId: account.id)
@@ -226,8 +234,9 @@ extension WorkspaceState {
         let sortedActiveItems = sortedChatItems(activeItems)
         setChats(sortedActiveItems, forAccountId: account.id)
         setArchivedChats(sortedChatItems(archivedItems), forAccountId: account.id)
-        if selectedChatWasRemoved {
-            transitionAfterRemovedSelectedChat(remainingActiveChats: chatsByAccount[account.id] ?? [])
+        if selectedChatWasRemoved || selectedActiveChatMovedToArchive {
+            transitionAfterSelectedActiveChatBecameUnavailable(
+                remainingActiveChats: chatsByAccount[account.id] ?? [])
         }
         dismissGroupImagePickerIfSelectedChatUnavailable()
         cancelVoiceRecordingIfSelectedMembershipEnded()
@@ -354,16 +363,8 @@ extension WorkspaceState {
             selectedGroupId == groupIdHex
         else { return }
 
-        leaveActiveConversation()
-        stopTimelineListener()
-        closeGroupImagePicker()
-        let nextChat = mostRecentChat(in: chatsByAccount[account.id] ?? [])
-        selection = nextChat.map { .chat($0.id) }
-        pruneMessageCache(keeping: nextChat?.id)
-        if let nextChat {
-            beginTimelineInitialLoadIfNeeded(groupIdHex: nextChat.id)
-            Task { await loadMessages(groupIdHex: nextChat.id) }
-        }
+        transitionAfterSelectedActiveChatBecameUnavailable(
+            remainingActiveChats: chatsByAccount[account.id] ?? [])
     }
 
     func isOlderChatRow(_ candidate: ChatItem, than current: ChatItem) -> Bool {
@@ -400,9 +401,9 @@ extension WorkspaceState {
         purgeHiddenMessages(accountId: accountId, groupIdHex: groupIdHex)
     }
 
-    /// After the selected chat was removed, leave its live resources and select the most recent
-    /// remaining active chat.
-    func transitionAfterRemovedSelectedChat(remainingActiveChats: [ChatItem]) {
+    /// When the selected active chat is removed or archived, leave its live resources and select
+    /// the most recent remaining active chat.
+    func transitionAfterSelectedActiveChatBecameUnavailable(remainingActiveChats: [ChatItem]) {
         leaveActiveConversation()
         stopTimelineListener()
         closeGroupImagePicker()
@@ -429,7 +430,7 @@ extension WorkspaceState {
         teardownRemovedChatPerChatState(groupIdHex: groupIdHex, accountId: account.id)
 
         guard wasSelected else { return }
-        transitionAfterRemovedSelectedChat(remainingActiveChats: chats)
+        transitionAfterSelectedActiveChatBecameUnavailable(remainingActiveChats: chats)
     }
 
     func baseChatItem(from row: ChatListRowFfi, account: AccountItem) -> ChatItem {
