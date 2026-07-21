@@ -301,7 +301,7 @@ struct PureValueTests {
     }
 
     @MainActor
-    @Test func mentionRosterReusesCandidatesUntilGroupMembersChange() {
+    @Test func mentionProjectionsReuseRosterUntilGroupMembersChange() {
         let account = AccountItem.samples[0]
         let group = ChatItem.samples[0]
         let state = WorkspaceState(
@@ -321,12 +321,17 @@ struct PureValueTests {
         #expect(state.mentionRoster().map(\.id) == ["alice"])
         #expect(state.mentionRoster().map(\.id) == ["alice"])
         #expect(state.mentionRosterBuildCount == 1)
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Alice")
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Alice")
+        #expect(state.mentionNamesBuildCount == 1)
 
         let bob = mentionMember(id: "bob", displayName: "Bob", npub: "npub1bob")
         state.storeGroupMembers([local, bob], for: group.id)
 
         #expect(state.mentionRoster().map(\.id) == ["bob"])
         #expect(state.mentionRosterBuildCount == 2)
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1bob"] == "Bob")
+        #expect(state.mentionNamesBuildCount == 2)
     }
 
     @Test func editedMessageAndHistoryResolveCanonicalMentionsButRetainWireText() async throws {
