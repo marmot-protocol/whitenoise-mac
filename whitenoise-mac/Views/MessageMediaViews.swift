@@ -615,6 +615,29 @@ enum MessageVisualMediaTileInteraction {
         if case .failed = downloadState { return .retryDownload }
         return attachmentKind == .image ? .openImageGallery : .none
     }
+
+    static func accessibilityLabel(for action: MessageVisualMediaTileTapAction) -> String? {
+        switch action {
+        case .retryDownload:
+            return L10n.string("Retry download")
+        case .openImageGallery:
+            return L10n.string("Open image")
+        case .none:
+            return nil
+        }
+    }
+}
+
+enum MessageVideoAttachmentPlayerAccessibility {
+    static func label(isPreparingPlayback: Bool, didFail: Bool) -> String {
+        if didFail {
+            return L10n.string("Retry video")
+        }
+        if isPreparingPlayback {
+            return L10n.string("Cancel video loading")
+        }
+        return L10n.string("Play video")
+    }
 }
 
 struct MessageVisualMediaGrid: View {
@@ -710,6 +733,27 @@ struct MessageVisualMediaTile: View {
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
 
     var body: some View {
+        let tapAction = MessageVisualMediaTileInteraction.tapAction(
+            downloadState: downloadState.state,
+            attachmentKind: attachment.kind
+        )
+        Group {
+            if tapAction == .none {
+                tileBody
+            } else {
+                Button(action: performPrimaryAction) {
+                    tileBody
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    MessageVisualMediaTileInteraction.accessibilityLabel(for: tapAction) ?? ""
+                )
+            }
+        }
+        .accessibilityIdentifier("message.media.visualTile.\(attachment.id)")
+    }
+
+    private var tileBody: some View {
         ZStack {
             content
 
@@ -728,25 +772,25 @@ struct MessageVisualMediaTile: View {
             attachment: attachment,
             message: message
         )
-        .onTapGesture {
-            switch MessageVisualMediaTileInteraction.tapAction(
-                downloadState: downloadState.state,
-                attachmentKind: attachment.kind
+    }
+
+    private func performPrimaryAction() {
+        switch MessageVisualMediaTileInteraction.tapAction(
+            downloadState: downloadState.state,
+            attachmentKind: attachment.kind
+        ) {
+        case .retryDownload:
+            Task { await workspace.loadMediaAttachment(attachment, for: message) }
+        case .openImageGallery:
+            if let gallery = MessageImageGalleryPresentation(
+                message: message,
+                initialAttachment: attachment
             ) {
-            case .retryDownload:
-                Task { await workspace.loadMediaAttachment(attachment, for: message) }
-            case .openImageGallery:
-                if let gallery = MessageImageGalleryPresentation(
-                    message: message,
-                    initialAttachment: attachment
-                ) {
-                    onOpenImageGallery(gallery)
-                }
-            case .none:
-                break
+                onOpenImageGallery(gallery)
             }
+        case .none:
+            break
         }
-        .accessibilityIdentifier("message.media.visualTile.\(attachment.id)")
     }
 
     @ViewBuilder
@@ -1219,42 +1263,20 @@ struct MessageVideoAttachmentPlayer: View {
                     .frame(width: sideLength, height: sideLength)
                     .background(Color.black)
             } else {
-                Color.black.opacity(0.86)
-                Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Color.black.opacity(0.45), in: Circle())
-
-                VStack {
-                    Spacer()
-                    Text(download.fileName.nilIfBlank ?? attachment.fileName)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.86))
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 8)
+                Button(action: activatePlayback) {
+                    playbackPlaceholder
                 }
-            }
-
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                    .frame(width: 42, height: 42)
-                    .background(Color.black.opacity(0.45), in: Circle())
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    MessageVideoAttachmentPlayerAccessibility.label(
+                        isPreparingPlayback: isPreparingPlayback,
+                        didFail: didFail
+                    )
+                )
             }
         }
         .frame(width: sideLength, height: sideLength)
         .contentShape(Rectangle())
-        .onTapGesture {
-            if isPreparingPlayback {
-                tearDownPlayback()
-            } else {
-                playbackTask?.cancel()
-                playbackTask = Task { await togglePlayback() }
-            }
-        }
         // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
         // does not trigger onDisappear. Tear down here as well to release the player and delete
         // its decrypted playback scratch file as soon as the tile is no longer visible.
@@ -1275,7 +1297,46 @@ struct MessageVideoAttachmentPlayer: View {
         .onChange(of: download.payload.id) { _, _ in
             resetForAttachmentChange()
         }
-        .accessibilityLabel("Video attachment")
+    }
+
+    private var playbackPlaceholder: some View {
+        ZStack {
+            Color.black.opacity(0.86)
+            Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 48, height: 48)
+                .background(Color.black.opacity(0.45), in: Circle())
+
+            VStack {
+                Spacer()
+                Text(download.fileName.nilIfBlank ?? attachment.fileName)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.86))
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+            }
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color.black.opacity(0.45), in: Circle())
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .contentShape(Rectangle())
+    }
+
+    private func activatePlayback() {
+        if isPreparingPlayback {
+            tearDownPlayback()
+        } else {
+            playbackTask?.cancel()
+            playbackTask = Task { await togglePlayback() }
+        }
     }
 
     private func tearDownPlayback() {
@@ -1292,15 +1353,6 @@ struct MessageVideoAttachmentPlayer: View {
     @MainActor
     private func togglePlayback() async {
         guard !Task.isCancelled else { return }
-
-        if let player {
-            if player.timeControlStatus == .playing {
-                player.pause()
-            } else {
-                player.play()
-            }
-            return
-        }
 
         if isPreparingPlayback {
             stopPlayback()
