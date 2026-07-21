@@ -910,6 +910,46 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func failedActiveAccountMutationsRestartChatAndTimelineListeners() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let activeAccount = try #require(state.activeAccount)
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(chat)
+        #expect(await waitFor { runtime.timelineSubscriptionCount == 1 })
+
+        runtime.signOutError = FakeMarmotRuntimeError.unused
+        var chatListBaseline = runtime.chatListSubscriptionCount
+        var timelineBaseline = runtime.timelineSubscriptionCount
+        await state.signOutAccount(activeAccount)
+        #expect(
+            await waitFor {
+                runtime.chatListSubscriptionCount >= chatListBaseline + 1
+                    && runtime.timelineSubscriptionCount >= timelineBaseline + 1
+            })
+        #expect(state.activeAccountId == account.label)
+        #expect(state.selection == .chat("group"))
+
+        runtime.signOutError = nil
+        runtime.removeAccountError = FakeMarmotRuntimeError.unused
+        chatListBaseline = runtime.chatListSubscriptionCount
+        timelineBaseline = runtime.timelineSubscriptionCount
+        await state.removeAccount(activeAccount)
+        #expect(
+            await waitFor {
+                runtime.chatListSubscriptionCount >= chatListBaseline + 1
+                    && runtime.timelineSubscriptionCount >= timelineBaseline + 1
+            })
+        #expect(state.activeAccountId == account.label)
+        #expect(state.selection == .chat("group"))
+        #expect(state.lastError == "Unused fake runtime error.")
+    }
+
+    @MainActor
     @Test func signOutLastActiveAccountStopsInProgressVoiceRecording() async throws {
         // #386: the account-rail sign-out path can send the last signed-in account
         // straight to onboarding, removing the composer that owns the Stop control.
@@ -1493,6 +1533,89 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func runtimeInvalidatingDeleteFailureTransitionsToFreshOnboardingClient() async throws {
+        let account = desktopAccount()
+        let invalidatedRuntime = FakeMarmotRuntime(accounts: [account])
+        invalidatedRuntime.installGroup(messageGroup())
+        let freshRuntime = FakeMarmotRuntime(accounts: [])
+        var factoryCalls = 0
+        let state = WorkspaceState(
+            clientFactory: {
+                factoryCalls += 1
+                return factoryCalls == 1 ? invalidatedRuntime : freshRuntime
+            })
+
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(chat)
+        _ = await waitFor { invalidatedRuntime.timelineSubscriptionCount == 1 }
+        invalidatedRuntime.deleteAllLocalDataError = MarmotLocalDataDeletionError.runtimeInvalidated(
+            underlying: FakeMarmotRuntimeError.unused
+        )
+
+        await state.deleteAllData()
+
+        #expect(state.phase == .onboarding)
+        #expect(state.accounts.isEmpty)
+        #expect((state.client as? FakeMarmotRuntime) === freshRuntime)
+        #expect(state.notificationTask == nil)
+        #expect(state.chatListTask == nil)
+        #expect(state.timelineTask == nil)
+        #expect(state.lastError == "Unused fake runtime error.")
+    }
+
+    @MainActor
+    @Test func onboardingAuthenticationRetriesClientFactoryAfterPostWipeFailure() async throws {
+        let account = desktopAccount()
+        let oldRuntime = FakeMarmotRuntime(accounts: [account])
+        let freshRuntime = FakeMarmotRuntime(accounts: [], createdAccount: account)
+        var factoryCalls = 0
+        let state = WorkspaceState(
+            clientFactory: {
+                factoryCalls += 1
+                switch factoryCalls {
+                case 1: return oldRuntime
+                case 2: throw FakeMarmotRuntimeError.unused
+                default: return freshRuntime
+                }
+            })
+
+        await state.bootstrap()
+        await state.deleteAllData()
+        #expect(state.phase == .onboarding)
+        #expect(state.client == nil)
+        #expect(state.lastError == "Unused fake runtime error.")
+
+        await state.signUp()
+
+        #expect((state.client as? FakeMarmotRuntime) === freshRuntime)
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == account.label)
+        #expect(factoryCalls == 3)
+    }
+
+    @MainActor
+    @Test func observabilityFailureDoesNotAbortReadyStateActivation() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
+        runtime.telemetryInstallIdError = FakeMarmotRuntimeError.observabilityConfigurationFailed
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: { telemetryBuildConfig(environment: "production") },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.phase == .onboarding)
+        await state.signUp()
+
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == account.label)
+        #expect(await waitFor { runtime.chatListSubscriptionCount >= 1 })
+        #expect(await waitFor { runtime.notificationSubscriptionCount >= 1 })
+        #expect(state.backgroundStatus == "Observability configuration failed.")
+    }
+
+    @MainActor
     @Test func deleteAllDataClearsAccountUnreadBadges() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
@@ -1977,6 +2100,35 @@ struct whitenoise_macTests {
         #expect(operationOrder == ["purge", "shutdown"])
         #expect(fileManager.fileExists(atPath: root.path))
         #expect(!fileManager.fileExists(atPath: secretFile.path))
+    }
+
+    @Test func deleteAllLocalDataMarksPostShutdownFilesystemFailureAsRuntimeInvalidating() async throws {
+        let fileManager = FileManager.default
+        let parentFile = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-delete-parent-\(UUID().uuidString)")
+        let root = parentFile.appendingPathComponent("storage", isDirectory: true)
+        try Data("not a directory".utf8).write(to: parentFile)
+        defer { try? fileManager.removeItem(at: parentFile) }
+
+        var didPurgeKeychain = false
+        var didShutdown = false
+        do {
+            try await MarmotClient.deleteAllLocalData(
+                purgeAccountKeychain: { didPurgeKeychain = true },
+                shutdown: { didShutdown = true },
+                rootPath: root.path,
+                fileManager: fileManager
+            )
+            Issue.record("Expected storage recreation to fail below a regular file")
+        } catch let error as MarmotLocalDataDeletionError {
+            guard case .runtimeInvalidated = error else {
+                Issue.record("Expected a runtime-invalidating deletion error")
+                return
+            }
+        }
+
+        #expect(didPurgeKeychain)
+        #expect(didShutdown)
     }
 
     @Test func deleteAllLocalDataSucceedsWhenOrphanedKeychainCredentialRemainsAfterTombstone() async throws {
@@ -19757,6 +19909,28 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func concurrentPrivacySecurityLoadsCoalesce() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        runtime.clearSyncCallThreadRecords()
+        runtime.relayTelemetrySettingsGateEnabled = true
+        async let first: Void = state.loadPrivacySecuritySettings()
+        while !runtime.didReachRelayTelemetrySettingsGate {
+            await Task.yield()
+        }
+        async let second: Void = state.loadPrivacySecuritySettings()
+        await Task.yield()
+
+        #expect(runtime.syncCallThreadRecord("relayTelemetrySettings").count == 1)
+        runtime.releaseRelayTelemetrySettingsGate()
+        _ = await (first, second)
+        #expect(runtime.syncCallThreadRecord("relayTelemetrySettings").count == 1)
+    }
+
+    @MainActor
     @Test func privacySecuritySettingsLoadDoesNotOverwriteNewerTelemetrySave() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -19878,6 +20052,71 @@ struct whitenoise_macTests {
         #expect(runtime.telemetryInstallIdCallCount == 1)
         #expect(runtime.relayTelemetryRuntimeConfigSetCallCount == 1)
         #expect(runtime.auditLogTrackerConfigSetCallCount == 1)
+    }
+
+    @MainActor
+    @Test func staleObservabilityConfigurationCannotRelabelSwitchedAccount() async throws {
+        let primary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let secondary = AccountSummaryFfi(
+            label: "Secondary Account",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.installProfile(
+            accountIdHex: primary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "primary",
+                displayName: "Primary Display Name",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: secondary.accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "secondary",
+                displayName: "Secondary Display Name",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        var buildConfig = telemetryBuildConfig(environment: "production")
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: { buildConfig },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        buildConfig = telemetryBuildConfig(environment: "staging")
+        runtime.telemetryInstallIdGateEnabled = true
+        async let stalePrimaryConfiguration: Void = state.configureObservabilityRuntime()
+        while !runtime.didReachTelemetryInstallIdGate {
+            await Task.yield()
+        }
+
+        let secondaryItem = try #require(state.accounts.first { $0.id == secondary.label })
+        state.prepareForActiveAccountSwitch(to: secondaryItem, preservingMessageCacheFor: nil)
+        try await state.configureObservabilityRuntime()
+        runtime.releaseTelemetryInstallIdGate()
+        try await stalePrimaryConfiguration
+
+        #expect(state.activeAccountId == secondary.label)
+        #expect(state.observabilityRuntimeConfiguration?.accountLabel == secondaryItem.displayName)
     }
 
     @MainActor
@@ -21946,6 +22185,14 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachRelayTelemetrySettingsGate: Bool {
         relayTelemetrySettingsGate.didReach
     }
+    private let telemetryInstallIdGate = BlockingFfiGate()
+    var telemetryInstallIdGateEnabled: Bool {
+        get { telemetryInstallIdGate.isEnabled }
+        set { telemetryInstallIdGate.isEnabled = newValue }
+    }
+    var didReachTelemetryInstallIdGate: Bool {
+        telemetryInstallIdGate.didReach
+    }
     /// Issue #228 equivalent gate for the synchronous `setLocalNotificationsEnabled` FFI write.
     private let setLocalNotificationsGate = BlockingFfiGate()
     var setLocalNotificationsGateEnabled: Bool {
@@ -22048,8 +22295,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var telemetryInstallIdCallCount = 0
     var telemetryInstallIdError: Error?
     private(set) var removedAccountRefs: [String] = []
+    var removeAccountError: Error?
     private(set) var didDeleteAllLocalData = false
     var deleteAllLocalDataError: Error?
+    var signOutError: Error?
     /// Optional hook fired after `deleteAllLocalData` starts but before storage is cleared,
     /// used to simulate a racing account mutation while a full wipe is in flight.
     var onDeleteAllLocalDataMidFlight: (@Sendable () async -> Void)?
@@ -22493,10 +22742,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func telemetryInstallId() throws -> String {
         telemetryInstallIdCallCount += 1
         recordSyncCall("telemetryInstallId")
+        telemetryInstallIdGate.passIfArmed()
         if let telemetryInstallIdError {
             throw telemetryInstallIdError
         }
         return "test-install-id"
+    }
+
+    func releaseTelemetryInstallIdGate() {
+        telemetryInstallIdGate.release()
     }
 
     func deleteAllLocalData() async throws {
@@ -22518,6 +22772,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func removeAccount(accountRef: String) async throws {
         removedAccountRefs.append(accountRef)
+        if let removeAccountError { throw removeAccountError }
         if let onRemoveAccountMidFlight {
             await onRemoveAccountMidFlight(accountRef)
         }
@@ -23149,6 +23404,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {
         signOutCallCount += 1
         signedOutAccountRefs.append(accountRef)
+        if let signOutError { throw signOutError }
         if let index = storedAccounts.firstIndex(where: { $0.label == accountRef }) {
             storedAccounts[index].signedOut = true
             storedAccounts[index].running = false

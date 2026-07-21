@@ -453,14 +453,45 @@ extension WorkspaceState {
     }
 
     func loadPrivacySecuritySettings() async {
-        guard let client else {
+        guard client != nil, let accountId = activeAccountId else {
+            privacySecurityLoadTask?.cancel()
+            privacySecurityLoadTask = nil
+            privacySecurityLoadAccountId = nil
+            privacySecurityLoadGeneration &+= 1
             privacySecuritySettings = .defaults
             return
         }
         // An in-flight save owns the published snapshot, a read here could resolve
         // before its commit and revert the toggle the user just saved.
         guard !isSavingPrivacySecurity else { return }
-        let generation = privacySecuritySettingsGeneration
+
+        if let existing = privacySecurityLoadTask, privacySecurityLoadAccountId == accountId {
+            await existing.value
+            return
+        }
+
+        privacySecurityLoadTask?.cancel()
+        privacySecurityLoadGeneration &+= 1
+        let loadGeneration = privacySecurityLoadGeneration
+        let task = Task<Void, Never> { [weak self] in
+            await self?.performPrivacySecuritySettingsLoad(
+                accountId: accountId,
+                loadGeneration: loadGeneration
+            )
+        }
+        privacySecurityLoadTask = task
+        privacySecurityLoadAccountId = accountId
+        await task.value
+
+        if privacySecurityLoadTask == task {
+            privacySecurityLoadTask = nil
+            privacySecurityLoadAccountId = nil
+        }
+    }
+
+    private func performPrivacySecuritySettingsLoad(accountId: String, loadGeneration: UInt64) async {
+        guard let client, activeAccountId == accountId else { return }
+        let saveGeneration = privacySecuritySettingsGeneration
 
         // Runtime configuration is best-effort for this read: a transient failure must not
         // hide the persisted telemetry and audit settings from the user.
@@ -470,6 +501,9 @@ extension WorkspaceState {
         } catch {
             observabilityConfigurationError = error
         }
+        guard !Task.isCancelled, privacySecurityLoadGeneration == loadGeneration,
+            activeAccountId == accountId
+        else { return }
 
         do {
             let (telemetry, auditLog) = try await runOffMain {
@@ -478,8 +512,10 @@ extension WorkspaceState {
                     try client.auditLogSettings()
                 )
             }
-            // A save that started mid-load supersedes this snapshot.
-            guard privacySecuritySettingsGeneration == generation else { return }
+            // A save, account switch, or newer load that started mid-flight supersedes this snapshot.
+            guard !Task.isCancelled, privacySecurityLoadGeneration == loadGeneration,
+                activeAccountId == accountId, privacySecuritySettingsGeneration == saveGeneration
+            else { return }
             let config = telemetryBuildConfig
             privacySecuritySettings = PrivacySecuritySettingsSnapshot(
                 relayTelemetryEnabled: telemetry.exportEnabled,
@@ -494,7 +530,9 @@ extension WorkspaceState {
             }
             await loadAuditLogFiles()
         } catch {
-            guard privacySecuritySettingsGeneration == generation else { return }
+            guard !Task.isCancelled, privacySecurityLoadGeneration == loadGeneration,
+                activeAccountId == accountId, privacySecuritySettingsGeneration == saveGeneration
+            else { return }
             privacySecuritySettings = .defaults
             auditLogFiles = []
             lastError = error.localizedDescription
