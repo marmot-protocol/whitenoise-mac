@@ -355,6 +355,8 @@ func timelineNewestMessageScrollAction(
 
 private struct ConversationView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.locale) private var locale
+    @Environment(\.timestampReferenceDate) private var timestampReferenceDate
     /// The top message captured before an older-history prepend, so its on-screen position
     /// can be restored afterward; also gates re-triggering `loadOlder` until the prepend lands.
     @State private var pendingPrependAnchorId: String?
@@ -384,8 +386,7 @@ private struct ConversationView: View {
 
     var body: some View {
         @Bindable var workspace = workspace
-        let messages = workspace.selectedMessages
-        let displayItems = TimelineMessageDisplayItem.make(from: messages)
+        let displayItems = workspace.selectedTimelineDisplayItems
         let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
@@ -428,7 +429,9 @@ private struct ConversationView: View {
 
                                     ConversationMessageRow(
                                         message: item.message,
-                                        showsDebugMetadata: workspace.streamingDebugEnabled
+                                        showsDebugMetadata: workspace.streamingDebugEnabled,
+                                        timestampReferenceDate: timestampReferenceDate,
+                                        timestampLocale: locale
                                     ) { gallery in
                                         imageGallery = gallery
                                     } onNavigateToMessage: { targetMessageId in
@@ -493,7 +496,7 @@ private struct ConversationView: View {
                     .onChange(of: messageIDs.last) { _, newMessageId in
                         switch timelineNewestMessageScrollAction(
                             messageIDs: messageIDs,
-                            newMessageIsOutgoing: messages.last?.isOutgoing == true,
+                            newMessageIsOutgoing: displayItems.last?.message.isOutgoing == true,
                             paging: paging,
                             pendingPrependAnchorId: pendingPrependAnchorId,
                             pendingAppendAnchorId: pendingAppendAnchorId,

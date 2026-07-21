@@ -481,6 +481,8 @@ struct SettingsSidebarRow: View {
 }
 
 struct ChatRowContent: View {
+    @Environment(\.locale) private var locale
+    @Environment(\.timestampReferenceDate) private var timestampReferenceDate
     let chat: ChatItem
     let isSelected: Bool
 
@@ -508,9 +510,14 @@ struct ChatRowContent: View {
                         PendingInviteBadge()
                     }
                     Spacer(minLength: 8)
-                    Text(chat.timestampLabel)
-                        .font(MessagesType.meta)
-                        .foregroundStyle(.secondary)
+                    ChatTimestampText(
+                        chat: chat,
+                        referenceDate: timestampReferenceDate,
+                        locale: locale
+                    )
+                    .equatable()
+                    .font(MessagesType.meta)
+                    .foregroundStyle(.secondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
                     Text(chat.preview)
@@ -538,6 +545,18 @@ struct ChatRowContent: View {
             MessagesSidebarRowBackground(isSelected: isSelected)
         }
         .contentShape(Rectangle())
+    }
+}
+
+/// Keeps date formatting out of ordinary chat-row render passes while still allowing
+/// the label to change when the app's shared calendar-day reference advances.
+private struct ChatTimestampText: View, Equatable {
+    let chat: ChatItem
+    let referenceDate: Date
+    let locale: Locale
+
+    var body: some View {
+        Text(chat.timestampLabel(at: referenceDate, locale: locale))
     }
 }
 
