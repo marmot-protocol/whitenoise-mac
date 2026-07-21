@@ -1,18 +1,20 @@
 import Foundation
 import MarmotKit
 
-/// Builds a chronological JSON dump of inner Marmot/Nostr app events for debugging.
-/// `nonisolated` so the (blocking) FFI pagination + JSON encoding can run off the main
-/// thread under the project's default `@MainActor` isolation.
+/// Streams a chronological JSON dump of inner Marmot/Nostr app events to disk.
+/// `nonisolated` keeps blocking FFI pagination and file encoding off the main actor.
 nonisolated enum ConversationTranscriptExport {
     static let pageLimit: UInt32 = 200
 
     enum ExportError: LocalizedError {
         /// The FFI reported more history exists (`hasMoreBefore == true`) but the `before`
         /// cursor cannot advance — either the page was empty, or its oldest message matched
-        /// the current cursor. Surfacing this prevents silently truncating the transcript
-        /// (issue #139 and its non-empty sibling case).
+        /// the current cursor. Surfacing this prevents silently truncating the transcript.
         case emptyPageWithMoreHistory
+        case unableToCreateTemporaryFile(URL)
+        case unableToCreateReplacementDirectory(URL)
+        case invalidSpoolData
+        case destinationIsDirectory(URL)
 
         var errorDescription: String? {
             switch self {
@@ -20,17 +22,29 @@ nonisolated enum ConversationTranscriptExport {
                 return
                     "Transcript export stopped early: the timeline reported more history but the pagination "
                     + "cursor could not advance, so older messages could not be loaded."
+            case .unableToCreateTemporaryFile(let url):
+                return "Transcript export could not create a temporary file at \(url.path)."
+            case .unableToCreateReplacementDirectory(let url):
+                return "Transcript export could not prepare a temporary file for \(url.path)."
+            case .invalidSpoolData:
+                return "Transcript export could not read its temporary data."
+            case .destinationIsDirectory(let url):
+                return "Transcript export cannot replace the folder at \(url.path) with a JSON file."
             }
         }
     }
 
-    struct Document: Encodable {
+    struct ExportResult {
+        var eventCount: Int
+        var destinationURL: URL
+    }
+
+    private struct Metadata: Encodable {
         var v: Int = 1
         var exportedAt: String
         var groupIdHex: String
         var groupName: String
         var eventCount: Int
-        var events: [Event]
 
         enum CodingKeys: String, CodingKey {
             case v
@@ -38,11 +52,10 @@ nonisolated enum ConversationTranscriptExport {
             case groupIdHex = "group_id_hex"
             case groupName = "group_name"
             case eventCount = "event_count"
-            case events
         }
     }
 
-    struct Event: Encodable {
+    struct Event: Codable {
         var index: Int
         var messageIdHex: String
         var sourceMessageIdHex: String?
@@ -80,15 +93,101 @@ nonisolated enum ConversationTranscriptExport {
         }
     }
 
-    static func fetchAllMessages(
+    private struct SpoolSummary {
+        var chunkCount: Int
+        var eventCount: Int
+    }
+
+    static func suggestedFilename(exportedAt: Date = Date()) -> String {
+        let timestamp = iso8601Timestamp(exportedAt).replacingOccurrences(of: ":", with: "-")
+        return "White Noise Transcript \(timestamp).json"
+    }
+
+    /// Paginates newest-to-oldest into bounded disk chunks, then replays the chunks oldest-first.
+    /// A disk-backed message-id index preserves whole-export deduplication without retaining every
+    /// record or id in memory. The selected destination is published only after the complete JSON
+    /// document has been written and synchronized in a sandbox-compatible replacement directory.
+    static func export(
         client: any MarmotRuntime,
         accountRef: String,
         groupIdHex: String,
+        groupName: String,
+        to destinationURL: URL,
+        exportedAt: Date = Date(),
+        fileManager: FileManager = .default,
+        scratchDirectory: URL? = nil,
         checkCancellation: @Sendable () throws -> Void = { try Task.checkCancellation() }
-    ) throws -> [TimelineMessageRecordFfi] {
-        var collectedById: [String: TimelineMessageRecordFfi] = [:]
+    ) throws -> ExportResult {
+        try checkCancellation()
+
+        let scratchRoot = (scratchDirectory ?? fileManager.temporaryDirectory)
+            .appendingPathComponent("WhiteNoiseTranscriptExport-\(UUID().uuidString)", isDirectory: true)
+        let chunksDirectory = scratchRoot.appendingPathComponent("chunks", isDirectory: true)
+        let markersDirectory = scratchRoot.appendingPathComponent("message-ids", isDirectory: true)
+        defer { try? fileManager.removeItem(at: scratchRoot) }
+        try createProtectedDirectory(
+            at: scratchRoot,
+            excludeFromBackup: true,
+            fileManager: fileManager
+        )
+        try createProtectedDirectory(at: chunksDirectory, fileManager: fileManager)
+        try createProtectedDirectory(at: markersDirectory, fileManager: fileManager)
+
+        let summary = try spoolTranscript(
+            client: client,
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            chunksDirectory: chunksDirectory,
+            markersDirectory: markersDirectory,
+            fileManager: fileManager,
+            checkCancellation: checkCancellation
+        )
+        try checkCancellation()
+
+        let replacementDirectory = try makeReplacementDirectory(
+            for: destinationURL,
+            fileManager: fileManager
+        )
+        defer { try? fileManager.removeItem(at: replacementDirectory) }
+        let temporaryURL = replacementDirectory.appendingPathComponent(
+            destinationURL.lastPathComponent,
+            isDirectory: false
+        )
+
+        try writeDocument(
+            groupIdHex: groupIdHex,
+            groupName: groupName,
+            exportedAt: exportedAt,
+            summary: summary,
+            chunksDirectory: chunksDirectory,
+            markersDirectory: markersDirectory,
+            temporaryURL: temporaryURL,
+            fileManager: fileManager,
+            checkCancellation: checkCancellation
+        )
+        try checkCancellation()
+        try publish(temporaryURL: temporaryURL, to: destinationURL, fileManager: fileManager)
+
+        return ExportResult(eventCount: summary.eventCount, destinationURL: destinationURL)
+    }
+
+    private static func spoolTranscript(
+        client: any MarmotRuntime,
+        accountRef: String,
+        groupIdHex: String,
+        chunksDirectory: URL,
+        markersDirectory: URL,
+        fileManager: FileManager,
+        checkCancellation: @Sendable () throws -> Void
+    ) throws -> SpoolSummary {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
         var before: UInt64?
         var beforeMessageId: String?
+        var chunkCount = 0
+        var uniqueEventCount = 0
+        var nextOccurrence: UInt64 = 0
+        var preparedMarkerShards = Set<String>()
 
         while true {
             try checkCancellation()
@@ -105,8 +204,44 @@ nonisolated enum ConversationTranscriptExport {
                 )
             )
             try checkCancellation()
-            for message in page.messages {
-                collectedById[message.messageIdHex] = message
+
+            if !page.messages.isEmpty {
+                let chunkURL = chunksDirectory.appendingPathComponent(chunkFilename(chunkCount))
+                try createProtectedFile(at: chunkURL, fileManager: fileManager)
+                let handle = try FileHandle(forWritingTo: chunkURL)
+                defer { try? handle.close() }
+
+                do {
+                    for record in sortChronologically(page.messages) {
+                        try checkCancellation()
+                        nextOccurrence += 1
+                        let markerURL = try markerURL(
+                            for: record.messageIdHex,
+                            in: markersDirectory,
+                            preparedShards: &preparedMarkerShards,
+                            fileManager: fileManager
+                        )
+                        if !fileManager.fileExists(atPath: markerURL.path) {
+                            try createProtectedFile(
+                                at: markerURL,
+                                contents: data(for: nextOccurrence),
+                                fileManager: fileManager
+                            )
+                            uniqueEventCount += 1
+                        }
+
+                        let eventData = try encoder.encode(event(from: record, index: 0))
+                        try handle.write(contentsOf: data(for: nextOccurrence))
+                        try handle.write(contentsOf: data(for: UInt64(eventData.count)))
+                        try handle.write(contentsOf: eventData)
+                    }
+                    try handle.synchronize()
+                    try handle.close()
+                } catch {
+                    try? handle.close()
+                    throw error
+                }
+                chunkCount += 1
             }
 
             guard page.hasMoreBefore else { break }
@@ -117,69 +252,285 @@ nonisolated enum ConversationTranscriptExport {
                         : lhs.messageIdHex < rhs.messageIdHex
                 })
             else {
-                // `hasMoreBefore` is true but the page is empty, so the `before` cursor
-                // cannot advance. Fail loudly instead of silently truncating history (#139).
                 throw ExportError.emptyPageWithMoreHistory
             }
             let nextBefore = oldest.timelineAt
             let nextBeforeMessageId = oldest.messageIdHex
             guard nextBefore != before || nextBeforeMessageId != beforeMessageId else {
-                // `hasMoreBefore` is true but the oldest message matches the current cursor, so
-                // the `before` cursor cannot advance. Fail loudly like the empty-page branch
-                // above instead of silently truncating history (sibling case of #139).
                 throw ExportError.emptyPageWithMoreHistory
             }
             before = nextBefore
             beforeMessageId = nextBeforeMessageId
         }
 
-        return sortChronologically(Array(collectedById.values))
+        return SpoolSummary(chunkCount: chunkCount, eventCount: uniqueEventCount)
     }
 
-    static func makeDocument(
+    private static func writeDocument(
         groupIdHex: String,
         groupName: String,
-        chronologicallySortedMessages messages: [TimelineMessageRecordFfi],
-        exportedAt: Date = Date()
-    ) -> Document {
-        let events = messages.enumerated().map { index, record in
-            Event(
-                index: index,
-                messageIdHex: record.messageIdHex,
-                sourceMessageIdHex: record.sourceMessageIdHex,
-                kind: record.kind,
-                content: record.plaintext,
-                tags: record.tags.map(\.values),
-                direction: record.direction,
-                sender: record.sender,
-                timelineAt: record.timelineAt,
-                receivedAt: record.receivedAt,
-                replyToMessageIdHex: record.replyToMessageIdHex,
-                mediaJson: record.mediaJson,
-                agentTextStreamJson: record.agentTextStreamJson,
-                deleted: record.deleted,
-                deletedByMessageIdHex: record.deletedByMessageIdHex,
-                invalidationStatus: record.invalidationStatus
-            )
+        exportedAt: Date,
+        summary: SpoolSummary,
+        chunksDirectory: URL,
+        markersDirectory: URL,
+        temporaryURL: URL,
+        fileManager: FileManager,
+        checkCancellation: @Sendable () throws -> Void
+    ) throws {
+        try createProtectedFile(at: temporaryURL, fileManager: fileManager)
+
+        let handle = try FileHandle(forWritingTo: temporaryURL)
+        defer { try? handle.close() }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let decoder = JSONDecoder()
+
+        do {
+            var metadata = try encoder.encode(
+                Metadata(
+                    exportedAt: iso8601Timestamp(exportedAt),
+                    groupIdHex: groupIdHex,
+                    groupName: groupName,
+                    eventCount: summary.eventCount
+                ))
+            guard metadata.last == Character("}").asciiValue else {
+                throw ExportError.invalidSpoolData
+            }
+            metadata.removeLast()
+            try handle.write(contentsOf: metadata)
+            try handle.write(contentsOf: Data(",\"events\":[".utf8))
+
+            var emittedCount = 0
+            if summary.chunkCount > 0 {
+                for chunkIndex in (0..<summary.chunkCount).reversed() {
+                    try checkCancellation()
+                    let chunkURL = chunksDirectory.appendingPathComponent(chunkFilename(chunkIndex))
+                    let chunkHandle = try FileHandle(forReadingFrom: chunkURL)
+                    defer { try? chunkHandle.close() }
+
+                    do {
+                        while let occurrence = try readUInt64OrEnd(from: chunkHandle) {
+                            try checkCancellation()
+                            let byteCount = try readUInt64(from: chunkHandle)
+                            guard byteCount <= UInt64(Int.max) else {
+                                throw ExportError.invalidSpoolData
+                            }
+                            let eventData = try readExactly(Int(byteCount), from: chunkHandle)
+                            var event = try decoder.decode(Event.self, from: eventData)
+                            let marker = markerURL(for: event.messageIdHex, in: markersDirectory)
+                            guard try readMarker(at: marker) == occurrence else { continue }
+
+                            event.index = emittedCount
+                            if emittedCount > 0 {
+                                try handle.write(contentsOf: Data(",".utf8))
+                            }
+                            try handle.write(contentsOf: encoder.encode(event))
+                            emittedCount += 1
+                        }
+                        try chunkHandle.close()
+                    } catch {
+                        try? chunkHandle.close()
+                        throw error
+                    }
+                }
+            }
+
+            guard emittedCount == summary.eventCount else {
+                throw ExportError.invalidSpoolData
+            }
+            try handle.write(contentsOf: Data("]}".utf8))
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
         }
-        return Document(
-            exportedAt: iso8601Timestamp(exportedAt),
-            groupIdHex: groupIdHex,
-            groupName: groupName,
-            eventCount: events.count,
-            events: events
+    }
+
+    private static func publish(temporaryURL: URL, to destinationURL: URL, fileManager: FileManager) throws {
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: destinationURL.path, isDirectory: &isDirectory) {
+            guard !isDirectory.boolValue else {
+                throw ExportError.destinationIsDirectory(destinationURL)
+            }
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+        } else {
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        }
+    }
+
+    private static func makeReplacementDirectory(
+        for destinationURL: URL,
+        fileManager: FileManager
+    ) throws -> URL {
+        do {
+            return try fileManager.url(
+                for: .itemReplacementDirectory,
+                in: .userDomainMask,
+                appropriateFor: destinationURL,
+                create: true
+            )
+        } catch {
+            throw ExportError.unableToCreateReplacementDirectory(destinationURL)
+        }
+    }
+
+    private static func createProtectedDirectory(
+        at url: URL,
+        excludeFromBackup: Bool = false,
+        fileManager: FileManager
+    ) throws {
+        try fileManager.createDirectory(
+            at: url,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: url.path
+        )
+        if excludeFromBackup {
+            var protectedURL = url
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try protectedURL.setResourceValues(values)
+        }
+    }
+
+    private static func createProtectedFile(
+        at url: URL,
+        contents: Data? = nil,
+        fileManager: FileManager
+    ) throws {
+        guard
+            fileManager.createFile(
+                atPath: url.path,
+                contents: contents,
+                attributes: [.posixPermissions: 0o600]
+            )
+        else {
+            throw ExportError.unableToCreateTemporaryFile(url)
+        }
+        // Some macOS volumes downgrade or reject explicit protection changes. Keep the export
+        // usable there, but request the strongest class whenever the volume accepts it.
+        try? fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: url.path
         )
     }
 
-    static func encodeJSON(_ document: Document) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(document)
+    private static func markerURL(
+        for messageIdHex: String,
+        in markersDirectory: URL,
+        preparedShards: inout Set<String>,
+        fileManager: FileManager
+    ) throws -> URL {
+        let (shard, filename) = markerComponents(for: messageIdHex)
+        let shardDirectory = markersDirectory.appendingPathComponent(shard, isDirectory: true)
+        if preparedShards.insert(shard).inserted {
+            try createProtectedDirectory(at: shardDirectory, fileManager: fileManager)
+        }
+        return shardDirectory.appendingPathComponent(filename, isDirectory: false)
     }
 
-    static func encodeJSONString(_ document: Document) throws -> String {
-        let data = try encodeJSON(document)
-        return String(decoding: data, as: UTF8.self)
+    private static func markerURL(for messageIdHex: String, in markersDirectory: URL) -> URL {
+        let (shard, filename) = markerComponents(for: messageIdHex)
+        return
+            markersDirectory
+            .appendingPathComponent(shard, isDirectory: true)
+            .appendingPathComponent(filename, isDirectory: false)
+    }
+
+    private static func markerComponents(for messageIdHex: String) -> (shard: String, filename: String) {
+        let encoded = Data(messageIdHex.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+        let safeKey = encoded.isEmpty ? "_" : encoded
+        let shard = String(safeKey.prefix(2))
+        return (shard, "id-\(safeKey)")
+    }
+
+    private static func readMarker(at url: URL) throws -> UInt64 {
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        guard data.count == MemoryLayout<UInt64>.size else {
+            throw ExportError.invalidSpoolData
+        }
+        return uint64(from: data)
+    }
+
+    private static func chunkFilename(_ index: Int) -> String {
+        String(format: "chunk-%020d.bin", index)
+    }
+
+    private static func data(for value: UInt64) -> Data {
+        var bigEndian = value.bigEndian
+        return withUnsafeBytes(of: &bigEndian) { Data($0) }
+    }
+
+    private static func uint64(from data: Data) -> UInt64 {
+        var value: UInt64 = 0
+        withUnsafeMutableBytes(of: &value) { destination in
+            data.copyBytes(to: destination)
+        }
+        return UInt64(bigEndian: value)
+    }
+
+    private static func readUInt64OrEnd(from handle: FileHandle) throws -> UInt64? {
+        guard let data = try readExactlyOrEnd(MemoryLayout<UInt64>.size, from: handle) else {
+            return nil
+        }
+        return uint64(from: data)
+    }
+
+    private static func readUInt64(from handle: FileHandle) throws -> UInt64 {
+        guard let data = try readExactlyOrEnd(MemoryLayout<UInt64>.size, from: handle) else {
+            throw ExportError.invalidSpoolData
+        }
+        return uint64(from: data)
+    }
+
+    private static func readExactly(_ count: Int, from handle: FileHandle) throws -> Data {
+        guard let data = try readExactlyOrEnd(count, from: handle) else {
+            throw ExportError.invalidSpoolData
+        }
+        return data
+    }
+
+    private static func readExactlyOrEnd(_ count: Int, from handle: FileHandle) throws -> Data? {
+        var result = Data()
+        result.reserveCapacity(count)
+        while result.count < count {
+            guard
+                let chunk = try handle.read(upToCount: count - result.count),
+                !chunk.isEmpty
+            else {
+                if result.isEmpty { return nil }
+                throw ExportError.invalidSpoolData
+            }
+            result.append(chunk)
+        }
+        return result
+    }
+
+    private static func event(from record: TimelineMessageRecordFfi, index: Int) -> Event {
+        Event(
+            index: index,
+            messageIdHex: record.messageIdHex,
+            sourceMessageIdHex: record.sourceMessageIdHex,
+            kind: record.kind,
+            content: record.plaintext,
+            tags: record.tags.map(\.values),
+            direction: record.direction,
+            sender: record.sender,
+            timelineAt: record.timelineAt,
+            receivedAt: record.receivedAt,
+            replyToMessageIdHex: record.replyToMessageIdHex,
+            mediaJson: record.mediaJson,
+            agentTextStreamJson: record.agentTextStreamJson,
+            deleted: record.deleted,
+            deletedByMessageIdHex: record.deletedByMessageIdHex,
+            invalidationStatus: record.invalidationStatus
+        )
     }
 
     private static func sortChronologically(_ messages: [TimelineMessageRecordFfi]) -> [TimelineMessageRecordFfi] {
