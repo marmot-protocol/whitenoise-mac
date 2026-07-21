@@ -92,13 +92,13 @@ extension WorkspaceState {
         }
         let accountRef = activeAccount.accountRef
         do {
-            try await MediaAttachmentDownloadLimiter.shared.acquire()
-            defer { Task { await MediaAttachmentDownloadLimiter.shared.release() } }
-            let download = try await client.downloadMedia(
-                accountRef: accountRef,
-                groupIdHex: groupIdHex,
-                reference: reference
-            )
+            let download = try await MediaAttachmentDownloadLimiter.shared.withPermit {
+                try await client.downloadMedia(
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex,
+                    reference: reference
+                )
+            }
             // The download suspended this actor; a switch/teardown may have occurred. Re-check the
             // captured account/group and the privacy gate before returning or caching plaintext.
             guard activeAccountId == accountId, sharedMediaGroupId == groupIdHex,
