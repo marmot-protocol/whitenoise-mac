@@ -13041,6 +13041,45 @@ struct whitenoise_macTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
     }
 
+    @Test func conversationTranscriptExportCancelsAndCleansHighVolumeSpool() throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.installMessages(
+            (0..<5_000).map { index in
+                appMessage(
+                    id: String(format: "%064x", index + 1),
+                    groupIdHex: "group",
+                    sender: String(repeating: "a", count: 64),
+                    plaintext: "message \(index)",
+                    kind: 9,
+                    recordedAt: UInt64(index + 1)
+                )
+            },
+            groupIdHex: "group"
+        )
+
+        #expect(throws: CancellationError.self) {
+            _ = try ConversationTranscriptExport.export(
+                client: runtime,
+                accountRef: "Desktop Account",
+                groupIdHex: "group",
+                groupName: "Large Group",
+                to: files.destination,
+                scratchDirectory: files.scratch,
+                checkCancellation: {
+                    if runtime.timelineMessageQueries.count >= 25 {
+                        throw CancellationError()
+                    }
+                }
+            )
+        }
+
+        #expect(runtime.timelineMessageQueries.count == 25)
+        #expect(!FileManager.default.fileExists(atPath: files.destination.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: files.scratch.path).isEmpty)
+    }
+
     @Test func conversationTranscriptExportSurfacesFileCreationFailureAndCleansScratch() throws {
         let files = try transcriptExportTestFiles()
         defer { try? FileManager.default.removeItem(at: files.root) }
@@ -15767,6 +15806,114 @@ struct whitenoise_macTests {
         #expect(runtime.timelineMessageQueries.count == 1)
         #expect(!FileManager.default.fileExists(atPath: files.destination.path))
         #expect(state.lastError == nil)
+        #expect(!state.isExportingGroupTranscript)
+        #expect(state.groupTranscriptExportTask == nil)
+    }
+
+    @MainActor
+    @Test func groupDetailsTranscriptExportReportsSuccessAfterSameGroupRefresh() async throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+
+        let exportGate = BlockingFfiGate()
+        exportGate.isEnabled = true
+        defer { exportGate.release() }
+        runtime.timelineMessagesHandler = { _ in
+            exportGate.passIfArmed()
+            return TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: String(repeating: "1", count: 64),
+                        groupIdHex: "group",
+                        sender: account.accountIdHex,
+                        plaintext: "message",
+                        recordedAt: 10
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+
+        let state = WorkspaceState(
+            transcriptExportDestinationPicker: { _ in files.destination },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: groupChat)
+        let initialDetailsGeneration = state.groupDetailsLoadGeneration
+        state.startExportSelectedGroupTranscript()
+        let exportTask = try #require(state.groupTranscriptExportTask)
+        let deadline = Date().addingTimeInterval(2)
+        while !exportGate.didReach && Date() < deadline {
+            await Task.yield()
+        }
+        if !exportGate.didReach {
+            exportGate.isEnabled = false
+        }
+        #expect(exportGate.didReach)
+
+        await state.reloadSelectedGroupDetails()
+        #expect(state.groupDetailsLoadGeneration > initialDetailsGeneration)
+        #expect(state.groupDetailsSnapshot?.groupIdHex == "group")
+
+        exportGate.release()
+        await exportTask.value
+
+        #expect(FileManager.default.fileExists(atPath: files.destination.path))
+        #expect(
+            state.groupTranscriptExportStatus
+                == "Exported 1 transcript event to \(files.destination.path)."
+        )
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func groupDetailsTranscriptExportSuppressesLateErrorAfterTeardown() async throws {
+        let files = try transcriptExportTestFiles()
+        defer { try? FileManager.default.removeItem(at: files.root) }
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+
+        let exportGate = BlockingFfiGate()
+        exportGate.isEnabled = true
+        defer { exportGate.release() }
+        runtime.timelineMessagesHandler = { _ in
+            exportGate.passIfArmed()
+            throw FakeMarmotRuntimeError.unused
+        }
+
+        let state = WorkspaceState(
+            transcriptExportDestinationPicker: { _ in files.destination },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: groupChat)
+        state.startExportSelectedGroupTranscript()
+        let exportTask = try #require(state.groupTranscriptExportTask)
+        let deadline = Date().addingTimeInterval(2)
+        while !exportGate.didReach && Date() < deadline {
+            await Task.yield()
+        }
+        if !exportGate.didReach {
+            exportGate.isEnabled = false
+        }
+        #expect(exportGate.didReach)
+
+        state.closeGroupDetails()
+        exportGate.release()
+        await exportTask.value
+
+        #expect(state.lastError == nil)
+        #expect(!FileManager.default.fileExists(atPath: files.destination.path))
         #expect(!state.isExportingGroupTranscript)
         #expect(state.groupTranscriptExportTask == nil)
     }
@@ -20930,7 +21077,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
     var profileRefreshDelaysByAccountId: [String: UInt64] = [:]
     var accountIdsMissingProfiles = Set<String>()
-    var timelineMessagesHandler: ((TimelineMessageQueryFfi) -> TimelinePageFfi)?
+    var timelineMessagesHandler: ((TimelineMessageQueryFfi) throws -> TimelinePageFfi)?
     private let syncCallThreadLock = NSLock()
     private var syncCallThreads: [String: [Bool]] = [:]
     /// Guards recorded-call state mutated by concurrent runtime calls while tests poll it mid-flight.
@@ -22073,7 +22220,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         recordSyncCall("timelineMessages")
         timelineMessageQueries.append(query)
         if let timelineMessagesHandler {
-            return timelineMessagesHandler(query)
+            return try timelineMessagesHandler(query)
         }
         if let groupIdHex = query.groupIdHex {
             return pagedTimeline(from: timelinePagesByGroupId[groupIdHex]?.messages ?? [], query: query)

@@ -138,13 +138,13 @@ extension WorkspaceState {
         isExportingGroupTranscript = true
         defer { isExportingGroupTranscript = false }
 
+        let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
+        let groupIdHex = snapshot.groupIdHex
+        let groupName = snapshot.name
+        let exportedAt = nowProvider()
+
         do {
-            let accountId = activeAccount.id
-            let accountRef = activeAccount.accountRef
-            let groupIdHex = snapshot.groupIdHex
-            let groupName = snapshot.name
-            let detailsGeneration = groupDetailsLoadGeneration
-            let exportedAt = nowProvider()
             // Pagination, bounded disk spooling, and event-by-event JSON encoding all block.
             // Keep the complete export off the main thread so the save sheet remains responsive.
             let export = try await runOffMainCancellable { checkCancellation in
@@ -160,9 +160,8 @@ extension WorkspaceState {
             }
             guard !Task.isCancelled,
                 activeAccountId == accountId,
-                groupDetailsLoadGeneration == detailsGeneration,
                 isGroupDetailsPresented,
-                groupDetailsSnapshot == snapshot
+                groupDetailsSnapshot?.groupIdHex == groupIdHex
             else { return }
             let statusFormat =
                 export.eventCount == 1
@@ -177,6 +176,11 @@ extension WorkspaceState {
             // User navigated away, switched accounts, or closed details. Treat as an intentional
             // abort rather than surfacing a transient cancellation error in the UI.
         } catch {
+            guard !Task.isCancelled,
+                activeAccountId == accountId,
+                isGroupDetailsPresented,
+                groupDetailsSnapshot?.groupIdHex == groupIdHex
+            else { return }
             lastError = error.localizedDescription
         }
     }
