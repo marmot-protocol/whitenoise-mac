@@ -1123,6 +1123,9 @@ final class WorkspaceState {
     let microphoneAccessProvider: @MainActor () async -> Bool
     var client: (any MarmotRuntime)?
     var observabilityRuntimeConfiguration: ObservabilityRuntimeConfiguration?
+    /// Last-request-wins ownership for observability configuration across account switches.
+    /// Blocking FFI can resume after cancellation, so the generation is checked before publishing.
+    var observabilityRuntimeGeneration: UInt64 = 0
     var notificationTask: Task<Void, Never>?
     var chatListTask: Task<Void, Never>?
     var chatListTaskAccountId: String?
@@ -1163,6 +1166,11 @@ final class WorkspaceState {
     /// wraparound, and wrapping avoids overflow traps (issue #182). See `loadSettingsData` /
     /// issue #4.
     var settingsLoadGeneration: UInt64 = 0
+    /// Coalesces the privacy/security subset, which is also loaded during ready-state activation
+    /// outside the aggregate settings task.
+    var privacySecurityLoadTask: Task<Void, Never>?
+    var privacySecurityLoadAccountId: String?
+    var privacySecurityLoadGeneration: UInt64 = 0
     /// Monotonic token for notification-settings reads/writes. Unlike `activeAccountId`, this
     /// bumps on every active-account transition, so an older A request cannot commit after a rapid
     /// A→B→A re-entry or after a newer notification load/toggle for the same account.
@@ -2180,11 +2188,15 @@ final class WorkspaceState {
 
     func refreshObservabilityRuntime() {
         Task { [weak self] in
-            do {
-                try await self?.configureObservabilityRuntime()
-            } catch {
-                self?.setBackgroundStatus(error.localizedDescription)
-            }
+            await self?.configureObservabilityRuntimeBestEffort()
+        }
+    }
+
+    func configureObservabilityRuntimeBestEffort() async {
+        do {
+            try await configureObservabilityRuntime()
+        } catch {
+            setBackgroundStatus(error.localizedDescription)
         }
     }
 
@@ -2221,6 +2233,7 @@ final class WorkspaceState {
         }
 
         let config = telemetryBuildConfig
+        let accountId = activeAccountId
         let accountLabel = activeAccount?.displayName
         if let cached = observabilityRuntimeConfiguration,
             cached.buildConfig == config,
@@ -2231,6 +2244,9 @@ final class WorkspaceState {
             return
         }
 
+        observabilityRuntimeGeneration &+= 1
+        let generation = observabilityRuntimeGeneration
+
         let relayRuntimeConfig: RelayTelemetryRuntimeConfigFfi
         if let cached = observabilityRuntimeConfiguration,
             cached.buildConfig == config
@@ -2240,19 +2256,29 @@ final class WorkspaceState {
             let installId = try await runOffMain {
                 try client.telemetryInstallId()
             }
+            guard !Task.isCancelled, observabilityRuntimeGeneration == generation,
+                activeAccountId == accountId
+            else { return }
             relayRuntimeConfig = config.runtimeConfig(installId: installId)
         }
         let auditTrackerConfig = config.auditTrackerConfig()
 
         if observabilityRuntimeConfiguration?.relayTelemetryRuntimeConfig != relayRuntimeConfig {
             try await client.setRelayTelemetryRuntimeConfig(config: relayRuntimeConfig)
+            guard !Task.isCancelled, observabilityRuntimeGeneration == generation,
+                activeAccountId == accountId
+            else { return }
         }
         if observabilityRuntimeConfiguration?.auditLogTrackerConfig != auditTrackerConfig {
             _ = try await runOffMain {
                 try client.setAuditLogTrackerConfig(config: auditTrackerConfig)
             }
+            guard !Task.isCancelled, observabilityRuntimeGeneration == generation,
+                activeAccountId == accountId
+            else { return }
         }
 
+        guard observabilityRuntimeGeneration == generation, activeAccountId == accountId else { return }
         observabilityRuntimeConfiguration = ObservabilityRuntimeConfiguration(
             buildConfig: config,
             accountLabel: accountLabel,

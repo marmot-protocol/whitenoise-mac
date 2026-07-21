@@ -34,7 +34,7 @@ extension WorkspaceState {
             }
             accounts = try await accountItems(from: summaries, client: runtime)
             restoreOrSelectFirstAccount()
-            try await configureObservabilityRuntime()
+            await configureObservabilityRuntimeBestEffort()
             if accounts.isEmpty {
                 phase = .onboarding
                 return
@@ -43,7 +43,7 @@ extension WorkspaceState {
             try await bringRuntimeOnline(runtime)
             accounts = try await accountItemsFromRuntime(client: runtime)
             restoreOrSelectFirstAccount()
-            try await activateReadyState()
+            await activateReadyState()
             await refreshAccountProfiles()
         } catch {
             phase = .failed(error.localizedDescription)
@@ -117,9 +117,9 @@ extension WorkspaceState {
         refreshObservabilityRuntime()
     }
 
-    func activateReadyState() async throws {
+    func activateReadyState() async {
+        await configureObservabilityRuntimeBestEffort()
         phase = .ready
-        try await configureObservabilityRuntime()
         await refreshNotificationAuthorizationStatus()
         await loadNotificationSettings()
         await loadPrivacySecuritySettings()
@@ -156,10 +156,12 @@ extension WorkspaceState {
     }
 
     func signUp() async {
-        guard let client, !isAuthenticating else { return }
+        guard !isAuthenticating else { return }
         lastError = nil
         isAuthenticating = true
         defer { isAuthenticating = false }
+
+        guard let client = await clientForAuthentication() else { return }
 
         do {
             let summary = try await client.createIdentity(
@@ -172,14 +174,14 @@ extension WorkspaceState {
             try await bringRuntimeOnline(client)
             try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
-            try await activateReadyState()
+            await activateReadyState()
         } catch {
             lastError = error.localizedDescription
         }
     }
 
     func login() async {
-        guard let client, !isAuthenticating else { return }
+        guard !isAuthenticating else { return }
         let identity = loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !identity.isEmpty else { return }
 
@@ -191,6 +193,8 @@ extension WorkspaceState {
             isAuthenticating = false
             clearEnteredLoginIdentity()
         }
+
+        guard let client = await clientForAuthentication() else { return }
 
         do {
             let summary = try await client.login(
@@ -204,7 +208,7 @@ extension WorkspaceState {
             try await bringRuntimeOnline(client)
             try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
-            try await activateReadyState()
+            await activateReadyState()
         } catch {
             lastError = error.localizedDescription
         }
@@ -261,6 +265,7 @@ extension WorkspaceState {
         let removedAccountId = account.id
         let removedAccountIdHex = account.accountIdHex
         let wasActive = activeAccountId == removedAccountId
+        let selectedGroupId = wasActive ? selectedChat?.id : nil
         suppressMediaDiskStores(forAccountId: removedAccountId)
         defer { resumeMediaDiskStores(forAccountId: removedAccountId) }
         do {
@@ -318,11 +323,14 @@ extension WorkspaceState {
             if needsActiveReset {
                 restoreOrSelectFirstAccount()
                 selection = .settings(.accounts)
-                try await configureObservabilityRuntime()
+                await configureObservabilityRuntimeBestEffort()
                 await loadSettingsData()
                 await reloadChats()
             }
         } catch {
+            if wasActive, activeAccountId == removedAccountId {
+                await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
+            }
             lastError = error.localizedDescription
         }
     }
@@ -392,6 +400,7 @@ extension WorkspaceState {
         defer { isSigningOutAccount = false }
 
         let wasActive = activeAccountId == account.id
+        let selectedGroupId = wasActive ? selectedChat?.id : nil
         do {
             if wasActive {
                 stopTimelineListener()
@@ -420,7 +429,7 @@ extension WorkspaceState {
             resetActiveAccountUIState()
             if let nextActive = accounts.first(where: { !$0.signedOut }) {
                 switchActiveAccount(nextActive, finalSelection: .settings(.accounts))
-                try await configureObservabilityRuntime()
+                await configureObservabilityRuntimeBestEffort()
                 await loadSettingsData()
             } else {
                 activeAccountId = nil
@@ -432,6 +441,9 @@ extension WorkspaceState {
                 privacySecuritySettings = .defaults
             }
         } catch {
+            if wasActive, activeAccountId == account.id {
+                await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
+            }
             lastError = error.localizedDescription
         }
     }
@@ -461,7 +473,7 @@ extension WorkspaceState {
                     && currentActiveAccount?.id != account.id
                 if !userRacedToDifferentAccount {
                     switchActiveAccount(refreshed, finalSelection: .settings(.accounts))
-                    try await configureObservabilityRuntime()
+                    await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
                 }
             }
@@ -501,42 +513,50 @@ extension WorkspaceState {
 
         let selectedGroupId = selectedChat?.id
 
+        // Stop any in-progress voice recording before the wipe so the mic is not left hot
+        // (and no plaintext audio keeps being written) while local data is deleted (#311).
+        leaveActiveConversation()
+        stopNotificationListener()
+        cancelChatListReload()
+        stopChatListListener()
+        stopTimelineListener()
+
+        // Marmot only owns its storage root; plaintext media scratch directories live
+        // outside it, so purge those before the potentially throwing Marmot deletion.
+        // The encrypted media cache stays until the delete succeeds — on a pre-shutdown failure
+        // the recovered session must keep its cached media intact and decryptable.
+        try? await runOffMain {
+            MediaPlaybackTempStore.purge()
+            OutgoingMediaMetadataTempStore.purge()
+        }
+
         do {
-            // Stop any in-progress voice recording before the wipe so the mic is not left hot
-            // (and no plaintext audio keeps being written) while local data is deleted (#311).
-            leaveActiveConversation()
-            stopNotificationListener()
-            cancelChatListReload()
-            stopChatListListener()
-            stopTimelineListener()
-
-            // Marmot only owns its storage root; plaintext media scratch directories live
-            // outside it, so purge those before the potentially throwing Marmot deletion.
-            // The encrypted media cache stays until the delete succeeds — on a failed wipe the
-            // recovered session must keep its cached media intact and decryptable.
-            try? await runOffMain {
-                MediaPlaybackTempStore.purge()
-                OutgoingMediaMetadataTempStore.purge()
-            }
             try await client.deleteAllLocalData()
-            await mediaDiskCache.purgeAll()
-            await mediaDiskCache.purgeAll(removeEncryptionKey: true)
-            self.client = nil
-            observabilityRuntimeConfiguration = nil
-            resetToNewInstallState(storageRootPath: client.storageRootPath)
-
-            let runtime = try clientFactory()
-            self.client = runtime
-            storageRootPath = runtime.storageRootPath
-            try await configureObservabilityRuntime()
         } catch {
             let errorMessage = error.localizedDescription
-            await recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: selectedGroupId)
+            if let deletionError = error as? MarmotLocalDataDeletionError,
+                case .runtimeInvalidated = deletionError
+            {
+                await mediaDiskCache.purgeAll(removeEncryptionKey: true)
+                transitionToPostDeletionOnboarding(storageRootPath: client.storageRootPath)
+                if let recreationError = await recreateClientForOnboarding() {
+                    setBackgroundStatus(recreationError.localizedDescription)
+                }
+            } else {
+                await restoreReadySessionAfterInterruptedMutation(selectedGroupId: selectedGroupId)
+            }
             lastError = errorMessage
+            return
+        }
+
+        await mediaDiskCache.purgeAll(removeEncryptionKey: true)
+        transitionToPostDeletionOnboarding(storageRootPath: client.storageRootPath)
+        if let recreationError = await recreateClientForOnboarding() {
+            lastError = recreationError.localizedDescription
         }
     }
 
-    func recoverReadySessionAfterFailedDeleteAllData(selectedGroupId: String?) async {
+    func restoreReadySessionAfterInterruptedMutation(selectedGroupId: String?) async {
         guard client != nil, activeAccount != nil, case .ready = phase else { return }
 
         startNotificationListener()
@@ -544,6 +564,36 @@ extension WorkspaceState {
         if let selectedGroupId, selectedChat?.id == selectedGroupId {
             await loadMessages(groupIdHex: selectedGroupId)
         }
+    }
+
+    private func transitionToPostDeletionOnboarding(storageRootPath: String) {
+        client = nil
+        observabilityRuntimeGeneration &+= 1
+        observabilityRuntimeConfiguration = nil
+        resetToNewInstallState(storageRootPath: storageRootPath)
+    }
+
+    private func recreateClientForOnboarding() async -> Error? {
+        guard client == nil else { return nil }
+        do {
+            let runtime = try clientFactory()
+            client = runtime
+            storageRootPath = runtime.storageRootPath
+            await configureObservabilityRuntimeBestEffort()
+            return nil
+        } catch {
+            client = nil
+            return error
+        }
+    }
+
+    private func clientForAuthentication() async -> (any MarmotRuntime)? {
+        if let client { return client }
+        if let error = await recreateClientForOnboarding() {
+            lastError = error.localizedDescription
+            return nil
+        }
+        return client
     }
 
     /// The bech32 `npub` form of a hex public key — the canonical, user-facing way to show
@@ -626,6 +676,11 @@ extension WorkspaceState {
 
     func resetToNewInstallState(storageRootPath: String) {
         leaveActiveConversation()
+        stopNotificationListener()
+        cancelChatListReload()
+        stopChatListListener()
+        stopTimelineListener()
+        cancelTimelineLoad()
         accounts = []
         resetChats()
         cachedMessageChatIds = []
@@ -643,6 +698,15 @@ extension WorkspaceState {
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.
         RemoteImageLoader.shared.clearCache()
+        settingsLoadTask?.cancel()
+        settingsLoadTask = nil
+        settingsLoadAccountId = nil
+        settingsLoadGeneration &+= 1
+        privacySecurityLoadTask?.cancel()
+        privacySecurityLoadTask = nil
+        privacySecurityLoadAccountId = nil
+        privacySecurityLoadGeneration &+= 1
+        observabilityRuntimeGeneration &+= 1
         observabilityRuntimeConfiguration = nil
         activeAccountId = nil
         invalidateNotificationSettingsOperations()

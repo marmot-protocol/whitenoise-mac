@@ -240,10 +240,16 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
         try purgeAccountKeychain()
         await shutdown()
 
-        if fileManager.fileExists(atPath: rootPath) {
-            try fileManager.removeItem(atPath: rootPath)
+        do {
+            if fileManager.fileExists(atPath: rootPath) {
+                try fileManager.removeItem(atPath: rootPath)
+            }
+            try fileManager.createDirectory(atPath: rootPath, withIntermediateDirectories: true)
+        } catch {
+            // Keychain credentials are already gone and the runtime has already shut down. Mark
+            // the error so callers never attempt to revive this invalidated client.
+            throw MarmotLocalDataDeletionError.runtimeInvalidated(underlying: error)
         }
-        try fileManager.createDirectory(atPath: rootPath, withIntermediateDirectories: true)
     }
 
     func removeAccount(accountRef: String) async throws {
@@ -524,6 +530,17 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
         try await marmot.secureDeleteExpired(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+}
+
+nonisolated enum MarmotLocalDataDeletionError: LocalizedError {
+    case runtimeInvalidated(underlying: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .runtimeInvalidated(let error):
+            error.localizedDescription
+        }
     }
 }
 
