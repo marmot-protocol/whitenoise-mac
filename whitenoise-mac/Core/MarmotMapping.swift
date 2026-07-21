@@ -976,6 +976,10 @@ private nonisolated enum MessageMediaParser {
         OutgoingMediaDraftProcessor.maxAttachmentCount
     private static let maxFallbackLocatorsPerAttachment =
         maxFallbackAttachmentsPerMessage
+    /// Mirrors MDK `ENCRYPTED_MEDIA_LOCATOR_KIND_MAX_LEN` for legacy fallback parsing.
+    private static let maxFallbackLocatorKindUTF8Bytes = 64
+    /// Mirrors MDK `ENCRYPTED_MEDIA_ENDPOINT_URL_MAX_LEN` for legacy fallback parsing.
+    private static let maxFallbackLocatorValueUTF8Bytes = 2048
     private static let logger = Logger(subsystem: "com.whitenoise.media", category: "MessageMediaParser")
 
     static func attachments(
@@ -1192,9 +1196,10 @@ private nonisolated enum MessageMediaParser {
             {
                 let kind = String(locator[..<split])
                 let value = String(locator[locator.index(after: split)...])
-                guard !kind.isEmpty, !value.isEmpty else { continue }
-                if locators.count < maxFallbackLocatorsPerAttachment {
-                    locators.append(MediaLocatorFfi(kind: kind, value: value))
+                if locators.count < maxFallbackLocatorsPerAttachment,
+                    let validated = validatedLocator(kind: kind, value: value)
+                {
+                    locators.append(validated)
                 }
                 continue
             }
@@ -1233,8 +1238,17 @@ private nonisolated enum MessageMediaParser {
                 let kind = string(locator, keys: ["kind"]),
                 let value = string(locator, keys: ["value"])
             else { return nil }
-            return MediaLocatorFfi(kind: kind, value: value)
+            return validatedLocator(kind: kind, value: value)
         }
+    }
+
+    private static func validatedLocator(kind: String, value: String) -> MediaLocatorFfi? {
+        guard !kind.isEmpty,
+            !value.isEmpty,
+            kind.utf8.count <= maxFallbackLocatorKindUTF8Bytes,
+            value.utf8.count <= maxFallbackLocatorValueUTF8Bytes
+        else { return nil }
+        return MediaLocatorFfi(kind: kind, value: value)
     }
 
     private static func string(_ dictionary: [String: Any], keys: [String]) -> String? {
