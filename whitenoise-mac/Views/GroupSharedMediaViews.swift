@@ -11,6 +11,8 @@ import MarmotKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+private let sharedMediaThumbnailOversample: CGFloat = 1.5
+
 enum GroupSharedMediaCategory: String, CaseIterable, Identifiable {
     case media = "Media"
     case files = "Files"
@@ -87,7 +89,7 @@ struct GroupSharedMediaSection: View {
                 }
             }
         }
-        .sheet(item: $preview) { SharedMediaImagePreviewView(data: $0.data) }
+        .sheet(item: $preview) { SharedMediaImagePreviewView(payload: $0.payload) }
     }
 
     @ViewBuilder
@@ -97,8 +99,8 @@ struct GroupSharedMediaSection: View {
         } else {
             LazyVGrid(columns: columns, spacing: 3) {
                 ForEach(items) { item in
-                    SharedMediaThumbnail(item: item) { data in
-                        preview = SharedMediaImagePreview(data: data)
+                    SharedMediaThumbnail(item: item) { payload in
+                        preview = SharedMediaImagePreview(payload: payload)
                     }
                 }
             }
@@ -159,16 +161,17 @@ struct GroupSharedMediaSection: View {
 
 private struct SharedMediaImagePreview: Identifiable {
     let id = UUID()
-    let data: Data
+    let payload: DownloadedMediaPayload
 }
 
 private struct SharedMediaThumbnail: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.displayScale) private var displayScale
     let item: GroupSharedMediaItem
-    let onOpen: (Data) -> Void
+    let onOpen: (DownloadedMediaPayload) -> Void
 
-    @State private var image: NSImage?
-    @State private var imageData: Data?
+    @State private var image: Image?
+    @State private var imagePayload: DownloadedMediaPayload?
     @State private var didFail = false
     @State private var actionError: String?
 
@@ -196,8 +199,7 @@ private struct SharedMediaThumbnail: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
             if let image {
-                Image(nsImage: image)
-                    .resizable()
+                image.resizable()
                     .scaledToFill()
             } else if isVideo {
                 // Static placeholder — videos aren't frame-extracted here, so never spin.
@@ -224,8 +226,8 @@ private struct SharedMediaThumbnail: View {
     private func open() async {
         if isVideo {
             await openVideo()
-        } else if let imageData {
-            onOpen(imageData)
+        } else if let imagePayload {
+            onOpen(imagePayload)
         } else if didFail {
             didFail = false
             await load()
@@ -235,12 +237,22 @@ private struct SharedMediaThumbnail: View {
     private func load() async {
         guard image == nil, !isVideo else { return }
         let data = await workspace.sharedMediaData(for: item.reference, groupIdHex: item.groupIdHex)
-        guard let data, let decoded = NSImage(data: data) else {
+        guard let data else {
             didFail = true
             return
         }
-        imageData = data
-        image = decoded
+        let payload = DownloadedMediaPayload(id: item.id, data: data)
+        guard
+            let decoded = await RemoteImageLoader.shared.image(
+                for: payload,
+                maxPixelSize: 180 * max(1, displayScale) * sharedMediaThumbnailOversample
+            ), !Task.isCancelled
+        else {
+            didFail = true
+            return
+        }
+        imagePayload = payload
+        image = Image(nsImage: decoded.nsImage)
     }
 
     /// Open a video in the default player: decrypt (uncached), stage a temp file via the shared
@@ -275,19 +287,27 @@ private struct SharedMediaThumbnail: View {
 }
 
 private struct SharedMediaImagePreviewView: View {
-    let data: Data
+    let payload: DownloadedMediaPayload
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        VStack(spacing: 0) {
-            if let image = NSImage(data: data) {
-                Image(nsImage: image)
+        GeometryReader { proxy in
+            DownsampledDataImage(
+                payload: payload,
+                maxPixelSize: DownsampledImageSizing.galleryPixelSize(
+                    for: proxy.size,
+                    displayScale: displayScale
+                )
+            ) { image in
+                image
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
+            } placeholder: {
                 ContentUnavailableView(L10n.string("Couldn't open image"), systemImage: "photo")
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(minWidth: 480, minHeight: 360)
         .background(Color.black.opacity(0.85))

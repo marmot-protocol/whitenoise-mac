@@ -1405,6 +1405,44 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func accountSwitchAndNewInstallResetClearDecryptedSharedMediaCache() async throws {
+        let primary = desktopAccount()
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        func installDecryptedCacheFixture() {
+            state.sharedMediaGroupId = "private-group"
+            state.sharedMediaThumbnailCache = ["private-image": Data([1, 2, 3])]
+            state.sharedMediaThumbnailCacheOrder = ["private-image"]
+            state.sharedMediaThumbnailCacheBytes = 3
+        }
+
+        installDecryptedCacheFixture()
+        let backup = try #require(state.accounts.first { $0.id == secondary.label })
+        state.prepareForActiveAccountSwitch(to: backup, preservingMessageCacheFor: nil)
+        #expect(state.sharedMediaGroupId == nil)
+        #expect(state.sharedMediaThumbnailCache.isEmpty)
+        #expect(state.sharedMediaThumbnailCacheOrder.isEmpty)
+        #expect(state.sharedMediaThumbnailCacheBytes == 0)
+
+        installDecryptedCacheFixture()
+        state.resetToNewInstallState(storageRootPath: state.storageRootPath)
+        #expect(state.sharedMediaGroupId == nil)
+        #expect(state.sharedMediaThumbnailCache.isEmpty)
+        #expect(state.sharedMediaThumbnailCacheOrder.isEmpty)
+        #expect(state.sharedMediaThumbnailCacheBytes == 0)
+    }
+
+    @MainActor
     @Test func failedDeleteAllDataRestartsReadySessionListenersAndReloadsSelectedChat() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
         defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
