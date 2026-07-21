@@ -218,7 +218,8 @@ extension WorkspaceState {
             ?? L10n.string("Someone")
         let senderTemplateName = PeerDisplayText.templateFragment(senderName)
         let groupName = PeerDisplayText.sanitize(update.groupName)
-        let previewText = firstNonBlank([update.previewText]) ?? L10n.string("New message")
+        let previewText = PeerDisplayText.sanitize(update.previewText) ?? L10n.string("New message")
+        let previewTemplateText = PeerDisplayText.templateFragment(previewText)
 
         // For an E2EE messenger, notification content is rendered as banners,
         // persisted in Notification Center, and shown on the lock screen — i.e.
@@ -247,7 +248,7 @@ extension WorkspaceState {
                     body = previewText
                 } else {
                     title = groupName ?? L10n.string("New message")
-                    body = "\(senderTemplateName): \(previewText)"
+                    body = "\(senderTemplateName): \(previewTemplateText)"
                 }
             case .senderOnly:
                 if update.isDm {

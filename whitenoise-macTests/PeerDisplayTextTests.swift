@@ -13,6 +13,9 @@ private let fsi = "\u{2068}"
 private let pdi = "\u{2069}"
 private let rtlOverride = "\u{202E}"
 private let ltrIsolate = "\u{2066}"
+private let leftToRightMark = "\u{200E}"
+private let rightToLeftMark = "\u{200F}"
+private let arabicLetterMark = "\u{061C}"
 
 private func isolated(_ text: String) -> String {
     fsi + text + pdi
@@ -40,13 +43,23 @@ struct PeerDisplayTextTests {
         #expect(!sanitized.unicodeScalars.contains { $0.properties.generalCategory == .paragraphSeparator })
     }
 
-    @Test func sanitizeStripsBidiAndFormatControls() async throws {
+    @Test func sanitizeStripsBidiControlsAndPreservesTextShapingJoiners() async throws {
         let malicious = "\(rtlOverride)Alice\(ltrIsolate)"
         #expect(PeerDisplayText.sanitize(malicious) == "Alice")
         #expect(PeerDisplayText.sanitize("\(fsi)  Bob  \(pdi)") == "Bob")
-        #expect(PeerDisplayText.sanitize("\u{200B}trimmed\u{200B}") == "trimmed")
+        #expect(PeerDisplayText.sanitize("A\(leftToRightMark)B\(rightToLeftMark)C\(arabicLetterMark)") == "ABC")
+        #expect(PeerDisplayText.sanitize("🏳️\u{200D}🌈") == "🏳️\u{200D}🌈")
+        #expect(PeerDisplayText.sanitize("ک\u{200C}ی") == "ک\u{200C}ی")
         #expect(PeerDisplayText.sanitize(nil) == nil)
         #expect(PeerDisplayText.sanitize(rtlOverride) == nil)
+    }
+
+    @Test func strippingBidiControlsUsesTheCompleteExplicitControlSet() async throws {
+        let controls =
+            "\(arabicLetterMark)\(leftToRightMark)\(rightToLeftMark)"
+            + "\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}"
+        #expect(PeerDisplayText.strippingBidiControls("A\(controls)B") == "AB")
+        #expect(PeerDisplayText.strippingBidiControls("🏳️\u{200D}🌈") == "🏳️\u{200D}🌈")
     }
 
     @Test func templateFragmentWrapsSanitizedTextInFirstStrongIsolate() async throws {
