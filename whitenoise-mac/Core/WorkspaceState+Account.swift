@@ -91,6 +91,7 @@ extension WorkspaceState {
         cancelChatListReload()
         stopChatListListener()
         closeGroupDetails()
+        clearSharedMedia()
         clearEnteredLoginIdentity()
         activeAccountId = account.id
         invalidateNotificationSettingsOperations()
@@ -334,6 +335,7 @@ extension WorkspaceState {
         cancelTimelineLoad()
         cancelChatListReload()
         stopChatListListener()
+        clearSharedMedia()
         cachedMessageChatIds.removeAll()
         for store in messageTimelineStores.values {
             store.clear()
@@ -635,6 +637,7 @@ extension WorkspaceState {
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
         clearConversationMetadata()
+        clearSharedMedia()
         accountUnreadByIdHex.removeAll()
         // "Delete All Local Data" must also evict decoded peer/group avatars held in the
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
