@@ -262,10 +262,6 @@ extension WorkspaceState {
                 return
             }
 
-            try await MediaAttachmentDownloadLimiter.shared.acquire()
-            defer {
-                Task { await MediaAttachmentDownloadLimiter.shared.release() }
-            }
             if case .loaded = stateStore.state {
                 return
             }
@@ -785,20 +781,22 @@ extension WorkspaceState {
         let token = nextMediaAttachmentDownloadTaskToken
         let downloadTask = Task.detached(priority: .userInitiated) {
             [client, accountRef, groupIdHex, reference, mediaDownloadKey] in
-            let download = try await client.downloadMedia(
-                accountRef: accountRef,
-                groupIdHex: groupIdHex,
-                reference: reference
-            )
-            return MessageMediaDownload(
-                payload: DownloadedMediaPayload(
-                    id: "\(mediaDownloadKey)|\(UUID().uuidString)",
-                    data: download.plaintext
-                ),
-                fileName: download.fileName,
-                mediaType: download.mediaType,
-                sizeBytes: download.sizeBytes
-            )
+            try await MediaAttachmentDownloadLimiter.shared.withPermit {
+                let download = try await client.downloadMedia(
+                    accountRef: accountRef,
+                    groupIdHex: groupIdHex,
+                    reference: reference
+                )
+                return MessageMediaDownload(
+                    payload: DownloadedMediaPayload(
+                        id: "\(mediaDownloadKey)|\(UUID().uuidString)",
+                        data: download.plaintext
+                    ),
+                    fileName: download.fileName,
+                    mediaType: download.mediaType,
+                    sizeBytes: download.sizeBytes
+                )
+            }
         }
         let tracked = MediaAttachmentDownloadTask(
             token: token,

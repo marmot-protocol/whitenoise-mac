@@ -8388,6 +8388,59 @@ struct whitenoise_macTests {
         _ = await nextTask.result
     }
 
+    @Test func mediaAttachmentDownloadPermitOutlivesTimedOutWaiter() async {
+        let limiter = MediaAttachmentDownloadLimiter(maxConcurrent: 1)
+        let operationGate = AsyncFfiGate()
+        operationGate.isEnabled = true
+
+        let timedOutWaiter = Task {
+            do {
+                _ = try await withMediaAttachmentDownloadTimeout(nanoseconds: 10_000_000) {
+                    try await limiter.withPermit {
+                        await operationGate.passIfArmed()
+                        return true
+                    }
+                }
+                Issue.record("Expected the first waiter to time out")
+            } catch is MediaAttachmentDownloadTimeoutError {
+                // Expected: the UI waiter is gone while the simulated blocking work remains.
+            } catch {
+                Issue.record("Expected a timeout, got \(error)")
+            }
+        }
+
+        for _ in 0..<100 where !operationGate.didReach {
+            await Task.yield()
+        }
+        #expect(operationGate.didReach)
+        _ = await timedOutWaiter.result
+
+        let nextAcquired = AtomicCounter()
+        let nextWaiter = Task {
+            do {
+                try await limiter.acquire()
+                nextAcquired.increment()
+            } catch {
+                Issue.record("Expected the queued waiter to acquire after the operation ended")
+            }
+        }
+        for _ in 0..<100 {
+            if await limiter.queuedWaiterCount() == 1 { break }
+            await Task.yield()
+        }
+        #expect(await limiter.queuedWaiterCount() == 1)
+        #expect(nextAcquired.value == 0)
+
+        operationGate.release()
+        for _ in 0..<100 where nextAcquired.value == 0 {
+            await Task.yield()
+        }
+        #expect(nextAcquired.value == 1)
+
+        await limiter.release()
+        _ = await nextWaiter.result
+    }
+
     @MainActor
     @Test func mediaReferenceResolutionDoesNotConsumeDownloadLimiterSlot() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
@@ -8646,7 +8699,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func mediaAttachmentDownloadTimesOutAndReleasesLimiterSlot() async throws {
+    @Test func mediaAttachmentDownloadTimeoutReleasesLimiterAfterUnderlyingCallReturns() async throws {
         let previousTimeout = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds
         defer { MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = previousTimeout }
         MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = 50_000_000
@@ -8805,7 +8858,8 @@ struct whitenoise_macTests {
                 await state.loadMediaAttachment(followUpAttachment, for: followUpMessage)
             }
         } catch {
-            Issue.record("Expected follow-up attachment download to acquire the released limiter slot, got \(error)")
+            Issue.record(
+                "Expected follow-up attachment download to acquire the completed operation's slot, got \(error)")
             return
         }
         guard
@@ -8814,7 +8868,7 @@ struct whitenoise_macTests {
                 attachment: followUpAttachment
             )
         else {
-            Issue.record("Expected follow-up attachment download to succeed after timeout released the limiter slot")
+            Issue.record("Expected follow-up attachment download to succeed after the stalled call returned")
             return
         }
         #expect(loaded.data == followUpPlaintext)

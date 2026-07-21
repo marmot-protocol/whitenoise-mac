@@ -172,6 +172,24 @@ actor MediaAttachmentDownloadLimiter {
         }
     }
 
+    /// Owns a permit for the lifetime of the actual operation, not merely for the lifetime of a
+    /// caller waiting on it. This matters for blocking FFI: a UI timeout may cancel its waiter,
+    /// but the permit remains held until the underlying call really returns.
+    func withPermit<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await acquire()
+        do {
+            try Task.checkCancellation()
+            let value = try await operation()
+            release()
+            return value
+        } catch {
+            release()
+            throw error
+        }
+    }
+
     #if DEBUG
         func queuedWaiterCount() -> Int {
             waiters.count
