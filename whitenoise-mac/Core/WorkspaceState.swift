@@ -1254,6 +1254,9 @@ final class WorkspaceState {
     /// Mention-picker projections derived from `groupMemberDetailsCache`. Kept outside Observation
     /// so reading or populating the cache from a view body does not schedule another render.
     @ObservationIgnored var mentionRosterCache: [String: [ComposerMentionCandidate]] = [:]
+    /// Timeline Markdown mention projections share the same roster lifetime as the picker cache.
+    /// Keeping this separate avoids rebuilding and sanitizing every member on each projection delta.
+    @ObservationIgnored var mentionNamesCache: [String: MarkdownMentionNames] = [:]
     var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
     var readStateMetadataEnrichmentAttempts = Set<String>()
     var nextGroupMemberDetailsLookupToken: UInt64 = 0
@@ -1261,6 +1264,8 @@ final class WorkspaceState {
     #if DEBUG
         /// Test-only instrumentation for verifying mention roster projections are reused.
         @ObservationIgnored var mentionRosterBuildCount = 0
+        /// Test-only instrumentation for verifying timeline mention-name projections are reused.
+        @ObservationIgnored var mentionNamesBuildCount = 0
 
         /// Test-only instrumentation: the number of times `messageSenderProfiles` had to fetch the
         /// group member list to build the sender-name fallback map. In the all-resolved steady

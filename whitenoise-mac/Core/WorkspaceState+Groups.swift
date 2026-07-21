@@ -946,12 +946,14 @@ extension WorkspaceState {
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
         mentionRosterCache[groupIdHex] = nil
+        mentionNamesCache[groupIdHex] = nil
         groupMemberDetailsCache[groupIdHex] = members
     }
 
     func invalidateGroupMembers(for groupIdHex: String) {
         groupMemberDetailsCache[groupIdHex] = nil
         mentionRosterCache[groupIdHex] = nil
+        mentionNamesCache[groupIdHex] = nil
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
         readStateMetadataEnrichmentAttempts.remove(groupIdHex)
@@ -960,6 +962,7 @@ extension WorkspaceState {
     func clearGroupMemberCache() {
         groupMemberDetailsCache.removeAll()
         mentionRosterCache.removeAll()
+        mentionNamesCache.removeAll()
         for lookup in groupMemberDetailsLookups.values {
             lookup.task.cancel()
         }

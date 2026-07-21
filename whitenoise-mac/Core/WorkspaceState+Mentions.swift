@@ -57,7 +57,14 @@ extension WorkspaceState {
     /// Empty until some other path (chat-list enrichment, the mention picker, sender-name
     /// fallback) has warmed the roster, in which case mentions keep the truncated-bech32 form.
     func cachedMentionNames(groupIdHex: String) -> MarkdownMentionNames {
-        Self.mentionNames(from: groupMemberDetailsCache[groupIdHex] ?? [])
+        if let cached = mentionNamesCache[groupIdHex] { return cached }
+
+        let names = Self.mentionNames(from: groupMemberDetailsCache[groupIdHex] ?? [])
+        mentionNamesCache[groupIdHex] = names
+        #if DEBUG
+            mentionNamesBuildCount += 1
+        #endif
+        return names
     }
 
     static func mentionNames(from members: [GroupMemberDetailsFfi]) -> MarkdownMentionNames {
