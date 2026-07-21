@@ -74,6 +74,8 @@ struct ConversationMessageRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     var showsDebugMetadata = false
+    var timestampReferenceDate = Date()
+    var timestampLocale = AppLanguage.currentLocale
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
 
@@ -113,11 +115,18 @@ struct ConversationMessageRow: View {
             MessageBubble(
                 message: message,
                 showsDebugMetadata: showsDebugMetadata,
+                timestampReferenceDate: timestampReferenceDate,
+                timestampLocale: timestampLocale,
                 onOpenImageGallery: onOpenImageGallery,
                 onNavigateToMessage: onNavigateToMessage
             )
         } else {
-            TimelineNoticeRow(message: message, showsDebugMetadata: showsDebugMetadata)
+            TimelineNoticeRow(
+                message: message,
+                showsDebugMetadata: showsDebugMetadata,
+                timestampReferenceDate: timestampReferenceDate,
+                timestampLocale: timestampLocale
+            )
         }
     }
 }
@@ -126,6 +135,8 @@ struct TimelineNoticeRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
     let showsDebugMetadata: Bool
+    let timestampReferenceDate: Date
+    let timestampLocale: Locale
 
     var body: some View {
         HStack {
@@ -142,7 +153,7 @@ struct TimelineNoticeRow: View {
                         .lineLimit(3)
                         .multilineTextAlignment(.center)
 
-                    Text(message.timeLabel)
+                    Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
                 }
@@ -181,6 +192,8 @@ struct MessageBubble: View {
     @State private var reactionViewerEmoji: String?
     let message: MessageItem
     let showsDebugMetadata: Bool
+    let timestampReferenceDate: Date
+    let timestampLocale: Locale
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
 
@@ -409,7 +422,7 @@ struct MessageBubble: View {
         }
         result =
             result
-            + Text(message.timeLabel)
+            + Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
             .font(.system(size: 10.5, weight: .medium).monospacedDigit())
         if message.invalidationStatus != nil {
             result =
@@ -437,7 +450,7 @@ struct MessageBubble: View {
                     .buttonStyle(.plain)
                     .help(L10n.string("View edit history"))
             }
-            Text(message.timeLabel)
+            Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
                 .monospacedDigit()
             if message.invalidationStatus != nil {
                 Image(systemName: "exclamationmark.circle.fill")
@@ -448,7 +461,7 @@ struct MessageBubble: View {
         }
         .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(metadataColor)
-        .accessibilityLabel(message.metadataLabel)
+        .accessibilityLabel(message.metadataLabel(at: timestampReferenceDate, locale: timestampLocale))
     }
 }
 

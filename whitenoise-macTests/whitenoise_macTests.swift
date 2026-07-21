@@ -4183,7 +4183,7 @@ struct whitenoise_macTests {
             Date.FormatStyle(date: .omitted, time: .shortened).locale(Locale(components: components))
         )
 
-        #expect(DisplayText.messageTimestamp(for: messageDate) == expected)
+        #expect(DisplayText.messageTimestamp(for: messageDate, now: messageDate) == expected)
     }
 
     @MainActor
@@ -4232,6 +4232,90 @@ struct whitenoise_macTests {
         #expect(items[2].dayLabel == nil)
         #expect(items[3].dayLabel == "Today")
         #expect(items.map(\.id) == messages.map(\.id))
+    }
+
+    @MainActor
+    @Test func timelineStoreMemoizesDayGroupingUntilItsInputsChange() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let sentAt = try #require(calendar.date(from: DateComponents(year: 2026, month: 7, day: 17, hour: 10)))
+        let sameDay = try #require(calendar.date(byAdding: .hour, value: 2, to: sentAt))
+        let laterSameDay = try #require(calendar.date(byAdding: .hour, value: 6, to: sentAt))
+        let nextDay = try #require(calendar.date(byAdding: .day, value: 1, to: sameDay))
+        let locale = Locale(identifier: "en_US")
+        let store = MessageTimelineStore(
+            messages: [
+                MessageItem(
+                    id: "cached-day",
+                    senderName: "Alice",
+                    body: "Hello",
+                    sentAt: sentAt,
+                    isOutgoing: false
+                )
+            ],
+            isLoaded: true,
+            displayReferenceDate: sameDay,
+            displayCalendar: calendar,
+            displayLocale: locale
+        )
+
+        #expect(store.displayItems.first?.dayLabel == "Today")
+        _ = store.displayItems
+        _ = store.displayItems
+        #expect(store.displayItemsBuildCount == 1)
+
+        store.refreshDisplayItems(referenceDate: laterSameDay, calendar: calendar, locale: locale)
+        #expect(store.displayItemsBuildCount == 1)
+
+        store.refreshDisplayItems(referenceDate: nextDay, calendar: calendar, locale: locale)
+        #expect(store.displayItems.first?.dayLabel == "Yesterday")
+        #expect(store.displayItemsBuildCount == 2)
+    }
+
+    @MainActor
+    @Test func timestampLabelsRefreshForReferenceDay() async throws {
+        let calendar = Calendar.autoupdatingCurrent
+        let dayStart = calendar.startOfDay(for: Date())
+        let sentAt = try #require(calendar.date(byAdding: .hour, value: 15, to: dayStart))
+        let sameDayNow = try #require(calendar.date(byAdding: .hour, value: 16, to: dayStart))
+        let nextDayNow = try #require(calendar.date(byAdding: .day, value: 1, to: sameDayNow))
+        let locale = Locale(identifier: "en_US")
+        let expectedTime = sentAt.formatted(
+            Date.FormatStyle(date: .omitted, time: .shortened).locale(locale)
+        )
+        let expectedDateTime = sentAt.formatted(
+            Date.FormatStyle(date: .abbreviated, time: .shortened).locale(locale)
+        )
+
+        #expect(DisplayText.messageTimestamp(for: sentAt, now: sameDayNow, locale: locale) == expectedTime)
+        #expect(DisplayText.messageTimestamp(for: sentAt, now: nextDayNow, locale: locale) == expectedDateTime)
+
+        let chat = ChatItem(
+            id: "day-boundary-chat",
+            title: "Day Boundary",
+            subtitle: "",
+            preview: "",
+            updatedAt: sentAt,
+            avatarSeed: "day-boundary-chat",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let message = MessageItem(
+            id: "day-boundary-message",
+            senderName: "Alice",
+            body: "Still here",
+            sentAt: sentAt,
+            isEdited: true,
+            isOutgoing: false
+        )
+
+        #expect(chat.timestampLabel(at: sameDayNow, locale: locale) == expectedTime)
+        #expect(chat.timestampLabel(at: nextDayNow, locale: locale) != expectedTime)
+        #expect(message.timeLabel(at: nextDayNow, locale: locale) == expectedDateTime)
+        #expect(
+            message.metadataLabel(at: nextDayNow, locale: locale)
+                == "\(expectedDateTime)  \(L10n.string("Edited"))"
+        )
     }
 
     @MainActor

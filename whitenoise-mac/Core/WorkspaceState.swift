@@ -255,6 +255,12 @@ final class MessageTimelineStore {
 
     private(set) var messages: [MessageItem]
     private(set) var messageIDs: [String]
+    /// Day-grouped rendering projection. Rebuilt only when the materialized message window or
+    /// its day/locale context changes, never from an unrelated `ConversationView.body` pass.
+    private(set) var displayItems: [TimelineMessageDisplayItem]
+    @ObservationIgnored private var displayReferenceDate: Date
+    @ObservationIgnored private var displayCalendar: Calendar
+    @ObservationIgnored private var displayLocale: Locale
     /// O(1) id → message map for non-UI lookups (`timelineMessage(groupIdHex:messageId:)`).
     /// `@ObservationIgnored`: it is never read from a view body — only `messages`/`messageIDs`
     /// drive rendering — so it must not enlarge a view's observation set. The store owns this
@@ -278,10 +284,25 @@ final class MessageTimelineStore {
     @ObservationIgnored private var pendingSuppressedMediaSortKey: TimelineSortKey?
     private(set) var isLoaded: Bool
 
-    init(messages: [MessageItem] = [], isLoaded: Bool = false) {
+    init(
+        messages: [MessageItem] = [],
+        isLoaded: Bool = false,
+        displayReferenceDate: Date = Date(),
+        displayCalendar: Calendar = .autoupdatingCurrent,
+        displayLocale: Locale = AppLanguage.currentLocale
+    ) {
         let messages = Self.deduplicatedMessages(messages)
         self.messages = messages
         self.messageIDs = messages.map(\.id)
+        self.displayItems = TimelineMessageDisplayItem.make(
+            from: messages,
+            now: displayReferenceDate,
+            calendar: displayCalendar,
+            locale: displayLocale
+        )
+        self.displayReferenceDate = displayReferenceDate
+        self.displayCalendar = displayCalendar
+        self.displayLocale = displayLocale
         self.lookup = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         self.indexById = Dictionary(
             messages.enumerated().map { ($0.element.id, $0.offset) },
@@ -289,6 +310,9 @@ final class MessageTimelineStore {
         )
         self.baseMessagesById = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         self.isLoaded = isLoaded
+        #if DEBUG
+            displayItemsBuildCount = 1
+        #endif
     }
 
     private static func deduplicatedMessages(_ messages: [MessageItem]) -> [MessageItem] {
@@ -314,6 +338,7 @@ final class MessageTimelineStore {
         pruneInvalidSenderCandidatesForMaterializedTargets()
         pruneEditCandidates(windowLimit: windowLimit ?? max(bases.count, 1))
         _ = recomputeAllRenderedMessages()
+        rebuildDisplayItems()
         self.isLoaded = true
         return consumeMediaAttachmentInvalidation(afterAuthoritativeReplace: bases, priorLookup: priorLookup)
     }
@@ -321,6 +346,7 @@ final class MessageTimelineStore {
     func clear() {
         messages = []
         messageIDs = []
+        displayItems = []
         lookup = [:]
         indexById = [:]
         baseMessagesById = [:]
@@ -412,6 +438,7 @@ final class MessageTimelineStore {
         }
 
         if didChange {
+            rebuildDisplayItems()
             isLoaded = true
         }
         let didChangeMediaAttachments = mediaAttachmentsBeforeUpserts.contains { id, previous in
@@ -436,6 +463,39 @@ final class MessageTimelineStore {
             didChangeMediaAttachments: didChangeMediaAttachments
         )
     }
+
+    /// Refreshes date-sensitive day labels after a calendar rollover or locale change. Calls made
+    /// repeatedly within the same calendar day and locale are intentionally O(1).
+    func refreshDisplayItems(
+        referenceDate: Date,
+        calendar: Calendar = .autoupdatingCurrent,
+        locale: Locale = AppLanguage.currentLocale
+    ) {
+        let dayChanged = !calendar.isDate(displayReferenceDate, inSameDayAs: referenceDate)
+        guard dayChanged || displayCalendar != calendar || displayLocale != locale else { return }
+
+        displayReferenceDate = referenceDate
+        displayCalendar = calendar
+        displayLocale = locale
+        rebuildDisplayItems()
+    }
+
+    private func rebuildDisplayItems() {
+        displayItems = TimelineMessageDisplayItem.make(
+            from: messages,
+            now: displayReferenceDate,
+            calendar: displayCalendar,
+            locale: displayLocale
+        )
+        #if DEBUG
+            displayItemsBuildCount += 1
+        #endif
+    }
+
+    #if DEBUG
+        /// Test-only instrumentation proving unrelated view reads do not re-derive day grouping.
+        @ObservationIgnored private(set) var displayItemsBuildCount = 0
+    #endif
 
     private func applyEditMutations(_ mutations: [MessageEditMutation]) {
         guard !mutations.isEmpty else { return }
@@ -2006,6 +2066,17 @@ final class WorkspaceState {
     var selectedMessages: [MessageItem] {
         guard let selectedChat else { return [] }
         return messageTimelineStores[selectedChat.id]?.messages ?? []
+    }
+
+    var selectedTimelineDisplayItems: [TimelineMessageDisplayItem] {
+        guard let selectedChat else { return [] }
+        return messageTimelineStores[selectedChat.id]?.displayItems ?? []
+    }
+
+    func refreshTimelineDisplayItems(referenceDate: Date, locale: Locale) {
+        for store in messageTimelineStores.values {
+            store.refreshDisplayItems(referenceDate: referenceDate, locale: locale)
+        }
     }
 
     var selectedMessageIDs: [String] {

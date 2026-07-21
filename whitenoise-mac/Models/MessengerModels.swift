@@ -134,6 +134,17 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// True when the local account can use the outbound composer for this chat.
     var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember }
 
+    /// Re-derives the relative spelling against a wall-clock reference date. Views use
+    /// this when the calendar day changes; `timestampLabel` remains the cheap mapping-time
+    /// value used during ordinary renders.
+    nonisolated func timestampLabel(
+        at now: Date,
+        locale: Locale = AppLanguage.currentLocale
+    ) -> String {
+        guard let updatedAt else { return "" }
+        return DisplayText.relativeTimestamp(for: updatedAt, now: now, locale: locale)
+    }
+
     init(
         id: String,
         title: String,
@@ -1662,6 +1673,30 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         PeerDisplayText.strippingBidiControls(body)
     }
 
+    /// Re-derives the date-sensitive portion of the label after a calendar-day change.
+    nonisolated func timeLabel(
+        at now: Date,
+        locale: Locale = AppLanguage.currentLocale
+    ) -> String {
+        DisplayText.messageTimestamp(for: sentAt, now: now, locale: locale)
+    }
+
+    /// Rebuilds the rendered metadata while preserving the message's static edited and
+    /// delivery-state suffixes.
+    nonisolated func metadataLabel(
+        at now: Date,
+        locale: Locale = AppLanguage.currentLocale
+    ) -> String {
+        var parts = [timeLabel(at: now, locale: locale)]
+        if isEdited {
+            parts.append(L10n.string("Edited"))
+        }
+        if let statusLabel {
+            parts.append(statusLabel)
+        }
+        return parts.joined(separator: "  ")
+    }
+
     // `nonisolated` so the timeline record → view-model mapping (`MessageItem.timeline`)
     // can build items in the off-main window/projection closure (whitenoise-mac#285)
     // without inheriting the module's default main-actor isolation.
@@ -2542,7 +2577,7 @@ nonisolated enum DisplayText {
     static func relativeTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale)
         -> String
     {
-        if calendar.isDateInToday(date) {
+        if calendar.isDate(date, inSameDayAs: now) {
             return date.formatted(timeOnlyStyle.locale(twelveHourLocale(locale)))
         }
         if calendar.isDate(date, equalTo: now, toGranularity: .weekOfYear) {
@@ -2551,8 +2586,13 @@ nonisolated enum DisplayText {
         return date.formatted(monthDayStyle.locale(locale))
     }
 
-    static func messageTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
-        date.formatted(timeOnlyStyle.locale(twelveHourLocale(locale)))
+    static func messageTimestamp(for date: Date, now: Date = Date(), locale: Locale = AppLanguage.currentLocale)
+        -> String
+    {
+        if calendar.isDate(date, inSameDayAs: now) {
+            return date.formatted(timeOnlyStyle.locale(twelveHourLocale(locale)))
+        }
+        return dateTimeTimestamp(for: date, locale: locale)
     }
 
     static func dateTimeTimestamp(for date: Date, locale: Locale = AppLanguage.currentLocale) -> String {
