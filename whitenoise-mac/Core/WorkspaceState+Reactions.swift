@@ -36,10 +36,10 @@ extension WorkspaceState {
         let rosterName = rosterMember.flatMap { PeerDisplayText.sanitize($0.displayName) }
         let name =
             firstNonBlank([
-                resolved?.profileDisplayName,
-                resolved?.profileName,
+                PeerDisplayText.sanitize(resolved?.profileDisplayName),
+                PeerDisplayText.sanitize(resolved?.profileName),
                 rosterName,
-                resolved?.directoryDisplayName,
+                PeerDisplayText.sanitize(resolved?.directoryDisplayName),
             ]) ?? DisplayText.short(accountIdHex)
         return ReactionReactorDisplay(
             accountIdHex: accountIdHex,

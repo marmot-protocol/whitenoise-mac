@@ -20422,6 +20422,60 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func notificationPreviewSanitizesAndIsolatesPeerControlledMessageText() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let maliciousPreview = "Pay\u{202E} 123\u{2066}\nnow"
+        let dm = state.localNotificationRequest(
+            for: notificationUpdate(
+                account: account,
+                notificationKey: "dm-notice",
+                senderName: "Alice",
+                previewText: maliciousPreview
+            ))
+        let group = state.localNotificationRequest(
+            for: notificationUpdate(
+                account: account,
+                notificationKey: "group-notice",
+                groupIdHex: "team-group",
+                senderName: "Alice",
+                previewText: maliciousPreview,
+                isDm: false,
+                groupName: "Engineering"
+            ))
+
+        #expect(dm.body == "Pay 123now")
+        #expect(group.body == "\u{2068}Alice\u{2069}: \u{2068}Pay 123now\u{2069}")
+        #expect(!dm.body.unicodeScalars.contains { $0.value == 0x202E || $0.value == 0x2066 })
+    }
+
+    @MainActor
+    @Test func reactionViewerSanitizesResolvedPeerNames() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let reactorId = String(repeating: "b", count: 64)
+        state.peerProfileFFICache[reactorId] = WorkspaceState.CachedPeerProfile(
+            resolved: WorkspaceState.ResolvedPeerFFI(
+                profileDisplayName: "Trusted\u{202E} Admin\u{2066}",
+                profileName: nil,
+                profilePicture: nil,
+                directoryDisplayName: nil
+            ),
+            resolvedAt: Date()
+        )
+
+        let reactor = state.reactionReactorDisplay(accountIdHex: reactorId)
+        #expect(reactor.name == "Trusted Admin")
+        #expect(!reactor.name.unicodeScalars.contains { $0.value == 0x202E || $0.value == 0x2066 })
+    }
+
+    @MainActor
     @Test func incomingNotificationReadsSettingsOnceForActiveAccount() async throws {
         // Issue #111: `handleNotificationUpdate(_:)` previously read the account's
         // notification settings twice over the FFI boundary for the active account
@@ -20656,7 +20710,9 @@ struct whitenoise_macTests {
 
         #expect(notificationCenter.postedRequests.count == 1)
         #expect(notificationCenter.postedRequests.first?.title == "Engineering")
-        #expect(notificationCenter.postedRequests.first?.body == "\(isolated("Bob")): The launch plan is ready.")
+        #expect(
+            notificationCenter.postedRequests.first?.body
+                == "\(isolated("Bob")): \(isolated("The launch plan is ready."))")
     }
 
     @MainActor
