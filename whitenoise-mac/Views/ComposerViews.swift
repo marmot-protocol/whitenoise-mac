@@ -271,10 +271,12 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
-        context.coordinator.synchronizeMentionMarkers(in: textView)
-        context.coordinator.synchronizeMentionContextScope(mentionContextScope, in: textView)
+        context.coordinator.scheduleMentionSynchronization(
+            scope: mentionContextScope,
+            insertion: mentionInsertion,
+            in: textView
+        )
         context.coordinator.scheduleEmojiInsertion(emojiInsertion, into: textView)
-        context.coordinator.insertMentionIfNeeded(mentionInsertion, into: textView)
         DispatchQueue.main.async {
             context.coordinator.updateMeasuredHeight(for: textView)
         }
@@ -303,6 +305,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         private var lastEmojiInsertionID: UUID?
         private var lastMentionInsertionID: UUID?
         private var lastMentionContext: ComposerMentionContext?
+        private var mentionSynchronizationGeneration: UInt64 = 0
 
         init(
             text: Binding<String>,
@@ -336,6 +339,21 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
                 updateMeasuredHeight(for: textView)
                 textView.window?.makeFirstResponder(textView)
                 onEmojiInsertionConsumed(insertion.id)
+            }
+        }
+
+        func scheduleMentionSynchronization(
+            scope: WorkspaceState.ComposerDraftKey?,
+            insertion: ComposerMentionInsertion?,
+            in textView: NSTextView
+        ) {
+            mentionSynchronizationGeneration &+= 1
+            let generation = mentionSynchronizationGeneration
+            DispatchQueue.main.async { [self] in
+                guard generation == mentionSynchronizationGeneration else { return }
+                synchronizeMentionMarkers(in: textView)
+                synchronizeMentionContextScope(scope, in: textView)
+                insertMentionIfNeeded(insertion, into: textView)
             }
         }
 

@@ -124,6 +124,112 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func mentionSynchronizationDefersObservableWritesUntilAfterTheViewUpdate() async {
+        let firstScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "first")
+        let secondScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "second")
+        var boundText = "@Al"
+        var measuredHeight: CGFloat = 20
+        var boundSelections: [ComposerMentionSelection] = []
+        var publishedContexts: [ComposerMentionContext?] = []
+        var consumedInsertions: [UUID] = []
+        let coordinator = ComposerMessageTextViewRepresentable.Coordinator(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            measuredHeight: Binding(get: { measuredHeight }, set: { measuredHeight = $0 }),
+            mentionSelections: Binding(get: { boundSelections }, set: { boundSelections = $0 }),
+            mentionContextScope: firstScope,
+            onPasteMedia: { _ in },
+            onSend: {},
+            onMentionInsertionConsumed: { consumedInsertions.append($0) },
+            onMentionContextChange: { publishedContexts.append($0) }
+        )
+        let textView = NSTextView()
+        textView.string = boundText
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let insertion = ComposerMentionInsertion(
+            scope: secondScope,
+            context: ComposerMentionContext(query: "Al", tokenRange: NSRange(location: 0, length: 3)),
+            candidate: mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
+        )
+
+        coordinator.scheduleMentionSynchronization(
+            scope: secondScope,
+            insertion: insertion,
+            in: textView
+        )
+
+        #expect(boundText == "@Al")
+        #expect(boundSelections.isEmpty)
+        #expect(publishedContexts.isEmpty)
+        #expect(consumedInsertions.isEmpty)
+
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+
+        #expect(boundText == "@Alex ")
+        #expect(boundSelections.map(\.npub) == ["npub1qqqq"])
+        #expect(publishedContexts.compactMap { $0 }.first?.query == "Al")
+        #expect(consumedInsertions == [insertion.id])
+    }
+
+    @MainActor
+    @Test func newerMentionSynchronizationSupersedesQueuedWorkFromPreviousScope() async {
+        let firstScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "first")
+        let secondScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "second")
+        let thirdScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "third")
+        var boundText = "@Al"
+        var measuredHeight: CGFloat = 20
+        var boundSelections: [ComposerMentionSelection] = []
+        var consumedInsertions: [UUID] = []
+        let coordinator = ComposerMessageTextViewRepresentable.Coordinator(
+            text: Binding(get: { boundText }, set: { boundText = $0 }),
+            measuredHeight: Binding(get: { measuredHeight }, set: { measuredHeight = $0 }),
+            mentionSelections: Binding(get: { boundSelections }, set: { boundSelections = $0 }),
+            mentionContextScope: firstScope,
+            onPasteMedia: { _ in },
+            onSend: {},
+            onMentionInsertionConsumed: { consumedInsertions.append($0) }
+        )
+        let textView = NSTextView()
+        textView.string = boundText
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let context = ComposerMentionContext(query: "Al", tokenRange: NSRange(location: 0, length: 3))
+        let staleInsertion = ComposerMentionInsertion(
+            scope: secondScope,
+            context: context,
+            candidate: mentionCandidate(id: "stale", displayName: "Alex", npub: "npub1stale")
+        )
+        let latestInsertion = ComposerMentionInsertion(
+            scope: thirdScope,
+            context: context,
+            candidate: mentionCandidate(id: "latest", displayName: "Alicia", npub: "npub1latest")
+        )
+
+        coordinator.scheduleMentionSynchronization(
+            scope: secondScope,
+            insertion: staleInsertion,
+            in: textView
+        )
+        coordinator.scheduleMentionSynchronization(
+            scope: thirdScope,
+            insertion: latestInsertion,
+            in: textView
+        )
+
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+
+        #expect(boundText == "@Alicia ")
+        #expect(boundSelections.map(\.npub) == ["npub1latest"])
+        #expect(consumedInsertions == [latestInsertion.id])
+    }
+
+    @MainActor
     @Test func mentionCoordinatorRepublishesContextAndRejectsStaleInsertionAcrossChats() throws {
         let firstScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "first")
         let secondScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "second")
