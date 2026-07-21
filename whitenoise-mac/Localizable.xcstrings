@@ -511,6 +511,286 @@
         }
       }
     },
+    "%lld attachments" : {
+      "comment" : "A count of media attachments.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld Anhang"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld Anhänge"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld attachment"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld attachments"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld adjunto"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld adjuntos"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld pièce jointe"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld pièces jointes"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld allegato"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld allegati"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld anexo"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld anexos"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "few" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld вложения"
+                    }
+                  },
+                  "many" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld вложений"
+                    }
+                  },
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld вложение"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld вложения"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld ek"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld 个附件"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@count@"
+          },
+          "substitutions" : {
+            "count" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%lld 個附件"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld members" : {
       "comment" : "A count of members in a chat.",
       "extractionState" : "manual",
@@ -791,286 +1071,6 @@
         }
       }
     },
-    "%lld attachments" : {
-      "comment" : "A count of media attachments.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld Anhang"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld Anhänge"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld attachment"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld attachments"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld adjunto"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld adjuntos"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld pièce jointe"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld pièces jointes"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld allegato"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld allegati"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld anexo"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld anexos"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld вложение"
-                    }
-                  },
-                  "few" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld вложения"
-                    }
-                  },
-                  "many" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld вложений"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld вложения"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld ek"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld 个附件"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%#@count@"
-          },
-          "substitutions" : {
-            "count" : {
-              "argNum" : 1,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%lld 個附件"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "%lld person group" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1317,12 +1317,6 @@
               "formatSpecifier" : "llu",
               "variations" : {
                 "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%llu день"
-                    }
-                  },
                   "few" : {
                     "stringUnit" : {
                       "state" : "translated",
@@ -1333,6 +1327,12 @@
                     "stringUnit" : {
                       "state" : "translated",
                       "value" : "%llu дней"
+                    }
+                  },
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%llu день"
                     }
                   },
                   "other" : {
@@ -1597,12 +1597,6 @@
               "formatSpecifier" : "llu",
               "variations" : {
                 "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%llu час"
-                    }
-                  },
                   "few" : {
                     "stringUnit" : {
                       "state" : "translated",
@@ -1613,6 +1607,12 @@
                     "stringUnit" : {
                       "state" : "translated",
                       "value" : "%llu часов"
+                    }
+                  },
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%llu час"
                     }
                   },
                   "other" : {
@@ -1877,12 +1877,6 @@
               "formatSpecifier" : "llu",
               "variations" : {
                 "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%llu минута"
-                    }
-                  },
                   "few" : {
                     "stringUnit" : {
                       "state" : "translated",
@@ -1893,6 +1887,12 @@
                     "stringUnit" : {
                       "state" : "translated",
                       "value" : "%llu минут"
+                    }
+                  },
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%llu минута"
                     }
                   },
                   "other" : {
@@ -2157,12 +2157,6 @@
               "formatSpecifier" : "llu",
               "variations" : {
                 "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%llu месяц"
-                    }
-                  },
                   "few" : {
                     "stringUnit" : {
                       "state" : "translated",
@@ -2173,6 +2167,12 @@
                     "stringUnit" : {
                       "state" : "translated",
                       "value" : "%llu месяцев"
+                    }
+                  },
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%llu месяц"
                     }
                   },
                   "other" : {
@@ -2437,12 +2437,6 @@
               "formatSpecifier" : "llu",
               "variations" : {
                 "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%llu секунда"
-                    }
-                  },
                   "few" : {
                     "stringUnit" : {
                       "state" : "translated",
@@ -2453,6 +2447,12 @@
                     "stringUnit" : {
                       "state" : "translated",
                       "value" : "%llu секунд"
+                    }
+                  },
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%llu секунда"
                     }
                   },
                   "other" : {
@@ -2717,12 +2717,6 @@
               "formatSpecifier" : "llu",
               "variations" : {
                 "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%llu неделя"
-                    }
-                  },
                   "few" : {
                     "stringUnit" : {
                       "state" : "translated",
@@ -2733,6 +2727,12 @@
                     "stringUnit" : {
                       "state" : "translated",
                       "value" : "%llu недель"
+                    }
+                  },
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%llu неделя"
                     }
                   },
                   "other" : {
@@ -2994,6 +2994,10 @@
         }
       }
     },
+    "99+" : {
+      "comment" : "A badge that shows the number of unread messages.",
+      "isCommentAutoGenerated" : true
+    },
     "About" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3052,9 +3056,6 @@
           }
         }
       }
-    },
-    "Accept invite" : {
-
     },
     "Accept this invite to confirm membership, or decline it to remove the group from your chat list." : {
 
@@ -3536,9 +3537,6 @@
           }
         }
       }
-    },
-    "Add one or more people by npub or hex public key. Press return or tap + to add each one." : {
-
     },
     "Add relay" : {
       "extractionState" : "manual",
@@ -4567,9 +4565,6 @@
     "Auto-delete after" : {
 
     },
-    "Back to chat" : {
-
-    },
     "Back to settings" : {
       "comment" : "A label for a button that returns to the settings screen.",
       "isCommentAutoGenerated" : true
@@ -5062,6 +5057,7 @@
       }
     },
     "Chats" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -5118,6 +5114,10 @@
           }
         }
       }
+    },
+    "Choose an account" : {
+      "comment" : "A heading for the user to choose an account.",
+      "isCommentAutoGenerated" : true
     },
     "Choose how White Noise follows macOS appearance." : {
       "extractionState" : "manual",
@@ -6782,6 +6782,7 @@
       }
     },
     "Create New Chat" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -7017,9 +7018,6 @@
       }
     },
     "Data Sharing" : {
-
-    },
-    "Decline invite" : {
 
     },
     "Delete" : {
@@ -7931,6 +7929,10 @@
         }
       }
     },
+    "Edit" : {
+      "comment" : "Action to edit a message.",
+      "isCommentAutoGenerated" : true
+    },
     "Edit group name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7989,6 +7991,21 @@
           }
         }
       }
+    },
+    "Edited" : {
+      "comment" : "A button that opens a new tab showing the edit history of a message.",
+      "isCommentAutoGenerated" : true
+    },
+    "Editing message" : {
+      "comment" : "A label displayed above the body of a message being edited.",
+      "isCommentAutoGenerated" : true
+    },
+    "Emoji" : {
+
+    },
+    "Emoji unavailable" : {
+      "comment" : "A label that describes an unavailable emoji picker.",
+      "isCommentAutoGenerated" : true
     },
     "Encrypted (NIP-49)" : {
 
@@ -8526,6 +8543,10 @@
     },
     "Finish recording" : {
 
+    },
+    "Forward" : {
+      "comment" : "Label for a message row action that forwards a message.",
+      "isCommentAutoGenerated" : true
     },
     "Full Data Logging" : {
 
@@ -13334,6 +13355,7 @@
       }
     },
     "Looking up profile..." : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -14284,6 +14306,10 @@
         }
       }
     },
+    "Message Info" : {
+      "comment" : "Title of a context menu action that shows a message's details.",
+      "isCommentAutoGenerated" : true
+    },
     "Message preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15116,10 +15142,8 @@
         }
       }
     },
-    "Next image" : {
-
-    },
     "NIP-05" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -17080,6 +17104,7 @@
       }
     },
     "npub or hex public key" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -17136,9 +17161,6 @@
           }
         }
       }
-    },
-    "npub, profile link, or hex public key" : {
-
     },
     "npub1…, nprofile1…, or hex public key" : {
       "extractionState" : "manual",
@@ -18031,6 +18053,7 @@
       }
     },
     "Optional description" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -18089,6 +18112,7 @@
       }
     },
     "Optional group name" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -18386,9 +18410,6 @@
       }
     },
     "Preview" : {
-
-    },
-    "Previous image" : {
 
     },
     "Privacy" : {
@@ -21938,6 +21959,9 @@
         }
       }
     },
+    "Save edit" : {
+
+    },
     "Save profile" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -22763,6 +22787,10 @@
         }
       }
     },
+    "Select" : {
+      "comment" : "Label for a button that selects a message.",
+      "isCommentAutoGenerated" : true
+    },
     "Select a chat" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -23472,6 +23500,14 @@
         }
       }
     },
+    "Shared Media" : {
+      "comment" : "A label for the \"Shared Media\" section in the group details view.",
+      "isCommentAutoGenerated" : true
+    },
+    "Shared media type" : {
+      "comment" : "A label for the picker that lets the user choose between \"Media\" and \"Files\".",
+      "isCommentAutoGenerated" : true
+    },
     "Show chat list" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -23652,8 +23688,16 @@
         }
       }
     },
+    "Show replied-to message" : {
+      "comment" : "A button that shows the message that was replied to.",
+      "isCommentAutoGenerated" : true
+    },
     "Sign In" : {
 
+    },
+    "Sign in to continue with an account stored on this Mac." : {
+      "comment" : "A description of the feature.",
+      "isCommentAutoGenerated" : true
     },
     "Sign out" : {
       "extractionState" : "manual",
@@ -23775,6 +23819,10 @@
           }
         }
       }
+    },
+    "Sign out of this account?" : {
+      "comment" : "A confirmation dialog that asks the user to sign out of an account.",
+      "isCommentAutoGenerated" : true
     },
     "Signing out only forgets which account is active. Identities and their key material stay in the device keychain so you can sign back in." : {
       "extractionState" : "manual",
@@ -25377,6 +25425,10 @@
         }
       }
     },
+    "The account and its local data will stay on this Mac so you can sign in again later." : {
+      "comment" : "A message displayed in the confirmation dialog for signing out of an account.",
+      "isCommentAutoGenerated" : true
+    },
     "The image search service returned an invalid response." : {
       "comment" : "Error message when the image search service returns an invalid response.",
       "extractionState" : "stale",
@@ -25744,6 +25796,65 @@
     },
     "This removes %@ from the group." : {
 
+    },
+    "Today" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heute"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hoy"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aujourd’hui"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oggi"
+          }
+        },
+        "pt" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hoje"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сегодня"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bugün"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今天"
+          }
+        }
+      }
     },
     "Token fingerprint" : {
       "extractionState" : "manual",
@@ -26223,6 +26334,10 @@
         }
       }
     },
+    "Use another account" : {
+      "comment" : "A button that lets the user use another account.",
+      "isCommentAutoGenerated" : true
+    },
     "Version" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -26697,65 +26812,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "wss://relay.example.com"
-          }
-        }
-      }
-    },
-    "Today" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Heute"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hoy"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aujourd’hui"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oggi"
-          }
-        },
-        "pt" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hoje"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сегодня"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bugün"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "今天"
           }
         }
       }
