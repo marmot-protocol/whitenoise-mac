@@ -27,35 +27,6 @@ enum GroupSharedMediaCategory: String, CaseIterable, Identifiable {
     }
 }
 
-nonisolated struct GroupSharedMediaItem: Identifiable, Hashable {
-    let id: String
-    let reference: MediaAttachmentReferenceFfi
-    let groupIdHex: String
-    let timestamp: UInt64
-
-    var attachment: MessageMediaAttachment { MessageMediaAttachment(id: id, reference: reference) }
-    var isVisual: Bool { attachment.kind == .image || attachment.kind == .video }
-
-    static func items(from records: [MediaRecordFfi]) -> [GroupSharedMediaItem] {
-        records
-            .enumerated()
-            .map { index, record in
-                let stableRecordID =
-                    record.messageIdHex.isEmpty
-                    ? record.reference.plaintextSha256.lowercased() : record.messageIdHex
-                return GroupSharedMediaItem(
-                    id: "shared-media:\(stableRecordID):\(record.attachmentIndex):\(index)",
-                    reference: record.reference,
-                    groupIdHex: record.groupIdHex,
-                    timestamp: max(record.recordedAt, record.receivedAt)
-                )
-            }
-            .sorted { lhs, rhs in
-                lhs.timestamp != rhs.timestamp ? lhs.timestamp > rhs.timestamp : lhs.id > rhs.id
-            }
-    }
-}
-
 struct GroupSharedMediaSection: View {
     @Environment(WorkspaceState.self) private var workspace
     let groupIdHex: String
@@ -75,17 +46,17 @@ struct GroupSharedMediaSection: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            let items = GroupSharedMediaItem.items(from: workspace.sharedMediaRecords)
-            if workspace.isLoadingSharedMedia && items.isEmpty {
+            let projection = workspace.sharedMediaProjection
+            if workspace.isLoadingSharedMedia && projection.isEmpty {
                 loadingRow
-            } else if let error = workspace.sharedMediaError, items.isEmpty {
+            } else if let error = workspace.sharedMediaError, projection.isEmpty {
                 errorRow(error)
             } else {
                 switch selectedCategory {
                 case .media:
-                    mediaGrid(items.filter(\.isVisual))
+                    mediaGrid(projection.media)
                 case .files:
-                    filesList(items.filter { !$0.isVisual })
+                    filesList(projection.files)
                 }
             }
         }

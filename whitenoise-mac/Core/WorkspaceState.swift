@@ -1099,7 +1099,7 @@ final class WorkspaceState {
     var isGroupDetailsPresented = false
     var groupDetailsSnapshot: GroupDetailsSnapshot?
     /// Shared-media browser state for the group-details sheet.
-    var sharedMediaRecords: [MediaRecordFfi] = []
+    var sharedMediaProjection = GroupSharedMediaProjection.empty
     var sharedMediaGroupId: String?
     var sharedMediaError: String?
     var isLoadingSharedMedia = false

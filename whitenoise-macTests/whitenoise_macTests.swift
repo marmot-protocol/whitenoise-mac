@@ -6702,6 +6702,47 @@ struct whitenoise_macTests {
         #expect(runtime.downloadMediaCallCount == 1)
     }
 
+    @Test func sharedMediaProjectionKeepsIdentityStableAcrossInputReordering() {
+        let first = MediaRecordFfi(
+            messageIdHex: "first-message",
+            attachmentIndex: 0,
+            direction: "inbound",
+            groupIdHex: "group",
+            sender: "alice",
+            reference: mediaAttachmentReference(
+                mediaType: "image/png",
+                fileName: "first.png",
+                plaintextSha256: String(repeating: "1", count: 64)
+            ),
+            caption: nil,
+            recordedAt: 1_700_000_000,
+            receivedAt: 1_700_000_001
+        )
+        let second = MediaRecordFfi(
+            messageIdHex: "second-message",
+            attachmentIndex: 0,
+            direction: "inbound",
+            groupIdHex: "group",
+            sender: "bob",
+            reference: mediaAttachmentReference(
+                mediaType: "application/pdf",
+                fileName: "second.pdf",
+                plaintextSha256: String(repeating: "2", count: 64)
+            ),
+            caption: nil,
+            recordedAt: 1_700_000_010,
+            receivedAt: 1_700_000_011
+        )
+
+        let original = GroupSharedMediaProjection(records: [first, second, first])
+        let reordered = GroupSharedMediaProjection(records: [second, first])
+
+        #expect(original.media.count == 1)
+        #expect(original.files.count == 1)
+        #expect(original.media.map(\.id) == reordered.media.map(\.id))
+        #expect(original.files.map(\.id) == reordered.files.map(\.id))
+    }
+
     @MainActor
     @Test func workspaceCachesSourceEpochZeroMediaReferenceMissesUntilInvalidated() async throws {
         let account = AccountSummaryFfi(

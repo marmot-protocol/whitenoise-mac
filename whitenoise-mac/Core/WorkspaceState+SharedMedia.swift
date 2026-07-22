@@ -23,7 +23,7 @@ extension WorkspaceState {
         guard let client, let activeAccount, !groupIdHex.isEmpty else { return }
         // A fresh open of another group clears the previous list so stale thumbnails never flash.
         if sharedMediaGroupId != groupIdHex {
-            sharedMediaRecords = []
+            sharedMediaProjection = .empty
             clearSharedMediaCache()
         }
         sharedMediaGroupId = groupIdHex
@@ -42,14 +42,15 @@ extension WorkspaceState {
         let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
         do {
-            let records = try await runOffMain {
-                try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+            let projection = try await runOffMain {
+                let records = try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
+                return GroupSharedMediaProjection(records: records)
             }
             // The list FFI suspends this actor; drop a superseded/stale result.
             guard generation == sharedMediaLoadGeneration,
                 activeAccountId == accountId, sharedMediaGroupId == groupIdHex
             else { return }
-            sharedMediaRecords = records
+            sharedMediaProjection = projection
         } catch {
             guard generation == sharedMediaLoadGeneration,
                 activeAccountId == accountId, sharedMediaGroupId == groupIdHex
@@ -60,7 +61,7 @@ extension WorkspaceState {
 
     func clearSharedMedia() {
         sharedMediaGroupId = nil
-        sharedMediaRecords = []
+        sharedMediaProjection = .empty
         sharedMediaError = nil
         // Supersede any in-flight load so its result/error can't land in the torn-down state.
         sharedMediaLoadGeneration &+= 1
