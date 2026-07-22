@@ -9750,6 +9750,136 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func failedReadMarkerAfterNavigationRollsBackAndCanRetry() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.replaceMessages(
+            [
+                MessageItem(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    senderName: "Alice",
+                    body: "Latest message",
+                    sentAt: Date(timeIntervalSince1970: 1_700_000_010),
+                    isOutgoing: false
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        let activeAccount = try #require(state.activeAccount)
+        runtime.markTimelineMessageReadGateEnabled = true
+        runtime.markTimelineMessageReadError = NSError(
+            domain: "test.read-marker",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "read marker failed"]
+        )
+        async let firstMark: Void = state.markLatestVisibleMessageRead(
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        let didReachReadMarker = await waitFor { runtime.didReachMarkTimelineMessageReadGate }
+        #expect(didReachReadMarker)
+
+        state.selection = .settings(.accounts)
+        runtime.releaseMarkTimelineMessageReadGate()
+        _ = await firstMark
+
+        #expect(state.lastMarkedReadMarkers["direct-group"] == nil)
+        #expect(state.lastConfirmedReadMarkers["direct-group"] == nil)
+        #expect(state.backgroundStatus != "read marker failed")
+
+        runtime.markTimelineMessageReadGateEnabled = false
+        runtime.markTimelineMessageReadError = nil
+        state.selection = .chat("direct-group")
+        await state.markLatestVisibleMessageRead(
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+
+        #expect(runtime.markedReadMessageIds == ["latest", "latest"])
+        #expect(state.lastConfirmedReadMarkers["direct-group"]?.messageId == "latest")
+    }
+
+    @MainActor
+    @Test func successfulReadMarkerAfterNavigationStillConfirmsPerGroupState() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(
+            appActivityProvider: { true },
+            conversationWindowVisibilityProvider: { true },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.replaceMessages(
+            [
+                MessageItem(
+                    id: "latest",
+                    groupIdHex: "direct-group",
+                    senderName: "Alice",
+                    body: "Latest message",
+                    sentAt: Date(timeIntervalSince1970: 1_700_000_010),
+                    isOutgoing: false
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        let activeAccount = try #require(state.activeAccount)
+        runtime.markTimelineMessageReadGateEnabled = true
+        async let firstMark: Void = state.markLatestVisibleMessageRead(
+            groupIdHex: "direct-group",
+            account: activeAccount,
+            client: runtime
+        )
+        let didReachReadMarker = await waitFor { runtime.didReachMarkTimelineMessageReadGate }
+        #expect(didReachReadMarker)
+
+        state.selection = .settings(.accounts)
+        runtime.releaseMarkTimelineMessageReadGate()
+        _ = await firstMark
+
+        #expect(state.lastMarkedReadMarkers["direct-group"]?.messageId == "latest")
+        #expect(state.lastConfirmedReadMarkers["direct-group"]?.messageId == "latest")
+    }
+
+    @MainActor
     @Test func olderTimelineProjectionDeltaDoesNotMoveReadMarkerBackward() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -22327,6 +22457,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachListMediaGate: Bool {
         listMediaGate.didReach
     }
+    private let markTimelineMessageReadGate = BlockingFfiGate()
+    var markTimelineMessageReadGateEnabled: Bool {
+        get { markTimelineMessageReadGate.isEnabled }
+        set { markTimelineMessageReadGate.isEnabled = newValue }
+    }
+    var didReachMarkTimelineMessageReadGate: Bool {
+        markTimelineMessageReadGate.didReach
+    }
+    var markTimelineMessageReadError: Error?
     /// Issue #134 reentrancy-test support: when armed, the first group-avatar update FFI call
     /// suspends until `releaseGroupAvatarUpdateGate()` is invoked, holding the first invocation
     /// in-flight so a test can issue an overlapping clear/set action and assert the guard dropped it.
@@ -23497,7 +23636,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     {
         recordSyncCall("markTimelineMessageRead")
         markedReadMessageIds.append(messageIdHex)
+        markTimelineMessageReadGate.passIfArmed()
+        if let markTimelineMessageReadError {
+            throw markTimelineMessageReadError
+        }
         return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
+    }
+
+    func releaseMarkTimelineMessageReadGate() {
+        markTimelineMessageReadGate.release()
     }
 
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi] {
