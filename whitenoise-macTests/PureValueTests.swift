@@ -606,9 +606,10 @@ struct PureValueTests {
             ChatEmojiCatalogEntry(emoji: "❤️", name: "red heart", group: 7, keywords: ["love"]),
         ]
 
-        #expect(ChatEmojiSearch.results(in: entries, query: "laugh").map(\.emoji) == ["😂"])
-        #expect(ChatEmojiSearch.results(in: entries, query: "red").map(\.emoji) == ["❤️"])
-        #expect(ChatEmojiSearch.results(in: entries, query: "face").map(\.emoji) == ["😂", "😀"])
+        let catalog = ChatEmojiCatalog(entries: entries)
+        #expect(ChatEmojiSearch.results(in: catalog, query: "LAUGH").map(\.emoji) == ["😂"])
+        #expect(ChatEmojiSearch.results(in: catalog, query: "red").map(\.emoji) == ["❤️"])
+        #expect(ChatEmojiSearch.results(in: catalog, query: "face").map(\.emoji) == ["😂", "😀"])
     }
 
     @Test func emojiCatalogPreservesEntriesPartitionsByGroupAndToleratesDuplicateEmojiKeys() {
