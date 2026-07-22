@@ -420,6 +420,28 @@ struct PureValueTests {
         #expect(DisappearingMessageOption.custom(oversizedSeconds).label == "9223372036854775808 seconds")
     }
 
+    @Test func disappearingMessageDurationUsesLargestExactUnitAndRoundTrips() throws {
+        let cases: [(seconds: UInt64, unit: DisappearingMessageDurationUnit, count: UInt64)] = [
+            (90, .seconds, 90),
+            (120, .minutes, 2),
+            (7_200, .hours, 2),
+            (172_800, .days, 2),
+            (2_419_200, .weeks, 4),
+            (UInt64.max, .seconds, UInt64.max),
+        ]
+
+        #expect(DisappearingMessageDurationUnit.largestWholeUnit(for: 0) == nil)
+        for testCase in cases {
+            let duration = try #require(
+                DisappearingMessageDurationUnit.largestWholeUnit(for: testCase.seconds)
+            )
+            #expect(duration.unit == testCase.unit)
+            #expect(duration.count == testCase.count)
+            #expect(duration.count * duration.unit.seconds == testCase.seconds)
+        }
+        #expect(DisappearingMessageOption.custom(2_419_200).label == "4 weeks")
+    }
+
     @Test func messageDeletionCapabilityCoversEveryOwnershipAndRole() {
         struct Case {
             let name: String
