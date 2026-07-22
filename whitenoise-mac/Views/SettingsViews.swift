@@ -60,6 +60,7 @@ struct SettingsPanelView: View {
 }
 
 struct GeneralSettingsView: View {
+    @Environment(WorkspaceState.self) private var workspace
     @State private var launchAtLogin = LaunchAtLoginController()
 
     var body: some View {
@@ -81,6 +82,22 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(.secondary)
 
                 launchAtLoginStatus
+
+                Divider()
+
+                Toggle(
+                    "Restore last selected chat on launch",
+                    isOn: Binding(
+                        get: { workspace.restoreLastSelectedChat },
+                        set: { workspace.setRestoreLastSelectedChat($0) }
+                    )
+                )
+
+                Text(
+                    "Return to the last conversation selected for this account after White Noise finishes loading."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
         }
         .onAppear {

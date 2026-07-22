@@ -18,6 +18,7 @@ import UserNotifications
 extension WorkspaceState {
     func reloadChats(forceFreshSnapshot: Bool = false) async {
         guard client != nil, let activeAccount else {
+            discardStartupChatRestoration()
             cancelChatListReload()
             stopChatListListener()
             return
@@ -85,7 +86,7 @@ extension WorkspaceState {
             await applyChatRows(rows, account: activeAccount)
 
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
-            await selectMostRecentChatIfNeeded()
+            await selectInitialChatIfNeeded()
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             await refreshAccountUnreadSummary()
         } catch is CancellationError {
@@ -600,10 +601,11 @@ extension WorkspaceState {
         )
     }
 
-    func selectMostRecentChatIfNeeded() async {
-        guard selectedChat == nil,
+    func selectInitialChatIfNeeded() async {
+        let restoredChat = consumeStartupRestoredChat()
+        guard selection == nil,
             !isShowingSettings,
-            let chat = mostRecentChat(in: activeChats)
+            let chat = restoredChat ?? mostRecentChat(in: activeChats)
         else { return }
 
         selection = .chat(chat.id)

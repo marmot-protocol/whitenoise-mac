@@ -67,6 +67,38 @@ private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
     }
 }
 
+@MainActor
+private final class InMemoryChatRestorationStore: ChatRestorationStoring {
+    var isEnabled: Bool
+    private(set) var targetsByAccount: [String: String]
+
+    init(isEnabled: Bool = false, targetsByAccount: [String: String] = [:]) {
+        self.isEnabled = isEnabled
+        self.targetsByAccount = targetsByAccount
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+    }
+
+    func targetGroupId(forOwnerAccountIdHex accountIdHex: String) -> String? {
+        targetsByAccount[accountIdHex]
+    }
+
+    func setTarget(groupIdHex: String, forOwnerAccountIdHex accountIdHex: String) {
+        guard isEnabled else { return }
+        targetsByAccount[accountIdHex] = groupIdHex
+    }
+
+    func removeTarget(forOwnerAccountIdHex accountIdHex: String) {
+        targetsByAccount[accountIdHex] = nil
+    }
+
+    func clearTargets() {
+        targetsByAccount = [:]
+    }
+}
+
 private final class SuspendingMicrophoneAccessGate: @unchecked Sendable {
     private let lock = NSLock()
     private var permissionContinuation: CheckedContinuation<Bool, Never>?
@@ -10874,6 +10906,260 @@ struct whitenoise_macTests {
         #expect(chatListSnapshotThreads.allSatisfy { !$0 })
         #expect(timelineSnapshotThreads.count >= 2)
         #expect(timelineSnapshotThreads.allSatisfy { !$0 })
+    }
+
+    @MainActor
+    @Test func chatRestorationPreferenceDefaultsOffAndClearsLocalTargets() throws {
+        let suiteName = "whitenoise-macTests.chat-restoration.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let persistedStore = UserDefaultsChatRestorationStore(defaults: defaults)
+        #expect(!persistedStore.isEnabled)
+        persistedStore.setTarget(groupIdHex: "GROUP", forOwnerAccountIdHex: "ACCOUNT")
+        #expect(persistedStore.targetGroupId(forOwnerAccountIdHex: "account") == nil)
+
+        persistedStore.setEnabled(true)
+        persistedStore.setTarget(groupIdHex: " GROUP ", forOwnerAccountIdHex: " ACCOUNT ")
+        #expect(persistedStore.targetGroupId(forOwnerAccountIdHex: "account") == "group")
+
+        let account = AccountItem(
+            id: "Desktop Account",
+            accountRef: "Desktop Account",
+            displayName: "Desktop Account",
+            accountIdHex: "account"
+        )
+        let chat = chatListOrderingTestItem(id: "group", title: "General", updatedAt: 100)
+        let store = InMemoryChatRestorationStore()
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [chat]],
+            chatRestorationStore: store
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(chat.id)
+
+        #expect(!state.restoreLastSelectedChat)
+        #expect(store.targetsByAccount.isEmpty)
+
+        state.setRestoreLastSelectedChat(true)
+        #expect(state.restoreLastSelectedChat)
+        #expect(store.targetsByAccount[account.accountIdHex] == chat.id)
+
+        state.setRestoreLastSelectedChat(false)
+        #expect(!state.restoreLastSelectedChat)
+        #expect(store.targetsByAccount.isEmpty)
+
+        state.setRestoreLastSelectedChat(true)
+        #expect(store.targetsByAccount[account.accountIdHex] == chat.id)
+        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-chat-restoration-reset-test")
+        #expect(store.targetsByAccount.isEmpty)
+    }
+
+    @MainActor
+    @Test func bootstrapRestoresSavedChatOnlyAfterChatSnapshotIsReady() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "group-old",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Saved group message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "group"
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "direct-new",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Newer direct message",
+                    kind: 9,
+                    recordedAt: 1_700_000_100
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        runtime.chatListSubscriptionDelayNanoseconds = 100_000_000
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [account.accountIdHex: "group"]
+        )
+        let state = WorkspaceState(
+            chatRestorationStore: store,
+            clientFactory: { runtime }
+        )
+
+        async let bootstrap: Void = state.bootstrap()
+        let didStartChatListLoad = await waitFor {
+            runtime.chatListSubscriptionCount == 1
+        }
+        #expect(didStartChatListLoad)
+        #expect(state.selection == nil)
+        #expect(state.activeChats.isEmpty)
+
+        await bootstrap
+        let didRestoreSavedChat = await waitFor {
+            state.selection == .chat("group")
+                && state.messagesByChat["group"]?.map(\.id) == ["group-old"]
+        }
+
+        #expect(didRestoreSavedChat)
+        #expect(runtime.timelineSubscriptionCount == 1)
+    }
+
+    @MainActor
+    @Test func bootstrapFallsBackWhenSavedChatMembershipEnded() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(selfMembership: .removed), directGroup()])
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "removed-old",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Removed group message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "group"
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "direct-new",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Newest direct message",
+                    kind: 9,
+                    recordedAt: 1_700_000_100
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [account.accountIdHex: "group"]
+        )
+        let state = WorkspaceState(
+            chatRestorationStore: store,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        #expect(state.selection == .chat("direct-group"))
+        #expect(store.targetsByAccount[account.accountIdHex] == "direct-group")
+    }
+
+    @MainActor
+    @Test func unavailableSavedChatFallsBackToMostRecentChat() async {
+        let account = AccountItem(
+            id: "Desktop Account",
+            accountRef: "Desktop Account",
+            displayName: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
+        let mostRecentChat = chatListOrderingTestItem(
+            id: "direct-group",
+            title: "Direct Chat",
+            updatedAt: 200
+        )
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [account.accountIdHex: "unavailable-group"]
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [mostRecentChat]],
+            chatRestorationStore: store
+        )
+        state.activeAccountId = account.id
+        state.selection = nil
+
+        await state.selectInitialChatIfNeeded()
+
+        #expect(state.selection == .chat(mostRecentChat.id))
+        #expect(store.targetsByAccount[account.accountIdHex] == mostRecentChat.id)
+    }
+
+    @MainActor
+    @Test func bootstrapNeverRestoresAnotherAccountsSavedChat() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let otherAccountIdHex = "1111111111111111111111111111111111111111111111111111111111111111"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "group-old",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "Older group message",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "group"
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "direct-new",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Newest direct message",
+                    kind: 9,
+                    recordedAt: 1_700_000_100
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [otherAccountIdHex: "group"]
+        )
+        let state = WorkspaceState(
+            chatRestorationStore: store,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+
+        #expect(state.selection == .chat("direct-group"))
+        #expect(store.targetsByAccount[account.accountIdHex] == "direct-group")
+        #expect(store.targetsByAccount[otherAccountIdHex] == "group")
     }
 
     @MainActor
@@ -25827,7 +26113,9 @@ private func directGroup() -> AppGroupRecordFfi {
     )
 }
 
-private func messageGroup() -> AppGroupRecordFfi {
+private func messageGroup(
+    selfMembership: SelfMembershipFfi = .member
+) -> AppGroupRecordFfi {
     AppGroupRecordFfi(
         groupIdHex: "group",
         endpoint: "",
@@ -25844,7 +26132,7 @@ private func messageGroup() -> AppGroupRecordFfi {
         disappearingMessageSecs: 0,
         archived: false,
         pendingConfirmation: false,
-        selfMembership: .member,
+        selfMembership: selfMembership,
         welcomerAccountIdHex: nil,
         viaWelcomeMessageIdHex: nil
     )

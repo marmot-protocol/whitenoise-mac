@@ -44,6 +44,7 @@ extension WorkspaceState {
             restoreOrSelectFirstAccount()
             await configureObservabilityRuntimeBestEffort()
             if accounts.isEmpty {
+                discardStartupChatRestoration()
                 phase = .onboarding
                 return
             }
@@ -93,6 +94,7 @@ extension WorkspaceState {
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
+        discardStartupChatRestoration()
         leaveActiveConversation()
         stopTimelineListener()
         cancelTimelineLoad()
@@ -284,6 +286,7 @@ extension WorkspaceState {
                 stopChatListListener()
             }
             try await client.removeAccount(accountRef: account.accountRef)
+            removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
             purgeHiddenMessages(accountId: removedAccountId)
             purgePinnedChats(accountId: removedAccountId)
@@ -731,6 +734,7 @@ extension WorkspaceState {
         clearAllComposerDrafts()
         clearAllHiddenMessages()
         clearAllPinnedChats()
+        clearChatRestorationTargets()
         isRefreshing = false
         isSending = false
         authenticationMode = .landing
