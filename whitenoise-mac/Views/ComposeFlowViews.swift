@@ -34,11 +34,7 @@ struct NewChatPanelView: View {
             )
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
-            .task(id: workspace.newChatQuery) {
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                guard !Task.isCancelled else { return }
-                await workspace.resolveNewChatQueryIfReady()
-            }
+            .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
 
             GlassSeparator(axis: .horizontal)
 
@@ -60,7 +56,13 @@ struct NewChatPanelView: View {
                         }
                         loadingFooter
                     } else if workspace.looksLikeMemberRef(trimmedQuery) {
-                        identifierResults
+                        ComposeIdentifierResults(
+                            isBusy: { workspace.creatingDirectChatIdHex == $0.accountIdHex },
+                            isDisabled: workspace.isCreatingChat,
+                            onPaste: pasteIntoSearch
+                        ) { recipient in
+                            Task { await workspace.startDirectChat(with: recipient) }
+                        }
                     } else {
                         let matches = workspace.filteredComposeContacts(matching: trimmedQuery)
                         if matches.isEmpty {
@@ -89,26 +91,6 @@ struct NewChatPanelView: View {
         }
         .task {
             await workspace.refreshComposeContacts()
-        }
-    }
-
-    @ViewBuilder
-    private var identifierResults: some View {
-        if workspace.isResolvingNewChat {
-            ComposeResolvingRow()
-        } else if let recipient = workspace.resolvedNewChatRecipient {
-            ComposeContactRow(
-                title: recipient.title,
-                subtitle: shortKey(npub: recipient.npub, hex: recipient.accountIdHex),
-                avatarSeed: recipient.accountIdHex,
-                sanitizedPictureURL: recipient.sanitizedPictureURL,
-                isBusy: workspace.creatingDirectChatIdHex == recipient.accountIdHex
-            ) {
-                Task { await workspace.startDirectChat(with: recipient) }
-            }
-            .disabled(workspace.isCreatingChat)
-        } else {
-            ComposeNoMatchesView(onPaste: pasteIntoSearch)
         }
     }
 
@@ -173,11 +155,7 @@ struct ChooseMembersPanelView: View {
                     placeholder: L10n.string("Name or npub"),
                     autofocus: true
                 )
-                .task(id: workspace.newChatQuery) {
-                    try? await Task.sleep(nanoseconds: 250_000_000)
-                    guard !Task.isCancelled else { return }
-                    await workspace.resolveNewChatQueryIfReady()
-                }
+                .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
 
                 if !workspace.newChatRecipients.isEmpty {
                     ScrollView {
@@ -206,7 +184,11 @@ struct ChooseMembersPanelView: View {
                             selectableRows(workspace.composeContacts)
                         }
                     } else if workspace.looksLikeMemberRef(trimmedQuery) {
-                        identifierResults
+                        ComposeIdentifierResults(
+                            selection: { isSelected(accountIdHex: $0.accountIdHex) }
+                        ) { recipient in
+                            workspace.toggleComposeMember(recipient)
+                        }
                     } else {
                         let matches = workspace.filteredComposeContacts(matching: trimmedQuery)
                         if matches.isEmpty {
@@ -243,25 +225,6 @@ struct ChooseMembersPanelView: View {
         }
         .task {
             await workspace.refreshComposeContacts()
-        }
-    }
-
-    @ViewBuilder
-    private var identifierResults: some View {
-        if workspace.isResolvingNewChat {
-            ComposeResolvingRow()
-        } else if let recipient = workspace.resolvedNewChatRecipient {
-            ComposeContactRow(
-                title: recipient.title,
-                subtitle: shortKey(npub: recipient.npub, hex: recipient.accountIdHex),
-                avatarSeed: recipient.accountIdHex,
-                sanitizedPictureURL: recipient.sanitizedPictureURL,
-                selection: isSelected(accountIdHex: recipient.accountIdHex)
-            ) {
-                workspace.toggleComposeMember(recipient)
-            }
-        } else {
-            ComposeNoMatchesView()
         }
     }
 
@@ -448,6 +411,69 @@ struct NameGroupPanelView: View {
 
 private func shortKey(npub: String, hex: String) -> String {
     DisplayText.short(npub.isEmpty ? hex : npub, head: 12, tail: 8)
+}
+
+private extension View {
+    func debouncedNewChatQueryResolution(for query: String) -> some View {
+        modifier(NewChatQueryResolutionModifier(query: query))
+    }
+}
+
+private struct NewChatQueryResolutionModifier: ViewModifier {
+    @Environment(WorkspaceState.self) private var workspace
+    let query: String
+
+    func body(content: Content) -> some View {
+        content.task(id: query) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            await workspace.resolveNewChatQueryIfReady()
+        }
+    }
+}
+
+private struct ComposeIdentifierResults: View {
+    @Environment(WorkspaceState.self) private var workspace
+    private let selection: (NewChatRecipient) -> Bool?
+    private let isBusy: (NewChatRecipient) -> Bool
+    private let isDisabled: Bool
+    private let onPaste: (() -> Void)?
+    private let onSelect: (NewChatRecipient) -> Void
+
+    init(
+        selection: @escaping (NewChatRecipient) -> Bool? = { _ in nil },
+        isBusy: @escaping (NewChatRecipient) -> Bool = { _ in false },
+        isDisabled: Bool = false,
+        onPaste: (() -> Void)? = nil,
+        onSelect: @escaping (NewChatRecipient) -> Void
+    ) {
+        self.selection = selection
+        self.isBusy = isBusy
+        self.isDisabled = isDisabled
+        self.onPaste = onPaste
+        self.onSelect = onSelect
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if workspace.isResolvingNewChat {
+            ComposeResolvingRow()
+        } else if let recipient = workspace.resolvedNewChatRecipient {
+            ComposeContactRow(
+                title: recipient.title,
+                subtitle: shortKey(npub: recipient.npub, hex: recipient.accountIdHex),
+                avatarSeed: recipient.accountIdHex,
+                sanitizedPictureURL: recipient.sanitizedPictureURL,
+                isBusy: isBusy(recipient),
+                selection: selection(recipient)
+            ) {
+                onSelect(recipient)
+            }
+            .disabled(isDisabled)
+        } else {
+            ComposeNoMatchesView(onPaste: onPaste)
+        }
+    }
 }
 
 private struct ComposePaneHeader: View {

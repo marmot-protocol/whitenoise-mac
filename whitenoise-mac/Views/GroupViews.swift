@@ -17,38 +17,6 @@ private enum DisappearingChoice: Hashable {
     case customEntry
 }
 
-/// Units offered by the custom disappearing-timer picker. `seconds` is included so any exact core
-/// value round-trips (e.g. a 90-second timer opens as "90 Seconds", not a truncated minute).
-private enum CustomDurationUnit: String, CaseIterable, Identifiable {
-    case seconds
-    case minutes
-    case hours
-    case days
-    case weeks
-
-    var id: String { rawValue }
-
-    var seconds: UInt64 {
-        switch self {
-        case .seconds: return 1
-        case .minutes: return 60
-        case .hours: return 3600
-        case .days: return 86_400
-        case .weeks: return 604_800
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .seconds: return L10n.string("Seconds")
-        case .minutes: return L10n.string("Minutes")
-        case .hours: return L10n.string("Hours")
-        case .days: return L10n.string("Days")
-        case .weeks: return L10n.string("Weeks")
-        }
-    }
-}
-
 struct GroupDetailsSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showArchiveConfirmation = false
@@ -61,7 +29,7 @@ struct GroupDetailsSheet: View {
     // range-based numeric control spanning past `Int.max` traps in stride math,
     // and narrowing to `Int` silently clamps large core values.
     @State private var customDurationText = "1"
-    @State private var customDurationUnit = CustomDurationUnit.days
+    @State private var customDurationUnit = DisappearingMessageDurationUnit.days
     let chat: ChatItem
 
     private var hasProfileChanges: Bool {
@@ -77,39 +45,29 @@ struct GroupDetailsSheet: View {
 
     /// Under the group name: the disappearing-message timer as a bare icon + duration (no label)
     /// when it's on, otherwise the member count.
-    @ViewBuilder
     private var headerSubtitle: some View {
-        if let snapshot = workspace.groupDetailsSnapshot, snapshot.disappearingMessagesEnabled {
-            HStack(spacing: 4) {
-                Image(systemName: "timer")
-                Text(DisappearingMessageOption.option(for: snapshot.disappearingMessageSecs).label)
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-        } else {
-            Text(workspace.groupDetailsSnapshot?.memberCountLabel ?? "Group details")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
+        let snapshot = workspace.groupDetailsSnapshot
+        let durationSeconds =
+            snapshot?.disappearingMessagesEnabled == true
+            ? snapshot?.disappearingMessageSecs : nil
+        return DisappearingMessageHeaderSubtitle(
+            durationSeconds: durationSeconds,
+            fallback: snapshot?.memberCountLabel ?? "Group details"
+        )
+        .font(.callout)
     }
 
     /// Prefill the custom-duration fields from the group's current timer, choosing the largest
     /// unit that divides it evenly so a 4-week timer opens as "4 weeks".
     private func seedCustomDuration(from seconds: UInt64) {
-        guard seconds > 0 else {
+        guard let duration = DisappearingMessageDurationUnit.largestWholeUnit(for: seconds) else {
             customDurationText = "1"
             customDurationUnit = .days
             return
         }
-        for unit in CustomDurationUnit.allCases.reversed() where seconds % unit.seconds == 0 {
-            // Stays UInt64-exact so any core value round-trips through Set unchanged.
-            customDurationText = String(seconds / unit.seconds)
-            customDurationUnit = unit
-            return
-        }
-        // Unreachable — the `.seconds` unit divides any value — but keeps the compiler happy.
-        customDurationText = String(seconds)
-        customDurationUnit = .seconds
+        // Stays UInt64-exact so any core value round-trips through Set unchanged.
+        customDurationText = String(duration.count)
+        customDurationUnit = duration.unit
     }
 
     private func customDurationPopover(groupIdHex: String) -> some View {
@@ -133,7 +91,7 @@ struct GroupDetailsSheet: View {
                 }
                 // Real label for VoiceOver, hidden from the visual layout.
                 Picker(L10n.string("Duration unit"), selection: $customDurationUnit) {
-                    ForEach(CustomDurationUnit.allCases) { unit in
+                    ForEach(DisappearingMessageDurationUnit.allCases) { unit in
                         Text(unit.label).tag(unit)
                     }
                 }
@@ -927,66 +885,5 @@ struct GroupImageResultTile: View {
         .padding(8)
         .glassCard()
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-}
-
-/// Selectable disappearing-message timer presets for a group. `custom` carries a
-/// non-preset value returned by the core so the picker can still display it.
-enum DisappearingMessageOption: Hashable, Identifiable {
-    case off
-    case oneHour
-    case oneDay
-    case oneWeek
-    case oneMonth
-    case custom(UInt64)
-
-    static let presets: [DisappearingMessageOption] = [.off, .oneHour, .oneDay, .oneWeek, .oneMonth]
-    static var allCases: [DisappearingMessageOption] { presets }
-
-    var id: UInt64 { seconds }
-
-    var seconds: UInt64 {
-        switch self {
-        case .off: return 0
-        case .oneHour: return 3600
-        case .oneDay: return 86_400
-        case .oneWeek: return 604_800
-        case .oneMonth: return 2_592_000
-        case .custom(let value): return value
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .off: return L10n.string("Off")
-        case .oneHour: return L10n.plural("%llu hours", UInt64(1))
-        case .oneDay: return L10n.plural("%llu days", UInt64(1))
-        case .oneWeek: return L10n.plural("%llu weeks", UInt64(1))
-        case .oneMonth: return L10n.plural("%llu months", UInt64(1))
-        case .custom(let value): return Self.humanDuration(value)
-        }
-    }
-
-    /// A whole-unit human duration for non-preset values (e.g. a 4-week timer reads "4 weeks"
-    /// rather than a raw seconds count). Uses the largest unit that divides evenly.
-    static func humanDuration(_ seconds: UInt64) -> String {
-        if seconds == 0 { return L10n.string("Off") }
-        if seconds % 604_800 == 0 { return L10n.plural("%llu weeks", seconds / 604_800) }
-        if seconds % 86_400 == 0 { return L10n.plural("%llu days", seconds / 86_400) }
-        if seconds % 3_600 == 0 { return L10n.plural("%llu hours", seconds / 3_600) }
-        if seconds % 60 == 0 { return L10n.plural("%llu minutes", seconds / 60) }
-        return L10n.plural("%llu seconds", seconds)
-    }
-
-    /// The matching preset for `seconds`, or a `.custom` wrapper when none match.
-    static func option(for seconds: UInt64) -> DisappearingMessageOption {
-        presets.first { $0.seconds == seconds } ?? .custom(seconds)
-    }
-
-    /// The presets plus the current value when it isn't already a preset, so the
-    /// picker always has a tag matching the active selection.
-    static func options(for seconds: UInt64) -> [DisappearingMessageOption] {
-        let current = option(for: seconds)
-        return presets.contains(current) ? presets : presets + [current]
     }
 }
