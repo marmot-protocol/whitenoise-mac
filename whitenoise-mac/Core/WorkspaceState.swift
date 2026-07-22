@@ -127,32 +127,53 @@ nonisolated struct ChatListOrdering {
         let reindexStart: Int?
     }
 
-    static func sorted(_ chatItems: [ChatItem]) -> [ChatItem] {
-        chatItems.sorted(by: areInDisplayOrder)
+    static func sorted(_ chatItems: [ChatItem], pinnedChatIds: Set<String> = []) -> [ChatItem] {
+        chatItems.sorted { lhs, rhs in
+            areInDisplayOrder(lhs, rhs, pinnedChatIds: pinnedChatIds)
+        }
     }
 
-    static func upserting(_ chat: ChatItem, into chats: [ChatItem]) -> [ChatItem] {
-        upsertResult(chat, into: chats, existingIndex: chats.firstIndex(where: { $0.id == chat.id })).chats
+    static func upserting(
+        _ chat: ChatItem,
+        into chats: [ChatItem],
+        pinnedChatIds: Set<String> = []
+    ) -> [ChatItem] {
+        upsertResult(
+            chat,
+            into: chats,
+            existingIndex: chats.firstIndex(where: { $0.id == chat.id }),
+            pinnedChatIds: pinnedChatIds
+        ).chats
     }
 
-    static func upserting(_ chat: ChatItem, into chats: [ChatItem], existingIndex: Int?) -> [ChatItem] {
-        upsertResult(chat, into: chats, existingIndex: existingIndex).chats
+    static func upserting(
+        _ chat: ChatItem,
+        into chats: [ChatItem],
+        existingIndex: Int?,
+        pinnedChatIds: Set<String> = []
+    ) -> [ChatItem] {
+        upsertResult(chat, into: chats, existingIndex: existingIndex, pinnedChatIds: pinnedChatIds).chats
     }
 
-    static func upsertResult(_ chat: ChatItem, into chats: [ChatItem], existingIndex: Int?) -> UpsertResult {
+    static func upsertResult(
+        _ chat: ChatItem,
+        into chats: [ChatItem],
+        existingIndex: Int?,
+        pinnedChatIds: Set<String> = []
+    ) -> UpsertResult {
         var result = chats
         if let index = existingIndex {
-            if canReplaceInPlace(chat, at: index, in: result) {
+            if canReplaceInPlace(chat, at: index, in: result, pinnedChatIds: pinnedChatIds) {
                 result[index] = chat
                 return UpsertResult(chats: result, reindexStart: nil)
             }
             result.remove(at: index)
-            let nextIndex = insertionIndex(for: chat, in: result)
+            let nextIndex = insertionIndex(for: chat, in: result, pinnedChatIds: pinnedChatIds)
             result.insert(chat, at: nextIndex)
             return UpsertResult(chats: result, reindexStart: min(index, nextIndex))
         }
 
-        let nextIndex = insertionIndex(for: chat, in: result)
+        let nextIndex = insertionIndex(for: chat, in: result, pinnedChatIds: pinnedChatIds)
         result.insert(chat, at: nextIndex)
         return UpsertResult(chats: result, reindexStart: nextIndex)
     }
@@ -186,23 +207,34 @@ nonisolated struct ChatListOrdering {
         return candidateUpdatedAt < currentUpdatedAt
     }
 
-    private static func canReplaceInPlace(_ chat: ChatItem, at index: Int, in chats: [ChatItem]) -> Bool {
-        let previousStillBefore = index == chats.startIndex || !areInDisplayOrder(chat, chats[index - 1])
+    private static func canReplaceInPlace(
+        _ chat: ChatItem,
+        at index: Int,
+        in chats: [ChatItem],
+        pinnedChatIds: Set<String>
+    ) -> Bool {
+        let previousStillBefore =
+            index == chats.startIndex
+            || !areInDisplayOrder(chat, chats[index - 1], pinnedChatIds: pinnedChatIds)
         let nextStillAfter: Bool
         if index == chats.index(before: chats.endIndex) {
             nextStillAfter = true
         } else {
-            nextStillAfter = !areInDisplayOrder(chats[index + 1], chat)
+            nextStillAfter = !areInDisplayOrder(chats[index + 1], chat, pinnedChatIds: pinnedChatIds)
         }
         return previousStillBefore && nextStillAfter
     }
 
-    private static func insertionIndex(for chat: ChatItem, in chats: [ChatItem]) -> Int {
+    private static func insertionIndex(
+        for chat: ChatItem,
+        in chats: [ChatItem],
+        pinnedChatIds: Set<String>
+    ) -> Int {
         var lowerBound = chats.startIndex
         var upperBound = chats.endIndex
         while lowerBound < upperBound {
             let middle = lowerBound + (upperBound - lowerBound) / 2
-            if areInDisplayOrder(chats[middle], chat) {
+            if areInDisplayOrder(chats[middle], chat, pinnedChatIds: pinnedChatIds) {
                 lowerBound = middle + 1
             } else {
                 upperBound = middle
@@ -211,7 +243,15 @@ nonisolated struct ChatListOrdering {
         return lowerBound
     }
 
-    private static func areInDisplayOrder(_ lhs: ChatItem, _ rhs: ChatItem) -> Bool {
+    private static func areInDisplayOrder(
+        _ lhs: ChatItem,
+        _ rhs: ChatItem,
+        pinnedChatIds: Set<String> = []
+    ) -> Bool {
+        let lhsPinned = pinnedChatIds.contains(lhs.id)
+        let rhsPinned = pinnedChatIds.contains(rhs.id)
+        if lhsPinned != rhsPinned { return lhsPinned }
+
         switch (lhs.updatedAt, rhs.updatedAt) {
         case (let left?, let right?) where left != right:
             return left > right
@@ -853,6 +893,7 @@ final class WorkspaceState {
     /// scoped through per-chat timeline stores.
     var selectedChatRevision = 0
     var archivedChatsByAccount: [String: [ChatItem]] = [:]
+    var pinnedChatIdsByAccount: [String: Set<String>] = [:]
     @ObservationIgnored var chatLookupByAccount: [String: [String: ChatItem]] = [:]
     @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
     @ObservationIgnored var chatListGenerationByAccount: [String: Int] = [:]
@@ -886,6 +927,7 @@ final class WorkspaceState {
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
     @ObservationIgnored var hiddenMessageStore: (any HiddenMessageStoring)?
+    @ObservationIgnored var pinnedChatStore: (any PinnedChatStoring)?
     @ObservationIgnored var mediaReferenceIndexes: [MediaReferenceCacheKey: MediaReferenceIndex] = [:]
     @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
     @ObservationIgnored var mediaReferenceIndexGeneration: UInt64 = 0
@@ -1661,6 +1703,7 @@ final class WorkspaceState {
         },
         mediaDiskCache: MessageMediaDiskCache = .shared,
         hiddenMessageStore: (any HiddenMessageStoring)? = nil,
+        pinnedChatStore: (any PinnedChatStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -1680,6 +1723,7 @@ final class WorkspaceState {
         self.microphoneAccessProvider = microphoneAccessProvider
         self.mediaDiskCache = mediaDiskCache
         self.hiddenMessageStore = hiddenMessageStore
+        self.pinnedChatStore = pinnedChatStore
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
@@ -1832,7 +1876,8 @@ final class WorkspaceState {
         let result = ChatListOrdering.upsertResult(
             chat,
             into: chats,
-            existingIndex: chatIndex(accountId: accountId, chatId: chat.id)
+            existingIndex: chatIndex(accountId: accountId, chatId: chat.id),
+            pinnedChatIds: pinnedChatIds(forAccountId: accountId)
         )
         chatsByAccount[accountId] = result.chats
 

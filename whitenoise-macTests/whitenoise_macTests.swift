@@ -1445,6 +1445,48 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func accountRemovalPurgesOnlyItsPinsAndDeleteAllDataClearsTheRemainder() async throws {
+        let primary = desktopAccount()
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-pinned-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PinnedChatFileStore(directoryURL: directory)
+        try store.write(["shared-group"], forAccountId: primary.label)
+        try store.write(["shared-group"], forAccountId: secondary.label)
+
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set(primary.label, forKey: "whitenoise.mac.activeAccountId")
+
+        let state = WorkspaceState(pinnedChatStore: store, clientFactory: { runtime })
+        await state.bootstrap()
+
+        #expect(state.isChatPinned(accountId: primary.label, groupIdHex: "shared-group"))
+        #expect(state.isChatPinned(accountId: secondary.label, groupIdHex: "shared-group"))
+
+        let backupAccount = try #require(state.accounts.first { $0.id == secondary.label })
+        await state.removeAccount(backupAccount)
+
+        #expect(try store.loadAll() == [primary.label: ["shared-group"]])
+        #expect(state.isChatPinned(accountId: primary.label, groupIdHex: "shared-group"))
+        #expect(!state.isChatPinned(accountId: secondary.label, groupIdHex: "shared-group"))
+
+        await state.deleteAllData()
+
+        #expect(try store.loadAll().isEmpty)
+        #expect(state.pinnedChatIdsByAccount.isEmpty)
+    }
+
+    @MainActor
     @Test func accountSwitchAndNewInstallResetClearDecryptedSharedMediaCache() async throws {
         let primary = desktopAccount()
         let secondary = AccountSummaryFfi(
@@ -2346,6 +2388,50 @@ struct whitenoise_macTests {
         #expect(try store.loadAll() == [secondScope: ["message-c"]])
         try store.removeAll()
         #expect(!fileManager.fileExists(atPath: directory.path))
+    }
+
+    @Test func pinnedChatStoreUsesOpaqueProtectedBackupExcludedPerAccountFiles() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-pinned-chat-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = PinnedChatFileStore(fileManager: fileManager, directoryURL: directory)
+
+        try store.write(["shared-group", "alpha-group"], forAccountId: "account-one")
+        try store.write(["shared-group"], forAccountId: "account-two")
+
+        #expect(
+            try store.loadAll()
+                == [
+                    "account-one": ["alpha-group", "shared-group"],
+                    "account-two": ["shared-group"],
+                ]
+        )
+        let directoryValues = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(directoryValues.isExcludedFromBackup == true)
+        let files = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isExcludedFromBackupKey],
+            options: [.skipsHiddenFiles]
+        )
+        #expect(files.count == 2)
+        for file in files {
+            #expect(file.pathExtension == "json")
+            #expect(file.deletingPathExtension().lastPathComponent.count == 64)
+            #expect(!file.lastPathComponent.contains("account-one"))
+            #expect(!file.lastPathComponent.contains("account-two"))
+            #expect(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+            let attributes = try fileManager.attributesOfItem(atPath: file.path)
+            if let protection = attributes[.protectionKey] as? FileProtectionType {
+                #expect(protection == .complete || protection == .completeUntilFirstUserAuthentication)
+            }
+        }
+
+        try store.remove(forAccountId: "account-one")
+        #expect(try store.loadAll() == ["account-two": ["shared-group"]])
+
+        try store.removeAll()
+        #expect(try store.loadAll().isEmpty)
     }
 
     @Test func mediaPlaybackTempStoreVoiceRecordingsLiveInsideAppContainerNotSharedTemp() {
@@ -14855,6 +14941,145 @@ struct whitenoise_macTests {
         #expect(renamed.map(\.title) == ["Alpha", "Beta", "Bravo"])
     }
 
+    @Test func chatListOrderingStablyPartitionsPinnedChatsAcrossLiveUpserts() {
+        let unpinnedNewest = chatListOrderingTestItem(id: "unpinned-newest", title: "Newest", updatedAt: 400)
+        let pinnedNewest = chatListOrderingTestItem(id: "pinned-newest", title: "Pinned Newest", updatedAt: 300)
+        let unpinnedOlder = chatListOrderingTestItem(id: "unpinned-older", title: "Older", updatedAt: 200)
+        let pinnedOlder = chatListOrderingTestItem(id: "pinned-older", title: "Pinned Older", updatedAt: 100)
+        let pinnedIds: Set<String> = [pinnedNewest.id, pinnedOlder.id]
+
+        let sorted = ChatListOrdering.sorted(
+            [unpinnedOlder, pinnedOlder, unpinnedNewest, pinnedNewest],
+            pinnedChatIds: pinnedIds
+        )
+        #expect(sorted.map(\.id) == [pinnedNewest.id, pinnedOlder.id, unpinnedNewest.id, unpinnedOlder.id])
+
+        let incomingUnpinned = chatListOrderingTestItem(
+            id: unpinnedOlder.id,
+            title: unpinnedOlder.title,
+            preview: "new incoming message",
+            updatedAt: 500
+        )
+        let afterUnpinnedUpdate = ChatListOrdering.upserting(
+            incomingUnpinned,
+            into: sorted,
+            pinnedChatIds: pinnedIds
+        )
+        #expect(
+            afterUnpinnedUpdate.map(\.id)
+                == [pinnedNewest.id, pinnedOlder.id, unpinnedOlder.id, unpinnedNewest.id]
+        )
+
+        let incomingPinned = chatListOrderingTestItem(
+            id: pinnedOlder.id,
+            title: pinnedOlder.title,
+            preview: "new pinned message",
+            updatedAt: 600
+        )
+        let afterPinnedUpdate = ChatListOrdering.upserting(
+            incomingPinned,
+            into: afterUnpinnedUpdate,
+            pinnedChatIds: pinnedIds
+        )
+        #expect(
+            afterPinnedUpdate.map(\.id)
+                == [pinnedOlder.id, pinnedNewest.id, unpinnedOlder.id, unpinnedNewest.id]
+        )
+    }
+
+    @MainActor
+    @Test func pinnedChatStateIsAccountScopedForSharedGroupIds() throws {
+        let accounts = Array(AccountItem.samples.prefix(2))
+        let firstAccount = try #require(accounts.first)
+        let secondAccount = try #require(accounts.last)
+        let firstChat = chatListOrderingTestItem(id: "shared-group", title: "First account", updatedAt: 100)
+        let secondChat = chatListOrderingTestItem(id: "shared-group", title: "Second account", updatedAt: 100)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-pinned-account-scope-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = PinnedChatFileStore(directoryURL: directory)
+        let state = WorkspaceState(
+            accounts: accounts,
+            chatsByAccount: [
+                firstAccount.id: [firstChat],
+                secondAccount.id: [secondChat],
+            ],
+            pinnedChatStore: store,
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+
+        state.activeAccountId = firstAccount.id
+        state.setChatPinned(firstChat, pinned: true)
+
+        #expect(state.isChatPinned(accountId: firstAccount.id, groupIdHex: firstChat.id))
+        #expect(!state.isChatPinned(accountId: secondAccount.id, groupIdHex: secondChat.id))
+
+        state.activeAccountId = secondAccount.id
+        state.setChatPinned(secondChat, pinned: true)
+        state.setChatPinned(secondChat, pinned: false)
+
+        #expect(state.isChatPinned(accountId: firstAccount.id, groupIdHex: firstChat.id))
+        #expect(!state.isChatPinned(accountId: secondAccount.id, groupIdHex: secondChat.id))
+        #expect(try store.loadAll() == [firstAccount.id: [firstChat.id]])
+    }
+
+    @MainActor
+    @Test func pinnedChatStateSurvivesProjectionRefreshAndLiveRowUpdate() async throws {
+        let account = AccountItem.samples[0]
+        let pinned = chatListOrderingTestItem(id: "pinned", title: "Pinned", updatedAt: 100)
+        let unpinned = chatListOrderingTestItem(id: "unpinned", title: "Unpinned", updatedAt: 200)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-pinned-projection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [unpinned, pinned]],
+            pinnedChatStore: PinnedChatFileStore(directoryURL: directory),
+            clientFactory: { FakeMarmotRuntime(accounts: []) }
+        )
+        state.activeAccountId = account.id
+        state.setChatPinned(pinned, pinned: true)
+
+        await state.applyChatRows(
+            [
+                chatListRow(
+                    groupIdHex: unpinned.id,
+                    title: unpinned.title,
+                    preview: "newer unpinned snapshot",
+                    sender: "alice",
+                    timelineAt: 500
+                ),
+                chatListRow(
+                    groupIdHex: pinned.id,
+                    title: pinned.title,
+                    preview: "older pinned snapshot",
+                    sender: "bob",
+                    timelineAt: 300
+                ),
+            ],
+            account: account
+        )
+
+        #expect(state.activeChats.map(\.id) == [pinned.id, unpinned.id])
+        #expect(state.isChatPinned(pinned))
+
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: unpinned.id,
+                title: unpinned.title,
+                preview: "newest live message",
+                sender: "alice",
+                timelineAt: 700
+            ),
+            account: account,
+            shouldEnrich: false
+        )
+
+        #expect(state.activeChats.map(\.id) == [pinned.id, unpinned.id])
+        #expect(state.activeChats.last?.preview == "newest live message")
+        #expect(state.isChatPinned(pinned))
+    }
+
     @MainActor
     @Test func selectedChatObservationInvalidatesOnSelectedChatMetadataDelta() async throws {
         // Regression for #388: `selectedChat` resolves through ignored O(1) indexes, so it must
@@ -16445,29 +16670,37 @@ struct whitenoise_macTests {
     @Test func sidebarArchiveMovesChatToArchivedSection() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
-        let state = WorkspaceState(clientFactory: { runtime })
+        runtime.installGroups([messageGroup(), directGroup()])
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-pinned-archive-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pinnedChatStore = PinnedChatFileStore(directoryURL: directory)
+        let state = WorkspaceState(pinnedChatStore: pinnedChatStore, clientFactory: { runtime })
 
         await state.bootstrap()
-        guard let chat = state.activeChats.first else {
-            Issue.record("Expected a group chat")
-            return
-        }
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        let accountId = try #require(state.activeAccountId)
+        state.setChatPinned(chat, pinned: true)
+        #expect(state.activeChats.first?.id == chat.id)
 
         await state.setChatArchived(chat, archived: true)
 
         #expect(runtime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: true))
-        #expect(state.activeChats.isEmpty)
+        #expect(state.activeChats.map(\.id) == ["direct-group"])
         #expect(state.archivedChats.count == 1)
         #expect(state.archivedChats.first?.id == chat.id)
         #expect(state.archivedChats.first?.subtitle == L10n.string("Archived"))
+        #expect(state.isChatPinned(accountId: accountId, groupIdHex: chat.id))
+        #expect(try pinnedChatStore.loadAll()[accountId] == [chat.id])
 
-        await state.setChatArchived(chat, archived: false)
+        let archivedChat = try #require(state.archivedChats.first)
+        await state.setChatArchived(archivedChat, archived: false)
 
         #expect(runtime.archivedGroup == ArchivedGroup(groupIdHex: "group", archived: false))
         #expect(state.archivedChats.isEmpty)
-        #expect(state.activeChats.count == 1)
+        #expect(state.activeChats.count == 2)
         #expect(state.activeChats.first?.id == chat.id)
+        #expect(state.isChatPinned(chat))
     }
 
     @MainActor
