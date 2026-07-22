@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import SwiftUI
 
-nonisolated struct ChatEmojiCatalogEntry: Codable, Identifiable, Hashable {
+nonisolated struct ChatEmojiCatalogEntry: Codable, Identifiable, Hashable, Sendable {
     let emoji: String
     let name: String
     let group: Int
@@ -18,16 +18,18 @@ nonisolated struct ChatEmojiCatalogEntry: Codable, Identifiable, Hashable {
     }
 }
 
-nonisolated struct ChatEmojiCatalog {
+nonisolated struct ChatEmojiCatalog: Sendable {
     let entries: [ChatEmojiCatalogEntry]
 
     private let lookup: [String: ChatEmojiCatalogEntry]
     private let entriesByGroup: [Int: [ChatEmojiCatalogEntry]]
+    fileprivate let searchEntries: [ChatEmojiSearchEntry]
 
     init(entries: [ChatEmojiCatalogEntry]) {
         self.entries = entries
         lookup = Dictionary(entries.map { ($0.emoji, $0) }, uniquingKeysWith: { first, _ in first })
         entriesByGroup = Dictionary(grouping: entries, by: \.group)
+        searchEntries = entries.map(ChatEmojiSearchEntry.init)
     }
 
     static let empty = ChatEmojiCatalog(entries: [])
@@ -41,37 +43,47 @@ nonisolated struct ChatEmojiCatalog {
     }
 }
 
+nonisolated fileprivate struct ChatEmojiSearchEntry: Sendable {
+    let entry: ChatEmojiCatalogEntry
+    let name: String
+    let keywords: [String]
+
+    init(entry: ChatEmojiCatalogEntry) {
+        self.entry = entry
+        name = entry.name.lowercased()
+        keywords = entry.keywords.map { $0.lowercased() }
+    }
+}
+
 nonisolated enum ChatEmojiSearch {
     static func results(
-        in entries: [ChatEmojiCatalogEntry],
+        in catalog: ChatEmojiCatalog,
         query: String,
         limit: Int = 160
     ) -> [ChatEmojiCatalogEntry] {
         let terms = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !terms.isEmpty else { return Array(entries.prefix(limit)) }
+        guard !terms.isEmpty else { return Array(catalog.entries.prefix(limit)) }
 
-        return entries.compactMap { entry -> (ChatEmojiCatalogEntry, Int)? in
-            let name = entry.name.lowercased()
-            let keywords = entry.keywords.map { $0.lowercased() }
+        return catalog.searchEntries.compactMap { indexed -> (ChatEmojiCatalogEntry, Int)? in
             var score = 0
             for term in terms {
-                if name == term {
+                if indexed.name == term {
                     score += 100
-                } else if name.hasPrefix(term) {
+                } else if indexed.name.hasPrefix(term) {
                     score += 60
-                } else if name.contains(term) {
+                } else if indexed.name.contains(term) {
                     score += 35
-                } else if keywords.contains(term) {
+                } else if indexed.keywords.contains(term) {
                     score += 25
-                } else if keywords.contains(where: { $0.hasPrefix(term) }) {
+                } else if indexed.keywords.contains(where: { $0.hasPrefix(term) }) {
                     score += 12
-                } else if entry.emoji == term {
+                } else if indexed.entry.emoji == term {
                     score += 100
                 } else {
                     return nil
                 }
             }
-            return (entry, score)
+            return (indexed.entry, score)
         }
         .sorted {
             if $0.1 != $1.1 { return $0.1 > $1.1 }
@@ -109,9 +121,11 @@ private struct ChatEmojiCategory: Identifiable {
 @MainActor
 private final class ChatEmojiPickerModel: ObservableObject {
     @Published private(set) var catalog = ChatEmojiCatalog.empty
+    @Published private(set) var searchResults: [ChatEmojiCatalogEntry] = []
     @Published private(set) var didFail = false
 
     private static var cachedCatalog: ChatEmojiCatalog?
+    private var loadTask: Task<ChatEmojiCatalog, Error>?
 
     func load() async {
         guard catalog.entries.isEmpty else { return }
@@ -123,17 +137,40 @@ private final class ChatEmojiPickerModel: ObservableObject {
             didFail = true
             return
         }
-        do {
-            let catalog = try await Task.detached(priority: .userInitiated) {
+        let task: Task<ChatEmojiCatalog, Error>
+        if let loadTask {
+            task = loadTask
+        } else {
+            let newTask = Task.detached(priority: .userInitiated) {
                 let data = try Data(contentsOf: url, options: [.mappedIfSafe])
                 let entries = try JSONDecoder().decode([ChatEmojiCatalogEntry].self, from: data)
                 return ChatEmojiCatalog(entries: entries)
-            }.value
+            }
+            loadTask = newTask
+            task = newTask
+        }
+        do {
+            let catalog = try await task.value
+            loadTask = nil
             Self.cachedCatalog = catalog
             self.catalog = catalog
         } catch {
+            loadTask = nil
             didFail = true
         }
+    }
+
+    func search(query: String) async {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            searchResults = []
+            return
+        }
+        let catalog = self.catalog
+        let results = await Task.detached(priority: .userInitiated) {
+            ChatEmojiSearch.results(in: catalog, query: query)
+        }.value
+        guard !Task.isCancelled else { return }
+        searchResults = results
     }
 }
 
@@ -145,10 +182,13 @@ private enum ChatEmojiRecents {
         UserDefaults.standard.stringArray(forKey: key) ?? ChatReactionDefaults.quick
     }
 
-    static func record(_ emoji: String) {
+    @discardableResult
+    static func record(_ emoji: String) -> [String] {
         var result = values.filter { $0 != emoji }
         result.insert(emoji, at: 0)
-        UserDefaults.standard.set(Array(result.prefix(maximumCount)), forKey: key)
+        let stored = Array(result.prefix(maximumCount))
+        UserDefaults.standard.set(stored, forKey: key)
+        return stored
     }
 }
 
@@ -158,6 +198,7 @@ struct ChatEmojiPicker: View {
     @StateObject private var model = ChatEmojiPickerModel()
     @State private var query = ""
     @State private var selectedCategory = 0
+    @State private var recentEmoji = ChatReactionDefaults.quick
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
 
@@ -173,7 +214,13 @@ struct ChatEmojiPicker: View {
         }
         .frame(width: 420, height: 430)
         .background(.regularMaterial)
-        .task { await model.load() }
+        .task {
+            recentEmoji = ChatEmojiRecents.values
+        }
+        .task(id: query) {
+            await model.load()
+            await model.search(query: query)
+        }
     }
 
     private var searchField: some View {
@@ -209,7 +256,7 @@ struct ChatEmojiPicker: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
                     if query.isEmpty {
-                        let recents = model.catalog.recents(from: ChatEmojiRecents.values)
+                        let recents = model.catalog.recents(from: recentEmoji)
                         if !recents.isEmpty {
                             emojiSection(title: L10n.string("Recently used"), entries: recents)
                                 .id("recent")
@@ -224,7 +271,7 @@ struct ChatEmojiPicker: View {
                     } else {
                         emojiSection(
                             title: L10n.string("Search results"),
-                            entries: ChatEmojiSearch.results(in: model.catalog.entries, query: query)
+                            entries: model.searchResults
                         )
                     }
                 }
@@ -239,7 +286,7 @@ struct ChatEmojiPicker: View {
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(entries) { entry in
                     Button {
-                        ChatEmojiRecents.record(entry.emoji)
+                        recentEmoji = ChatEmojiRecents.record(entry.emoji)
                         onPick(entry.emoji)
                     } label: {
                         Text(entry.emoji)
