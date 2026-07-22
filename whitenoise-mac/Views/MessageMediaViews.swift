@@ -1790,24 +1790,47 @@ struct MessageInlineActionIcon: View {
     }
 }
 
+struct QuickReactionButtons<Label: View>: View {
+    let emojis: [String]
+    let onPick: (String) -> Void
+    let label: (String) -> Label
+
+    init(
+        emojis: [String],
+        onPick: @escaping (String) -> Void,
+        @ViewBuilder label: @escaping (String) -> Label
+    ) {
+        self.emojis = emojis
+        self.onPick = onPick
+        self.label = label
+    }
+
+    var body: some View {
+        ForEach(emojis, id: \.self) { emoji in
+            Button {
+                onPick(emoji)
+            } label: {
+                label(emoji)
+            }
+            .accessibilityLabel(String(format: L10n.string("React with %@"), emoji))
+        }
+    }
+}
+
 struct MessageEmojiPickerPopover: View {
+    @Environment(WorkspaceState.self) private var workspace
     @State private var isFullPickerPresented = false
     let onPick: (String) -> Void
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(ChatReactionDefaults.quick, id: \.self) { emoji in
-                Button {
-                    onPick(emoji)
-                } label: {
-                    Text(emoji)
-                        .font(.system(size: 22))
-                        .frame(width: 40, height: 40)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(String(format: L10n.string("React with %@"), emoji))
+            QuickReactionButtons(emojis: workspace.quickReactions, onPick: onPick) { emoji in
+                Text(emoji)
+                    .font(.system(size: 22))
+                    .frame(width: 40, height: 40)
+                    .contentShape(Circle())
             }
+            .buttonStyle(.plain)
 
             Button {
                 isFullPickerPresented = true
@@ -1934,14 +1957,31 @@ struct MessageOverflowPopover: View {
     }
 }
 
-/// The right-click menu for a chat bubble. Shows the same action set as the hover bar's "…"
-/// overflow (`MessageRowAction.all`) so both entry points are identical — React/Reply stay on
-/// the inline hover bar, not here.
+/// The right-click menu for a chat bubble. The reaction submenu and hover popover both render
+/// `QuickReactionButtons` from the workspace preference, while the remaining actions mirror the
+/// hover bar's overflow (`MessageRowAction.all`).
 struct MessageContextMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
 
     var body: some View {
+        if message.canReact {
+            Menu {
+                QuickReactionButtons(
+                    emojis: workspace.quickReactions,
+                    onPick: { emoji in
+                        Task { await workspace.react(to: message, emoji: emoji) }
+                    }
+                ) { emoji in
+                    Text(emoji)
+                }
+            } label: {
+                Label("React", systemImage: "face.smiling")
+            }
+
+            Divider()
+        }
+
         ForEach(MessageRowAction.all(for: message, workspace: workspace)) { action in
             Button(role: action.role, action: action.run) {
                 Label(action.title, systemImage: action.systemImage)
