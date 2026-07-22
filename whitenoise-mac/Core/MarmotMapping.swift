@@ -4,10 +4,11 @@ import OSLog
 
 extension AccountItem {
     nonisolated init(summary: AccountSummaryFfi) {
-        let title = summary.label.isEmpty ? DisplayText.short(summary.accountIdHex) : summary.label
+        let accountRef = summary.label.isEmpty ? summary.accountIdHex : summary.label
+        let title = summary.label.isEmpty ? DisplayText.short(accountRef) : summary.label
         self.init(
-            id: summary.label.isEmpty ? summary.accountIdHex : summary.label,
-            accountRef: summary.label,
+            id: accountRef,
+            accountRef: accountRef,
             displayName: title,
             accountIdHex: summary.accountIdHex,
             localSigning: summary.localSigning,
