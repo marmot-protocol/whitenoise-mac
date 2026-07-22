@@ -2301,6 +2301,53 @@ struct whitenoise_macTests {
         #expect(!directory.path.contains(FileManager.default.temporaryDirectory.path))
     }
 
+    @Test func hiddenMessageStoreUsesOpaqueProtectedBackupExcludedPerChatFiles() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-hidden-message-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = HiddenMessageFileStore(fileManager: fileManager, directoryURL: directory)
+        let firstScope = HiddenMessageScope(accountId: "account-one", groupIdHex: "group-one")
+        let secondScope = HiddenMessageScope(accountId: "account-two", groupIdHex: "group-two")
+
+        try store.write(["message-b", "message-a"], for: firstScope)
+        try store.write(["message-c"], for: secondScope)
+
+        #expect(
+            try store.loadAll()
+                == [
+                    firstScope: ["message-a", "message-b"],
+                    secondScope: ["message-c"],
+                ]
+        )
+        let directoryValues = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(directoryValues.isExcludedFromBackup == true)
+        let files = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isExcludedFromBackupKey],
+            options: [.skipsHiddenFiles]
+        )
+        #expect(files.count == 2)
+        for file in files {
+            #expect(file.pathExtension == "json")
+            #expect(file.deletingPathExtension().lastPathComponent.count == 64)
+            #expect(!file.lastPathComponent.contains(firstScope.accountId))
+            #expect(!file.lastPathComponent.contains(firstScope.groupIdHex))
+            #expect(!file.lastPathComponent.contains(secondScope.accountId))
+            #expect(!file.lastPathComponent.contains(secondScope.groupIdHex))
+            #expect(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+            let attributes = try fileManager.attributesOfItem(atPath: file.path)
+            if let protection = attributes[.protectionKey] as? FileProtectionType {
+                #expect(protection == .complete || protection == .completeUntilFirstUserAuthentication)
+            }
+        }
+
+        try store.remove(for: firstScope)
+        #expect(try store.loadAll() == [secondScope: ["message-c"]])
+        try store.removeAll()
+        #expect(!fileManager.fileExists(atPath: directory.path))
+    }
+
     @Test func mediaPlaybackTempStoreVoiceRecordingsLiveInsideAppContainerNotSharedTemp() {
         let base = URL(fileURLWithPath: "/Container", isDirectory: true)
         let directory = MediaPlaybackTempStore.voiceRecordingsDirectoryURL(baseURL: base)
@@ -13526,6 +13573,10 @@ struct whitenoise_macTests {
         runtime.installGroupDetails(
             groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
         )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-hidden-message-tests-\(UUID().uuidString)", isDirectory: true)
+        let hiddenMessageStore = HiddenMessageFileStore(directoryURL: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
         // Snapshot the shared defaults so the test never wipes real hidden-message state.
         let hiddenDefaultsKey = WorkspaceState.hiddenMessagesDefaultsKey
         let priorHidden = UserDefaults.standard.dictionary(forKey: hiddenDefaultsKey)
@@ -13536,7 +13587,7 @@ struct whitenoise_macTests {
                 UserDefaults.standard.removeObject(forKey: hiddenDefaultsKey)
             }
         }
-        let state = WorkspaceState(clientFactory: { runtime })
+        let state = WorkspaceState(hiddenMessageStore: hiddenMessageStore, clientFactory: { runtime })
         state.clearAllHiddenMessages()
         let message = MessageItem(
             id: "hide-on-this-device",
@@ -13563,6 +13614,44 @@ struct whitenoise_macTests {
         #expect(runtime.deletedMessage == nil)
         #expect(state.hiddenMessageIds(accountId: accountId, groupIdHex: chat.id).contains(message.id))
         #expect(state.filterHiddenMessages([message], groupIdHex: chat.id).isEmpty)
+        #expect(
+            try hiddenMessageStore.loadAll()[
+                HiddenMessageScope(accountId: accountId, groupIdHex: chat.id)
+            ] == [message.id]
+        )
+        #expect(UserDefaults.standard.object(forKey: hiddenDefaultsKey) == nil)
+    }
+
+    @MainActor
+    @Test func legacyHiddenMessagesMigrateToProtectedStore() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-hidden-message-migration-\(UUID().uuidString)", isDirectory: true)
+        let hiddenMessageStore = HiddenMessageFileStore(directoryURL: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let hiddenDefaultsKey = WorkspaceState.hiddenMessagesDefaultsKey
+        let priorHidden = UserDefaults.standard.dictionary(forKey: hiddenDefaultsKey)
+        defer {
+            if let priorHidden {
+                UserDefaults.standard.set(priorHidden, forKey: hiddenDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: hiddenDefaultsKey)
+            }
+        }
+        let scope = HiddenMessageScope(accountId: account.accountIdHex, groupIdHex: "group")
+        UserDefaults.standard.set(
+            ["\(scope.accountId)\u{1F}\(scope.groupIdHex)": ["legacy-hidden"]],
+            forKey: hiddenDefaultsKey
+        )
+
+        let state = WorkspaceState(hiddenMessageStore: hiddenMessageStore, clientFactory: { runtime })
+        await state.bootstrap()
+
+        #expect(state.hiddenMessageIds(accountId: scope.accountId, groupIdHex: scope.groupIdHex) == ["legacy-hidden"])
+        #expect(try hiddenMessageStore.loadAll()[scope] == ["legacy-hidden"])
+        #expect(UserDefaults.standard.object(forKey: hiddenDefaultsKey) == nil)
     }
 
     @MainActor

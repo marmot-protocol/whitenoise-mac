@@ -885,6 +885,7 @@ final class WorkspaceState {
     }
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
+    @ObservationIgnored var hiddenMessageStore: (any HiddenMessageStoring)?
     @ObservationIgnored var mediaReferenceIndexes: [MediaReferenceCacheKey: MediaReferenceIndex] = [:]
     @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
     @ObservationIgnored var mediaReferenceIndexGeneration: UInt64 = 0
@@ -1121,10 +1122,10 @@ final class WorkspaceState {
     /// Survives cache clearing so a late pre-teardown refresh cannot regain ownership when the
     /// same account and group recreate an identical per-chat generation token.
     @ObservationIgnored var conversationMetadataEpoch: UInt64 = 0
-    /// Message ids the local account hid via "Delete for me", keyed by `accountId\u{1F}groupId`.
-    /// Filtered from the timeline projection so a local hide survives reprojection and restart, and
-    /// never publishes anything. Persisted in `UserDefaults` under `Self.hiddenMessagesDefaultsKey`.
-    @ObservationIgnored var hiddenMessageIdsByChat: [String: Set<String>] = [:]
+    /// Message ids the local account hid via "Delete for me", stored in protected, backup-excluded
+    /// per-chat files so a local hide survives reprojection and restart without exposing account /
+    /// group associations in preferences or filenames.
+    @ObservationIgnored var hiddenMessageIdsByChat: [HiddenMessageScope: Set<String>] = [:]
     var selectedTimelineMessageIds: Set<String> = []
     /// Scoped message target whose unified delete-confirmation surface is open, or `nil`. Drives the adaptive
     /// dialog that offers only the scopes `messageDeletionCapability` permits.
@@ -1650,6 +1651,7 @@ final class WorkspaceState {
             await WorkspaceState.requestSystemMicrophoneAccess()
         },
         mediaDiskCache: MessageMediaDiskCache = .shared,
+        hiddenMessageStore: (any HiddenMessageStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -1668,6 +1670,7 @@ final class WorkspaceState {
         self.nowProvider = nowProvider
         self.microphoneAccessProvider = microphoneAccessProvider
         self.mediaDiskCache = mediaDiskCache
+        self.hiddenMessageStore = hiddenMessageStore
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
@@ -1693,7 +1696,6 @@ final class WorkspaceState {
         self.localNotificationCenter.setResponseHandler { [weak self] userInfo in
             self?.handleNotificationResponse(userInfo)
         }
-        loadHiddenMessages()
         ensureSelectedMessageTimelineStore()
     }
 
