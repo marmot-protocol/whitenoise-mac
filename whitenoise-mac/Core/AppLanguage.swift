@@ -46,6 +46,7 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
     // resolution happens outside the lock.
     private struct LocaleCache {
         var locale: Locale?
+        var twelveHourLocale: Locale?
         var generation: UInt64 = 0
     }
 
@@ -60,26 +61,54 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
     #endif
 
     static var currentLocale: Locale {
+        currentLocalePair.locale
+    }
+
+    /// The selected locale with a forced 12-hour clock, cached alongside `currentLocale` so
+    /// per-message timestamp formatting does not rebuild `Locale.Components` on the hot path.
+    static var currentTwelveHourLocale: Locale {
+        currentLocalePair.twelveHourLocale
+    }
+
+    static func twelveHourLocale(for locale: Locale) -> Locale {
+        let pair = currentLocalePair
+        guard locale.identifier != pair.locale.identifier else {
+            return pair.twelveHourLocale
+        }
+        return makeTwelveHourLocale(from: locale)
+    }
+
+    private static var currentLocalePair: (locale: Locale, twelveHourLocale: Locale) {
         while true {
             let snapshot = cachedLocale.withLock { cache in
-                (locale: cache.locale, generation: cache.generation)
+                (
+                    locale: cache.locale,
+                    twelveHourLocale: cache.twelveHourLocale,
+                    generation: cache.generation
+                )
             }
-            if let locale = snapshot.locale {
-                return locale
+            if let locale = snapshot.locale,
+                let twelveHourLocale = snapshot.twelveHourLocale
+            {
+                return (locale, twelveHourLocale)
             }
 
             let resolvedLocale = resolvedLocaleFromDefaults()
-            if let locale = cachedLocale.withLock({ cache -> Locale? in
-                if let locale = cache.locale {
-                    return locale
+            let resolvedTwelveHourLocale = makeTwelveHourLocale(from: resolvedLocale)
+            if let pair = cachedLocale.withLock({ cache -> (Locale, Locale)? in
+                if let locale = cache.locale,
+                    let twelveHourLocale = cache.twelveHourLocale
+                {
+                    return (locale, twelveHourLocale)
                 }
                 guard cache.generation == snapshot.generation else {
                     return nil
                 }
                 cache.locale = resolvedLocale
-                return resolvedLocale
+                cache.twelveHourLocale = resolvedTwelveHourLocale
+                return (resolvedLocale, resolvedTwelveHourLocale)
             }) {
-                return locale
+                return pair
             }
         }
     }
@@ -90,13 +119,21 @@ nonisolated enum AppLanguage: String, CaseIterable, Identifiable {
     /// `L10n`'s cached `.lproj` bundle, which is keyed on the same preference.
     static func refreshCachedLocale() {
         let locale = resolvedLocaleFromDefaults()
+        let twelveHourLocale = makeTwelveHourLocale(from: locale)
         cachedLocale.withLock { cache in
             cache.generation &+= 1
             cache.locale = locale
+            cache.twelveHourLocale = twelveHourLocale
         }
         // The localized `.lproj` bundle is cached against this same preference,
         // so invalidate it here too (the single shared invalidation point).
         L10n.refreshCachedLocalizedBundle()
+    }
+
+    private static func makeTwelveHourLocale(from locale: Locale) -> Locale {
+        var components = Locale.Components(locale: locale)
+        components.hourCycle = .oneToTwelve
+        return Locale(components: components)
     }
 
     private static func resolvedLocaleFromDefaults() -> Locale {

@@ -4234,6 +4234,25 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func twelveHourLocaleCacheInvalidatesWithSelectedLanguage() {
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        let spanish = AppLanguage.currentTwelveHourLocale
+
+        UserDefaults.standard.set(AppLanguage.german.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+        let german = AppLanguage.currentTwelveHourLocale
+
+        #expect(spanish.identifier != german.identifier)
+        #expect(Locale.Components(locale: spanish).hourCycle == .oneToTwelve)
+        #expect(Locale.Components(locale: german).hourCycle == .oneToTwelve)
+        #expect(AppLanguage.twelveHourLocale(for: AppLanguage.currentLocale) == german)
+    }
+
+    @MainActor
     @Test func longDateTimeTimestampUsesSelectedAppLanguage() async throws {
         let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
         defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
