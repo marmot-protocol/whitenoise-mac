@@ -24,6 +24,8 @@ struct ContentView: View {
     @State private var timestampReferenceDate = Date()
 
     var body: some View {
+        @Bindable var workspace = workspace
+
         MessengerShellView()
             .frame(minWidth: 940, minHeight: 620)
             .preferredColorScheme(workspace.preferredColorScheme)
@@ -89,6 +91,11 @@ struct ContentView: View {
                 )
             ) { _ in
                 Task { await workspace.handleConversationVisibilityChange() }
+            }
+            .sheet(isPresented: $workspace.isGlobalMessageSearchPresented) {
+                GlobalMessageSearchView()
+                    .environment(workspace)
+                    .environment(\.locale, workspace.preferredLocale)
             }
             .onReceive(
                 NotificationCenter.default.publisher(

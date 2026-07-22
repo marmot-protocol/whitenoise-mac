@@ -182,6 +182,18 @@ struct ChatListDrawerView: View {
                         Text(filter.title)
                             .font(MessagesType.paneTitle)
                         Spacer()
+                        Button {
+                            workspace.presentGlobalMessageSearch()
+                        } label: {
+                            Image(systemName: "text.magnifyingglass")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 34, height: 34)
+                                .background {
+                                    MessagesCircleControlBackground()
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .help(L10n.string("Search all messages"))
                         ChatListFilterMenu()
                         if !isShowingArchived {
                             Button {

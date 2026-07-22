@@ -557,6 +557,13 @@ private struct ConversationView: View {
                             pendingPrependAnchorId = nil
                         }
                     }
+                    .task(id: workspace.pendingMessageNavigation?.requestId) {
+                        guard let target = workspace.pendingMessageNavigation,
+                            target.groupId == chat.id
+                        else { return }
+                        await revealMessage(target.messageId, using: proxy)
+                        workspace.completePendingMessageNavigation(target)
+                    }
                     .overlay(alignment: .bottomTrailing) {
                         if !isPinnedToBottom {
                             Button {
