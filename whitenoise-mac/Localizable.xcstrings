@@ -9047,6 +9047,9 @@
     "Full Data Logging" : {
 
     },
+    "General" : {
+      "extractionState" : "manual"
+    },
     "Generate Identity" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9164,9 +9167,6 @@
           }
         }
       }
-    },
-    "General" : {
-      "extractionState" : "manual"
     },
     "Group Actions" : {
 
@@ -11779,9 +11779,6 @@
         }
       }
     },
-    "Launch White Noise at Login" : {
-      "extractionState" : "manual"
-    },
     "Last token list update" : {
       "comment" : "A label for the last time a token list was updated.",
       "extractionState" : "stale",
@@ -11842,6 +11839,9 @@
           }
         }
       }
+    },
+    "Launch White Noise at Login" : {
+      "extractionState" : "manual"
     },
     "leaf %u" : {
       "comment" : "A label indicating the index of a token within a group.",
@@ -13915,6 +13915,9 @@
         }
       }
     },
+    "macOS could not find White Noise's login item." : {
+      "extractionState" : "manual"
+    },
     "Made admin" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14392,10 +14395,10 @@
         }
       }
     },
-    "Media Cache" : {
+    "Media cache" : {
       "extractionState" : "manual"
     },
-    "Media cache" : {
+    "Media Cache" : {
       "extractionState" : "manual"
     },
     "Member actions" : {
@@ -19168,9 +19171,6 @@
     "Preview" : {
 
     },
-    "Previous image" : {
-
-    },
     "Privacy" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -22610,9 +22610,6 @@
     "Restore last selected chat on launch" : {
       "extractionState" : "manual"
     },
-    "Return to the last conversation selected for this account after White Noise finishes loading." : {
-      "extractionState" : "manual"
-    },
     "Retry" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -22789,6 +22786,9 @@
           }
         }
       }
+    },
+    "Return to the last conversation selected for this account after White Noise finishes loading." : {
+      "extractionState" : "manual"
     },
     "Save" : {
       "comment" : "The label of a button that saves changes.",
@@ -26692,11 +26692,11 @@
     "This permanently removes every local audit JSONL file on this Mac." : {
 
     },
-    "This removes %@ of encrypted cached attachments. Visible media will download again when needed." : {
-      "extractionState" : "manual"
-    },
     "This removes %@ from the group." : {
 
+    },
+    "This removes %@ of encrypted cached attachments. Visible media will download again when needed." : {
+      "extractionState" : "manual"
     },
     "Today" : {
       "extractionState" : "manual",
@@ -27658,9 +27658,6 @@
       "extractionState" : "manual"
     },
     "White Noise needs approval in Login Items before it can open at login." : {
-      "extractionState" : "manual"
-    },
-    "macOS could not find White Noise's login item." : {
       "extractionState" : "manual"
     },
     "wss://relay.example" : {
