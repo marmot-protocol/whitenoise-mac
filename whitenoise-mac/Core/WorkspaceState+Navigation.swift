@@ -26,6 +26,7 @@ extension WorkspaceState {
     func leaveActiveConversation() {
         cancelVoiceRecording()
         cancelGroupTranscriptExport()
+        pendingMessageNavigation = nil
     }
 
     func selectChat(_ chat: ChatItem) {

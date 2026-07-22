@@ -14687,6 +14687,346 @@ struct whitenoise_macTests {
         #expect(copiedText == "public-key-value")
     }
 
+    @Test func globalMessageSearchTextNormalizesOrderedTokensAndBoundsSnippets() {
+        let tokens = GlobalMessageSearchText.tokens(in: "  CAFÉ…shipped!  ")
+
+        #expect(GlobalMessageSearchText.matches("The Café package shipped today", tokens: tokens))
+        #expect(!GlobalMessageSearchText.matches("Shipped from the café", tokens: tokens))
+        #expect(
+            GlobalMessageSearchText.matches(
+                "The Café package shipped today",
+                tokens: GlobalMessageSearchText.tokens(in: "cafe\u{0301} shipped")
+            )
+        )
+        #expect(GlobalMessageSearchText.tokens(in: " …!? ").isEmpty)
+
+        let snippet = GlobalMessageSearchText.snippet(
+            from: String(repeating: "prefix ", count: 80) + "Café shipped\nwith tracking",
+            tokens: tokens
+        )
+        #expect(snippet.leading.hasPrefix("…"))
+        #expect(snippet.match == "Café")
+        #expect(!snippet.trailing.contains("\n"))
+        #expect((snippet.leading + snippet.match + snippet.trailing).count <= 195)
+
+        let longToken = String(repeating: "x", count: 500)
+        let longSnippet = GlobalMessageSearchText.snippet(
+            from: "before \(longToken) after",
+            tokens: [longToken]
+        )
+        #expect(longSnippet.match.count == 96)
+        #expect(longSnippet.trailing.hasPrefix("…"))
+        #expect((longSnippet.leading + longSnippet.match + longSnippet.trailing).count <= 291)
+    }
+
+    @Test func globalMessageSearchProjectsResolvedVisibleTimelineHistory() throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let sender = String(repeating: "a", count: 64)
+        var olderRows: [TimelineMessageRecordFfi] = []
+        olderRows.reserveCapacity(420)
+        for index in 0..<420 {
+            let record = timelineMessage(
+                id: String(format: "%064x", index + 1),
+                groupIdHex: "group",
+                sender: sender,
+                plaintext: index == 3 ? "The Café package shipped today" : "unrelated \(index)",
+                recordedAt: UInt64(index + 1)
+            )
+            olderRows.append(record)
+        }
+        let resolvedEdit = timelineMessage(
+            id: String(repeating: "e", count: 64),
+            groupIdHex: "group",
+            sender: sender,
+            plaintext: "The café edit shipped successfully",
+            recordedAt: 500
+        )
+        let deleted = timelineMessage(
+            id: String(repeating: "d", count: 64),
+            groupIdHex: "group",
+            sender: sender,
+            plaintext: "The café deletion shipped",
+            recordedAt: 501,
+            deleted: true
+        )
+        let invalidated = timelineMessage(
+            id: String(repeating: "c", count: 64),
+            groupIdHex: "group",
+            sender: sender,
+            plaintext: "The café invalidation shipped",
+            recordedAt: 502,
+            invalidationStatus: "LosingBranch"
+        )
+        let systemRow = timelineMessage(
+            id: String(repeating: "b", count: 64),
+            groupIdHex: "group",
+            sender: sender,
+            plaintext: "The café system event shipped",
+            kind: 1210,
+            recordedAt: 503
+        )
+        runtime.installTimelinePage(
+            TimelinePageFfi(
+                messages: olderRows + [resolvedEdit, deleted, invalidated, systemRow],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "group"
+        )
+        runtime.installTimelinePage(
+            TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: String(repeating: "f", count: 64),
+                        groupIdHex: "hidden-group",
+                        sender: sender,
+                        plaintext: "The café hidden chat shipped",
+                        recordedAt: 600
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "hidden-group"
+        )
+
+        let results = try GlobalMessageSearchEngine.search(
+            client: runtime,
+            accountRef: "Desktop Account",
+            localAccountId: desktopAccount().accountIdHex,
+            localDisplayName: "Desktop Account",
+            scopes: [GlobalMessageSearchScope(groupId: "group", title: "Test Group")],
+            query: "cafe\u{0301} shipped",
+            checkCancellation: {}
+        )
+
+        #expect(results.map(\.messageId) == [resolvedEdit.messageIdHex, olderRows[3].messageIdHex])
+        #expect(results.allSatisfy { $0.groupId == "group" && $0.chatTitle == "Test Group" })
+        #expect(results.first?.snippet.match.lowercased() == "café")
+        #expect(runtime.timelineMessageQueries.count == 3)
+    }
+
+    @MainActor
+    @Test func globalMessageSearchDebouncesAndCancelsSupersededQueriesOffMain() async throws {
+        let state = WorkspaceState.preview()
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        state.client = runtime
+        let chat = try #require(state.activeChats.first)
+        let sender = try #require(state.activeAccount).accountIdHex
+        runtime.timelineMessagesHandler = { query in
+            TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: String(repeating: "a", count: 64),
+                        groupIdHex: query.groupIdHex ?? chat.id,
+                        sender: sender,
+                        plaintext: "fresh result",
+                        recordedAt: 10
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+
+        state.presentGlobalMessageSearch()
+        state.globalMessageSearchQuery = "superseded"
+        state.scheduleGlobalMessageSearch()
+        state.globalMessageSearchQuery = "fresh"
+        state.scheduleGlobalMessageSearch()
+
+        #expect(await waitFor { !state.isSearchingAllMessages && !state.globalMessageSearchResults.isEmpty })
+        #expect(state.globalMessageSearchResults.allSatisfy { $0.snippet.match == "fresh" })
+        #expect(runtime.timelineMessageQueries.count == state.activeChats.count)
+        #expect(runtime.syncCallThreadRecord("timelineMessages").allSatisfy { !$0 })
+        state.dismissGlobalMessageSearch()
+    }
+
+    @MainActor
+    @Test func globalMessageSearchDropsStaleInFlightGenerationAndAccountResults() async throws {
+        let state = WorkspaceState.preview()
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        state.client = runtime
+        let firstQueryEntered = DispatchSemaphore(value: 0)
+        let releaseFirstQuery = DispatchSemaphore(value: 0)
+        let calls = AtomicCounter()
+        let sender = try #require(state.activeAccount).accountIdHex
+        runtime.timelineMessagesHandler = { query in
+            let call = calls.increment()
+            if call == 1 {
+                firstQueryEntered.signal()
+                _ = releaseFirstQuery.wait(timeout: .now() + 5)
+            }
+            return TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: String(format: "%064x", call),
+                        groupIdHex: query.groupIdHex ?? "group",
+                        sender: sender,
+                        plaintext: call == 1 ? "stale result" : "current result",
+                        recordedAt: UInt64(call)
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+
+        state.presentGlobalMessageSearch()
+        state.globalMessageSearchQuery = "stale"
+        state.scheduleGlobalMessageSearch()
+        #expect(await waitForSemaphore(firstQueryEntered, timeout: .now() + 2) == .success)
+
+        state.globalMessageSearchQuery = "current"
+        state.scheduleGlobalMessageSearch()
+        releaseFirstQuery.signal()
+
+        #expect(
+            await waitFor(attempts: 300) {
+                !state.isSearchingAllMessages && !state.globalMessageSearchResults.isEmpty
+            })
+        #expect(state.globalMessageSearchResults.allSatisfy { $0.snippet.match == "current" })
+        #expect(!state.globalMessageSearchResults.contains { $0.snippet.leading.contains("stale") })
+
+        let nextAccount = try #require(state.accounts.dropFirst().first)
+        state.prepareForActiveAccountSwitch(to: nextAccount, preservingMessageCacheFor: nil)
+        #expect(!state.isGlobalMessageSearchPresented)
+        #expect(state.globalMessageSearchQuery.isEmpty)
+        #expect(state.globalMessageSearchResults.isEmpty)
+        #expect(!state.isSearchingAllMessages)
+    }
+
+    @MainActor
+    @Test func globalMessageSearchNavigationLoadsAndCentersTargetsBeyondTwelvePages() async throws {
+        let state = WorkspaceState.preview()
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        state.client = runtime
+        let targetChat = try #require(state.activeChats.last)
+        let sender = try #require(state.activeAccount).accountIdHex
+        var records: [TimelineMessageRecordFfi] = []
+        records.reserveCapacity(1_650)
+        for index in 0..<1_650 {
+            let record = timelineMessage(
+                id: String(format: "%064x", index + 1),
+                groupIdHex: targetChat.id,
+                sender: sender,
+                plaintext: "message \(index)",
+                recordedAt: UInt64(index + 1)
+            )
+            records.append(record)
+        }
+        runtime.installTimelinePage(
+            TimelinePageFfi(messages: records, hasMoreBefore: false, hasMoreAfter: false),
+            groupIdHex: targetChat.id
+        )
+        let target = records[25]
+        let result = GlobalMessageSearchResult(
+            messageId: target.messageIdHex,
+            groupId: targetChat.id,
+            chatTitle: targetChat.title,
+            senderName: "Desktop Account",
+            timelineAt: target.timelineAt,
+            snippet: GlobalMessageSearchSnippet(leading: "", match: "message", trailing: " 25")
+        )
+
+        await state.openGlobalMessageSearchResult(result)
+
+        #expect(state.selectedChat?.id == targetChat.id)
+        #expect(state.selectedTimelineContainsMessage(target.messageIdHex))
+        #expect(state.pendingMessageNavigation?.messageId == target.messageIdHex)
+        #expect(runtime.lastTimelineSubscription?.paginateBackwardsCount ?? 0 > 12)
+    }
+
+    @MainActor
+    @Test func globalMessageSearchInvalidatesResultsWhenAVisibleChatIsDeleted() throws {
+        let state = WorkspaceState.preview()
+        let account = try #require(state.activeAccount)
+        let deletedChat = try #require(state.activeChats.last)
+        state.presentGlobalMessageSearch()
+        state.globalMessageSearchQuery = "message"
+        state.globalMessageSearchResults = [
+            GlobalMessageSearchResult(
+                messageId: String(repeating: "a", count: 64),
+                groupId: deletedChat.id,
+                chatTitle: deletedChat.title,
+                senderName: account.displayName,
+                timelineAt: 10,
+                snippet: GlobalMessageSearchSnippet(leading: "", match: "message", trailing: "")
+            )
+        ]
+
+        state.removeChat(groupIdHex: deletedChat.id, account: account)
+
+        #expect(!state.activeChats.contains { $0.id == deletedChat.id })
+        #expect(state.globalMessageSearchResults.isEmpty)
+        #expect(state.globalMessageSearchQuery == "message")
+        state.dismissGlobalMessageSearch()
+    }
+
+    @Test func globalMessageSearchStopsWhenHistoryCursorDoesNotAdvance() throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let sender = desktopAccount().accountIdHex
+        let record = timelineMessage(
+            id: String(repeating: "a", count: 64),
+            groupIdHex: "group",
+            sender: sender,
+            plaintext: "matching message",
+            recordedAt: 10
+        )
+        runtime.timelineMessagesHandler = { _ in
+            TimelinePageFfi(messages: [record], hasMoreBefore: true, hasMoreAfter: false)
+        }
+
+        let results = try GlobalMessageSearchEngine.search(
+            client: runtime,
+            accountRef: "Desktop Account",
+            localAccountId: sender,
+            localDisplayName: "Desktop Account",
+            scopes: [GlobalMessageSearchScope(groupId: "group", title: "Test Group")],
+            query: "matching",
+            checkCancellation: {}
+        )
+
+        #expect(results.map(\.messageId) == [record.messageIdHex])
+        #expect(runtime.timelineMessageQueries.count == 2)
+    }
+
+    @Test func globalMessageSearchLargeHistoryKeepsWorkAndResultsBounded() throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let sender = desktopAccount().accountIdHex
+        var records: [TimelineMessageRecordFfi] = []
+        records.reserveCapacity(10_000)
+        for index in 0..<10_000 {
+            let record = timelineMessage(
+                id: String(format: "%064x", index + 1),
+                groupIdHex: "group",
+                sender: sender,
+                plaintext: "common searchable message \(index)",
+                recordedAt: UInt64(index + 1)
+            )
+            records.append(record)
+        }
+        runtime.installTimelinePage(
+            TimelinePageFfi(messages: records, hasMoreBefore: false, hasMoreAfter: false),
+            groupIdHex: "group"
+        )
+
+        let results = try GlobalMessageSearchEngine.search(
+            client: runtime,
+            accountRef: "Desktop Account",
+            localAccountId: sender,
+            localDisplayName: "Desktop Account",
+            scopes: [GlobalMessageSearchScope(groupId: "group", title: "Large Group")],
+            query: "common searchable",
+            checkCancellation: {}
+        )
+
+        #expect(results.count == GlobalMessageSearchEngine.resultLimit)
+        #expect(results.first?.timelineAt == 10_000)
+        #expect(results.last?.timelineAt == 9_951)
+        #expect(runtime.timelineMessageQueries.count == 1)
+    }
+
     @Test func conversationTranscriptExportWritesEveryPagedEventChronologically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

@@ -95,6 +95,7 @@ extension WorkspaceState {
         preservingMessageCacheFor groupIdHex: String?
     ) {
         discardStartupChatRestoration()
+        dismissGlobalMessageSearch()
         leaveActiveConversation()
         stopTimelineListener()
         cancelTimelineLoad()

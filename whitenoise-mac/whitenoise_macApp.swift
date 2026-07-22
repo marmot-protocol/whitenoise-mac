@@ -37,5 +37,14 @@ struct whitenoise_macApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
+        .commands {
+            CommandMenu("Navigate") {
+                Button("Search All Messages…") {
+                    workspace.presentGlobalMessageSearch()
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(workspace.activeAccount == nil)
+            }
+        }
     }
 }

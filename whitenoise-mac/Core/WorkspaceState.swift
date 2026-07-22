@@ -983,6 +983,14 @@ final class WorkspaceState {
     }
     var restoreLastSelectedChat: Bool
     var searchText = ""
+    var isGlobalMessageSearchPresented = false
+    var globalMessageSearchQuery = ""
+    var globalMessageSearchResults: [GlobalMessageSearchResult] = []
+    var isSearchingAllMessages = false
+    var globalMessageSearchError: String?
+    var pendingMessageNavigation: GlobalMessageNavigationTarget?
+    @ObservationIgnored var globalMessageSearchTask: Task<Void, Never>?
+    @ObservationIgnored var globalMessageSearchGeneration: UInt64 = 0
     var chatListFilter: ChatListFilter = .active
     var archivingChatId: String?
     var isChatListVisible = true
