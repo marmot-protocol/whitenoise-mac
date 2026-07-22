@@ -158,8 +158,12 @@ private struct SharedMediaThumbnail: View {
         .buttonStyle(.plain)
         .disabled(!canOpen)
         .accessibilityLabel(item.attachment.fileName)
-        .task(id: item.id) { await load() }
+        .task(id: loadID) { await reload() }
         .sharedMediaErrorAlert($actionError)
+    }
+
+    private var loadID: LoadID {
+        LoadID(itemID: item.id, cacheGeneration: workspace.mediaCacheGeneration)
     }
 
     // A failed image stays activatable so tapping it retries the download.
@@ -205,14 +209,23 @@ private struct SharedMediaThumbnail: View {
         }
     }
 
+    private func reload() async {
+        image = nil
+        imagePayload = nil
+        didFail = false
+        await load()
+    }
+
     private func load() async {
         guard image == nil, !isVideo else { return }
+        let cacheGeneration = workspace.mediaCacheGeneration
         let data = await workspace.sharedMediaData(for: item.reference, groupIdHex: item.groupIdHex)
+        guard !Task.isCancelled, workspace.mediaCacheGeneration == cacheGeneration else { return }
         guard let data else {
             didFail = true
             return
         }
-        let payload = DownloadedMediaPayload(id: item.id, data: data)
+        let payload = DownloadedMediaPayload(id: "\(item.id)|cache:\(cacheGeneration)", data: data)
         guard
             let decoded = await RemoteImageLoader.shared.image(
                 for: payload,
@@ -224,6 +237,11 @@ private struct SharedMediaThumbnail: View {
         }
         imagePayload = payload
         image = Image(nsImage: decoded.nsImage)
+    }
+
+    private struct LoadID: Equatable {
+        let itemID: String
+        let cacheGeneration: UInt64
     }
 
     /// Open a video in the default player: decrypt (uncached), stage a temp file via the shared

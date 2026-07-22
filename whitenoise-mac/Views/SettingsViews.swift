@@ -42,6 +42,8 @@ struct SettingsPanelView: View {
                 PrivacySecuritySettingsView()
             case .notifications:
                 NotificationsSettingsView()
+            case .storage:
+                StorageSettingsView()
             case .developerMode:
                 DeveloperModeSettingsView()
             }
@@ -1318,6 +1320,94 @@ struct NotificationsSettingsView: View {
             }
 
         }
+    }
+}
+
+struct StorageSettingsView: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var showClearConfirmation = false
+
+    var body: some View {
+        SettingsScaffold(
+            title: "Storage",
+            subtitle: "Downloaded attachments stored on this Mac."
+        ) {
+            Section("Media Cache") {
+                LabeledContent("Cached attachments") {
+                    if workspace.isLoadingMediaCacheFootprint {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(byteCount(workspace.mediaCacheFootprint.byteCount))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Text(
+                    "White Noise encrypts cached attachment data on this Mac. Clearing it does not remove accounts, messages, drafts, or settings."
+                )
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+                Button(role: .destructive) {
+                    showClearConfirmation = true
+                } label: {
+                    HStack(spacing: 8) {
+                        if workspace.isClearingMediaCache {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Label(
+                            workspace.isClearingMediaCache ? L10n.string("Clearing...") : L10n.string("Clear Cache"),
+                            systemImage: "trash"
+                        )
+                    }
+                }
+                .disabled(
+                    workspace.isClearingMediaCache
+                        || workspace.isLoadingMediaCacheFootprint
+                        || workspace.mediaCacheFootprint.byteCount == 0
+                )
+
+                if let reclaimed = workspace.mediaCacheReclaimedByteCount {
+                    Label(
+                        String(
+                            format: L10n.string("%@ reclaimed."),
+                            byteCount(reclaimed)
+                        ),
+                        systemImage: "checkmark.circle"
+                    )
+                    .foregroundStyle(.green)
+                }
+            }
+        }
+        .task {
+            await workspace.refreshMediaCacheFootprint()
+        }
+        .confirmationDialog(
+            "Clear media cache?",
+            isPresented: $showClearConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear Cache", role: .destructive) {
+                Task { await workspace.clearMediaCache() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                String(
+                    format: L10n.string(
+                        "This removes %@ of encrypted cached attachments. Visible media will download again when needed."
+                    ),
+                    byteCount(workspace.mediaCacheFootprint.byteCount)
+                )
+            )
+        }
+    }
+
+    private func byteCount(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
 }
 

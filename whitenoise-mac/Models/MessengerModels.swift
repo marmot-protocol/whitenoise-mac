@@ -2030,6 +2030,7 @@ enum SettingsPage: Equatable {
     case appearance
     case privacySecurity
     case notifications
+    case storage
     case developerMode
 
     static let sidebarPages: [SettingsPage] = [
@@ -2041,6 +2042,7 @@ enum SettingsPage: Equatable {
         .appearance,
         .privacySecurity,
         .notifications,
+        .storage,
         .developerMode,
     ]
 
@@ -2064,6 +2066,8 @@ enum SettingsPage: Equatable {
             L10n.string("Privacy & Security")
         case .notifications:
             L10n.string("Notifications")
+        case .storage:
+            L10n.string("Storage")
         case .developerMode:
             L10n.string("Developer mode")
         }
@@ -2089,6 +2093,8 @@ enum SettingsPage: Equatable {
             L10n.string("Telemetry and audit logs")
         case .notifications:
             L10n.string("Local alerts")
+        case .storage:
+            L10n.string("Media cache")
         case .developerMode:
             L10n.string("Storage and diagnostics")
         }
@@ -2114,6 +2120,8 @@ enum SettingsPage: Equatable {
             "lock.shield"
         case .notifications:
             "bell.badge"
+        case .storage:
+            "internaldrive"
         case .developerMode:
             "stethoscope"
         }

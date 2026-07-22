@@ -83,6 +83,9 @@ struct ConversationMessageRow: View {
     // so SwiftUI diffs each row by value and only re-runs the rows that actually changed
     // instead of invalidating every visible row on each page load / streaming update.
     var body: some View {
+        // `mediaDownloads` is observation-ignored to keep unrelated timeline rows isolated. This
+        // narrow token is the explicit invalidation path when Storage clears every attachment.
+        let _ = workspace.mediaCacheGeneration
         // Only chat bubbles are selectable; `toggleMessageSelection` ignores system/notice rows,
         // so they must not show a checkbox or carry button semantics in selection mode.
         if workspace.isTimelineSelectionMode, message.presentation.isChatBubble {
@@ -1508,6 +1511,8 @@ struct MessageImageGalleryOverlay: View {
     }
 
     var body: some View {
+        // Re-resolve the selected attachment's ignored state store after a manual cache clear.
+        let _ = workspace.mediaCacheGeneration
         GeometryReader { geometry in
             ZStack {
                 Color.black.opacity(0.92)

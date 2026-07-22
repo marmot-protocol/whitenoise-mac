@@ -693,6 +693,12 @@ extension WorkspaceState {
         }
         messageTimelineStores = [:]
         resetMediaDownloadStateStores()
+        mediaCacheFootprintRefreshGeneration &+= 1
+        mediaCacheFootprint = .zero
+        isLoadingMediaCacheFootprint = false
+        isClearingMediaCache = false
+        mediaCacheReclaimedByteCount = nil
+        mediaCacheGeneration &+= 1
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
         clearConversationMetadata()

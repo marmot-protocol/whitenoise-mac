@@ -65,6 +65,13 @@ enum MessageMediaDiskCacheError: LocalizedError {
     }
 }
 
+nonisolated struct MessageMediaDiskCacheFootprint: Equatable, Sendable {
+    static let zero = MessageMediaDiskCacheFootprint(entryCount: 0, byteCount: 0)
+
+    let entryCount: Int
+    let byteCount: UInt64
+}
+
 nonisolated enum MessageMediaDiskCacheKeychain {
     private static let service = "dev.ipf.whitenoise.media-cache"
     private static let account = "media-cache-v1"
@@ -360,6 +367,32 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         finishPurge(task)
     }
 
+    /// Returns a point-in-time filesystem footprint without doing disk IO on the caller's actor.
+    /// The byte count includes committed entries and any encrypted staging payload currently being
+    /// prepared; that matches the space the cache is consuming on disk at the time of the scan.
+    func footprint() async -> MessageMediaDiskCacheFootprint {
+        await waitForActivePurge()
+
+        return await Task.detached(priority: .utility) { [self] in
+            let root: URL
+            do {
+                root = try directoryResolver()
+            } catch {
+                return .zero
+            }
+            return fileMutationLock.withLock {
+                let scan = Self.cacheScan(root: root)
+                return MessageMediaDiskCacheFootprint(
+                    entryCount: scan.committedFootprint.entryCount,
+                    byteCount: Self.addingWithSaturation(
+                        scan.committedFootprint.byteCount,
+                        scan.stagingByteCount
+                    )
+                )
+            }
+        }.value
+    }
+
     func purgeAccount(_ accountId: String) async {
         await waitForActivePurge()
 
@@ -507,10 +540,16 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         purgeSequence += 1
         let sequence = purgeSequence
         let fileMutationLock = self.fileMutationLock
+        let stagingCoordinator = self.stagingCoordinator
         let task = Task.detached(priority: .utility) {
-            fileMutationLock.lock()
-            defer { fileMutationLock.unlock() }
-            work()
+            // Advancing the generation above prevents any newer matching store from entering
+            // staging. Drain an operation that already entered the staging actor before deleting
+            // the root, so purge completion is authoritative: no stale prepared directory can
+            // briefly recreate the cache after this task returns.
+            await stagingCoordinator.perform {}
+            fileMutationLock.withLock {
+                work()
+            }
         }
         purgeTasks[sequence] = ActivePurge(task: task, scope: scope)
         lock.unlock()
@@ -669,10 +708,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         let byteCount: UInt64
     }
 
-    private struct CacheFootprint {
-        var entryCount: Int
-        var byteCount: UInt64
-    }
+    private typealias CacheFootprint = MessageMediaDiskCacheFootprint
 
     private struct CacheScan {
         let removableEntries: [CacheEntry]
