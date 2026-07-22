@@ -37,6 +37,36 @@ private final class MutableFlag: @unchecked Sendable {
     }
 }
 
+@MainActor
+private final class FakeLaunchAtLoginService: LaunchAtLoginServicing {
+    var status: LaunchAtLoginStatus
+    var registerError: Error?
+    var unregisterError: Error?
+    private(set) var registerCallCount = 0
+    private(set) var unregisterCallCount = 0
+    private(set) var openSystemSettingsCallCount = 0
+
+    init(status: LaunchAtLoginStatus) {
+        self.status = status
+    }
+
+    func register() throws {
+        registerCallCount += 1
+        if let registerError { throw registerError }
+        status = .enabled
+    }
+
+    func unregister() throws {
+        unregisterCallCount += 1
+        if let unregisterError { throw unregisterError }
+        status = .notRegistered
+    }
+
+    func openSystemSettings() {
+        openSystemSettingsCallCount += 1
+    }
+}
+
 private final class SuspendingMicrophoneAccessGate: @unchecked Sendable {
     private let lock = NSLock()
     private var permissionContinuation: CheckedContinuation<Bool, Never>?
@@ -17701,6 +17731,9 @@ struct whitenoise_macTests {
     @Test func settingsSelectionCanTargetAllSettingsPages() async throws {
         let state = WorkspaceState.preview()
 
+        state.showSettings(.general)
+        #expect(state.selection == .settings(.general))
+
         state.showSettings(.accounts)
         #expect(state.selection == .settings(.accounts))
 
@@ -17733,12 +17766,64 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func settingsSidebarPagesStartWithProfileAndExcludeOverview() async throws {
-        #expect(SettingsPage.sidebarPages.first == .profile)
+    @Test func settingsSidebarPagesStartWithGeneralAndExcludeOverview() async throws {
+        #expect(SettingsPage.sidebarPages.first == .general)
         #expect(!SettingsPage.sidebarPages.contains(.overview))
         #expect(SettingsPage.sidebarPages.contains(.privacySecurity))
         #expect(SettingsPage.sidebarPages.contains(.storage))
         #expect(SettingsPage.sidebarPages.last == .developerMode)
+    }
+
+    @MainActor
+    @Test func launchAtLoginControllerRegistersAndUnregistersTheMainApp() async throws {
+        let service = FakeLaunchAtLoginService(status: .notRegistered)
+        let controller = LaunchAtLoginController(service: service)
+
+        #expect(!controller.isEnabled)
+
+        controller.setEnabled(true)
+
+        #expect(controller.isEnabled)
+        #expect(service.registerCallCount == 1)
+
+        controller.setEnabled(false)
+
+        #expect(!controller.isEnabled)
+        #expect(service.unregisterCallCount == 1)
+    }
+
+    @MainActor
+    @Test func launchAtLoginControllerReflectsExternalServiceStatusChanges() async throws {
+        let service = FakeLaunchAtLoginService(status: .enabled)
+        let controller = LaunchAtLoginController(service: service)
+
+        #expect(controller.status == .enabled)
+
+        service.status = .requiresApproval
+        controller.refresh()
+
+        #expect(controller.status == .requiresApproval)
+        #expect(!controller.isEnabled)
+
+        controller.setEnabled(true)
+        #expect(service.registerCallCount == 0)
+        #expect(service.openSystemSettingsCallCount == 1)
+    }
+
+    @MainActor
+    @Test func launchAtLoginControllerSurfacesRegistrationFailure() async throws {
+        struct RegistrationError: LocalizedError {
+            var errorDescription: String? { "Registration denied" }
+        }
+
+        let service = FakeLaunchAtLoginService(status: .notRegistered)
+        service.registerError = RegistrationError()
+        let controller = LaunchAtLoginController(service: service)
+
+        controller.setEnabled(true)
+
+        #expect(controller.status == .notRegistered)
+        #expect(controller.errorMessage == "Registration denied")
     }
 
     @MainActor

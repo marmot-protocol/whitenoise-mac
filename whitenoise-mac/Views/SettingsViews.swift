@@ -26,6 +26,8 @@ struct SettingsPanelView: View {
             switch page {
             case .overview:
                 ProfileSettingsView()
+            case .general:
+                GeneralSettingsView()
             case .accounts:
                 AccountsSettingsView()
             case .profile:
@@ -53,6 +55,77 @@ struct SettingsPanelView: View {
         }
         .task(id: workspace.activeAccountId) {
             await workspace.loadSettingsData()
+        }
+    }
+}
+
+struct GeneralSettingsView: View {
+    @State private var launchAtLogin = LaunchAtLoginController()
+
+    var body: some View {
+        SettingsScaffold(
+            title: "General",
+            subtitle: "Choose how White Noise behaves when you start your Mac."
+        ) {
+            Section("Startup") {
+                Toggle(
+                    "Launch White Noise at Login",
+                    isOn: Binding(
+                        get: { launchAtLogin.isEnabled },
+                        set: { launchAtLogin.setEnabled($0) }
+                    )
+                )
+
+                Text("Open the White Noise window automatically when you log in to your Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                launchAtLoginStatus
+            }
+        }
+        .onAppear {
+            launchAtLogin.refresh()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in
+            // Login Items can be changed outside White Noise. Treat ServiceManagement as
+            // the source of truth whenever the app returns from System Settings.
+            launchAtLogin.refresh()
+        }
+    }
+
+    @ViewBuilder
+    private var launchAtLoginStatus: some View {
+        if let error = launchAtLogin.errorMessage {
+            SettingsErrorView(error: error)
+        }
+
+        switch launchAtLogin.status {
+        case .requiresApproval:
+            VStack(alignment: .leading, spacing: 8) {
+                Label(
+                    "White Noise needs approval in Login Items before it can open at login.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Button("Open Login Items Settings") {
+                    launchAtLogin.openSystemSettings()
+                }
+            }
+        case .notFound:
+            Label(
+                "macOS could not find White Noise's login item.",
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        case .notRegistered, .enabled:
+            EmptyView()
         }
     }
 }
