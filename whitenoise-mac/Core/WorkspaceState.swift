@@ -928,6 +928,8 @@ final class WorkspaceState {
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
     @ObservationIgnored var hiddenMessageStore: (any HiddenMessageStoring)?
     @ObservationIgnored var pinnedChatStore: (any PinnedChatStoring)?
+    @ObservationIgnored let chatRestorationStore: any ChatRestorationStoring
+    @ObservationIgnored var shouldResolveStartupChatSelection = true
     @ObservationIgnored var mediaReferenceIndexes: [MediaReferenceCacheKey: MediaReferenceIndex] = [:]
     @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
     @ObservationIgnored var mediaReferenceIndexGeneration: UInt64 = 0
@@ -975,8 +977,10 @@ final class WorkspaceState {
             }
             dismissGroupImagePickerIfSelectedChatUnavailable()
             ensureSelectedMessageTimelineStore()
+            persistSelectedChatForRestorationIfEnabled()
         }
     }
+    var restoreLastSelectedChat: Bool
     var searchText = ""
     var chatListFilter: ChatListFilter = .active
     var archivingChatId: String?
@@ -1704,6 +1708,7 @@ final class WorkspaceState {
         mediaDiskCache: MessageMediaDiskCache = .shared,
         hiddenMessageStore: (any HiddenMessageStoring)? = nil,
         pinnedChatStore: (any PinnedChatStoring)? = nil,
+        chatRestorationStore: (any ChatRestorationStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -1724,6 +1729,10 @@ final class WorkspaceState {
         self.mediaDiskCache = mediaDiskCache
         self.hiddenMessageStore = hiddenMessageStore
         self.pinnedChatStore = pinnedChatStore
+        let resolvedChatRestorationStore =
+            chatRestorationStore ?? UserDefaultsChatRestorationStore()
+        self.chatRestorationStore = resolvedChatRestorationStore
+        self.restoreLastSelectedChat = resolvedChatRestorationStore.isEnabled
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)

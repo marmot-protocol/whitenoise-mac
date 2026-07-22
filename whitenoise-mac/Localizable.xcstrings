@@ -22589,6 +22589,12 @@
         }
       }
     },
+    "Restore last selected chat on launch" : {
+      "extractionState" : "manual"
+    },
+    "Return to the last conversation selected for this account after White Noise finishes loading." : {
+      "extractionState" : "manual"
+    },
     "Retry" : {
       "extractionState" : "manual",
       "localizations" : {
