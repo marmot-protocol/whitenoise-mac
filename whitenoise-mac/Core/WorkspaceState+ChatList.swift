@@ -432,6 +432,7 @@ extension WorkspaceState {
         let chats = removeChatFromList(chatId: groupIdHex, forAccountId: account.id)
         teardownRemovedChatPerChatState(groupIdHex: groupIdHex, accountId: account.id)
         invalidateGlobalMessageSearch(clearQuery: false, restartIfPresented: true)
+        invalidateSidebarMessageSearch(clearQuery: false, restart: true)
 
         guard wasSelected else { return }
         transitionAfterSelectedActiveChatBecameUnavailable(remainingActiveChats: chats)

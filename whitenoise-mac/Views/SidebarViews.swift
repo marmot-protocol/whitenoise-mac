@@ -194,7 +194,6 @@ struct ChatListDrawerView: View {
                         }
                         .buttonStyle(.plain)
                         .help(L10n.string("Search all messages"))
-                        ChatListFilterMenu()
                         if !isShowingArchived {
                             Button {
                                 workspace.showNewChat()
@@ -212,13 +211,24 @@ struct ChatListDrawerView: View {
                         }
                     }
 
-                    MessagesSearchField(
-                        text: $workspace.searchText,
-                        accessibilityIdentifier: "chat.search",
-                        placeholder: filter == .unread
-                            ? L10n.string("Search unread chats")
-                            : L10n.string("Search")
-                    )
+                    HStack(spacing: 8) {
+                        MessagesSearchField(
+                            text: $workspace.searchText,
+                            accessibilityIdentifier: "chat.search",
+                            placeholder: L10n.string("Search all messages")
+                        )
+                        .frame(maxWidth: .infinity)
+                        .onChange(of: workspace.searchText) { _, _ in
+                            workspace.scheduleSidebarMessageSearch()
+                        }
+
+                        if workspace.isSearchingSidebarMessages {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+
+                        ChatListFilterMenu()
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
@@ -229,7 +239,11 @@ struct ChatListDrawerView: View {
                 ScrollView {
                     LazyVStack(spacing: 3) {
                         ForEach(visibleChats) { chat in
-                            ChatSidebarRow(chat: chat, isArchived: isShowingArchived)
+                            ChatSidebarRow(
+                                chat: chat,
+                                isArchived: isShowingArchived,
+                                searchResult: workspace.sidebarMessageSearchResult(for: chat)
+                            )
                         }
                     }
                     .padding(.horizontal, 8)
@@ -238,13 +252,24 @@ struct ChatListDrawerView: View {
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
                     if visibleChats.isEmpty {
-                        switch filter {
-                        case .archived:
-                            ArchivedEmptyDrawerState()
-                        case .unread:
-                            UnreadEmptyDrawerState()
-                        case .active:
-                            EmptyDrawerState()
+                        if workspace.isSearchingSidebarMessages {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else if !workspace.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            ContentUnavailableView(
+                                L10n.string("No matching chats"),
+                                systemImage: "magnifyingglass"
+                            )
+                            .padding()
+                        } else {
+                            switch filter {
+                            case .archived:
+                                ArchivedEmptyDrawerState()
+                            case .unread:
+                                UnreadEmptyDrawerState()
+                            case .active:
+                                EmptyDrawerState()
+                            }
                         }
                     }
                 }
@@ -258,14 +283,16 @@ struct ChatListDrawerView: View {
 
 extension ChatListDrawerView {
     fileprivate func visibleChats(for filter: ChatListFilter) -> [ChatItem] {
+        let chats: [ChatItem]
         switch filter {
         case .active:
-            return workspace.filteredChats
+            chats = workspace.activeChats
         case .unread:
-            return workspace.filteredChats.filter { $0.unreadCount > 0 }
+            chats = workspace.activeChats.filter { $0.unreadCount > 0 }
         case .archived:
-            return workspace.filteredArchivedChats
+            chats = workspace.archivedChats
         }
+        return workspace.sidebarSearchFilteredChats(chats)
     }
 }
 
@@ -347,6 +374,7 @@ private struct ChatSidebarRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
     let isArchived: Bool
+    let searchResult: GlobalMessageSearchResult?
 
     private var isArchiving: Bool {
         workspace.archivingChatId == chat.id
@@ -359,7 +387,8 @@ private struct ChatSidebarRow: View {
             ChatRowContent(
                 chat: chat,
                 isSelected: workspace.selection == .chat(chat.id),
-                isPinned: !isArchived && workspace.isChatPinned(chat)
+                isPinned: !isArchived && workspace.isChatPinned(chat),
+                searchResult: searchResult
             )
         }
         .buttonStyle(.plain)
@@ -511,6 +540,7 @@ struct ChatRowContent: View {
     let chat: ChatItem
     let isSelected: Bool
     var isPinned = false
+    var searchResult: GlobalMessageSearchResult?
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -544,6 +574,7 @@ struct ChatRowContent: View {
                     Spacer(minLength: 8)
                     ChatTimestampText(
                         chat: chat,
+                        timelineAt: searchResult?.timelineAt,
                         referenceDate: timestampReferenceDate,
                         locale: locale
                     )
@@ -552,7 +583,7 @@ struct ChatRowContent: View {
                     .foregroundStyle(.secondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
-                    Text(chat.preview)
+                    previewText
                         .font(MessagesType.preview)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -578,17 +609,36 @@ struct ChatRowContent: View {
         }
         .contentShape(Rectangle())
     }
+
+    private var previewText: Text {
+        guard let searchResult else { return Text(chat.preview) }
+        return Text("\(searchResult.senderName): ").bold()
+            + Text(searchResult.snippet.leading)
+            + Text(searchResult.snippet.match).bold().foregroundColor(.primary)
+            + Text(searchResult.snippet.trailing)
+    }
 }
 
 /// Keeps date formatting out of ordinary chat-row render passes while still allowing
 /// the label to change when the app's shared calendar-day reference advances.
 private struct ChatTimestampText: View, Equatable {
     let chat: ChatItem
+    let timelineAt: UInt64?
     let referenceDate: Date
     let locale: Locale
 
     var body: some View {
-        Text(chat.timestampLabel(at: referenceDate, locale: locale))
+        if let timelineAt {
+            Text(
+                DisplayText.relativeTimestamp(
+                    for: Date(timeIntervalSince1970: TimeInterval(timelineAt)),
+                    now: referenceDate,
+                    locale: locale
+                )
+            )
+        } else {
+            Text(chat.timestampLabel(at: referenceDate, locale: locale))
+        }
     }
 }
 

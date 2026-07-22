@@ -96,6 +96,7 @@ extension WorkspaceState {
     ) {
         discardStartupChatRestoration()
         dismissGlobalMessageSearch()
+        invalidateSidebarMessageSearch(clearQuery: true)
         leaveActiveConversation()
         stopTimelineListener()
         cancelTimelineLoad()
@@ -107,7 +108,6 @@ extension WorkspaceState {
         activeAccountId = account.id
         invalidateNotificationSettingsOperations()
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
-        searchText = ""
         chatListFilter = .active
         archivingChatId = nil
         closeNewChatComposer()
@@ -668,7 +668,7 @@ extension WorkspaceState {
         activeAccountId = preferredAccount.id
         invalidateNotificationSettingsOperations()
         UserDefaults.standard.set(preferredAccount.id, forKey: Self.activeAccountKey)
-        searchText = ""
+        invalidateSidebarMessageSearch(clearQuery: true)
         clearAllComposerDrafts()
         selection = nil
     }
@@ -730,7 +730,7 @@ extension WorkspaceState {
         activeAccountId = nil
         invalidateNotificationSettingsOperations()
         selection = nil
-        searchText = ""
+        invalidateSidebarMessageSearch(clearQuery: true)
         isChatListVisible = true
         clearAllComposerDrafts()
         clearAllHiddenMessages()
