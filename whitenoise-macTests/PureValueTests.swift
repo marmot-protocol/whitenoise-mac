@@ -1913,6 +1913,25 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func emptyAccountLabelFallsBackToResolvableAccountId() {
+        let accountIdHex = String(repeating: "a", count: 64)
+        let account = AccountItem(
+            summary: AccountSummaryFfi(
+                label: "",
+                accountIdHex: accountIdHex,
+                localSigning: true,
+                externalSigning: false,
+                signedOut: false,
+                running: true
+            )
+        )
+
+        #expect(account.id == accountIdHex)
+        #expect(account.accountRef == accountIdHex)
+        #expect(account.displayName == DisplayText.short(accountIdHex))
+    }
+
+    @MainActor
     @Test func groupDetailsHeaderAvatarFallsBackToChatAvatarWhenSnapshotHasNone() async throws {
         let chat = ChatItem(
             id: "chat",
