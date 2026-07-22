@@ -1076,6 +1076,7 @@ struct CopyableKeyLabel: View {
 
 struct AppearanceSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var quickReactionBeingReplaced: Int?
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -1102,7 +1103,86 @@ struct AppearanceSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section("Quick reactions") {
+                Text("Choose and order the six reactions shown in message actions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                ForEach(Array(workspace.quickReactions.enumerated()), id: \.offset) { index, emoji in
+                    HStack(spacing: 12) {
+                        Button {
+                            quickReactionBeingReplaced = index
+                        } label: {
+                            Text(emoji)
+                                .font(.system(size: 24))
+                                .frame(width: 38, height: 32)
+                                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            String(
+                                format: L10n.string("Replace quick reaction %d, currently %@"),
+                                index + 1,
+                                emoji
+                            )
+                        )
+                        .popover(isPresented: replacementPopoverBinding(for: index), arrowEdge: .leading) {
+                            ChatEmojiPicker(disabledEmoji: unavailableReplacementEmoji(for: index)) { replacement in
+                                guard workspace.replaceQuickReaction(at: index, with: replacement) else { return }
+                                quickReactionBeingReplaced = nil
+                            }
+                        }
+
+                        Text(String(format: L10n.string("Quick reaction %d"), index + 1))
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Button {
+                            workspace.moveQuickReaction(at: index, by: -1)
+                        } label: {
+                            Image(systemName: "arrow.up")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(index == workspace.quickReactions.startIndex)
+                        .help("Move earlier")
+
+                        Button {
+                            workspace.moveQuickReaction(at: index, by: 1)
+                        } label: {
+                            Image(systemName: "arrow.down")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(index == workspace.quickReactions.index(before: workspace.quickReactions.endIndex))
+                        .help("Move later")
+                    }
+                }
+
+                Button("Restore defaults") {
+                    workspace.restoreDefaultQuickReactions()
+                }
+                .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
+            }
         }
+    }
+
+    private func replacementPopoverBinding(for index: Int) -> Binding<Bool> {
+        Binding(
+            get: { quickReactionBeingReplaced == index },
+            set: { isPresented in
+                if !isPresented, quickReactionBeingReplaced == index {
+                    quickReactionBeingReplaced = nil
+                }
+            }
+        )
+    }
+
+    private func unavailableReplacementEmoji(for index: Int) -> Set<String> {
+        Set(
+            workspace.quickReactions.enumerated().compactMap { offset, emoji in
+                offset == index ? nil : emoji
+            }
+        )
     }
 }
 

@@ -94,10 +94,6 @@ nonisolated enum ChatEmojiSearch {
     }
 }
 
-nonisolated enum ChatReactionDefaults {
-    static let quick = ["❤️", "👍", "👎", "😂", "😮", "😢"]
-}
-
 private struct ChatEmojiCategory: Identifiable {
     let id: Int
     let titleKey: String
@@ -174,25 +170,26 @@ private final class ChatEmojiPickerModel: ObservableObject {
     }
 }
 
-private enum ChatEmojiRecents {
+enum ChatEmojiRecents {
     static let key = "chat.emoji-picker.recents"
     static let maximumCount = 40
 
-    static var values: [String] {
-        UserDefaults.standard.stringArray(forKey: key) ?? ChatReactionDefaults.quick
+    static func values(defaults: UserDefaults = .standard) -> [String] {
+        defaults.stringArray(forKey: key) ?? ChatReactionDefaults.quick
     }
 
     @discardableResult
-    static func record(_ emoji: String) -> [String] {
-        var result = values.filter { $0 != emoji }
+    static func record(_ emoji: String, defaults: UserDefaults = .standard) -> [String] {
+        var result = values(defaults: defaults).filter { $0 != emoji }
         result.insert(emoji, at: 0)
         let stored = Array(result.prefix(maximumCount))
-        UserDefaults.standard.set(stored, forKey: key)
+        defaults.set(stored, forKey: key)
         return stored
     }
 }
 
 struct ChatEmojiPicker: View {
+    let disabledEmoji: Set<String>
     let onPick: (String) -> Void
 
     @StateObject private var model = ChatEmojiPickerModel()
@@ -201,6 +198,14 @@ struct ChatEmojiPicker: View {
     @State private var recentEmoji = ChatReactionDefaults.quick
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 8)
+
+    init(
+        disabledEmoji: Set<String> = [],
+        onPick: @escaping (String) -> Void
+    ) {
+        self.disabledEmoji = disabledEmoji
+        self.onPick = onPick
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -215,7 +220,7 @@ struct ChatEmojiPicker: View {
         .frame(width: 420, height: 430)
         .background(.regularMaterial)
         .task {
-            recentEmoji = ChatEmojiRecents.values
+            recentEmoji = ChatEmojiRecents.values()
         }
         .task(id: query) {
             await model.load()
@@ -295,6 +300,8 @@ struct ChatEmojiPicker: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(disabledEmoji.contains(entry.emoji))
+                    .opacity(disabledEmoji.contains(entry.emoji) ? 0.28 : 1)
                     .accessibilityLabel(entry.name)
                 }
             }

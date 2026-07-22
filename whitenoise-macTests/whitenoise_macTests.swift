@@ -99,6 +99,29 @@ private final class InMemoryChatRestorationStore: ChatRestorationStoring {
     }
 }
 
+@MainActor
+private final class InMemoryQuickReactionStore: QuickReactionStoring {
+    private let loadedReactions: [String]
+    private(set) var savedValues: [[String]] = []
+    private(set) var resetCallCount = 0
+
+    init(_ loadedReactions: [String] = ChatReactionDefaults.quick) {
+        self.loadedReactions = loadedReactions
+    }
+
+    func load() -> [String] {
+        loadedReactions
+    }
+
+    func save(_ reactions: [String]) {
+        savedValues.append(reactions)
+    }
+
+    func reset() {
+        resetCallCount += 1
+    }
+}
+
 private final class SuspendingMicrophoneAccessGate: @unchecked Sendable {
     private let lock = NSLock()
     private var permissionContinuation: CheckedContinuation<Bool, Never>?
@@ -371,6 +394,129 @@ private struct TranscriptPerformanceRows: View {
 
 @Suite(.serialized)
 struct whitenoise_macTests {
+
+    @Test func quickReactionNormalizationPreservesComposedEmojiAndRepairsInvalidValues() {
+        let normalized = QuickReactionSet.normalized([
+            "  👨‍👩‍👧  ",
+            "🇮🇹",
+            "👍🏽",
+            "A",
+            "",
+            "🇮🇹",
+            "🧑🏾‍💻",
+            "🎉",
+            "🚀",
+            "🥳",
+        ])
+
+        #expect(normalized == ["👨‍👩‍👧", "🇮🇹", "👍🏽", "🧑🏾‍💻", "🎉", "🚀"])
+        #expect(normalized.count == QuickReactionSet.slotCount)
+        #expect(Set(normalized).count == QuickReactionSet.slotCount)
+    }
+
+    @MainActor
+    @Test func quickReactionStorePersistsMigratesRecoversAndResets() throws {
+        let suiteName = "QuickReactionStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let legacyKey = try #require(UserDefaultsQuickReactionStore.legacyStorageKeys.first)
+        let legacyJSON = try JSONEncoder().encode(["👨‍👩‍👧", "🔥", "🔥", "bad"])
+        defaults.set(legacyJSON, forKey: legacyKey)
+
+        let store = UserDefaultsQuickReactionStore(defaults: defaults)
+        let migrated = store.load()
+
+        #expect(migrated == ["👨‍👩‍👧", "🔥", "❤️", "👍", "👎", "😂"])
+        #expect(defaults.stringArray(forKey: UserDefaultsQuickReactionStore.storageKey) == migrated)
+        #expect(defaults.object(forKey: legacyKey) == nil)
+
+        defaults.set(["unexpected": true], forKey: UserDefaultsQuickReactionStore.storageKey)
+        let recovered = store.load()
+
+        #expect(recovered == ChatReactionDefaults.quick)
+        #expect(defaults.stringArray(forKey: UserDefaultsQuickReactionStore.storageKey) == recovered)
+
+        let configured = ["🔥", "🎉", "🚀", "🥳", "🤯", "🫡"]
+        store.save(configured)
+        #expect(UserDefaultsQuickReactionStore(defaults: defaults).load() == configured)
+
+        store.reset()
+        #expect(defaults.object(forKey: UserDefaultsQuickReactionStore.storageKey) == nil)
+        #expect(store.load() == ChatReactionDefaults.quick)
+    }
+
+    @MainActor
+    @Test func quickReactionEditsApplyLivePersistAndRestoreDefaults() {
+        let configured = ["🔥", "🎉", "🚀", "🥳", "🤯", "🫡"]
+        let store = InMemoryQuickReactionStore(configured)
+        let state = WorkspaceState(quickReactionStore: store)
+
+        #expect(state.quickReactions == configured)
+        #expect(state.replaceQuickReaction(at: 0, with: "🧑🏾‍💻"))
+        #expect(state.quickReactions[0] == "🧑🏾‍💻")
+        #expect(store.savedValues.last == state.quickReactions)
+
+        let saveCount = store.savedValues.count
+        #expect(!state.replaceQuickReaction(at: 0, with: "🎉"))
+        #expect(!state.replaceQuickReaction(at: 0, with: "   "))
+        #expect(store.savedValues.count == saveCount)
+
+        state.moveQuickReaction(at: 0, by: 1)
+        #expect(state.quickReactions.prefix(2) == ["🎉", "🧑🏾‍💻"])
+        #expect(store.savedValues.last == state.quickReactions)
+
+        state.restoreDefaultQuickReactions()
+        #expect(state.quickReactions == ChatReactionDefaults.quick)
+        #expect(store.resetCallCount == 1)
+    }
+
+    @MainActor
+    @Test func emojiRecentsDoNotReorderConfiguredQuickReactions() throws {
+        let suiteName = "QuickReactionRecentsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let configured = ["🔥", "🎉", "🚀", "🥳", "🤯", "🫡"]
+        let store = InMemoryQuickReactionStore(configured)
+        let state = WorkspaceState(quickReactionStore: store)
+
+        let recents = ChatEmojiRecents.record("🇮🇹", defaults: defaults)
+
+        #expect(recents.first == "🇮🇹")
+        #expect(state.quickReactions == configured)
+        #expect(store.savedValues.isEmpty)
+    }
+
+    @Test func quickReactionMenuAndPopoverUseSameComponentAndPreference() throws {
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+
+        let popoverStart = try #require(source.range(of: "struct MessageEmojiPickerPopover: View {"))
+        let popoverRest = source[popoverStart.upperBound...]
+        let popoverEnd = try #require(
+            popoverRest.range(of: "\n/// The actions available on a message row")?.lowerBound
+        )
+        let popoverSource = String(source[popoverStart.lowerBound..<popoverEnd])
+
+        let menuStart = try #require(source.range(of: "struct MessageContextMenuItems: View {"))
+        let menuRest = source[menuStart.upperBound...]
+        let menuEnd = try #require(
+            menuRest.range(of: "\nstruct MessageReplyContextView: View {")?.lowerBound
+        )
+        let menuSource = String(source[menuStart.lowerBound..<menuEnd])
+
+        for actionSource in [popoverSource, menuSource] {
+            #expect(actionSource.contains("QuickReactionButtons("))
+            #expect(actionSource.contains("emojis: workspace.quickReactions"))
+            #expect(!actionSource.contains("ChatReactionDefaults.quick"))
+        }
+    }
 
     @MainActor
     @Test func emptyRuntimeBootstrapsToOnboarding() async throws {

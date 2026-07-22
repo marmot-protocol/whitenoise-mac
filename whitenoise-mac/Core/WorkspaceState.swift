@@ -930,6 +930,7 @@ final class WorkspaceState {
     @ObservationIgnored var pinnedChatStore: (any PinnedChatStoring)?
     @ObservationIgnored let chatRestorationStore: any ChatRestorationStoring
     @ObservationIgnored var shouldResolveStartupChatSelection = true
+    @ObservationIgnored let quickReactionStore: any QuickReactionStoring
     @ObservationIgnored var mediaReferenceIndexes: [MediaReferenceCacheKey: MediaReferenceIndex] = [:]
     @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
     @ObservationIgnored var mediaReferenceIndexGeneration: UInt64 = 0
@@ -1077,6 +1078,7 @@ final class WorkspaceState {
             UserDefaults.standard.set(appearancePreference.rawValue, forKey: Self.appearancePreferenceKey)
         }
     }
+    var quickReactions: [String]
     var notificationPreviewMode: NotificationPreviewMode {
         didSet {
             UserDefaults.standard.set(notificationPreviewMode.rawValue, forKey: Self.notificationPreviewModeKey)
@@ -1709,6 +1711,7 @@ final class WorkspaceState {
         hiddenMessageStore: (any HiddenMessageStoring)? = nil,
         pinnedChatStore: (any PinnedChatStoring)? = nil,
         chatRestorationStore: (any ChatRestorationStoring)? = nil,
+        quickReactionStore: (any QuickReactionStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -1733,6 +1736,10 @@ final class WorkspaceState {
             chatRestorationStore ?? UserDefaultsChatRestorationStore()
         self.chatRestorationStore = resolvedChatRestorationStore
         self.restoreLastSelectedChat = resolvedChatRestorationStore.isEnabled
+        let resolvedQuickReactionStore =
+            quickReactionStore ?? UserDefaultsQuickReactionStore()
+        self.quickReactionStore = resolvedQuickReactionStore
+        self.quickReactions = QuickReactionSet.normalized(resolvedQuickReactionStore.load())
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
