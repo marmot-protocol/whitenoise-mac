@@ -13627,6 +13627,52 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func removedChatMetadataTeardownRejectsHeldRefreshAfterGroupIdReuse() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: true)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let chat = try #require(state.selectedChat)
+        let accountId = try #require(state.activeAccountId)
+        state.conversationMetadataByChat[chat.id] = ConversationMetadata(
+            memberCount: 99,
+            disappearingMessageSecs: 30,
+            isSelfAdmin: true
+        )
+
+        runtime.groupDetailsGateEnabled = true
+        async let staleRefresh: Void = state.refreshConversationMetadata(for: chat)
+        while !runtime.didReachGroupDetailsGate {
+            await Task.yield()
+        }
+
+        state.teardownRemovedChatPerChatState(groupIdHex: chat.id, accountId: accountId)
+        #expect(state.conversationMetadataByChat[chat.id] == nil)
+        #expect(state.conversationMetadataGenerationByChat[chat.id] == nil)
+
+        var rejoinedDetails = groupDetailsFixture(
+            selfAccountIdHex: account.accountIdHex,
+            selfIsAdmin: false
+        )
+        rejoinedDetails.group.disappearingMessageSecs = 120
+        runtime.installGroupDetails(rejoinedDetails)
+        await state.refreshConversationMetadata(for: chat)
+
+        let rejoinedMetadata = try #require(state.conversationMetadataByChat[chat.id])
+        #expect(rejoinedMetadata.disappearingMessageSecs == 120)
+        #expect(!rejoinedMetadata.isSelfAdmin)
+
+        runtime.releaseGroupDetailsGate()
+        _ = await staleRefresh
+
+        #expect(state.conversationMetadataByChat[chat.id] == rejoinedMetadata)
+    }
+
+    @MainActor
     @Test func messageActionsRemoveOwnReactionByDeletingReactionEvent() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
