@@ -1114,6 +1114,10 @@ final class WorkspaceState {
     @ObservationIgnored var sharedMediaThumbnailCacheBytes = 0
     var conversationMetadataByChat: [String: ConversationMetadata] = [:]
     @ObservationIgnored var conversationMetadataGenerationByChat: [String: UInt64] = [:]
+    /// Process-wide source for per-chat metadata ownership tokens. Tokens never restart when a
+    /// removed chat clears its dictionary entry, preventing an old request from matching a newly
+    /// joined conversation that reuses the same group id.
+    @ObservationIgnored var conversationMetadataGeneration: UInt64 = 0
     /// Survives cache clearing so a late pre-teardown refresh cannot regain ownership when the
     /// same account and group recreate an identical per-chat generation token.
     @ObservationIgnored var conversationMetadataEpoch: UInt64 = 0

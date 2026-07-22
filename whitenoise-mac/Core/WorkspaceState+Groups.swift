@@ -18,8 +18,7 @@ import UserNotifications
 @MainActor
 extension WorkspaceState {
     func refreshConversationMetadata(for chat: ChatItem) async {
-        conversationMetadataGenerationByChat[chat.id, default: 0] &+= 1
-        let generation = conversationMetadataGenerationByChat[chat.id] ?? 0
+        let generation = claimConversationMetadataGeneration(for: chat.id)
         let epoch = conversationMetadataEpoch
 
         guard !chat.isDirect, let client, let activeAccount, let accountId = activeAccountId else {
@@ -64,6 +63,13 @@ extension WorkspaceState {
         conversationMetadataEpoch &+= 1
         conversationMetadataByChat.removeAll()
         conversationMetadataGenerationByChat.removeAll()
+    }
+
+    @discardableResult
+    func claimConversationMetadataGeneration(for groupIdHex: String) -> UInt64 {
+        conversationMetadataGeneration &+= 1
+        conversationMetadataGenerationByChat[groupIdHex] = conversationMetadataGeneration
+        return conversationMetadataGeneration
     }
 
     func showGroupDetails(for chat: ChatItem) async {
@@ -659,7 +665,7 @@ extension WorkspaceState {
             // metadata generation unconditionally so an older in-flight
             // `refreshConversationMetadata` (which captured the pre-change value) can't complete
             // afterward and overwrite this — the race exists even while the cache is still empty.
-            conversationMetadataGenerationByChat[groupIdHex, default: 0] &+= 1
+            claimConversationMetadataGeneration(for: groupIdHex)
             if let existing = conversationMetadataByChat[groupIdHex] {
                 conversationMetadataByChat[groupIdHex] = ConversationMetadata(
                     memberCount: existing.memberCount,

@@ -398,6 +398,8 @@ extension WorkspaceState {
         }
         lastMarkedReadMarkers[groupIdHex] = nil
         lastConfirmedReadMarkers[groupIdHex] = nil
+        conversationMetadataByChat[groupIdHex] = nil
+        conversationMetadataGenerationByChat[groupIdHex] = nil
         purgeHiddenMessages(accountId: accountId, groupIdHex: groupIdHex)
     }
 
