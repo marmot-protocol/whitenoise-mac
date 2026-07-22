@@ -2709,6 +2709,35 @@ struct PureValueTests {
         }
     }
 
+    @Test func markdownNostrFallbackStripsBidiControlsAfterTruncation() async throws {
+        let rtlOverride = "\u{202E}"
+        let ltrIsolate = "\u{2066}"
+        let profileReference = "npub1abc\(rtlOverride)defghijklmnop\(ltrIsolate)"
+        let eventReference = "note1abc\(rtlOverride)defghijklmnop\(ltrIsolate)"
+
+        let profile = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .nostrMention(
+                    entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: profileReference)
+                )
+            ],
+            remainingDepth: 32
+        )
+        let event = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .nostrUri(
+                    entity: MarkdownNostrEntityFfi(hrp: .note, bech32: eventReference)
+                )
+            ],
+            remainingDepth: 32
+        )
+
+        #expect(String(profile.characters) == "@npub1abcd...nop")
+        #expect(String(event.characters) == "note1abcd...nop")
+        #expect(!containsBidiEmbeddingOrIsolate(String(profile.characters)))
+        #expect(!containsBidiEmbeddingOrIsolate(String(event.characters)))
+    }
+
     @MainActor
     private func chatMessage(
         id: String,

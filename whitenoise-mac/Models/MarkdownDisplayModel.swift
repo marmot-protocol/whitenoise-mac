@@ -492,15 +492,13 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         // on both sent and received. A mention is set off by a subtle background pill (Signal's
         // treatment) rather than bold weight or a color — `.primary` adapts to light/dark and the
         // low alpha reads as a soft highlight over either bubble fill.
-        var attributed = AttributedString(displayText)
-        if !intent.isEmpty {
-            attributed.inlinePresentationIntent = intent
-        }
+        var attributed = styled(
+            displayText,
+            intent: intent,
+            link: MarkdownLinkPolicy.nostrURL(for: entity.bech32)
+        )
         if isMention {
             attributed.backgroundColor = Color.primary.opacity(0.14)
-        }
-        if let link = MarkdownLinkPolicy.nostrURL(for: entity.bech32) {
-            attributed.link = link
         }
         return attributed
     }
