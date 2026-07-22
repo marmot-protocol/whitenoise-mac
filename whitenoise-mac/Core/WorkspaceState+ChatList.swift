@@ -231,7 +231,7 @@ extension WorkspaceState {
         for groupId in removedChatIds {
             teardownRemovedChatPerChatState(groupIdHex: groupId, accountId: account.id)
         }
-        let sortedActiveItems = sortedChatItems(activeItems)
+        let sortedActiveItems = sortedActiveChatItems(activeItems, forAccountId: account.id)
         setChats(sortedActiveItems, forAccountId: account.id)
         setArchivedChats(sortedChatItems(archivedItems), forAccountId: account.id)
         if selectedChatWasRemoved || selectedActiveChatMovedToArchive {
@@ -538,7 +538,7 @@ extension WorkspaceState {
         }
 
         if didUpdateActive, !incremental {
-            setChats(sortedChatItems(activeChats), forAccountId: account.id)
+            setChats(sortedActiveChatItems(activeChats, forAccountId: account.id), forAccountId: account.id)
         }
         if didUpdateArchived, !incremental {
             setArchivedChats(sortedChatItems(archivedChats), forAccountId: account.id)

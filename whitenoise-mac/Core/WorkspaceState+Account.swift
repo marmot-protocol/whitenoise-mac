@@ -32,7 +32,11 @@ extension WorkspaceState {
             if hiddenMessageStore == nil {
                 hiddenMessageStore = HiddenMessageFileStore(storageRootPath: storageRootPath)
             }
+            if pinnedChatStore == nil {
+                pinnedChatStore = PinnedChatFileStore(storageRootPath: storageRootPath)
+            }
             loadHiddenMessages()
+            loadPinnedChats()
             let summaries = try await runOffMain {
                 try runtime.listAccounts()
             }
@@ -282,6 +286,7 @@ extension WorkspaceState {
             try await client.removeAccount(accountRef: account.accountRef)
             clearComposerDrafts(forAccountId: removedAccountId)
             purgeHiddenMessages(accountId: removedAccountId)
+            purgePinnedChats(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
             accounts = try await accountItemsFromRuntime(client: client)
@@ -725,6 +730,7 @@ extension WorkspaceState {
         isChatListVisible = true
         clearAllComposerDrafts()
         clearAllHiddenMessages()
+        clearAllPinnedChats()
         isRefreshing = false
         isSending = false
         authenticationMode = .landing

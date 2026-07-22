@@ -346,7 +346,8 @@ private struct ChatSidebarRow: View {
         } label: {
             ChatRowContent(
                 chat: chat,
-                isSelected: workspace.selection == .chat(chat.id)
+                isSelected: workspace.selection == .chat(chat.id),
+                isPinned: !isArchived && workspace.isChatPinned(chat)
             )
         }
         .buttonStyle(.plain)
@@ -360,6 +361,18 @@ private struct ChatSidebarRow: View {
                 }
                 .disabled(isArchiving)
             } else {
+                let isPinned = workspace.isChatPinned(chat)
+                Button {
+                    workspace.setChatPinned(chat, pinned: !isPinned)
+                } label: {
+                    Label(
+                        isPinned ? L10n.string("Unpin") : L10n.string("Pin to Top"),
+                        systemImage: isPinned ? "pin.slash" : "pin"
+                    )
+                }
+
+                Divider()
+
                 Button {
                     Task { await workspace.setChatArchived(chat, archived: true) }
                 } label: {
@@ -485,6 +498,7 @@ struct ChatRowContent: View {
     @Environment(\.timestampReferenceDate) private var timestampReferenceDate
     let chat: ChatItem
     let isSelected: Bool
+    var isPinned = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -508,6 +522,12 @@ struct ChatRowContent: View {
                         MembershipEndedBadge(membership: chat.selfMembership)
                     } else if chat.pendingConfirmation {
                         PendingInviteBadge()
+                    }
+                    if isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(L10n.string("Pinned"))
                     }
                     Spacer(minLength: 8)
                     ChatTimestampText(
