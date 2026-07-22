@@ -24,7 +24,7 @@ extension WorkspaceState {
         // A fresh open of another group clears the previous list so stale thumbnails never flash.
         if sharedMediaGroupId != groupIdHex {
             sharedMediaProjection = .empty
-            clearSharedMediaCache()
+            clearSharedMediaThumbnailCache()
         }
         sharedMediaGroupId = groupIdHex
         sharedMediaError = nil
@@ -66,10 +66,10 @@ extension WorkspaceState {
         // Supersede any in-flight load so its result/error can't land in the torn-down state.
         sharedMediaLoadGeneration &+= 1
         isLoadingSharedMedia = false
-        clearSharedMediaCache()
+        clearSharedMediaThumbnailCache()
     }
 
-    private func clearSharedMediaCache() {
+    func clearSharedMediaThumbnailCache() {
         sharedMediaThumbnailCache.removeAll()
         sharedMediaThumbnailCacheOrder.removeAll()
         sharedMediaThumbnailCacheBytes = 0
@@ -86,6 +86,7 @@ extension WorkspaceState {
     ) async -> Data? {
         guard let client, let activeAccount, !groupIdHex.isEmpty else { return nil }
         let accountId = activeAccount.id
+        let cacheGeneration = mediaCacheGeneration
         guard isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex) else { return nil }
         let cacheKey = sharedMediaCacheKey(accountId: accountId, groupIdHex: groupIdHex, reference: reference)
         if cache, let cacheKey, let cached = sharedMediaThumbnailCache[cacheKey] {
@@ -102,7 +103,8 @@ extension WorkspaceState {
             }
             // The download suspended this actor; a switch/teardown may have occurred. Re-check the
             // captured account/group and the privacy gate before returning or caching plaintext.
-            guard activeAccountId == accountId, sharedMediaGroupId == groupIdHex,
+            guard mediaCacheGeneration == cacheGeneration,
+                activeAccountId == accountId, sharedMediaGroupId == groupIdHex,
                 isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: groupIdHex)
             else { return nil }
             if cache, let cacheKey {

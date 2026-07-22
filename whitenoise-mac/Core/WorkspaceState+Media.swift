@@ -33,6 +33,60 @@ extension WorkspaceState {
         pendingMediaUploadStatesByConversation.removeAll()
     }
 
+    func refreshMediaCacheFootprint() async {
+        guard !isClearingMediaCache else { return }
+
+        mediaCacheFootprintRefreshGeneration &+= 1
+        let generation = mediaCacheFootprintRefreshGeneration
+        isLoadingMediaCacheFootprint = true
+        defer {
+            if mediaCacheFootprintRefreshGeneration == generation {
+                isLoadingMediaCacheFootprint = false
+            }
+        }
+
+        let footprint = await mediaDiskCache.footprint()
+        guard !Task.isCancelled,
+            mediaCacheFootprintRefreshGeneration == generation,
+            !isClearingMediaCache
+        else { return }
+        mediaCacheFootprint = footprint
+    }
+
+    /// Clears only regenerable attachment caches. Protocol databases, accounts, drafts, and app
+    /// preferences remain untouched; full-data deletion continues to own key removal and the
+    /// broader new-install reset.
+    func clearMediaCache() async {
+        guard !isClearingMediaCache else { return }
+
+        mediaCacheFootprintRefreshGeneration &+= 1
+        isLoadingMediaCacheFootprint = false
+        isClearingMediaCache = true
+        mediaCacheReclaimedByteCount = nil
+        suppressAllMediaDiskStores()
+        defer {
+            resumeAllMediaDiskStores()
+            isClearingMediaCache = false
+        }
+
+        // Cancel old downloads/stores before the purge and replace every visible attachment's
+        // state. The disk cache's own generation gate independently rejects a stale direct store.
+        resetMediaDownloadStateStores()
+        clearSharedMediaThumbnailCache()
+        RemoteImageLoader.shared.clearLocalCache()
+        mediaCacheGeneration &+= 1
+
+        let before = await mediaDiskCache.footprint()
+        await mediaDiskCache.purgeAll()
+        let after = await mediaDiskCache.footprint()
+
+        mediaCacheFootprint = after
+        mediaCacheReclaimedByteCount =
+            before.byteCount > after.byteCount
+            ? before.byteCount - after.byteCount
+            : 0
+    }
+
     func clearComposerDrafts(for chatIds: [String], accountId: String) {
         for chatId in chatIds {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)

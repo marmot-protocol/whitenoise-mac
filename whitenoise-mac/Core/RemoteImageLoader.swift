@@ -520,6 +520,17 @@ private nonisolated final class RemoteImageLoadRegistry: @unchecked Sendable {
         tasksToCancel.forEach { $0.cancel() }
     }
 
+    func cancelAll(forKeyPrefix prefix: String) {
+        let tasksToCancel: [Task<LoadedImage?, Never>]
+
+        lock.lock()
+        let matchingKeys = tasks.keys.filter { $0.hasPrefix(prefix) }
+        tasksToCancel = matchingKeys.compactMap { tasks.removeValue(forKey: $0)?.task }
+        lock.unlock()
+
+        tasksToCancel.forEach { $0.cancel() }
+    }
+
     #if DEBUG
         func waiterCount(for key: String) -> Int {
             lock.lock()
@@ -555,6 +566,11 @@ private nonisolated final class RemoteImageLoadWaiter: @unchecked Sendable {
 }
 
 nonisolated final class RemoteImageLoader: @unchecked Sendable {
+    private enum CacheScope: String, CaseIterable {
+        case remote
+        case local
+    }
+
     static let shared = RemoteImageLoader()
     static let defaultDecodedCacheCountLimit = 512
     static let defaultDecodedCacheTotalCostLimit = 64 * 1024 * 1024
@@ -562,7 +578,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     private let cache = NSCache<NSString, NSImage>()
     private let inFlight = RemoteImageLoadRegistry()
     private let cacheStateLock = NSLock()
-    private var cacheGeneration = 0
+    private var cacheGenerations: [CacheScope: Int] = [.remote: 0, .local: 0]
+    private var localCacheKeys = Set<String>()
     private let session: URLSession
 
     var decodedCacheCountLimit: Int { cache.countLimit }
@@ -606,7 +623,10 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         // to sanitize. This is the network chokepoint for all remote image loads.
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
 
-        return await coalescedLoad(cacheKey: Self.cacheKey(for: url, maxPixelSize: maxPixelSize)) {
+        return await coalescedLoad(
+            scope: .remote,
+            cacheKey: Self.cacheKey(for: url, maxPixelSize: maxPixelSize)
+        ) {
             [self] cacheKey, generation in
             await loadRemoteImage(
                 for: url,
@@ -623,13 +643,17 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// `data`, so callers must provide a stable key that uniquely identifies the bytes (for
     /// example an immutable attachment id, or a content fingerprint when ids can be reused).
     func image(for data: Data, cacheKey rawCacheKey: String, maxPixelSize: CGFloat) async -> LoadedImage? {
-        return await coalescedLoad(cacheKey: Self.cacheKey(forLocalImageID: rawCacheKey, maxPixelSize: maxPixelSize)) {
+        return await coalescedLoad(
+            scope: .local,
+            cacheKey: Self.cacheKey(forLocalImageID: rawCacheKey, maxPixelSize: maxPixelSize)
+        ) {
             [self] cacheKey, generation in
             await loadLocalImage(
                 data: data,
                 cacheKey: cacheKey,
                 maxPixelSize: maxPixelSize,
-                cacheGeneration: generation
+                cacheGeneration: generation,
+                scope: .local
             )
         }
     }
@@ -638,13 +662,17 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// SwiftUI view values. The payload id is generated when the download completes, so a retry or
     /// replacement under the same attachment id cannot reuse a stale decoded image.
     func image(for payload: DownloadedMediaPayload, maxPixelSize: CGFloat) async -> LoadedImage? {
-        return await coalescedLoad(cacheKey: Self.cacheKey(forLocalImageID: payload.id, maxPixelSize: maxPixelSize)) {
+        return await coalescedLoad(
+            scope: .local,
+            cacheKey: Self.cacheKey(forLocalImageID: payload.id, maxPixelSize: maxPixelSize)
+        ) {
             [self] cacheKey, generation in
             await loadLocalImage(
                 data: payload.data,
                 cacheKey: cacheKey,
                 maxPixelSize: maxPixelSize,
-                cacheGeneration: generation
+                cacheGeneration: generation,
+                scope: .local
             )
         }
     }
@@ -655,6 +683,7 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     /// decode for a cache miss, receiving the resolved cache key and the cache generation it
     /// must still belong to.
     private func coalescedLoad(
+        scope: CacheScope,
         cacheKey key: String,
         load: @escaping @Sendable (_ cacheKey: String, _ cacheGeneration: Int) async -> LoadedImage?
     ) async -> LoadedImage? {
@@ -662,8 +691,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             return LoadedImage(nsImage: cached)
         }
 
-        let generation = currentCacheGeneration()
-        let taskKey = Self.inFlightKey(forCacheKey: key, generation: generation)
+        let generation = currentCacheGeneration(for: scope)
+        let taskKey = Self.inFlightKey(scope: scope, forCacheKey: key, generation: generation)
         let task = inFlight.task(for: taskKey) {
             Task {
                 await load(key, generation)
@@ -690,8 +719,26 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         inFlight.cancelAll()
 
         cacheStateLock.lock()
-        cacheGeneration += 1
+        for scope in CacheScope.allCases {
+            cacheGenerations[scope, default: 0] += 1
+        }
         cache.removeAllObjects()
+        localCacheKeys.removeAll(keepingCapacity: true)
+        cacheStateLock.unlock()
+    }
+
+    /// Drops only decoded local/decrypted attachment images and their in-flight decodes. Remote
+    /// profile images remain warm; clearing the media cache should not create unrelated network
+    /// traffic for avatars that are still valid for the active account.
+    func clearLocalCache() {
+        inFlight.cancelAll(forKeyPrefix: "\(CacheScope.local.rawValue)|")
+
+        cacheStateLock.lock()
+        cacheGenerations[.local, default: 0] += 1
+        for key in localCacheKeys {
+            cache.removeObject(forKey: key as NSString)
+        }
+        localCacheKeys.removeAll(keepingCapacity: true)
         cacheStateLock.unlock()
     }
 
@@ -699,8 +746,9 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         func inFlightWaiterCount(for url: URL, maxPixelSize: CGFloat) -> Int {
             inFlight.waiterCount(
                 for: Self.inFlightKey(
+                    scope: .remote,
                     forCacheKey: Self.cacheKey(for: url, maxPixelSize: maxPixelSize),
-                    generation: currentCacheGeneration()
+                    generation: currentCacheGeneration(for: .remote)
                 )
             )
         }
@@ -714,8 +762,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         "local|\(cacheID)|\(Int(maxPixelSize))"
     }
 
-    private static func inFlightKey(forCacheKey cacheKey: String, generation: Int) -> String {
-        "\(generation)|\(cacheKey)"
+    private static func inFlightKey(scope: CacheScope, forCacheKey cacheKey: String, generation: Int) -> String {
+        "\(scope.rawValue)|\(generation)|\(cacheKey)"
     }
 
     private func loadRemoteImage(
@@ -725,12 +773,13 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         cacheGeneration generation: Int
     ) async -> LoadedImage? {
         guard let data = await Self.download(url, using: session) else { return nil }
-        guard !Task.isCancelled, isCurrentCacheGeneration(generation) else { return nil }
+        guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
         return await loadLocalImage(
             data: data,
             cacheKey: cacheKey,
             maxPixelSize: maxPixelSize,
-            cacheGeneration: generation
+            cacheGeneration: generation,
+            scope: .remote
         )
     }
 
@@ -738,7 +787,8 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         data: Data,
         cacheKey: String,
         maxPixelSize: CGFloat,
-        cacheGeneration generation: Int
+        cacheGeneration generation: Int,
+        scope: CacheScope
     ) async -> LoadedImage? {
         let pixelSize = maxPixelSize
         let loaded = await Task.detached(priority: .utility) {
@@ -746,7 +796,14 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }.value
         guard let loaded else { return nil }
         guard !Task.isCancelled else { return nil }
-        guard storeDecodedImage(loaded.nsImage, forKey: cacheKey, cacheGeneration: generation) else {
+        guard
+            storeDecodedImage(
+                loaded.nsImage,
+                forKey: cacheKey,
+                cacheGeneration: generation,
+                scope: scope
+            )
+        else {
             return nil
         }
         return loaded
@@ -758,27 +815,38 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         return cache.object(forKey: key as NSString)
     }
 
-    private func currentCacheGeneration() -> Int {
+    private func currentCacheGeneration(for scope: CacheScope) -> Int {
         cacheStateLock.lock()
         defer { cacheStateLock.unlock() }
-        return cacheGeneration
+        return cacheGenerations[scope, default: 0]
     }
 
-    private func isCurrentCacheGeneration(_ generation: Int) -> Bool {
+    private func isCurrentCacheGeneration(_ generation: Int, for scope: CacheScope) -> Bool {
         cacheStateLock.lock()
         defer { cacheStateLock.unlock() }
-        return cacheGeneration == generation
+        return cacheGenerations[scope, default: 0] == generation
     }
 
     private func storeDecodedImage(
         _ image: NSImage,
         forKey key: String,
-        cacheGeneration generation: Int
+        cacheGeneration generation: Int,
+        scope: CacheScope
     ) -> Bool {
         cacheStateLock.lock()
         defer { cacheStateLock.unlock() }
-        guard cacheGeneration == generation else { return false }
+        guard cacheGenerations[scope, default: 0] == generation else { return false }
         cache.setObject(image, forKey: key as NSString, cost: Self.decodedCost(for: image))
+        if scope == .local {
+            localCacheKeys.insert(key)
+            // NSCache does not expose evicted keys. Periodically discard stale bookkeeping so a
+            // long session that views many attachments cannot grow this index without bound.
+            if cache.countLimit > 0, localCacheKeys.count / 2 > cache.countLimit {
+                localCacheKeys = localCacheKeys.filter {
+                    cache.object(forKey: $0 as NSString) != nil
+                }
+            }
+        }
         return true
     }
 

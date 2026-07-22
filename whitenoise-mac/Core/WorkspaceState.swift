@@ -897,6 +897,15 @@ final class WorkspaceState {
     @ObservationIgnored var mediaDiskStoreAccountGenerations: [String: UInt64] = [:]
     @ObservationIgnored var mediaDiskStoreGlobalGeneration: UInt64 = 0
     @ObservationIgnored var nextMediaDiskStoreTaskToken: UInt64 = 0
+    var mediaCacheFootprint = MessageMediaDiskCacheFootprint.zero
+    var isLoadingMediaCacheFootprint = false
+    var isClearingMediaCache = false
+    var mediaCacheReclaimedByteCount: UInt64?
+    /// Invalidates views that hold decrypted media projections outside `mediaDownloads` (which is
+    /// observation-ignored for timeline performance). A manual clear bumps this once so visible
+    /// attachments rebuild against fresh state stores and shared-media thumbnails re-request data.
+    var mediaCacheGeneration: UInt64 = 0
+    @ObservationIgnored var mediaCacheFootprintRefreshGeneration: UInt64 = 0
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.

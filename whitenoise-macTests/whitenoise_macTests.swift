@@ -2721,6 +2721,199 @@ struct whitenoise_macTests {
         #expect(!invokedWork)
     }
 
+    @MainActor
+    @Test func mediaCacheFootprintLoadsOffMainActor() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resolvedOffMain = MutableFlag(false)
+        let cache = MessageMediaDiskCache(
+            directoryResolver: {
+                resolvedOffMain.value = !Thread.isMainThread
+                return root
+            },
+            keyProvider: { SymmetricKey(data: Data(repeating: 0x42, count: 32)) },
+            keyDeleter: {}
+        )
+        let state = WorkspaceState(mediaDiskCache: cache)
+
+        await state.refreshMediaCacheFootprint()
+
+        #expect(resolvedOffMain.value)
+        #expect(state.mediaCacheFootprint == .zero)
+        #expect(!state.isLoadingMediaCacheFootprint)
+    }
+
+    @Test func messageMediaDiskCacheFootprintCountsCommittedEntries() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cache = messageMediaDiskCache(root: root)
+        let firstPlaintext = Data("first footprint entry".utf8)
+        let secondPlaintext = Data("second footprint entry".utf8)
+        let fixtures = [
+            (
+                firstPlaintext,
+                MessageMediaDiskCacheKey(
+                    accountId: "account-a",
+                    groupIdHex: "group-a",
+                    reference: mediaDiskCacheReference(plaintext: firstPlaintext, ciphertextByte: 0xa1)
+                )
+            ),
+            (
+                secondPlaintext,
+                MessageMediaDiskCacheKey(
+                    accountId: "account-b",
+                    groupIdHex: "group-b",
+                    reference: mediaDiskCacheReference(plaintext: secondPlaintext, ciphertextByte: 0xa2)
+                )
+            ),
+        ]
+
+        for (index, fixture) in fixtures.enumerated() {
+            await cache.store(
+                MessageMediaDownload(
+                    data: fixture.0,
+                    fileName: "fixture-\(index).bin",
+                    mediaType: "application/octet-stream",
+                    sizeBytes: UInt64(fixture.0.count),
+                    payloadId: "fixture-\(index)"
+                ),
+                for: fixture.1
+            )
+        }
+
+        let footprint = await cache.footprint()
+        #expect(footprint.entryCount == 2)
+        #expect(footprint.byteCount > UInt64(firstPlaintext.count + secondPlaintext.count))
+
+        await cache.purgeAll()
+        #expect(await cache.footprint() == .zero)
+    }
+
+    @Test func messageMediaDiskCachePurgeWaitsForStoreAlreadyInStaging() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let keyProviderGate = OneShotKeyProviderGate()
+        let cache = MessageMediaDiskCache(
+            directoryResolver: { root },
+            keyProvider: keyProviderGate.symmetricKey,
+            keyDeleter: {}
+        )
+        let plaintext = Data("store entered staging before clear".utf8)
+        let key = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: mediaDiskCacheReference(plaintext: plaintext)
+        )
+        let store = Task {
+            await cache.store(
+                MessageMediaDownload(
+                    data: plaintext,
+                    fileName: "staged.bin",
+                    mediaType: "application/octet-stream",
+                    sizeBytes: UInt64(plaintext.count),
+                    payloadId: "staged"
+                ),
+                for: key
+            )
+        }
+        await Task.detached {
+            keyProviderGate.waitUntilReached()
+        }.value
+
+        let purgeCompleted = DispatchSemaphore(value: 0)
+        let purge = Task {
+            await cache.purgeAll()
+            purgeCompleted.signal()
+        }
+        #expect(
+            await waitForSemaphore(purgeCompleted, timeout: .now() + .milliseconds(200)) == .timedOut
+        )
+
+        keyProviderGate.releaseGate()
+        await store.value
+        await purge.value
+
+        #expect(await cache.cachedDownload(for: key) == nil)
+        #expect(await cache.footprint() == .zero)
+        #expect(!fileManager.fileExists(atPath: root.path))
+    }
+
+    @MainActor
+    @Test func workspaceClearMediaCacheResetsUIProjectionsAndKeepsEncryptionKey() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let didDeleteKey = MutableFlag(false)
+        let cache = messageMediaDiskCache(
+            root: root,
+            keyDeleter: {
+                didDeleteKey.value = true
+            })
+        let plaintext = Data("cached attachment cleared from settings".utf8)
+        let reference = mediaDiskCacheReference(plaintext: plaintext)
+        let key = MessageMediaDiskCacheKey(
+            accountId: "account-a",
+            groupIdHex: "group-a",
+            reference: reference
+        )
+        let download = MessageMediaDownload(
+            data: plaintext,
+            fileName: "cached.jpg",
+            mediaType: "image/jpeg",
+            sizeBytes: UInt64(plaintext.count),
+            payloadId: "loaded-before-clear"
+        )
+        await cache.store(download, for: key)
+
+        let state = WorkspaceState(mediaDiskCache: cache)
+        state.activeAccountId = "account-a"
+        let message = MessageItem(
+            id: "message-a",
+            groupIdHex: "group-a",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(id: "attachment-a", reference: reference)
+            ]
+        )
+        let attachment = try #require(message.mediaAttachments.first)
+        let stateStore = state.mediaDownloadStateStore(for: message, attachment: attachment)
+        stateStore.update(.loaded(download))
+        state.sharedMediaThumbnailCache = ["thumbnail": plaintext]
+        state.sharedMediaThumbnailCacheOrder = ["thumbnail"]
+        state.sharedMediaThumbnailCacheBytes = plaintext.count
+        let before = await cache.footprint()
+        state.mediaCacheFootprint = before
+        let generation = state.mediaCacheGeneration
+
+        await state.clearMediaCache()
+
+        #expect(!state.isClearingMediaCache)
+        #expect(state.mediaCacheFootprint == .zero)
+        #expect(state.mediaCacheReclaimedByteCount == before.byteCount)
+        #expect(state.mediaCacheGeneration == generation + 1)
+        #expect(stateStore.state == .idle)
+        #expect(state.mediaDownloads.isEmpty)
+        #expect(state.sharedMediaThumbnailCache.isEmpty)
+        #expect(state.sharedMediaThumbnailCacheOrder.isEmpty)
+        #expect(state.sharedMediaThumbnailCacheBytes == 0)
+        #expect(!didDeleteKey.value)
+        #expect(await cache.cachedDownload(for: key) == nil)
+    }
+
     @Test func outgoingMediaMetadataTempStoreSanitizesEmptyExtensionsToBin() {
         #expect(OutgoingMediaMetadataTempStore.sanitizedFileExtension("") == "bin")
         #expect(OutgoingMediaMetadataTempStore.sanitizedFileExtension(" .. / ") == "bin")
@@ -4090,9 +4283,11 @@ struct whitenoise_macTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let didDeleteKey = MutableFlag(false)
-        let cache = messageMediaDiskCache(root: root) {
-            didDeleteKey.value = true
-        }
+        let cache = messageMediaDiskCache(
+            root: root,
+            keyDeleter: {
+                didDeleteKey.value = true
+            })
         let firstPlaintext = Data("first account media".utf8)
         let secondPlaintext = Data("second account media".utf8)
         let firstKey = MessageMediaDiskCacheKey(
@@ -17297,6 +17492,9 @@ struct whitenoise_macTests {
         state.showSettings(.notifications)
         #expect(state.selection == .settings(.notifications))
 
+        state.showSettings(.storage)
+        #expect(state.selection == .settings(.storage))
+
         state.showSettings(.developerMode)
         #expect(state.selection == .settings(.developerMode))
     }
@@ -17306,6 +17504,7 @@ struct whitenoise_macTests {
         #expect(SettingsPage.sidebarPages.first == .profile)
         #expect(!SettingsPage.sidebarPages.contains(.overview))
         #expect(SettingsPage.sidebarPages.contains(.privacySecurity))
+        #expect(SettingsPage.sidebarPages.contains(.storage))
         #expect(SettingsPage.sidebarPages.last == .developerMode)
     }
 
@@ -17622,6 +17821,34 @@ struct whitenoise_macTests {
             await loader.image(for: imageData, cacheKey: "attachment-1", maxPixelSize: 64)
         )
         #expect(reDecoded.nsImage !== decoded.nsImage)
+    }
+
+    @Test func remoteImageLoaderClearLocalCachePreservesRemoteImages() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+        let localData = try Self.testPNGData(width: 64, height: 64)
+
+        let remote = try #require(await loader.image(for: url, maxPixelSize: 32))
+        let local = try #require(
+            await loader.image(for: localData, cacheKey: "attachment-1", maxPixelSize: 32)
+        )
+
+        loader.clearLocalCache()
+
+        let remoteAfterClear = try #require(await loader.image(for: url, maxPixelSize: 32))
+        #expect(remoteAfterClear.nsImage === remote.nsImage)
+        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+        #expect(
+            await loader.image(for: Data([0x00]), cacheKey: "attachment-1", maxPixelSize: 32) == nil
+        )
+        let localAfterClear = try #require(
+            await loader.image(for: localData, cacheKey: "attachment-1", maxPixelSize: 32)
+        )
+        #expect(localAfterClear.nsImage !== local.nsImage)
     }
 
     @Test func remoteImageLoaderClearCacheInvalidatesInFlightLoads() async throws {
