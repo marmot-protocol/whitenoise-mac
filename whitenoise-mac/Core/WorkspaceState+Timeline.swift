@@ -1388,7 +1388,10 @@ extension WorkspaceState {
                     messageIdHex: messageId
                 )
             })
-            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+            // Read-marker bookkeeping belongs to the account/group, not to the currently
+            // selected conversation. Navigating to another chat while the FFI is in flight
+            // must not discard a successful commit or leave the confirmed marker stale.
+            guard activeAccountId == account.id else { return }
             let committedState = ReadMarker.afterSuccessfulCommit(
                 current: lastMarkedReadMarkers[groupIdHex],
                 confirmed: lastConfirmedReadMarkers[groupIdHex],
@@ -1400,13 +1403,18 @@ extension WorkspaceState {
                 await applyChatRow(row, account: account, shouldEnrich: false)
             }
         } catch {
-            guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+            // Account switches clear these dictionaries, so never repopulate them for a stale
+            // account. A same-account chat switch is different: roll back the per-group slot so
+            // returning to the conversation can retry the failed marker.
+            guard activeAccountId == account.id else { return }
             lastMarkedReadMarkers[groupIdHex] = ReadMarker.afterFailedOptimisticAdvance(
                 current: lastMarkedReadMarkers[groupIdHex],
                 attempted: marker,
                 confirmed: lastConfirmedReadMarkers[groupIdHex]
             )
-            setBackgroundStatus(error.localizedDescription)
+            if selectedChat?.id == groupIdHex {
+                setBackgroundStatus(error.localizedDescription)
+            }
         }
     }
 
