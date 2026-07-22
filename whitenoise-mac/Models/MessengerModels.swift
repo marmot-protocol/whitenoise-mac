@@ -2022,6 +2022,7 @@ enum WorkspaceSelection: Equatable {
 
 enum SettingsPage: Equatable {
     case overview
+    case general
     case accounts
     case profile
     case identityKeys
@@ -2034,6 +2035,7 @@ enum SettingsPage: Equatable {
     case developerMode
 
     static let sidebarPages: [SettingsPage] = [
+        .general,
         .profile,
         .accounts,
         .identityKeys,
@@ -2050,6 +2052,8 @@ enum SettingsPage: Equatable {
         switch self {
         case .overview:
             L10n.string("Settings")
+        case .general:
+            L10n.string("General")
         case .accounts:
             L10n.string("Accounts")
         case .profile:
@@ -2077,6 +2081,8 @@ enum SettingsPage: Equatable {
         switch self {
         case .overview:
             L10n.string("Settings home")
+        case .general:
+            L10n.string("Startup preferences")
         case .accounts:
             L10n.string("Switch identities")
         case .profile:
@@ -2104,6 +2110,8 @@ enum SettingsPage: Equatable {
         switch self {
         case .overview:
             "gearshape"
+        case .general:
+            "gear"
         case .accounts:
             "person.2"
         case .profile:
