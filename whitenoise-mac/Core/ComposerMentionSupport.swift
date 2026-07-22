@@ -144,6 +144,10 @@ nonisolated enum ComposerMentionCanonicalizer {
             .filter { candidate in
                 !candidate.npub.isEmpty
                     && !candidate.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    // A peer-controlled name that is itself a profile reference must never
+                    // retarget the literal reference the sender typed. Picker selections were
+                    // already canonicalized by their exact range above and remain supported.
+                    && !MarkdownLinkPolicy.isResolvableProfileReference(candidate.displayName)
             }
             .sorted { $0.displayName.count > $1.displayName.count }
         guard !replacements.isEmpty else { return canonical }

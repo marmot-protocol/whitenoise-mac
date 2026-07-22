@@ -54,6 +54,45 @@ struct PureValueTests {
         )
     }
 
+    @Test func typedProfileReferenceCannotBeRetargetedByPeerDisplayName() {
+        let victimNpub = "npub1" + String(repeating: "q", count: 58)
+        let attacker = mentionCandidate(
+            id: "attacker",
+            displayName: victimNpub,
+            npub: "npub1" + String(repeating: "p", count: 58)
+        )
+        let draft = "Hi @\(victimNpub)"
+
+        #expect(
+            ComposerMentionCanonicalizer.canonicalize(draft, candidates: [attacker])
+                == draft
+        )
+    }
+
+    @Test func explicitlySelectedProfileShapedDisplayNameUsesPickedNpub() {
+        let victimNpub = "npub1" + String(repeating: "q", count: 58)
+        let attackerNpub = "npub1" + String(repeating: "p", count: 58)
+        let attacker = mentionCandidate(
+            id: "attacker",
+            displayName: victimNpub,
+            npub: attackerNpub
+        )
+        let visibleMention = "@\(victimNpub)"
+        let selection = ComposerMentionSelection(
+            range: NSRange(location: 0, length: (visibleMention as NSString).length),
+            displayText: visibleMention,
+            npub: attackerNpub
+        )
+
+        #expect(
+            ComposerMentionCanonicalizer.canonicalize(
+                visibleMention,
+                selections: [selection],
+                candidates: [attacker]
+            ) == "@\(attackerNpub)"
+        )
+    }
+
     @Test func selectedMentionIsIgnoredAfterItsVisibleTextIsEdited() {
         let candidate = mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
         let staleSelection = ComposerMentionSelection(
