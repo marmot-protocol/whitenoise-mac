@@ -202,8 +202,92 @@ nonisolated enum GlobalMessageSearchEngine {
             }
         }
 
+        return try resolvedResults(
+            from: newestHits,
+            client: client,
+            localAccountId: localAccountId,
+            localDisplayName: localDisplayName,
+            tokens: tokens,
+            checkCancellation: checkCancellation
+        )
+    }
+
+    static func searchLatestByChat(
+        client: any MarmotRuntime,
+        accountRef: String,
+        localAccountId: String,
+        localDisplayName: String,
+        scopes: [GlobalMessageSearchScope],
+        query: String,
+        checkCancellation: @escaping @Sendable () throws -> Void
+    ) throws -> [GlobalMessageSearchResult] {
+        let tokens = GlobalMessageSearchText.tokens(in: query)
+        guard !tokens.isEmpty else { return [] }
+
+        var newestHits: [Hit] = []
+        newestHits.reserveCapacity(scopes.count)
+
+        for scope in scopes {
+            try checkCancellation()
+            var before: UInt64?
+            var beforeMessageId: String?
+
+            searchScope: while true {
+                try checkCancellation()
+                let page = try client.timelineMessages(
+                    accountRef: accountRef,
+                    query: TimelineMessageQueryFfi(
+                        groupIdHex: scope.groupId,
+                        search: nil,
+                        before: before,
+                        beforeMessageId: beforeMessageId,
+                        after: nil,
+                        afterMessageId: nil,
+                        limit: pageLimit
+                    )
+                )
+
+                for record in page.messages.reversed() {
+                    try checkCancellation()
+                    guard record.kind == 9,
+                        !record.deleted,
+                        record.invalidationStatus == nil,
+                        GlobalMessageSearchText.matches(record.plaintext, tokens: tokens)
+                    else { continue }
+                    newestHits.append(Hit(record: record, chatTitle: scope.title))
+                    break searchScope
+                }
+
+                guard page.hasMoreBefore, let oldest = page.messages.first else { break }
+                let nextBefore = oldest.timelineAt
+                let nextBeforeMessageId = oldest.messageIdHex
+                guard nextBefore != before || nextBeforeMessageId != beforeMessageId else { break }
+                before = nextBefore
+                beforeMessageId = nextBeforeMessageId
+            }
+        }
+
+        newestHits.sort { isNewer($0.record, than: $1.record) }
+        return try resolvedResults(
+            from: newestHits,
+            client: client,
+            localAccountId: localAccountId,
+            localDisplayName: localDisplayName,
+            tokens: tokens,
+            checkCancellation: checkCancellation
+        )
+    }
+
+    private static func resolvedResults(
+        from hits: [Hit],
+        client: any MarmotRuntime,
+        localAccountId: String,
+        localDisplayName: String,
+        tokens: [String],
+        checkCancellation: @escaping @Sendable () throws -> Void
+    ) throws -> [GlobalMessageSearchResult] {
         try checkCancellation()
-        let senderIds = Set(newestHits.map(\.record.sender))
+        let senderIds = Set(hits.map(\.record.sender))
         var senderNames: [String: String] = [
             localAccountId: PeerDisplayText.sanitize(localDisplayName) ?? abbreviated(localAccountId)
         ]
@@ -218,7 +302,7 @@ nonisolated enum GlobalMessageSearchEngine {
                 ]) ?? abbreviated(senderId)
         }
 
-        return newestHits.map { hit in
+        return hits.map { hit in
             let record = hit.record
             return GlobalMessageSearchResult(
                 messageId: record.messageIdHex,
@@ -343,6 +427,105 @@ extension WorkspaceState {
             globalMessageSearchQuery = ""
         } else if restartIfPresented, isGlobalMessageSearchPresented {
             scheduleGlobalMessageSearch()
+        }
+    }
+
+    func scheduleSidebarMessageSearch() {
+        sidebarMessageSearchTask?.cancel()
+        sidebarMessageSearchTask = nil
+        sidebarMessageSearchGeneration &+= 1
+        let generation = sidebarMessageSearchGeneration
+        sidebarMessageSearchResultsByGroupId = [:]
+        sidebarMessageSearchResultQuery = ""
+
+        let query = searchText
+        guard !GlobalMessageSearchText.tokens(in: query).isEmpty else {
+            isSearchingSidebarMessages = false
+            return
+        }
+        guard let client, let account = activeAccount else {
+            isSearchingSidebarMessages = false
+            return
+        }
+
+        let scopes = sidebarMessageSearchScopes
+        let visibleGroupIds = Set(scopes.map(\.groupId))
+        isSearchingSidebarMessages = true
+        sidebarMessageSearchTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+                guard let self else { return }
+                let results = try await self.runOffMainCancellable { checkCancellation in
+                    try GlobalMessageSearchEngine.searchLatestByChat(
+                        client: client,
+                        accountRef: account.accountRef,
+                        localAccountId: account.accountIdHex,
+                        localDisplayName: account.displayName,
+                        scopes: scopes,
+                        query: query,
+                        checkCancellation: checkCancellation
+                    )
+                }
+                guard self.sidebarMessageSearchGeneration == generation,
+                    self.activeAccountId == account.id,
+                    Set(self.sidebarMessageSearchScopes.map(\.groupId)) == visibleGroupIds,
+                    self.searchText == query
+                else { return }
+                self.sidebarMessageSearchResultsByGroupId = Dictionary(
+                    uniqueKeysWithValues: results.map { ($0.groupId, $0) }
+                )
+                self.sidebarMessageSearchResultQuery = query
+                self.isSearchingSidebarMessages = false
+                self.sidebarMessageSearchTask = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self, self.sidebarMessageSearchGeneration == generation else { return }
+                self.isSearchingSidebarMessages = false
+                self.sidebarMessageSearchTask = nil
+            }
+        }
+    }
+
+    func invalidateSidebarMessageSearch(clearQuery: Bool, restart: Bool = false) {
+        sidebarMessageSearchTask?.cancel()
+        sidebarMessageSearchTask = nil
+        sidebarMessageSearchGeneration &+= 1
+        sidebarMessageSearchResultsByGroupId = [:]
+        sidebarMessageSearchResultQuery = ""
+        isSearchingSidebarMessages = false
+        if clearQuery {
+            searchText = ""
+        } else if restart, !GlobalMessageSearchText.tokens(in: searchText).isEmpty {
+            scheduleSidebarMessageSearch()
+        }
+    }
+
+    func sidebarSearchFilteredChats(_ chats: [ChatItem]) -> [ChatItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return chats }
+        let metadataMatches = Set(ChatFilter.filtered(chats, query: query).map(\.id))
+        let historyMatches: Set<String> =
+            sidebarMessageSearchResultQuery == searchText
+            ? Set(sidebarMessageSearchResultsByGroupId.keys)
+            : []
+        return chats.filter {
+            metadataMatches.contains($0.id) || historyMatches.contains($0.id)
+        }
+    }
+
+    func sidebarMessageSearchResult(for chat: ChatItem) -> GlobalMessageSearchResult? {
+        guard sidebarMessageSearchResultQuery == searchText,
+            !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return sidebarMessageSearchResultsByGroupId[chat.id]
+    }
+
+    private var sidebarMessageSearchScopes: [GlobalMessageSearchScope] {
+        var seen = Set<String>()
+        return (activeChats + archivedChats).compactMap { chat in
+            guard seen.insert(chat.id).inserted else { return nil }
+            return GlobalMessageSearchScope(groupId: chat.id, title: chat.title)
         }
     }
 

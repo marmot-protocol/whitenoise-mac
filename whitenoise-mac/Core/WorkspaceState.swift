@@ -983,6 +983,11 @@ final class WorkspaceState {
     }
     var restoreLastSelectedChat: Bool
     var searchText = ""
+    var sidebarMessageSearchResultsByGroupId: [String: GlobalMessageSearchResult] = [:]
+    var sidebarMessageSearchResultQuery = ""
+    var isSearchingSidebarMessages = false
+    @ObservationIgnored var sidebarMessageSearchTask: Task<Void, Never>?
+    @ObservationIgnored var sidebarMessageSearchGeneration: UInt64 = 0
     var isGlobalMessageSearchPresented = false
     var globalMessageSearchQuery = ""
     var globalMessageSearchResults: [GlobalMessageSearchResult] = []

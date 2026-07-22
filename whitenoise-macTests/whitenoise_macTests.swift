@@ -14842,6 +14842,86 @@ struct whitenoise_macTests {
         state.dismissGlobalMessageSearch()
     }
 
+    @Test func sidebarMessageSearchKeepsTheNewestMatchFromEveryChat() throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let sender = desktopAccount().accountIdHex
+        runtime.timelineMessagesHandler = { query in
+            let groupId = query.groupIdHex ?? "group"
+            let messages = (0..<75).map { index in
+                timelineMessage(
+                    id: String(format: "%064x", index + (groupId == "first" ? 1 : 1_000)),
+                    groupIdHex: groupId,
+                    sender: sender,
+                    plaintext: "shared needle \(index)",
+                    recordedAt: UInt64(index + (groupId == "first" ? 1 : 1_000))
+                )
+            }
+            return TimelinePageFfi(messages: messages, hasMoreBefore: false, hasMoreAfter: false)
+        }
+
+        let results = try GlobalMessageSearchEngine.searchLatestByChat(
+            client: runtime,
+            accountRef: "Desktop Account",
+            localAccountId: sender,
+            localDisplayName: "Desktop Account",
+            scopes: [
+                GlobalMessageSearchScope(groupId: "first", title: "First"),
+                GlobalMessageSearchScope(groupId: "second", title: "Second"),
+            ],
+            query: "shared needle",
+            checkCancellation: {}
+        )
+
+        #expect(results.map(\.groupId) == ["second", "first"])
+        #expect(results.map(\.timelineAt) == [1_074, 75])
+        #expect(runtime.timelineMessageQueries.count == 2)
+    }
+
+    @MainActor
+    @Test func sidebarSearchFiltersToAHistoryOnlyMatchWithoutPresentingASheet() async throws {
+        let state = WorkspaceState.preview()
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        state.client = runtime
+        let query = "fullhistoryneedle616"
+        let sender = try #require(state.activeAccount).accountIdHex
+        let target = try #require(state.activeChats.last)
+        #expect(
+            !state.activeChats.contains {
+                $0.title.localizedCaseInsensitiveContains(query)
+                    || $0.preview.localizedCaseInsensitiveContains(query)
+            })
+        runtime.timelineMessagesHandler = { timelineQuery in
+            let groupId = timelineQuery.groupIdHex ?? "group"
+            return TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: String(repeating: "6", count: 64),
+                        groupIdHex: groupId,
+                        sender: sender,
+                        plaintext: groupId == target.id
+                            ? "A buried message contains \(query)"
+                            : "An unrelated message",
+                        recordedAt: 10
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+
+        state.searchText = query
+        state.scheduleSidebarMessageSearch()
+
+        #expect(!state.isGlobalMessageSearchPresented)
+        #expect(
+            await waitFor {
+                !state.isSearchingSidebarMessages && !state.sidebarMessageSearchResultsByGroupId.isEmpty
+            })
+        #expect(state.sidebarSearchFilteredChats(state.activeChats).map(\.id) == [target.id])
+        #expect(state.sidebarMessageSearchResult(for: target)?.snippet.match == query)
+        #expect(state.globalMessageSearchQuery.isEmpty)
+    }
+
     @MainActor
     @Test func globalMessageSearchDropsStaleInFlightGenerationAndAccountResults() async throws {
         let state = WorkspaceState.preview()
