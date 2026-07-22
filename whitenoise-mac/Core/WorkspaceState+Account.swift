@@ -29,6 +29,10 @@ extension WorkspaceState {
             let runtime = try clientFactory()
             client = runtime
             storageRootPath = runtime.storageRootPath
+            if hiddenMessageStore == nil {
+                hiddenMessageStore = HiddenMessageFileStore(storageRootPath: storageRootPath)
+            }
+            loadHiddenMessages()
             let summaries = try await runOffMain {
                 try runtime.listAccounts()
             }
