@@ -331,7 +331,6 @@ extension WorkspaceState {
     func selectRelaySection(_ section: RelaySettingsSection) {
         selectedRelaySection = section
         relayDraft = relaySettings.relays(for: section)
-        newRelayURL = ""
     }
 
     func addRelayDraftURL() {
