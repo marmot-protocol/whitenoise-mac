@@ -71,6 +71,16 @@ nonisolated protocol MarmotRuntime: Sendable {
         -> TimelineMessagesSubscription
     func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi?
     func markTimelineMessageRead(accountRef: String, groupIdHex: String, messageIdHex: String) throws -> ChatListRowFfi?
+    func messageDrafts(accountRef: String) throws -> [MessageDraftSummaryFfi]
+    func messageDraft(accountRef: String, groupIdHex: String) throws -> MessageDraftFfi?
+    func saveMessageDraft(
+        accountRef: String,
+        groupIdHex: String,
+        content: String,
+        replyToMessageIdHex: String?,
+        mediaAttachments: [MessageDraftAttachmentFfi]
+    ) throws -> MessageDraftFfi
+    func deleteMessageDraft(accountRef: String, groupIdHex: String) throws
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi]
     func downloadMedia(accountRef: String, groupIdHex: String, reference: MediaAttachmentReferenceFfi) async throws
         -> MediaDownloadResultFfi
@@ -427,6 +437,34 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             groupIdHex: groupIdHex,
             messageIdHex: messageIdHex
         )
+    }
+
+    func messageDrafts(accountRef: String) throws -> [MessageDraftSummaryFfi] {
+        try marmot.messageDrafts(accountRef: accountRef)
+    }
+
+    func messageDraft(accountRef: String, groupIdHex: String) throws -> MessageDraftFfi? {
+        try marmot.messageDraft(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func saveMessageDraft(
+        accountRef: String,
+        groupIdHex: String,
+        content: String,
+        replyToMessageIdHex: String?,
+        mediaAttachments: [MessageDraftAttachmentFfi]
+    ) throws -> MessageDraftFfi {
+        try marmot.saveMessageDraft(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            content: content,
+            replyToMessageIdHex: replyToMessageIdHex,
+            mediaAttachments: mediaAttachments
+        )
+    }
+
+    func deleteMessageDraft(accountRef: String, groupIdHex: String) throws {
+        try marmot.deleteMessageDraft(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi] {

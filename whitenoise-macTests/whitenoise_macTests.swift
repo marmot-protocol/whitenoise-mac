@@ -19390,6 +19390,132 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func composerDraftChangesDebounceIntoLatestEncryptedBindingSave() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.selectedChat?.id == "group")
+        runtime.clearSyncCallThreadRecords()
+
+        state.draftText = "first"
+        state.draftText = "latest"
+
+        let didPersistLatest = await waitFor {
+            runtime.storedMessageDraft(accountRef: account.label, groupIdHex: "group")?.content == "latest"
+        }
+        #expect(didPersistLatest)
+        #expect(runtime.syncCallThreadRecord("saveMessageDraft") == [false])
+    }
+
+    @MainActor
+    @Test func composerDraftRestoresTextMentionIdentityAndAttachmentAfterRestart() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+
+        var firstState: WorkspaceState? = WorkspaceState(clientFactory: { runtime })
+        await firstState?.bootstrap()
+        #expect(firstState?.selectedChat?.id == "group")
+
+        let visibleDraft = "Hi @Alice"
+        firstState?.draftText = visibleDraft
+        firstState?.composerMentionSelections = [
+            ComposerMentionSelection(
+                range: (visibleDraft as NSString).range(of: "@Alice"),
+                displayText: "@Alice",
+                npub: "npub1alyce"
+            )
+        ]
+        let attachment = PendingMediaAttachment(
+            id: UUID(uuidString: "4a31c735-b9cb-4af2-b8ef-85cf8fdc7711")!,
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("private notes".utf8),
+            dim: nil
+        )
+        let firstDraftKey = try #require(firstState?.selectedComposerDraftKey)
+        firstState?.appendPendingMediaAttachment(attachment, for: firstDraftKey)
+        await firstState?.flushComposerDraftPersistence()
+
+        let stored = try #require(
+            runtime.storedMessageDraft(accountRef: account.label, groupIdHex: "group")
+        )
+        #expect(stored.content == "Hi @npub1alyce")
+        #expect(stored.mediaAttachments.map(\.plaintext) == [Data("private notes".utf8)])
+        firstState = nil
+
+        let restoredState = WorkspaceState(clientFactory: { runtime })
+        await restoredState.bootstrap()
+
+        #expect(restoredState.draftText == visibleDraft)
+        #expect(restoredState.composerMentionSelections.count == 1)
+        #expect(restoredState.composerMentionSelections.first?.npub == "npub1alyce")
+        #expect(restoredState.pendingMediaAttachments == [attachment])
+    }
+
+    @MainActor
+    @Test func liveComposerEditWinsOverHeldPersistentDraftRestore() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.installMessageDraft(
+            MessageDraftFfi(
+                groupIdHex: "group",
+                content: "stale persisted text",
+                replyToMessageIdHex: nil,
+                mediaAttachments: [],
+                createdAtMs: 1,
+                updatedAtMs: 1
+            ),
+            accountRef: account.label
+        )
+        runtime.messageDraftReadGateEnabled = true
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        let bootstrapTask = Task { await state.bootstrap() }
+        let didReachRead = await waitFor { runtime.didReachMessageDraftReadGate }
+        #expect(didReachRead)
+        #expect(state.selectedChat?.id == "group")
+
+        state.draftText = "new local text"
+        runtime.releaseMessageDraftReadGate()
+        await bootstrapTask.value
+
+        #expect(state.draftText == "new local text")
+        await state.flushComposerDraftPersistence()
+        #expect(
+            runtime.storedMessageDraft(accountRef: account.label, groupIdHex: "group")?.content
+                == "new local text"
+        )
+    }
+
+    @MainActor
+    @Test func successfulSendDeletesPersistedComposerDraft() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.draftText = "send once"
+        await state.flushComposerDraftPersistence()
+        #expect(runtime.storedMessageDraft(accountRef: account.label, groupIdHex: "group") != nil)
+        runtime.clearSyncCallThreadRecords()
+
+        await state.sendDraft()
+
+        #expect(runtime.sentText?.text == "send once")
+        #expect(state.draftText.isEmpty)
+        #expect(runtime.storedMessageDraft(accountRef: account.label, groupIdHex: "group") == nil)
+        #expect(runtime.syncCallThreadRecord("deleteMessageDraft") == [false])
+    }
+
+    @MainActor
     @Test func reloadChatsPrunesDraftsForRemovedConversations() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -23908,6 +24034,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
     private(set) var uploadedMedia: UploadedMedia?
+    private var storedMessageDraftsByAccountRef: [String: [String: MessageDraftFfi]] = [:]
+    private var messageDraftTimestamp: Int64 = 1_700_000_000_000
+    private let messageDraftReadGate = BlockingFfiGate()
+    var messageDraftReadGateEnabled: Bool {
+        get { messageDraftReadGate.isEnabled }
+        set { messageDraftReadGate.isEnabled = newValue }
+    }
+    var didReachMessageDraftReadGate: Bool {
+        messageDraftReadGate.didReach
+    }
     // Issue #78 reentrancy-test support: count message-action FFI calls so a test can prove
     // an overlapping duplicate was dropped by the WorkspaceState guard before reaching the runtime.
     private(set) var sendTextCallCount = 0
@@ -24468,6 +24604,18 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         let details = GroupDetailsFfi(group: group, members: [])
         groupDetailsById[group.groupIdHex] = details
         groupManagementStateById[group.groupIdHex] = defaultGroupManagementState(for: details)
+    }
+
+    func installMessageDraft(_ draft: MessageDraftFfi, accountRef: String) {
+        recordedStateLock.withLock {
+            storedMessageDraftsByAccountRef[accountRef, default: [:]][draft.groupIdHex] = draft
+        }
+    }
+
+    func storedMessageDraft(accountRef: String, groupIdHex: String) -> MessageDraftFfi? {
+        recordedStateLock.withLock {
+            storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+        }
     }
 
     func installGroups(_ groups: [AppGroupRecordFfi]) {
@@ -25237,6 +25385,78 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func releaseMarkTimelineMessageReadGate() {
         markTimelineMessageReadGate.release()
+    }
+
+    func messageDrafts(accountRef: String) throws -> [MessageDraftSummaryFfi] {
+        recordSyncCall("messageDrafts")
+        return recordedStateLock.withLock {
+            (storedMessageDraftsByAccountRef[accountRef] ?? [:]).values
+                .sorted {
+                    if $0.updatedAtMs != $1.updatedAtMs { return $0.updatedAtMs > $1.updatedAtMs }
+                    return $0.groupIdHex < $1.groupIdHex
+                }
+                .map { draft in
+                    MessageDraftSummaryFfi(
+                        groupIdHex: draft.groupIdHex,
+                        content: draft.content,
+                        replyToMessageIdHex: draft.replyToMessageIdHex,
+                        mediaAttachments: draft.mediaAttachments.map { attachment in
+                            MessageDraftAttachmentSummaryFfi(
+                                id: attachment.id,
+                                fileName: attachment.fileName,
+                                mediaType: attachment.mediaType,
+                                plaintextSize: UInt64(attachment.plaintext.count)
+                            )
+                        },
+                        createdAtMs: draft.createdAtMs,
+                        updatedAtMs: draft.updatedAtMs
+                    )
+                }
+        }
+    }
+
+    func messageDraft(accountRef: String, groupIdHex: String) throws -> MessageDraftFfi? {
+        recordSyncCall("messageDraft")
+        let draft = recordedStateLock.withLock {
+            storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+        }
+        messageDraftReadGate.passIfArmed()
+        return draft
+    }
+
+    func saveMessageDraft(
+        accountRef: String,
+        groupIdHex: String,
+        content: String,
+        replyToMessageIdHex: String?,
+        mediaAttachments: [MessageDraftAttachmentFfi]
+    ) throws -> MessageDraftFfi {
+        recordSyncCall("saveMessageDraft")
+        return recordedStateLock.withLock {
+            messageDraftTimestamp += 1
+            let stored = storedMessageDraftsByAccountRef[accountRef]?[groupIdHex]
+            let draft = MessageDraftFfi(
+                groupIdHex: groupIdHex,
+                content: content,
+                replyToMessageIdHex: replyToMessageIdHex,
+                mediaAttachments: mediaAttachments,
+                createdAtMs: stored?.createdAtMs ?? messageDraftTimestamp,
+                updatedAtMs: messageDraftTimestamp
+            )
+            storedMessageDraftsByAccountRef[accountRef, default: [:]][groupIdHex] = draft
+            return draft
+        }
+    }
+
+    func deleteMessageDraft(accountRef: String, groupIdHex: String) throws {
+        recordSyncCall("deleteMessageDraft")
+        recordedStateLock.withLock {
+            storedMessageDraftsByAccountRef[accountRef]?[groupIdHex] = nil
+        }
+    }
+
+    func releaseMessageDraftReadGate() {
+        messageDraftReadGate.release()
     }
 
     func listMedia(accountRef: String, groupIdHex: String, limit: UInt32?) throws -> [MediaRecordFfi] {

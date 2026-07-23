@@ -26,3 +26,7 @@ extension MediaUploadResultFfi: @retroactive @unchecked Sendable {}
 extension MediaDownloadResultFfi: @retroactive @unchecked Sendable {}
 extension MediaLocatorFfi: @retroactive @unchecked Sendable {}
 extension MediaRecordFfi: @retroactive @unchecked Sendable {}
+extension MessageDraftAttachmentFfi: @retroactive @unchecked Sendable {}
+extension MessageDraftAttachmentSummaryFfi: @retroactive @unchecked Sendable {}
+extension MessageDraftFfi: @retroactive @unchecked Sendable {}
+extension MessageDraftSummaryFfi: @retroactive @unchecked Sendable {}

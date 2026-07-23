@@ -1012,6 +1012,7 @@ final class WorkspaceState {
             } else {
                 draftTextByConversation[selectedComposerDraftKey] = newValue
             }
+            composerDraftDidChange(for: selectedComposerDraftKey)
         }
     }
     var composerMentionSelections: [ComposerMentionSelection] {
@@ -1022,6 +1023,7 @@ final class WorkspaceState {
         set {
             guard let selectedComposerDraftKey else { return }
             composerMentionSelectionsByConversation[selectedComposerDraftKey] = newValue.isEmpty ? nil : newValue
+            composerDraftDidChange(for: selectedComposerDraftKey)
         }
     }
     var pendingMediaAttachments: [PendingMediaAttachment] {
@@ -1153,6 +1155,7 @@ final class WorkspaceState {
         set {
             guard let selectedComposerDraftKey else { return }
             replyDraftContextByConversation[selectedComposerDraftKey] = newValue
+            composerDraftDidChange(for: selectedComposerDraftKey)
         }
     }
     var editingMessageContext: MessageEditContext? {
@@ -1233,6 +1236,10 @@ final class WorkspaceState {
     var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
     var pendingMediaUploadStatesByConversation:
         [ComposerDraftKey: [PendingMediaAttachment.ID: PendingMediaUploadState]] = [:]
+    @ObservationIgnored var composerDraftPersistenceTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
+    @ObservationIgnored var composerDraftMutationGenerations: [ComposerDraftKey: UInt64] = [:]
+    @ObservationIgnored var dirtyComposerDraftKeys: Set<ComposerDraftKey> = []
+    @ObservationIgnored var restoredComposerDraftKeys: Set<ComposerDraftKey> = []
     var voiceRecorder: AVAudioRecorder?
     var voiceRecordingURL: URL?
     var voiceRecordingMeterTask: Task<Void, Never>?

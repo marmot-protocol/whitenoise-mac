@@ -248,14 +248,31 @@ nonisolated enum MentionDisplayResolver {
     private static let bech32Characters = CharacterSet(charactersIn: "023456789acdefghjklmnpqrstuvwxyz")
 
     static func resolve(in text: String, mentionNames: MarkdownMentionNames) -> String {
-        guard !mentionNames.isEmpty, text.contains("@npub1") else { return text }
+        resolveMentions(in: text, mentionNames: mentionNames).text
+    }
+
+    /// Resolve canonical draft mentions for display while recreating the exact marker ranges the
+    /// composer needs to preserve an unambiguous npub on its next save/send.
+    static func composerDraftPresentation(
+        in text: String,
+        mentionNames: MarkdownMentionNames
+    ) -> (text: String, selections: [ComposerMentionSelection]) {
+        resolveMentions(in: text, mentionNames: mentionNames)
+    }
+
+    private static func resolveMentions(
+        in text: String,
+        mentionNames: MarkdownMentionNames
+    ) -> (text: String, selections: [ComposerMentionSelection]) {
+        guard !mentionNames.isEmpty, text.contains("@npub1") else { return (text, []) }
         let replacements = mentionNames.compactMap { npub, rawName -> (npub: String, name: String)? in
             guard let name = PeerDisplayText.sanitize(rawName), !npub.isEmpty else { return nil }
             return (npub, name)
         }
-        guard !replacements.isEmpty else { return text }
+        guard !replacements.isEmpty else { return (text, []) }
 
         var resolved = ""
+        var selections: [ComposerMentionSelection] = []
         var index = text.startIndex
         while index < text.endIndex {
             var match: (npub: String, name: String, end: String.Index)?
@@ -269,14 +286,25 @@ nonisolated enum MentionDisplayResolver {
                 }
             }
             if let match {
-                resolved += "@\(match.name)"
+                let displayText = "@\(match.name)"
+                let range = NSRange(
+                    location: (resolved as NSString).length,
+                    length: (displayText as NSString).length
+                )
+                resolved += displayText
+                selections.append(
+                    ComposerMentionSelection(
+                        range: range,
+                        displayText: displayText,
+                        npub: match.npub
+                    ))
                 index = match.end
             } else {
                 resolved.append(text[index])
                 index = text.index(after: index)
             }
         }
-        return resolved
+        return (resolved, selections)
     }
 
     private static func isBech32Character(_ character: Character) -> Bool {
