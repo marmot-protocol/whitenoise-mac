@@ -87,6 +87,13 @@ struct ContentView: View {
             }
             .onReceive(
                 NotificationCenter.default.publisher(
+                    for: NSApplication.willTerminateNotification
+                )
+            ) { _ in
+                workspace.flushComposerDraftPersistenceSynchronouslyForTermination()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
                     for: NSWindow.didBecomeKeyNotification
                 )
             ) { _ in

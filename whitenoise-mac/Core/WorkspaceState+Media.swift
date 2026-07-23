@@ -25,6 +25,7 @@ private nonisolated struct MediaAttachmentDownloadTaskFailure: Error {
 @MainActor
 extension WorkspaceState {
     func clearAllComposerDrafts() {
+        discardAllComposerDraftPersistenceState()
         draftTextByConversation.removeAll()
         composerMentionSelectionsByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
@@ -90,6 +91,7 @@ extension WorkspaceState {
     func clearComposerDrafts(for chatIds: [String], accountId: String) {
         for chatId in chatIds {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
+            discardComposerDraftPersistenceState(for: key)
             draftTextByConversation[key] = nil
             composerMentionSelectionsByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
@@ -100,6 +102,7 @@ extension WorkspaceState {
     }
 
     func clearComposerDrafts(forAccountId accountId: String) {
+        discardComposerDraftPersistenceState(forAccountId: accountId)
         for key in draftTextByConversation.keys.filter({ $0.accountId == accountId }) {
             draftTextByConversation[key] = nil
         }
@@ -484,6 +487,7 @@ extension WorkspaceState {
         var uploadStates = pendingMediaUploadStatesByConversation[selectedComposerDraftKey] ?? [:]
         uploadStates[id] = nil
         pendingMediaUploadStatesByConversation[selectedComposerDraftKey] = uploadStates.isEmpty ? nil : uploadStates
+        composerDraftDidChange(for: selectedComposerDraftKey)
     }
 
     func toggleVoiceRecording() async {
@@ -646,6 +650,7 @@ extension WorkspaceState {
             draftTextByConversation[draftKey] = nil
             composerMentionSelectionsByConversation[draftKey] = nil
         }
+        composerDraftDidChange(for: draftKey)
     }
 
     func presentMaxMediaAttachmentWarning() {

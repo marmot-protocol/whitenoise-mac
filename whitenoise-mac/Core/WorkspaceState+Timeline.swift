@@ -30,7 +30,14 @@ enum TimelineWindowOwner {
 @MainActor
 extension WorkspaceState {
     func loadMessages(groupIdHex: String) async {
+        let draftAccountId = activeAccountId
+        if let draftAccountId {
+            await restoreComposerDraftIfNeeded(accountId: draftAccountId, groupIdHex: groupIdHex)
+        }
         if timelineTaskGroupId == groupIdHex, ensureMessageTimelineStore(for: groupIdHex).isLoaded {
+            if let draftAccountId, activeAccountId == draftAccountId {
+                hydrateRestoredReplyContext(accountId: draftAccountId, groupIdHex: groupIdHex)
+            }
             finishTimelineInitialLoad(groupIdHex: groupIdHex)
             return
         }
@@ -48,6 +55,9 @@ extension WorkspaceState {
         {
             // Same-account duplicate loads join the owner task; its defer clears the spinner.
             await existing.value
+            if let draftAccountId, activeAccountId == draftAccountId {
+                hydrateRestoredReplyContext(accountId: draftAccountId, groupIdHex: groupIdHex)
+            }
             return
         }
 
@@ -66,6 +76,9 @@ extension WorkspaceState {
         timelineLoadAccountId = accountId
 
         await task.value
+        if let draftAccountId, activeAccountId == draftAccountId {
+            hydrateRestoredReplyContext(accountId: draftAccountId, groupIdHex: groupIdHex)
+        }
 
         if timelineLoadTask == task {
             timelineLoadTask = nil
@@ -909,8 +922,10 @@ extension WorkspaceState {
     /// so a deleted message can't remain a live reply/edit target.
     private func clearComposerContextTargeting(_ messageId: String, target: MessageDeletionTarget) {
         let draftKey = ComposerDraftKey(accountId: target.accountId, chatId: target.groupIdHex)
+        var didChangeDraft = false
         if replyDraftContextByConversation[draftKey]?.targetMessageId == messageId {
             replyDraftContextByConversation[draftKey] = nil
+            didChangeDraft = true
         }
         if let edit = editingMessageContextByConversation[draftKey],
             edit.targetMessageId == messageId
@@ -924,6 +939,9 @@ extension WorkspaceState {
                 edit.preservedMediaAttachments.isEmpty ? nil : edit.preservedMediaAttachments
             pendingMediaUploadStatesByConversation[draftKey] =
                 edit.preservedMediaUploadStates.isEmpty ? nil : edit.preservedMediaUploadStates
+        }
+        if didChangeDraft {
+            composerDraftDidChange(for: draftKey)
         }
     }
 
@@ -1031,6 +1049,11 @@ extension WorkspaceState {
             replyDraftContextByConversation[draftKey] = nil
             pendingMediaAttachmentsByConversation[draftKey] = nil
             pendingMediaUploadStatesByConversation[draftKey] = nil
+            await deletePersistedComposerDraft(
+                for: draftKey,
+                accountRef: activeAccount.accountRef,
+                client: client
+            )
             // One authoritative re-window so the user sees their just-sent message
             // immediately, even if the live projection for it is momentarily in flight.
             // The follow-on delivery-state transitions then arrive as projection deltas

@@ -415,6 +415,7 @@ extension WorkspaceState {
         let wasActive = activeAccountId == account.id
         let selectedGroupId = wasActive ? selectedChat?.id : nil
         do {
+            await flushComposerDraftPersistence(forAccountId: account.id)
             if wasActive {
                 stopTimelineListener()
                 cancelTimelineLoad()
@@ -656,6 +657,7 @@ extension WorkspaceState {
 
     func refreshAccounts(preferred summary: AccountSummaryFfi) async throws {
         guard let client else { return }
+        await flushComposerDraftPersistence()
         let preferredItems = try await accountItems(from: [summary], client: client)
         let preferredAccount = preferredItems.first ?? Self.accountItem(from: summary, resolved: nil)
         var refreshed = try await accountItemsFromRuntime(client: client)
