@@ -1643,21 +1643,6 @@ struct RelaySettingsView: View {
             title: "Relays",
             subtitle: "Manage the relay lists published for this account."
         ) {
-            Section("Relay List") {
-                Picker("Relay list", selection: $workspace.selectedRelaySection) {
-                    ForEach(RelaySettingsSection.allCases) { section in
-                        Text(section.label).tag(section)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: workspace.selectedRelaySection) { _, section in
-                    workspace.selectRelaySection(section)
-                }
-
-                Text(workspace.selectedRelaySection.description)
-                    .foregroundStyle(.secondary)
-            }
-
             Section {
                 RelayDiagnosticsView(settings: workspace.relaySettings)
             }
@@ -1684,6 +1669,18 @@ struct RelaySettingsView: View {
                             workspace.addRelayDraftURL()
                         }
                         .frame(maxWidth: .infinity)
+
+                    Picker("Relay list", selection: $workspace.selectedRelaySection) {
+                        ForEach(RelaySettingsSection.allCases) { section in
+                            Text(section.label).tag(section)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 96)
+                    .onChange(of: workspace.selectedRelaySection) { _, section in
+                        workspace.selectRelaySection(section)
+                    }
 
                     Button {
                         workspace.addRelayDraftURL()

@@ -23907,6 +23907,28 @@ struct whitenoise_macTests {
     // MARK: - Relay URL validation (issue #18)
 
     @MainActor
+    @Test func selectingAddRelayTargetPreservesPendingURL() {
+        let state = WorkspaceState.preview()
+        state.relaySettings = RelaySettingsSnapshot(
+            nip65: ["wss://nip65.example"],
+            inbox: ["wss://inbox.example"],
+            defaultRelays: MarmotClient.seedRelays,
+            bootstrapRelays: MarmotClient.seedRelays,
+            publishedNip65: ["wss://nip65.example"],
+            publishedInbox: ["wss://inbox.example"],
+            missing: [],
+            isComplete: true
+        )
+        state.newRelayURL = "wss://pending.example"
+
+        state.selectRelaySection(.inbox)
+
+        #expect(state.selectedRelaySection == .inbox)
+        #expect(state.relayDraft == ["wss://inbox.example"])
+        #expect(state.newRelayURL == "wss://pending.example")
+    }
+
+    @MainActor
     @Test func addRelayDraftRejectsCleartextPublicWsRelay() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])
         let state = WorkspaceState(clientFactory: { runtime })
