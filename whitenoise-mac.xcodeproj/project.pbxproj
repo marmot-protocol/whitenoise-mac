@@ -439,7 +439,7 @@
 				CODE_SIGN_ENTITLEMENTS = "whitenoise-mac/whitenoise-mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 8;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = V8U75D7Q49;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
@@ -457,7 +457,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 2026.7.6;
+				MARKETING_VERSION = 2026.7.22;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -491,7 +491,7 @@
 				CODE_SIGN_ENTITLEMENTS = "whitenoise-mac/whitenoise-mac.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 8;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = V8U75D7Q49;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
@@ -509,7 +509,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 2026.7.6;
+				MARKETING_VERSION = 2026.7.22;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
