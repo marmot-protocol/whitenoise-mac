@@ -210,10 +210,25 @@ struct MessageBubble: View {
         // gutter opposite. See whitenoise-mac#205 (scroll-layout hangs).
         VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 6) {
             if !message.isOutgoing {
-                Text(message.senderName)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
+                if showsSenderContactLink {
+                    Button {
+                        Task { await workspace.showContactDetails(for: message) }
+                    } label: {
+                        Text(message.senderName)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        String(format: L10n.string("View contact %@"), message.senderName)
+                    )
+                } else {
+                    Text(message.senderName)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                }
             }
 
             if !message.visualMediaAttachments.isEmpty {
@@ -270,13 +285,22 @@ struct MessageBubble: View {
         .padding(.leading, showsSenderAvatar ? 36 : 0)
         .overlay(alignment: .bottomLeading) {
             if showsSenderAvatar {
-                ProfileImageAvatarView(
-                    seed: message.senderAccountIdHex,
-                    initials: message.senderName,
-                    sanitizedPictureURL: message.senderSanitizedPictureURL,
-                    size: 28,
-                    isSelected: false
+                Button {
+                    Task { await workspace.showContactDetails(for: message) }
+                } label: {
+                    ProfileImageAvatarView(
+                        seed: message.senderAccountIdHex,
+                        initials: message.senderName,
+                        sanitizedPictureURL: message.senderSanitizedPictureURL,
+                        size: 28,
+                        isSelected: false
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    String(format: L10n.string("View contact %@"), message.senderName)
                 )
+                .allowsHitTesting(!workspace.isTimelineSelectionMode)
                 .padding(.bottom, 2)
             }
         }
@@ -314,6 +338,10 @@ struct MessageBubble: View {
     /// local account's own messages do not (the peer/self is unambiguous there).
     private var showsSenderAvatar: Bool {
         !message.isOutgoing && !(workspace.selectedChat?.isDirect ?? true)
+    }
+
+    private var showsSenderContactLink: Bool {
+        showsSenderAvatar && !workspace.isTimelineSelectionMode
     }
 
     @ViewBuilder
@@ -427,7 +455,7 @@ struct MessageBubble: View {
             result
             + Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
             .font(.system(size: 10.5, weight: .medium).monospacedDigit())
-        if message.invalidationStatus != nil {
+        if message.invalidationStatus != nil || message.isPendingDelivery {
             result =
                 result + Text(verbatim: " ")
                 + Text(Image(systemName: "exclamationmark.circle.fill"))
@@ -455,7 +483,7 @@ struct MessageBubble: View {
             }
             Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
                 .monospacedDigit()
-            if message.invalidationStatus != nil {
+            if message.invalidationStatus != nil || message.isPendingDelivery {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.red)
             } else if message.isOutgoing {
@@ -1862,7 +1890,7 @@ struct MessageEmojiPickerPopover: View {
 /// (`MessageOverflowPopover`) — share one source of truth for which actions exist and what
 /// they do, while each keeps its own button styling.
 struct MessageRowAction: Identifiable {
-    enum Kind { case info, select, forward, edit, copy, delete }
+    enum Kind { case retry, info, select, forward, edit, copy, delete }
 
     let kind: Kind
     let title: LocalizedStringKey
@@ -1879,6 +1907,18 @@ struct MessageRowAction: Identifiable {
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
         var actions: [MessageRowAction] = []
+        if message.canRetryDelivery {
+            actions.append(
+                MessageRowAction(
+                    kind: .retry,
+                    title: "Retry",
+                    systemImage: "arrow.clockwise",
+                    role: nil
+                ) {
+                    Task { await workspace.retryDelivery(of: message) }
+                    dismiss()
+                })
+        }
         actions.append(
             MessageRowAction(kind: .info, title: "Message Info", systemImage: "info.circle", role: nil) {
                 workspace.showMessageInfo(message)

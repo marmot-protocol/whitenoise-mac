@@ -82,22 +82,179 @@ extension WorkspaceState {
         groupInviteMemberQuery = ""
         groupTranscriptExportStatus = nil
         isGroupDetailsPresented = true
-        await loadGroupDetails(groupIdHex: chat.id)
+        if chat.isDirect {
+            async let details: Void = loadGroupDetails(groupIdHex: chat.id)
+            async let commonGroups: Void = loadCommonGroups(forContactIdHex: chat.avatarSeed)
+            _ = await (details, commonGroups)
+        } else {
+            clearCommonGroups()
+            await loadGroupDetails(groupIdHex: chat.id)
+        }
     }
 
     func closeGroupDetails() {
         cancelGroupTranscriptExport()
+        closeContactDetails()
         isGroupDetailsPresented = false
         groupDetailsSnapshot = nil
         groupProfileDraftName = ""
         groupProfileDraftDescription = ""
         groupInviteMemberQuery = ""
+        clearCommonGroups()
         // Invalidate any in-flight load so a stale completion cannot repopulate closed details or
         // resurrect the spinner; this also clears `isLoadingGroupDetails`. See issue #135.
         invalidateGroupDetailsLoad()
         isArchivingGroup = false
         isExportingGroupTranscript = false
         groupTranscriptExportStatus = nil
+    }
+
+    func showContactDetails(
+        accountIdHex: String,
+        npub: String = "",
+        displayName: String?,
+        pictureURL: String?
+    ) async {
+        let accountIdHex = accountIdHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !accountIdHex.isEmpty, let client, let activeAccount else { return }
+
+        contactDetailsLoadGeneration &+= 1
+        let generation = contactDetailsLoadGeneration
+        let fallback = NewChatRecipient(
+            sourceQuery: accountIdHex,
+            memberRef: npub.isEmpty ? accountIdHex : npub,
+            accountIdHex: accountIdHex,
+            npub: npub,
+            displayName: displayName,
+            pictureURL: pictureURL
+        )
+        contactDetailsTarget = fallback
+        isLoadingContactDetails = true
+
+        async let commonGroups: Void = loadCommonGroups(forContactIdHex: accountIdHex)
+        let resolved = await resolvedPeerFFI(
+            accountIdHex: accountIdHex,
+            activeAccount: activeAccount,
+            client: client
+        )
+        guard
+            contactDetailsLoadGeneration == generation,
+            activeAccountId == activeAccount.id,
+            contactDetailsTarget?.accountIdHex == accountIdHex
+        else { return }
+
+        contactDetailsTarget = NewChatRecipient(
+            sourceQuery: accountIdHex,
+            memberRef: npub.isEmpty ? accountIdHex : npub,
+            accountIdHex: accountIdHex,
+            npub: npub,
+            displayName: firstNonBlank([
+                PeerDisplayText.sanitize(resolved?.profileDisplayName),
+                PeerDisplayText.sanitize(resolved?.profileName),
+                displayName,
+                PeerDisplayText.sanitize(resolved?.directoryDisplayName),
+            ]),
+            pictureURL: resolved?.profilePicture?.nilIfBlank ?? pictureURL
+        )
+        await commonGroups
+        if contactDetailsLoadGeneration == generation {
+            isLoadingContactDetails = false
+        }
+    }
+
+    func showContactDetails(for member: GroupMemberItem) async {
+        await showContactDetails(
+            accountIdHex: member.id,
+            npub: member.npub,
+            displayName: member.displayName,
+            pictureURL: nil
+        )
+    }
+
+    func showContactDetails(for message: MessageItem) async {
+        await showContactDetails(
+            accountIdHex: message.senderAccountIdHex,
+            displayName: message.senderName,
+            pictureURL: message.senderPictureURL
+        )
+    }
+
+    func closeContactDetails() {
+        contactDetailsLoadGeneration &+= 1
+        contactDetailsTarget = nil
+        isLoadingContactDetails = false
+        clearCommonGroups()
+    }
+
+    func messageContact(_ contact: NewChatRecipient) async {
+        closeContactDetails()
+        if isGroupDetailsPresented {
+            closeGroupDetails()
+        }
+        await startDirectChat(with: contact)
+    }
+
+    func loadCommonGroups(forContactIdHex contactIdHex: String) async {
+        guard let client, let activeAccount, let accountId = activeAccountId else {
+            clearCommonGroups()
+            return
+        }
+
+        commonGroupsLoadGeneration &+= 1
+        let generation = commonGroupsLoadGeneration
+        commonGroupsForContact = []
+        commonGroupsLoadHadFailures = false
+        isLoadingCommonGroups = true
+        defer {
+            if commonGroupsLoadGeneration == generation {
+                isLoadingCommonGroups = false
+            }
+        }
+
+        let normalizedContactId = contactIdHex.lowercased()
+        let chats =
+            ((chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? []))
+            .filter {
+                !$0.pendingConfirmation
+                    && $0.selfMembership == .member
+            }
+            .sorted {
+                let lhsDate = $0.updatedAt ?? .distantPast
+                let rhsDate = $1.updatedAt ?? .distantPast
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+                return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            }
+
+        for chat in chats {
+            guard commonGroupsLoadGeneration == generation, activeAccountId == accountId else { return }
+            guard
+                let members = await cachedGroupMembers(
+                    groupIdHex: chat.id,
+                    account: activeAccount,
+                    client: client
+                )
+            else {
+                commonGroupsLoadHadFailures = true
+                continue
+            }
+            guard commonGroupsLoadGeneration == generation, activeAccountId == accountId else { return }
+            if members.contains(where: { $0.memberIdHex.lowercased() == normalizedContactId }) {
+                commonGroupsForContact.append(chat)
+            }
+        }
+    }
+
+    func openCommonGroup(_ chat: ChatItem) {
+        closeContactDetails()
+        closeGroupDetails()
+        selectChat(chat)
+    }
+
+    func clearCommonGroups() {
+        commonGroupsLoadGeneration &+= 1
+        commonGroupsForContact = []
+        isLoadingCommonGroups = false
+        commonGroupsLoadHadFailures = false
     }
 
     static func chooseTranscriptExportDestination(suggestedFilename: String) -> URL? {

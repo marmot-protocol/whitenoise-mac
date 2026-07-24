@@ -668,6 +668,37 @@ extension WorkspaceState {
         copyText(message.body)
     }
 
+    func retryDelivery(of message: MessageItem) async {
+        guard message.canRetryDelivery,
+            let client,
+            let activeAccount,
+            let activeAccountId,
+            let selectedChat,
+            selectedChat.id == message.groupIdHex
+        else { return }
+
+        let retryScope = "\(activeAccountId)\u{1F}\(selectedChat.id)"
+        guard !inFlightMessageRetryScopes.contains(retryScope) else { return }
+        inFlightMessageRetryScopes.insert(retryScope)
+        defer { inFlightMessageRetryScopes.remove(retryScope) }
+
+        do {
+            // Retry the core's already-committed pending operation. Re-sending `wireBody`
+            // would create a second MLS commit and a duplicate chat bubble.
+            _ = try await client.retryGroupConvergence(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: selectedChat.id
+            )
+            await refreshSelectedTimelineAfterSend(
+                groupIdHex: selectedChat.id,
+                account: activeAccount,
+                client: client
+            )
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     var isTimelineSelectionMode: Bool {
         !selectedTimelineMessageIds.isEmpty
     }

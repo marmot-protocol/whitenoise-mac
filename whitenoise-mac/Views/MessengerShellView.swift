@@ -662,8 +662,15 @@ private struct ConversationView: View {
                     .transition(.move(edge: .trailing))
                     .zIndex(3)
             }
+
+            if let contact = workspace.contactDetailsTarget {
+                ContactDetailsPane(contact: contact)
+                    .transition(.move(edge: .trailing))
+                    .zIndex(4)
+            }
         }
         .animation(.smooth(duration: 0.24), value: workspace.isGroupDetailsPresented)
+        .animation(.smooth(duration: 0.24), value: workspace.contactDetailsTarget?.accountIdHex)
         .task(id: chat.id) {
             await workspace.refreshConversationMetadata(for: chat)
         }
@@ -694,6 +701,7 @@ private struct ConversationView: View {
             workspace.cancelMessageSelection()
             workspace.cancelForwarding()
             workspace.messageInfoTarget = nil
+            workspace.closeContactDetails()
             if workspace.isGroupDetailsPresented {
                 workspace.closeGroupDetails()
             }
@@ -1003,6 +1011,21 @@ private struct GroupDetailsPane: View {
             .clipped()
             .contentShape(Rectangle())
             .accessibilityIdentifier("group.details.pane")
+    }
+}
+
+private struct ContactDetailsPane: View {
+    let contact: NewChatRecipient
+
+    var body: some View {
+        ContactDetailsView(contact: contact)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                MessagesTranscriptBackground()
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .accessibilityIdentifier("contact.details.pane")
     }
 }
 

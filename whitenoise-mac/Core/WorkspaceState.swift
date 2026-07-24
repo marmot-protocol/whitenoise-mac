@@ -1172,6 +1172,17 @@ final class WorkspaceState {
     var isSavingGroupImage = false
     var isGroupDetailsPresented = false
     var groupDetailsSnapshot: GroupDetailsSnapshot?
+    /// Contact currently shown over the conversation/group-details pane. Unlike direct-chat
+    /// details, this can represent any group member before a DM group exists.
+    var contactDetailsTarget: NewChatRecipient?
+    var isLoadingContactDetails = false
+    @ObservationIgnored var contactDetailsLoadGeneration: UInt64 = 0
+    /// Conversations whose current roster also contains the contact whose details are open.
+    /// This deliberately includes the direct-message group between the two accounts.
+    var commonGroupsForContact: [ChatItem] = []
+    var isLoadingCommonGroups = false
+    var commonGroupsLoadHadFailures = false
+    @ObservationIgnored var commonGroupsLoadGeneration: UInt64 = 0
     /// Shared-media browser state for the group-details sheet.
     var sharedMediaProjection = GroupSharedMediaProjection.empty
     var sharedMediaGroupId: String?
@@ -1200,6 +1211,9 @@ final class WorkspaceState {
     /// group associations in preferences or filenames.
     @ObservationIgnored var hiddenMessageIdsByChat: [HiddenMessageScope: Set<String>] = [:]
     var selectedTimelineMessageIds: Set<String> = []
+    /// Account/group scopes currently re-driving a committed-but-undelivered message.
+    /// The core retry is group-scoped, so one guard covers every pending bubble in that chat.
+    @ObservationIgnored var inFlightMessageRetryScopes = Set<String>()
     /// Scoped message target whose unified delete-confirmation surface is open, or `nil`. Drives the adaptive
     /// dialog that offers only the scopes `messageDeletionCapability` permits.
     var messagePendingDeletion: MessageDeletionTarget?

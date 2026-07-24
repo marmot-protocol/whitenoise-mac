@@ -87,6 +87,7 @@ nonisolated protocol MarmotRuntime: Sendable {
     func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws
         -> MediaUploadResultFfi
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi
+    func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi
     func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws
         -> SendSummaryFfi
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws
@@ -485,6 +486,10 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {
         try await marmot.sendText(accountRef: accountRef, groupIdHex: groupIdHex, text: text)
+    }
+
+    func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+        try await marmot.retryGroupConvergence(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
     func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws

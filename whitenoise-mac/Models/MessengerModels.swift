@@ -1778,6 +1778,8 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         if presentation.isChatBubble {
             if invalidationStatus != nil {
                 statusLabel = L10n.string("Did not reach group")
+            } else if isOutgoing && Self.nonBlank(sourceMessageIdHex) == nil {
+                statusLabel = L10n.string("Not delivered")
             } else {
                 statusLabel = isOutgoing ? L10n.string("Sent") : nil
             }
@@ -1891,6 +1893,20 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     var supportsChatActions: Bool {
         isActionableChatBubble
+    }
+
+    /// The core commits outgoing messages locally before publishing them. A missing source
+    /// event id therefore means this bubble has not reached the relays yet.
+    var isPendingDelivery: Bool {
+        presentation.isChatBubble
+            && isOutgoing
+            && !isDeleted
+            && invalidationStatus == nil
+            && sourceMessageIdHex == nil
+    }
+
+    var canRetryDelivery: Bool {
+        isPendingDelivery
     }
 
     var canCopyText: Bool {

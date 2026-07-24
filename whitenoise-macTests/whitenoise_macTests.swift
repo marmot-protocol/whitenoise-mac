@@ -5199,6 +5199,7 @@ struct whitenoise_macTests {
     @Test func messageDisplayMetadataShowsTimeAndOnlyOutgoingStatus() async throws {
         let outgoing = MessageItem(
             id: "outgoing",
+            sourceMessageIdHex: "outgoing-source",
             senderName: "Jeff",
             body: "On my way",
             sentAt: Date(timeIntervalSince1970: 1_800_000_000),
@@ -5215,6 +5216,35 @@ struct whitenoise_macTests {
         #expect(!outgoing.timeLabel.isEmpty)
         #expect(outgoing.statusLabel == "Sent")
         #expect(incoming.statusLabel == nil)
+    }
+
+    @MainActor
+    @Test func undeliveredOutgoingMessageOffersRetry() async throws {
+        let pending = MessageItem(
+            id: "pending",
+            groupIdHex: "group",
+            sourceMessageIdHex: nil,
+            senderName: "Jeff",
+            body: "Offline message",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+            isOutgoing: true
+        )
+        let delivered = MessageItem(
+            id: "delivered",
+            groupIdHex: "group",
+            sourceMessageIdHex: "source-event",
+            senderName: "Jeff",
+            body: "Online message",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_001),
+            isOutgoing: true
+        )
+
+        #expect(pending.isPendingDelivery)
+        #expect(pending.canRetryDelivery)
+        #expect(pending.statusLabel == "Not delivered")
+        #expect(!delivered.isPendingDelivery)
+        #expect(!delivered.canRetryDelivery)
+        #expect(delivered.statusLabel == "Sent")
     }
 
     @MainActor
@@ -14047,6 +14077,51 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func retryDeliveryUsesConvergenceWithoutResendingText() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let pending = MessageItem(
+            id: "pending",
+            groupIdHex: "direct-group",
+            sourceMessageIdHex: nil,
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "Do not duplicate me",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+            isOutgoing: true
+        )
+        await state.retryDelivery(of: pending)
+
+        #expect(runtime.retryGroupConvergenceCallCount == 1)
+        #expect(runtime.retriedGroupIdHex == "direct-group")
+        #expect(runtime.sendTextCallCount == 0)
+    }
+
+    @MainActor
     @Test func sendDraftClearsOnlyTheSendingChatWhenSelectionChangesDuringSend() async throws {
         // Issue #239: sendDraft() captures the composer draft key on entry, then awaits the FFI
         // send. The post-send clears (draftText/replyDraftContext) must target that captured key,
@@ -16954,6 +17029,94 @@ struct whitenoise_macTests {
         #expect(shellSource.contains("if workspace.isGroupDetailsPresented"))
         #expect(shellSource.contains("GroupDetailsSheet(chat: chat)"))
         #expect(shellSource.contains(".move(edge: .trailing)"))
+    }
+
+    @MainActor
+    @Test func directContactDetailsShowsAndNavigatesToGroupsInCommon() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installGroupDetailsRecord(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let directChat = try #require(state.activeChats.first { $0.id == "direct-group" })
+        state.selectChat(directChat)
+        await state.showGroupDetails(for: directChat)
+
+        #expect(Set(state.commonGroupsForContact.map(\.id)) == ["direct-group", "group"])
+        #expect(!state.isLoadingCommonGroups)
+        #expect(!state.commonGroupsLoadHadFailures)
+
+        let directMessageGroup = try #require(
+            state.commonGroupsForContact.first { $0.id == "direct-group" }
+        )
+        #expect(directMessageGroup.isDirect)
+        #expect(directMessageGroup.subtitle == "Direct message")
+
+        state.openCommonGroup(directMessageGroup)
+        #expect(state.selection == .chat("direct-group"))
+        #expect(!state.isGroupDetailsPresented)
+        #expect(state.commonGroupsForContact.isEmpty)
+    }
+
+    @MainActor
+    @Test func groupMemberContactDetailsResolveProfileAndReturnToGroupInfo() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        runtime.installProfile(
+            accountIdHex: aliceIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+        await state.showGroupDetails(for: groupChat)
+        let alice = try #require(state.groupDetailsSnapshot?.members.first { $0.id == aliceIdHex })
+
+        await state.showContactDetails(for: alice)
+
+        #expect(state.contactDetailsTarget?.accountIdHex == aliceIdHex)
+        #expect(state.contactDetailsTarget?.title == "Alice Cooper")
+        #expect(state.contactDetailsTarget?.pictureURL == "https://example.com/alice.png")
+        #expect(state.commonGroupsForContact.map(\.id) == ["group"])
+        #expect(!state.isLoadingContactDetails)
+        #expect(state.isGroupDetailsPresented)
+
+        state.closeContactDetails()
+        #expect(state.contactDetailsTarget == nil)
+        #expect(state.isGroupDetailsPresented)
+        #expect(state.commonGroupsForContact.isEmpty)
     }
 
     @MainActor
@@ -24055,6 +24218,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var deletedMessage: DeletedMessage?
     private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
+    private(set) var retriedGroupIdHex: String?
     private(set) var uploadedMedia: UploadedMedia?
     private var storedMessageDraftsByAccountRef: [String: [String: MessageDraftFfi]] = [:]
     private var messageDraftTimestamp: Int64 = 1_700_000_000_000
@@ -24069,6 +24233,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     // Issue #78 reentrancy-test support: count message-action FFI calls so a test can prove
     // an overlapping duplicate was dropped by the WorkspaceState guard before reaching the runtime.
     private(set) var sendTextCallCount = 0
+    private(set) var retryGroupConvergenceCallCount = 0
+    var retryGroupConvergenceError: Error?
     private(set) var replyToMessageCallCount = 0
     private(set) var reactToMessageCallCount = 0
     private(set) var deleteMessageCallCount = 0
@@ -24651,6 +24817,17 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func installGroupDetails(_ details: GroupDetailsFfi, managementState: GroupManagementStateFfi? = nil) {
         groups = [details.group]
+        groupDetailsById[details.group.groupIdHex] = details
+        groupManagementStateById[details.group.groupIdHex] =
+            managementState ?? defaultGroupManagementState(for: details)
+    }
+
+    func installGroupDetailsRecord(_ details: GroupDetailsFfi, managementState: GroupManagementStateFfi? = nil) {
+        if let index = groups.firstIndex(where: { $0.groupIdHex == details.group.groupIdHex }) {
+            groups[index] = details.group
+        } else {
+            groups.append(details.group)
+        }
         groupDetailsById[details.group.groupIdHex] = details
         groupManagementStateById[details.group.groupIdHex] =
             managementState ?? defaultGroupManagementState(for: details)
@@ -25541,6 +25718,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         sentText = SentText(groupIdHex: groupIdHex, text: text)
         await messageActionGate.passIfArmed()
         return SendSummaryFfi(published: 1, messageIds: ["text"])
+    }
+
+    func retryGroupConvergence(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+        retryGroupConvergenceCallCount += 1
+        retriedGroupIdHex = groupIdHex
+        await messageActionGate.passIfArmed()
+        if let retryGroupConvergenceError {
+            throw retryGroupConvergenceError
+        }
+        return SendSummaryFfi(published: 1, messageIds: ["retry"])
     }
 
     func replyToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, text: String) async throws
