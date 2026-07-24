@@ -287,6 +287,64 @@ struct GroupDetailsSheet: View {
                     // non-member the same way it rejects sends (`invalid_transition`).
                     .disabled(snapshot.selfMembership != .member)
 
+                    if chat.isDirect {
+                        Section("Groups in Common") {
+                            if workspace.isLoadingCommonGroups
+                                && workspace.commonGroupsForContact.isEmpty
+                            {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Checking shared groups…")
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else if workspace.commonGroupsForContact.isEmpty {
+                                Label("No groups in common", systemImage: "person.2.slash")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                ForEach(workspace.commonGroupsForContact) { commonGroup in
+                                    Button {
+                                        workspace.openCommonGroup(commonGroup)
+                                    } label: {
+                                        HStack(spacing: 10) {
+                                            ProfileImageAvatarView(
+                                                seed: commonGroup.avatarSeed,
+                                                initials: commonGroup.title,
+                                                sanitizedPictureURL: commonGroup.sanitizedPictureURL,
+                                                size: 34,
+                                                isSelected: false
+                                            )
+
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(commonGroup.title)
+                                                    .font(.callout.weight(.semibold))
+                                                    .foregroundStyle(.primary)
+                                                    .lineLimit(1)
+                                                Text(commonGroup.subtitle)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                            }
+
+                                            Spacer()
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+
+                            if workspace.commonGroupsLoadHadFailures {
+                                Text("Some groups could not be checked.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
                     GroupSharedMediaSection(groupIdHex: snapshot.groupIdHex)
 
                     Section {
@@ -638,36 +696,47 @@ struct GroupMemberRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AvatarView(seed: member.id, initials: member.initials, size: 34, isSelected: false)
+            Button {
+                Task { await workspace.showContactDetails(for: member) }
+            } label: {
+                HStack(spacing: 10) {
+                    AvatarView(seed: member.id, initials: member.initials, size: 34, isSelected: false)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(member.displayName)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(member.displayName)
+                                .font(.callout.weight(.semibold))
+                                .lineLimit(1)
 
-                    if member.isAdmin {
-                        Text("Admin")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.thinMaterial, in: Capsule())
-                    }
+                            if member.isAdmin {
+                                Text("Admin")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.thinMaterial, in: Capsule())
+                            }
 
-                    if member.isSelf {
-                        Text("You")
-                            .font(.caption2.weight(.semibold))
+                            if member.isSelf {
+                                Text("You")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Text(member.detailLabel)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
+
+                    Spacer()
                 }
-
-                Text(member.detailLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                .contentShape(Rectangle())
             }
-
-            Spacer()
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                String(format: L10n.string("View contact %@"), member.displayName)
+            )
 
             if isMutating {
                 ProgressView()
@@ -713,6 +782,143 @@ struct GroupMemberRow: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes \(PeerDisplayText.templateFragment(member.displayName)) from the group.")
+        }
+    }
+}
+
+struct ContactDetailsView: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let contact: NewChatRecipient
+
+    private var isSelf: Bool {
+        workspace.activeAccount?.accountIdHex.lowercased() == contact.accountIdHex.lowercased()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                ProfileImageAvatarView(
+                    seed: contact.accountIdHex,
+                    initials: contact.title,
+                    sanitizedPictureURL: contact.sanitizedPictureURL,
+                    size: 48,
+                    isSelected: false
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(contact.title)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text(isSelf ? L10n.string("You") : L10n.string("Contact"))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if workspace.isLoadingContactDetails {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back") {
+                    workspace.closeContactDetails()
+                }
+            }
+            .padding(20)
+
+            GlassSeparator(axis: .horizontal)
+
+            Form {
+                Section("Contact") {
+                    LabeledContent("Public key") {
+                        Text(contact.npub.isEmpty ? contact.accountIdHex : contact.npub)
+                            .font(.callout.monospaced())
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(
+                                contact.npub.isEmpty ? contact.accountIdHex : contact.npub,
+                                forType: .string
+                            )
+                        } label: {
+                            Label("Copy Public Key", systemImage: "doc.on.doc")
+                        }
+
+                        if !isSelf {
+                            Spacer()
+                            Button {
+                                Task { await workspace.messageContact(contact) }
+                            } label: {
+                                Label("Message", systemImage: "message")
+                            }
+                            .nativeGlassProminentButtonStyle()
+                            .disabled(workspace.isCreatingChat)
+                        }
+                    }
+                }
+
+                Section("Groups in Common") {
+                    if workspace.isLoadingCommonGroups
+                        && workspace.commonGroupsForContact.isEmpty
+                    {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Checking shared groups…")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if workspace.commonGroupsForContact.isEmpty {
+                        Label("No groups in common", systemImage: "person.2.slash")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(workspace.commonGroupsForContact) { commonGroup in
+                            Button {
+                                workspace.openCommonGroup(commonGroup)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    ProfileImageAvatarView(
+                                        seed: commonGroup.avatarSeed,
+                                        initials: commonGroup.title,
+                                        sanitizedPictureURL: commonGroup.sanitizedPictureURL,
+                                        size: 34,
+                                        isSelected: false
+                                    )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(commonGroup.title)
+                                            .font(.callout.weight(.semibold))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                        Text(commonGroup.subtitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    if workspace.commonGroupsLoadHadFailures {
+                        Text("Some groups could not be checked.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
         }
     }
 }
