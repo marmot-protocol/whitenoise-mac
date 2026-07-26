@@ -58,10 +58,15 @@ echo "==> Staging headers + modulemap"
 cp "$BUILD_DIR/swift/${LIB_BASENAME}FFI.h" "$BUILD_DIR/headers/"
 cp "$BUILD_DIR/swift/${LIB_BASENAME}FFI.modulemap" "$BUILD_DIR/headers/module.modulemap"
 
+echo "==> Stripping release debug symbols"
+STATIC_LIB="$BUILD_DIR/lib${LIB_BASENAME}.a"
+cp "$TARGET_DIR/release/lib${LIB_BASENAME}.a" "$STATIC_LIB"
+xcrun strip -S "$STATIC_LIB"
+
 echo "==> Creating macOS $FRAMEWORK_NAME.xcframework"
 rm -rf "$VENDOR_DIR/$FRAMEWORK_NAME.xcframework"
 xcodebuild -create-xcframework \
-  -library "$TARGET_DIR/release/lib${LIB_BASENAME}.a" \
+  -library "$STATIC_LIB" \
   -headers "$BUILD_DIR/headers" \
   -output "$VENDOR_DIR/$FRAMEWORK_NAME.xcframework"
 
