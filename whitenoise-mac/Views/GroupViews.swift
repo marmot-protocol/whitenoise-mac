@@ -9,6 +9,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Disappearing-timer picker selection: a concrete preset/current value, or the "Custom…" entry
 /// that opens the value+unit editor rather than committing immediately.
@@ -143,6 +144,7 @@ struct GroupDetailsSheet: View {
                     seed: chat.avatarSeed,
                     initials: chat.title,
                     sanitizedPictureURL: headerAvatarURL,
+                    localImagePayload: chat.groupImagePayload,
                     size: 48,
                     isSelected: false
                 )
@@ -311,6 +313,7 @@ struct GroupDetailsSheet: View {
                                                 seed: commonGroup.avatarSeed,
                                                 initials: commonGroup.title,
                                                 sanitizedPictureURL: commonGroup.sanitizedPictureURL,
+                                                localImagePayload: commonGroup.groupImagePayload,
                                                 size: 34,
                                                 isSelected: false
                                             )
@@ -886,6 +889,7 @@ struct ContactDetailsView: View {
                                         seed: commonGroup.avatarSeed,
                                         initials: commonGroup.title,
                                         sanitizedPictureURL: commonGroup.sanitizedPictureURL,
+                                        localImagePayload: commonGroup.groupImagePayload,
                                         size: 34,
                                         isSelected: false
                                     )
@@ -925,6 +929,7 @@ struct ContactDetailsView: View {
 
 struct GroupImagePickerSheet: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var isFileImporterPresented = false
 
     private let columns = [
         GridItem(.adaptive(minimum: 132, maximum: 168), spacing: 12)
@@ -940,6 +945,7 @@ struct GroupImagePickerSheet: View {
                         seed: chat.avatarSeed,
                         initials: chat.title,
                         sanitizedPictureURL: chat.sanitizedPictureURL,
+                        localImagePayload: chat.groupImagePayload,
                         size: 46,
                         isSelected: false
                     )
@@ -965,6 +971,21 @@ struct GroupImagePickerSheet: View {
                 Divider()
 
                 VStack(spacing: 12) {
+                    HStack {
+                        Button {
+                            isFileImporterPresented = true
+                        } label: {
+                            Label("Choose from Mac", systemImage: "photo.badge.plus")
+                        }
+                        .disabled(workspace.hasInFlightGroupCommit)
+
+                        Text("or search the web")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                    }
+
                     HStack(spacing: 8) {
                         TextField("Search images", text: $workspace.groupImageSearchQuery)
                             .textFieldStyle(.roundedBorder)
@@ -999,7 +1020,7 @@ struct GroupImagePickerSheet: View {
                         SettingsErrorView(error: workspace.lastError)
                         Spacer()
 
-                        if chat.pictureURL != nil {
+                        if chat.pictureURL != nil || chat.groupImageHashHex != nil {
                             Button {
                                 Task { await workspace.clearGroupImage() }
                             } label: {
@@ -1044,6 +1065,19 @@ struct GroupImagePickerSheet: View {
         .frame(width: 620, height: 560)
         .background {
             LiquidGlassBackground()
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                Task { await workspace.setGroupImage(fileURL: url) }
+            case .failure(let error):
+                workspace.reportUserActionError(error.localizedDescription)
+            }
         }
     }
 }

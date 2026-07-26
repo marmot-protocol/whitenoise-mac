@@ -5844,7 +5844,8 @@ struct whitenoise_macTests {
                             .link(
                                 dest: "https://example.com",
                                 title: nil,
-                                children: [.text(content: "link text")]
+                                children: [.text(content: "link text")],
+                                classification: .web
                             )
                         ])
                     ])
@@ -16713,7 +16714,83 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func groupImageSearchSelectionUpdatesGroupAvatarUrl() async throws {
+    @Test func webProfileImageSelectionCopiesPreparedImageToPublicBlossom() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let imageSourceLoader = FakeGroupImageSourceLoader(
+            response: try Self.testPNGData(width: 64, height: 64)
+        )
+        let result = GroupImageSearchResult(
+            id: "profile-1",
+            title: "Portrait",
+            imageURL: "https://example.com/portrait.png",
+            thumbnailURL: nil,
+            creator: nil,
+            license: nil,
+            attribution: nil,
+            sourceURL: nil,
+            width: 64,
+            height: 64
+        )
+        let state = WorkspaceState(
+            groupImageSearchClient: FakeGroupImageSearchClient(results: [result]),
+            groupImageSourceLoader: imageSourceLoader,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.showProfileImagePicker()
+        state.profileImageSearchQuery = "portrait"
+        await state.searchProfileImages()
+        #expect(state.profileImageResults == [result])
+
+        await state.setProfileImage(result)
+
+        #expect(await imageSourceLoader.requestedURLs == [URL(string: result.imageURL)!])
+        #expect(runtime.uploadedProfileImageData?.isEmpty == false)
+        #expect(runtime.uploadedProfileImageMediaType == "image/jpeg")
+        #expect(runtime.uploadedProfileImageBlossomServer == nil)
+        #expect(state.profileDraft.picture == runtime.uploadedProfileImageURL)
+        #expect(!state.isProfileImagePickerPresented)
+    }
+
+    @MainActor
+    @Test func localProfileImageSelectionCopiesPreparedImageToPublicBlossom() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-image-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        try Self.testPNGData(width: 80, height: 60).write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+
+        await state.bootstrap()
+        state.showProfileImagePicker()
+        await state.setProfileImage(fileURL: imageURL)
+
+        #expect(runtime.uploadedProfileImageData?.isEmpty == false)
+        #expect(runtime.uploadedProfileImageMediaType == "image/jpeg")
+        #expect(state.profileDraft.picture == runtime.uploadedProfileImageURL)
+        #expect(!state.isProfileImagePickerPresented)
+    }
+
+    @MainActor
+    @Test func groupImageSearchSelectionEncryptsAndUploadsToBlossom() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -16724,6 +16801,9 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
+        let imageSourceLoader = FakeGroupImageSourceLoader(
+            response: try Self.testPNGData(width: 64, height: 64)
+        )
         let imageSearchClient = FakeGroupImageSearchClient(results: [
             GroupImageSearchResult(
                 id: "image-1",
@@ -16740,6 +16820,7 @@ struct whitenoise_macTests {
         ])
         let state = WorkspaceState(
             groupImageSearchClient: imageSearchClient,
+            groupImageSourceLoader: imageSourceLoader,
             clientFactory: { runtime }
         )
 
@@ -16765,16 +16846,84 @@ struct whitenoise_macTests {
 
         let imageSearchQueries = await imageSearchClient.queries
         #expect(imageSearchQueries == ["aurora"])
-        #expect(
-            runtime.updatedGroupAvatar
-                == UpdatedGroupAvatar(
-                    groupIdHex: "group",
-                    url: "https://example.com/aurora.jpg",
-                    dim: "1024x680",
-                    thumbhash: nil
-                ))
+        #expect(await imageSourceLoader.requestedURLs == [URL(string: "https://example.com/aurora.jpg")!])
+        #expect(runtime.updateGroupImageCallCount == 1)
+        #expect(runtime.updatedEncryptedGroupImageMediaType == "image/jpeg")
+        #expect(runtime.updatedEncryptedGroupImage?.isEmpty == false)
+        #expect(runtime.updateGroupAvatarUrlCallCount == 0)
         #expect(!state.isGroupImagePickerPresented)
-        #expect(state.activeChats.first?.pictureURL == "https://example.com/aurora.jpg")
+        #expect(state.activeChats.first?.pictureURL == nil)
+        #expect(state.activeChats.first?.groupImageHashHex == "encrypted-image-hash")
+        #expect(state.activeChats.first?.groupImagePayload?.data == runtime.downloadedGroupImage)
+    }
+
+    @MainActor
+    @Test func localGroupImageSelectionEncryptsAndUploadsToBlossom() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let imageSourceLoader = FakeGroupImageSourceLoader(response: nil)
+        let state = WorkspaceState(
+            groupImageSourceLoader: imageSourceLoader,
+            clientFactory: { runtime }
+        )
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("group-image-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        try Self.testPNGData(width: 80, height: 60).write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        state.showGroupImagePicker(for: groupChat)
+        await state.setGroupImage(fileURL: imageURL)
+
+        #expect(await imageSourceLoader.requestedURLs.isEmpty)
+        #expect(runtime.updateGroupImageCallCount == 1)
+        #expect(runtime.updatedEncryptedGroupImageMediaType == "image/jpeg")
+        #expect(runtime.updatedEncryptedGroupImage?.isEmpty == false)
+        #expect(runtime.updateGroupAvatarUrlCallCount == 0)
+        #expect(state.activeChats.first?.groupImageHashHex == "encrypted-image-hash")
+        #expect(state.activeChats.first?.groupImagePayload?.data == runtime.downloadedGroupImage)
+        #expect(!state.isGroupImagePickerPresented)
+    }
+
+    @MainActor
+    @Test func clearingGroupImageRemovesEncryptedImageAndLegacyURL() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        var group = messageGroup()
+        group.avatarUrl = "https://legacy.example/group.jpg"
+        group.imageHashHex = "existing-encrypted-image-hash"
+        runtime.installGroup(group)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        #expect(runtime.downloadGroupImageCallCount == 0)
+        state.showGroupImagePicker(for: groupChat)
+        await state.clearGroupImage()
+
+        #expect(runtime.updateGroupAvatarUrlCallCount == 1)
+        #expect(runtime.updatedGroupAvatar?.url == nil)
+        #expect(runtime.clearGroupImageCallCount == 1)
+        #expect(state.activeChats.first?.pictureURL == nil)
+        #expect(state.activeChats.first?.groupImageHashHex == nil)
+        #expect(!state.isGroupImagePickerPresented)
     }
 
     @MainActor
@@ -16792,7 +16941,13 @@ struct whitenoise_macTests {
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
-        let state = WorkspaceState(clientFactory: { runtime })
+        let imageSourceLoader = FakeGroupImageSourceLoader(
+            response: try Self.testPNGData(width: 64, height: 64)
+        )
+        let state = WorkspaceState(
+            groupImageSourceLoader: imageSourceLoader,
+            clientFactory: { runtime }
+        )
 
         await state.bootstrap()
         guard let groupChat = state.activeChats.first else {
@@ -16828,20 +16983,14 @@ struct whitenoise_macTests {
         #expect(state.isSavingGroupImage)
         state.showGroupImagePicker(for: groupChat)
         await state.clearGroupImage()
-        #expect(runtime.updateGroupAvatarUrlCallCount == 1)
+        #expect(runtime.updateGroupImageCallCount == 1)
+        #expect(runtime.clearGroupImageCallCount == 0)
 
         runtime.releaseGroupAvatarUpdateGate()
         await firstUpdate
 
-        #expect(runtime.updateGroupAvatarUrlCallCount == 1)
-        #expect(
-            runtime.updatedGroupAvatar
-                == UpdatedGroupAvatar(
-                    groupIdHex: "group",
-                    url: "https://example.com/aurora.jpg",
-                    dim: "1024x680",
-                    thumbhash: nil
-                ))
+        #expect(runtime.updateGroupImageCallCount == 1)
+        #expect(runtime.updatedEncryptedGroupImage?.isEmpty == false)
         #expect(!state.isSavingGroupImage)
     }
 
@@ -21329,8 +21478,25 @@ struct whitenoise_macTests {
                 .locale(Locale(identifier: AppLanguage.spanish.rawValue))
         )
 
-        #expect(package.sourceLabel == "Obtenido")
+        #expect(package.sourceLabel == "Sincronizado")
+        #expect(package.statusLabels == ["Sincronizado"])
         #expect(package.publishedLabel == expectedPublished)
+
+        let localAndSyncedPackage = KeyPackageItem(
+            accountRef: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            keyPackageId: "local-synced-package",
+            keyPackageRefHex: "local-synced-key-package-ref",
+            eventIdHex: "event-local-synced",
+            publishedAt: publishedAt,
+            keyPackageBytes: 128,
+            sourceRelays: ["wss://relay.example"],
+            isLocal: true,
+            isRelayDiscovered: true
+        )
+
+        #expect(localAndSyncedPackage.statusLabels == ["Local", "Sincronizado"])
+        #expect(localAndSyncedPackage.sourceLabel == "Local + Sincronizado")
 
         let unknownPackage = KeyPackageItem(
             accountRef: "Desktop Account",
@@ -24138,6 +24304,20 @@ private actor FakeGroupImageSearchClient: GroupImageSearchClient {
     }
 }
 
+private actor FakeGroupImageSourceLoader: GroupImageSourceLoading {
+    private let response: Data?
+    private(set) var requestedURLs: [URL] = []
+
+    init(response: Data?) {
+        self.response = response
+    }
+
+    func data(for url: URL) async -> Data? {
+        requestedURLs.append(url)
+        return response
+    }
+}
+
 private struct StubNIP05Resolver: NIP05Resolving {
     let accountReferences: [String: String]
 
@@ -24254,6 +24434,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private var _downloadedMediaReferences: [MediaAttachmentReferenceFfi] = []
     private(set) var updatedGroupAvatar: UpdatedGroupAvatar?
     private(set) var updateGroupAvatarUrlCallCount = 0
+    private(set) var updatedEncryptedGroupImage: Data?
+    private(set) var updatedEncryptedGroupImageMediaType: String?
+    private(set) var updateGroupImageCallCount = 0
+    private(set) var clearGroupImageCallCount = 0
+    private(set) var downloadGroupImageCallCount = 0
+    var downloadedGroupImage = Data([0x89, 0x50, 0x4E, 0x47])
     private(set) var updatedGroupProfile: UpdatedGroupProfile?
     private(set) var updateGroupProfileCallCount = 0
     private(set) var archivedGroup: ArchivedGroup?
@@ -24282,6 +24468,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var lastPackageDeleteRelays: [String] = []
     private(set) var lastPublishedProfileDefaultRelays: [String] = []
     private(set) var lastPublishedProfileBootstrapRelays: [String] = []
+    private(set) var uploadedProfileImageData: Data?
+    private(set) var uploadedProfileImageMediaType: String?
+    private(set) var uploadedProfileImageBlossomServer: String?
+    var uploadedProfileImageURL = "https://blossom.example/profile-image.jpg"
     private(set) var lastSetInboxBootstrapRelays: [String] = []
     private(set) var lastSetNip65BootstrapRelays: [String] = []
     var refreshedProfileIds: [String] {
@@ -24911,6 +25101,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return profile
     }
 
+    func uploadProfileImage(accountRef: String, data: Data, mediaType: String, blossomServer: String?) async throws
+        -> String
+    {
+        uploadedProfileImageData = data
+        uploadedProfileImageMediaType = mediaType
+        uploadedProfileImageBlossomServer = blossomServer
+        return uploadedProfileImageURL
+    }
+
     func releasePublishUserProfileGate() {
         publishUserProfileGate.release()
     }
@@ -25367,6 +25566,32 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return SendSummaryFfi(published: 1, messageIds: ["group-avatar"])
     }
 
+    func updateGroupImage(accountRef: String, groupIdHex: String, plaintext: Data, mediaType: String) async throws
+        -> SendSummaryFfi
+    {
+        updateGroupImageCallCount += 1
+        await groupAvatarUpdateGate.passIfArmed()
+        updatedEncryptedGroupImage = plaintext
+        updatedEncryptedGroupImageMediaType = mediaType
+        if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+            groups[index].imageHashHex = "encrypted-image-hash"
+        }
+        return SendSummaryFfi(published: 1, messageIds: ["group-image"])
+    }
+
+    func clearGroupImage(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+        clearGroupImageCallCount += 1
+        if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+            groups[index].imageHashHex = nil
+        }
+        return SendSummaryFfi(published: 1, messageIds: ["group-image-clear"])
+    }
+
+    func downloadGroupBlossomImage(accountRef: String, groupIdHex: String) async throws -> Data {
+        downloadGroupImageCallCount += 1
+        return downloadedGroupImage
+    }
+
     func releaseGroupAvatarUpdateGate() {
         groupAvatarUpdateGate.release()
     }
@@ -25699,7 +25924,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
                     nonceHex: "nonce-\(index)",
                     fileName: attachment.fileName,
                     mediaType: attachment.mediaType,
-                    version: "m1",
+                    version: .v1,
                     sourceEpoch: 1,
                     dim: attachment.dim,
                     thumbhash: attachment.thumbhash
@@ -25874,7 +26099,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
         secureDeleteExpiredCallCount += 1
         await secureDeleteExpiredGate.passIfArmed()
-        return SecureDeleteExpiredResultFfi(prunedMessages: 0, mediaCiphertextSha256: [])
+        return SecureDeleteExpiredResultFfi(prunedMessages: 0, secretsDeleted: 0, mediaCiphertextSha256: [])
     }
 
     func releaseSecureDeleteExpiredGate() {
@@ -25890,7 +26115,15 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             title: group.name.isEmpty ? DisplayText.short(group.groupIdHex) : group.name,
             groupName: group.name,
             avatarUrl: group.avatarUrl,
-            avatar: nil,
+            avatar: group.imageHashHex.map {
+                ChatListAvatarFfi(
+                    imageHashHex: $0,
+                    imageKeyHex: "key",
+                    imageNonceHex: "nonce",
+                    imageUploadKeyHex: "upload-key",
+                    mediaType: "image/jpeg"
+                )
+            },
             lastMessage: latest.map { message in
                 ChatListMessagePreviewFfi(
                     messageIdHex: message.messageIdHex,
@@ -26414,6 +26647,9 @@ private func appMessage(
         contentTokens: emptyMarkdownDocument(),
         kind: kind,
         tags: tags,
+        sourceEpoch: nil,
+        retentionSeconds: nil,
+        retentionExpiresAt: nil,
         recordedAt: recordedAt,
         receivedAt: recordedAt
     )
@@ -26478,7 +26714,8 @@ private func projectedTimeline(from messages: [AppMessageRecordFfi]) -> Timeline
                         mediaJson: nil,
                         media: [],
                         agentTextStreamJson: nil,
-                        deleted: false
+                        deleted: false,
+                        invalidationStatus: nil
                     )
                 }
             },
@@ -26959,6 +27196,7 @@ private func notificationUpdate(
         notificationKey: notificationKey,
         conversationKey: groupIdHex,
         trigger: .newMessage,
+        trafficClass: .standard,
         accountRef: account.label,
         accountIdHex: account.accountIdHex,
         groupIdHex: groupIdHex,
@@ -27161,7 +27399,7 @@ private func mediaAttachmentReference(
         nonceHex: nonceHex,
         fileName: fileName,
         mediaType: mediaType,
-        version: "marmot.encrypted-media.v1",
+        version: .v1,
         sourceEpoch: sourceEpoch,
         dim: mediaType.hasPrefix("image/") ? "120x80" : nil,
         thumbhash: nil
@@ -27315,7 +27553,8 @@ private func richMarkdownDocumentForPerformance() -> MarkdownDocumentFfi {
                 .link(
                     dest: "https://example.com/perf",
                     title: nil,
-                    children: [.text(content: "perf notes")]
+                    children: [.text(content: "perf notes")],
+                    classification: .web
                 ),
                 .text(content: "."),
             ]),
@@ -27415,7 +27654,7 @@ private func mediaDiskCacheReference(
         nonceHex: String(repeating: "00", count: 12),
         fileName: "cached.bin",
         mediaType: "application/octet-stream",
-        version: "encrypted-media-v1",
+        version: .v1,
         sourceEpoch: 7,
         dim: nil,
         thumbhash: nil

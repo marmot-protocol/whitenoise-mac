@@ -384,14 +384,16 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 mentionNames: mentionNames,
                 truncated: &truncated
             )
-        case .link(let dest, _, let children):
+        case .link(let dest, _, let children, let classification):
             return concat(
-                children, intent: intent, link: MarkdownLinkPolicy.sanitizedURL(from: dest),
+                children,
+                intent: intent,
+                link: actionableURL(from: dest, classification: classification),
                 remainingDepth: remainingDepth - 1,
                 mentionNames: mentionNames,
                 truncated: &truncated
             )
-        case .image(_, let title, let alt):
+        case .image(_, let title, let alt, _):
             if !alt.isEmpty {
                 return concat(
                     alt,
@@ -403,14 +405,28 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 )
             }
             return styled(title ?? "", intent: intent, link: link)
-        case .autolink(let url, _):
-            return styled(url, intent: intent, link: MarkdownLinkPolicy.sanitizedURL(from: url))
+        case .autolink(let url, _, let classification):
+            return styled(url, intent: intent, link: actionableURL(from: url, classification: classification))
         case .math(let content):
             return styled(content, intent: intent.union(.code), link: link)
         case .nostrMention(let entity), .nostrUri(let entity):
             return nostrEntity(entity, intent: intent, mentionNames: mentionNames)
         @unknown default:
             return AttributedString()
+        }
+    }
+
+    private static func actionableURL(
+        from destination: String,
+        classification: MarkdownLinkDestinationKindFfi
+    ) -> URL? {
+        switch classification {
+        case .web, .contact, .app, .nostr:
+            return MarkdownLinkPolicy.sanitizedURL(from: destination)
+        case .relative, .unknown, .dangerous, .sensitive:
+            return nil
+        @unknown default:
+            return nil
         }
     }
 

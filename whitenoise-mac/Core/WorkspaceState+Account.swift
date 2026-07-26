@@ -120,6 +120,7 @@ extension WorkspaceState {
         // account does not inherit stale cross-account entries (whitenoise-mac#8/#9).
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
+        groupImagePayloadCache.removeAll()
         // Read markers are keyed by groupIdHex only; stale entries from the
         // previous account suppress the first legitimate advance for a shared
         // group id under the new identity. See #429.
@@ -366,6 +367,7 @@ extension WorkspaceState {
         clearMediaReferenceResolutionCache()
         peerProfileFFICache.removeAll()
         clearGroupMemberCache()
+        groupImagePayloadCache.removeAll()
         // Active-account teardown must evict decoded peer/group avatars held in the
         // process-lifetime image cache; profile metadata alone is not enough. See #177/#288.
         RemoteImageLoader.shared.clearCache()
@@ -398,6 +400,9 @@ extension WorkspaceState {
         groupImageSearchQuery = ""
         groupImageResults = []
         invalidateGroupImageSearch()
+        closeProfileImagePicker()
+        profileImageUploadGeneration &+= 1
+        isUploadingProfileImage = false
 
         closeGroupDetails()
         groupTranscriptExportTask = nil

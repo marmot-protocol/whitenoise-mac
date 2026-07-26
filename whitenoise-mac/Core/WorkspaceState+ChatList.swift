@@ -401,6 +401,9 @@ extension WorkspaceState {
         lastConfirmedReadMarkers[groupIdHex] = nil
         conversationMetadataByChat[groupIdHex] = nil
         conversationMetadataGenerationByChat[groupIdHex] = nil
+        groupImagePayloadCache = groupImagePayloadCache.filter {
+            !$0.key.hasPrefix("\(accountId)|\(groupIdHex)|")
+        }
         purgeHiddenMessages(accountId: accountId, groupIdHex: groupIdHex)
     }
 
@@ -557,6 +560,10 @@ extension WorkspaceState {
             updatedAt: current.updatedAt,
             avatarSeed: enrichedItem.avatarSeed,
             pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
+            groupImagePayload:
+                enrichedItem.groupImagePayload
+                ?? (enrichedItem.groupImageHashHex == current.groupImageHashHex ? current.groupImagePayload : nil),
+            groupImageHashHex: enrichedItem.groupImageHashHex,
             unreadCount: current.unreadCount,
             unreadMentionCount: current.unreadMentionCount,
             isDirect: enrichedItem.isDirect,
@@ -593,14 +600,48 @@ extension WorkspaceState {
                 client: client
             )
         }
+        let groupImagePayload =
+            directPeer == nil && groupAvatarURL == nil
+            ? await decryptedGroupImagePayload(from: row, account: account, client: client)
+            : nil
 
         return ChatItem(
             row: row,
             activeAccountIdHex: account.accountIdHex,
             directPeer: directPeer,
             groupAvatarURL: groupAvatarURL,
+            groupImagePayload: groupImagePayload,
             mentionNames: mentionNames
         )
+    }
+
+    func decryptedGroupImagePayload(
+        from row: ChatListRowFfi,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async -> DownloadedMediaPayload? {
+        guard let imageHashHex = row.avatar?.imageHashHex.nilIfBlank else { return nil }
+        let cacheKey = "\(account.id)|\(row.groupIdHex)|\(imageHashHex)"
+        if let cached = groupImagePayloadCache[cacheKey] {
+            return cached
+        }
+
+        guard
+            let data = try? await client.downloadGroupBlossomImage(
+                accountRef: account.accountRef,
+                groupIdHex: row.groupIdHex
+            ),
+            !data.isEmpty,
+            !Task.isCancelled,
+            activeAccountId == account.id
+        else { return nil }
+
+        let payload = DownloadedMediaPayload(id: imageHashHex, data: data)
+        groupImagePayloadCache = groupImagePayloadCache.filter {
+            !$0.key.hasPrefix("\(account.id)|\(row.groupIdHex)|")
+        }
+        groupImagePayloadCache[cacheKey] = payload
+        return payload
     }
 
     func selectInitialChatIfNeeded() async {

@@ -1994,6 +1994,19 @@ struct PureValueTests {
         #expect(draft.sanitizedPictureURL == nil)
     }
 
+    @MainActor
+    @Test func profileDraftRoundTripsBannerMetadata() async throws {
+        let draft = ProfileDraft(
+            displayName: "Alice",
+            picture: "https://example.com/profile.jpg",
+            banner: "https://example.com/banner.jpg"
+        )
+
+        #expect(draft.metadata.banner == "https://example.com/banner.jpg")
+        let restored = ProfileDraft(profile: draft.metadata, fallbackName: "Fallback")
+        #expect(restored.banner == "https://example.com/banner.jpg")
+    }
+
     @Test func downsampledImageSizingCeilsAndBucketsRequestedPixels() async throws {
         #expect(DownsampledImageSizing.requestedPixelSize(0) == 1)
         #expect(DownsampledImageSizing.requestedPixelSize(63.1) == 64)
@@ -2521,7 +2534,8 @@ struct PureValueTests {
                 .link(
                     dest: "https://evil.example/phish",
                     title: nil,
-                    children: [.text(content: spoofedLinkLabel)]
+                    children: [.text(content: spoofedLinkLabel)],
+                    classification: .web
                 )
             ],
             remainingDepth: 32
@@ -2532,7 +2546,7 @@ struct PureValueTests {
 
         let spoofedAutolinkURL = "\(rtlOverride)https://example.com\(ltrIsolate)"
         let autolinkAttributed = MarkdownDisplayInlineBuilder.attributedString(
-            from: [.autolink(url: spoofedAutolinkURL, kind: .uri)],
+            from: [.autolink(url: spoofedAutolinkURL, kind: .uri, classification: .web)],
             remainingDepth: 32
         )
         #expect(!containsBidiEmbeddingOrIsolate(String(autolinkAttributed.characters)))
@@ -2583,7 +2597,8 @@ struct PureValueTests {
                 .link(
                     dest: "https://example.com/profile",
                     title: nil,
-                    children: [.text(content: "safe")]
+                    children: [.text(content: "safe")],
+                    classification: .web
                 )
             ], remainingDepth: 32)
         #expect(String(safe.characters) == "safe")
@@ -2594,7 +2609,8 @@ struct PureValueTests {
                 .link(
                     dest: "file:///Applications/Calculator.app",
                     title: nil,
-                    children: [.text(content: "unsafe")]
+                    children: [.text(content: "unsafe")],
+                    classification: .dangerous
                 )
             ], remainingDepth: 32)
         #expect(String(unsafe.characters) == "unsafe")
@@ -2602,7 +2618,7 @@ struct PureValueTests {
 
         let unsafeAutolink = MarkdownDisplayInlineBuilder.attributedString(
             from: [
-                .autolink(url: "smb://attacker/share", kind: .uri)
+                .autolink(url: "smb://attacker/share", kind: .uri, classification: .unknown)
             ], remainingDepth: 32)
         #expect(String(unsafeAutolink.characters) == "smb://attacker/share")
         #expect(links(in: unsafeAutolink).isEmpty)
@@ -2612,7 +2628,8 @@ struct PureValueTests {
                 .link(
                     dest: "https://relay.damus.io@evil.example/phish",
                     title: nil,
-                    children: [.text(content: "spoof")]
+                    children: [.text(content: "spoof")],
+                    classification: .web
                 )
             ], remainingDepth: 32)
         #expect(String(hostConfusion.characters) == "spoof")
@@ -2846,7 +2863,7 @@ struct PureValueTests {
             nonceHex: "00",
             fileName: fileName,
             mediaType: mediaType,
-            version: "1",
+            version: .v1,
             sourceEpoch: 1,
             dim: nil,
             thumbhash: nil

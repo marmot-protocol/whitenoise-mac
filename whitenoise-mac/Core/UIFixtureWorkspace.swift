@@ -204,7 +204,7 @@
                         nonceHex: hex24(messageIndex &* 59 &+ attachmentIndex),
                         fileName: fileName,
                         mediaType: "image/png",
-                        version: "marmot.encrypted-media.v1",
+                        version: .v1,
                         sourceEpoch: UInt64(messageIndex),
                         dim: "160x120",
                         thumbhash: nil
@@ -275,7 +275,8 @@
                         .link(
                             dest: "https://example.com/perf/\(index)",
                             title: nil,
-                            children: [.text(content: "perf notes")]
+                            children: [.text(content: "perf notes")],
+                            classification: .web
                         ),
                         .text(content: "."),
                     ]),

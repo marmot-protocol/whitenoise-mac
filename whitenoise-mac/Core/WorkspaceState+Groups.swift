@@ -15,6 +15,32 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UserNotifications
 
+private struct GroupImageUpdateContext {
+    let client: any MarmotRuntime
+    let accountId: String
+    let accountRef: String
+    let groupIdHex: String
+    let hadLegacyURLAvatar: Bool
+    let hadEncryptedImage: Bool
+}
+
+private enum GroupImageSelectionError: LocalizedError {
+    case invalidWebImage
+    case downloadFailed
+    case notAnImage
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidWebImage:
+            return L10n.string("That image URL is not allowed.")
+        case .downloadFailed:
+            return L10n.string("That image could not be downloaded.")
+        case .notAnImage:
+            return L10n.string("Please choose an image file.")
+        }
+    }
+}
+
 @MainActor
 extension WorkspaceState {
     func refreshConversationMetadata(for chat: ChatItem) async {
@@ -710,36 +736,134 @@ extension WorkspaceState {
     }
 
     func setGroupImage(_ result: GroupImageSearchResult) async {
-        await updateSelectedGroupImage(url: result.imageURL, dim: result.dimension)
+        guard let context = beginGroupImageUpdate() else { return }
+        defer { isSavingGroupImage = false }
+
+        do {
+            guard let sourceURL = RemoteImageURLPolicy.sanitizedURL(from: result.imageURL) else {
+                throw GroupImageSelectionError.invalidWebImage
+            }
+            guard let data = await groupImageSourceLoader.data(for: sourceURL) else {
+                throw GroupImageSelectionError.downloadFailed
+            }
+            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
+                fromPastedImageData: data,
+                typeIdentifier: nil
+            )
+            try await commitSelectedGroupImage(attachment, context: context)
+        } catch is CancellationError {
+            return
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setGroupImage(fileURL: URL) async {
+        guard let context = beginGroupImageUpdate() else { return }
+        defer { isSavingGroupImage = false }
+
+        let isSecurityScoped = fileURL.startAccessingSecurityScopedResource()
+        defer {
+            if isSecurityScoped {
+                fileURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: fileURL)
+            guard attachment.kind == .image else {
+                throw GroupImageSelectionError.notAnImage
+            }
+            try await commitSelectedGroupImage(attachment, context: context)
+        } catch is CancellationError {
+            return
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     func clearGroupImage() async {
-        await updateSelectedGroupImage(url: nil, dim: nil)
+        guard let context = beginGroupImageUpdate() else { return }
+        defer { isSavingGroupImage = false }
+
+        do {
+            guard groupImageUpdateStillTargetsSelection(context) else { return }
+            if context.hadLegacyURLAvatar {
+                _ = try await context.client.updateGroupAvatarUrl(
+                    accountRef: context.accountRef,
+                    groupIdHex: context.groupIdHex,
+                    url: nil,
+                    dim: nil,
+                    thumbhash: nil
+                )
+            }
+            if context.hadEncryptedImage {
+                _ = try await context.client.clearGroupImage(
+                    accountRef: context.accountRef,
+                    groupIdHex: context.groupIdHex
+                )
+            }
+            await finishGroupImageUpdate(context)
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
-    func updateSelectedGroupImage(url: String?, dim: String?) async {
+    private func beginGroupImageUpdate() -> GroupImageUpdateContext? {
         guard let client,
             let activeAccount,
             let selectedChat,
             !selectedChat.isDirect,
             !hasInFlightGroupCommit
-        else { return }
+        else { return nil }
+        lastError = nil
         isSavingGroupImage = true
-        defer { isSavingGroupImage = false }
+        return GroupImageUpdateContext(
+            client: client,
+            accountId: activeAccount.id,
+            accountRef: activeAccount.accountRef,
+            groupIdHex: selectedChat.id,
+            hadLegacyURLAvatar: selectedChat.pictureURL != nil,
+            hadEncryptedImage: selectedChat.groupImageHashHex != nil
+        )
+    }
 
-        do {
-            _ = try await client.updateGroupAvatarUrl(
-                accountRef: activeAccount.accountRef,
-                groupIdHex: selectedChat.id,
-                url: url,
-                dim: dim,
+    private func commitSelectedGroupImage(
+        _ attachment: PendingMediaAttachment,
+        context: GroupImageUpdateContext
+    ) async throws {
+        guard groupImageUpdateStillTargetsSelection(context) else { return }
+        _ = try await context.client.updateGroupImage(
+            accountRef: context.accountRef,
+            groupIdHex: context.groupIdHex,
+            plaintext: attachment.data,
+            mediaType: attachment.mediaType
+        )
+        if context.hadLegacyURLAvatar {
+            _ = try await context.client.updateGroupAvatarUrl(
+                accountRef: context.accountRef,
+                groupIdHex: context.groupIdHex,
+                url: nil,
+                dim: nil,
                 thumbhash: nil
             )
-            await reloadChats(forceFreshSnapshot: true)
-            closeGroupImagePicker()
-        } catch {
-            lastError = error.localizedDescription
         }
+        await finishGroupImageUpdate(context)
+    }
+
+    private func finishGroupImageUpdate(_ context: GroupImageUpdateContext) async {
+        groupImagePayloadCache = groupImagePayloadCache.filter {
+            !$0.key.hasPrefix("\(context.accountId)|\(context.groupIdHex)|")
+        }
+        guard activeAccountId == context.accountId else { return }
+        await reloadChats(forceFreshSnapshot: true)
+        if groupImageUpdateStillTargetsSelection(context) {
+            closeGroupImagePicker()
+        }
+    }
+
+    private func groupImageUpdateStillTargetsSelection(_ context: GroupImageUpdateContext) -> Bool {
+        activeAccountId == context.accountId && selectedChat?.id == context.groupIdHex
     }
 
     func acceptGroupInvite(groupIdHex: String) async {
