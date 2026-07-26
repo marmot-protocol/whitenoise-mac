@@ -12,6 +12,7 @@ import AppKit
 import CoreImage
 import MarmotKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsPanelView: View {
     @Environment(WorkspaceState.self) private var workspace
@@ -692,6 +693,7 @@ struct SettingsErrorView: View {
 
 struct ProfileSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var isMoreExpanded = false
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -703,13 +705,29 @@ struct ProfileSettingsView: View {
             if let account = workspace.activeAccount {
                 Section("Preview") {
                     HStack(spacing: 12) {
-                        ProfileImageAvatarView(
-                            seed: account.accountIdHex,
-                            initials: profilePreviewName(fallback: account),
-                            sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
-                            size: 56,
-                            isSelected: false
-                        )
+                        Button {
+                            workspace.showProfileImagePicker()
+                        } label: {
+                            ZStack(alignment: .bottomTrailing) {
+                                ProfileImageAvatarView(
+                                    seed: account.accountIdHex,
+                                    initials: profilePreviewName(fallback: account),
+                                    sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
+                                    size: 56,
+                                    isSelected: false
+                                )
+
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 20, height: 20)
+                                    .background(.black.opacity(0.68), in: Circle())
+                            }
+                            .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Change profile image")
+                        .accessibilityLabel("Change profile image")
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(profilePreviewName(fallback: account))
@@ -732,7 +750,11 @@ struct ProfileSettingsView: View {
                 TextField("Name", text: $workspace.profileDraft.displayName)
                 TextField("About", text: $workspace.profileDraft.about, axis: .vertical)
                     .lineLimit(3...5)
-                TextField("Picture URL", text: $workspace.profileDraft.picture)
+
+                DisclosureGroup("More", isExpanded: $isMoreExpanded) {
+                    TextField("Profile image URL", text: $workspace.profileDraft.picture)
+                    TextField("Banner image URL", text: $workspace.profileDraft.banner)
+                }
             }
 
             Section {
@@ -757,6 +779,9 @@ struct ProfileSettingsView: View {
             }
 
         }
+        .sheet(isPresented: $workspace.isProfileImagePickerPresented) {
+            ProfileImagePickerSheet()
+        }
     }
 
     private func profilePreviewName(fallback account: AccountItem) -> String {
@@ -764,6 +789,142 @@ struct ProfileSettingsView: View {
             workspace.profileDraft.displayName,
             account.displayName,
         ]) ?? account.displayName
+    }
+}
+
+struct ProfileImagePickerSheet: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var isFileImporterPresented = false
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 132, maximum: 168), spacing: 12)
+    ]
+
+    var body: some View {
+        @Bindable var workspace = workspace
+
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                if let account = workspace.activeAccount {
+                    ProfileImageAvatarView(
+                        seed: account.accountIdHex,
+                        initials: account.displayName,
+                        sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
+                        size: 46,
+                        isSelected: false
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Profile image")
+                        .font(.headline)
+                    Text("Choose from your Mac or search the web")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                GlassCircleCloseButton {
+                    workspace.closeProfileImagePicker()
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+
+            Divider()
+
+            VStack(spacing: 12) {
+                HStack {
+                    Button {
+                        isFileImporterPresented = true
+                    } label: {
+                        Label("Choose from Mac", systemImage: "photo.badge.plus")
+                    }
+                    .disabled(workspace.isUploadingProfileImage)
+
+                    Spacer()
+                }
+
+                HStack(spacing: 8) {
+                    TextField("Search images", text: $workspace.profileImageSearchQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            Task { await workspace.searchProfileImages() }
+                        }
+
+                    if workspace.isSearchingProfileImages || workspace.isUploadingProfileImage {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Button {
+                        Task { await workspace.searchProfileImages() }
+                    } label: {
+                        Label("Search", systemImage: "magnifyingglass")
+                    }
+                    .nativeGlassProminentButtonStyle()
+                    .disabled(
+                        workspace.profileImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || workspace.isSearchingProfileImages
+                            || workspace.isUploadingProfileImage
+                    )
+                }
+
+                Text("Search terms are sent to Openverse. Selected images are copied to Blossom before use.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                SettingsErrorView(error: workspace.lastError)
+                    .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+
+                ScrollView {
+                    if workspace.profileImageResults.isEmpty {
+                        VStack(spacing: 10) {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                                .font(.system(size: 28, weight: .light))
+                                .foregroundStyle(.secondary)
+                            Text(workspace.isSearchingProfileImages ? "Searching" : "No images")
+                                .font(.callout.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 300)
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(workspace.profileImageResults) { result in
+                                Button {
+                                    Task { await workspace.setProfileImage(result) }
+                                } label: {
+                                    GroupImageResultTile(result: result)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(workspace.isUploadingProfileImage)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+            .padding(18)
+        }
+        .frame(width: 620, height: 560)
+        .background {
+            LiquidGlassBackground()
+        }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                Task { await workspace.setProfileImage(fileURL: url) }
+            case .failure(let error):
+                workspace.reportUserActionError(error.localizedDescription)
+            }
+        }
     }
 }
 
@@ -1870,8 +2031,27 @@ struct KeyPackageRow: View {
 
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 8) {
-                        Text(package.sourceLabel)
-                            .font(.callout.weight(.semibold))
+                        if package.isLocal {
+                            statusBadge(
+                                L10n.string("Local"),
+                                systemImage: "macbook",
+                                tint: MessagesPalette.sentBubble
+                            )
+                        }
+                        if package.isRelayDiscovered {
+                            statusBadge(
+                                L10n.string("Synced"),
+                                systemImage: "checkmark.icloud.fill",
+                                tint: .green
+                            )
+                        }
+                        if !package.isLocal && !package.isRelayDiscovered {
+                            statusBadge(
+                                L10n.string("Unknown"),
+                                systemImage: "questionmark.circle",
+                                tint: .secondary
+                            )
+                        }
                         Text(package.publishedLabel)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -1915,6 +2095,17 @@ struct KeyPackageRow: View {
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(package.sourceLabel), \(package.publishedLabel)")
+    }
+
+    private func statusBadge(_ title: String, systemImage: String, tint: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(tint.opacity(0.12), in: Capsule())
     }
 
     private func keyValue(_ title: String, _ value: String) -> some View {

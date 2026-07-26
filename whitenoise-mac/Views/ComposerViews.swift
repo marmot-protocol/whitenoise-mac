@@ -1259,12 +1259,37 @@ struct ProfileImageAvatarView: View {
     let initials: String
     /// Already passed through `RemoteImageURLPolicy`; body only checks the user preference.
     let sanitizedPictureURL: URL?
+    let localImagePayload: DownloadedMediaPayload?
     let size: CGFloat
     let isSelected: Bool
 
+    init(
+        seed: String,
+        initials: String,
+        sanitizedPictureURL: URL?,
+        localImagePayload: DownloadedMediaPayload? = nil,
+        size: CGFloat,
+        isSelected: Bool
+    ) {
+        self.seed = seed
+        self.initials = initials
+        self.sanitizedPictureURL = sanitizedPictureURL
+        self.localImagePayload = localImagePayload
+        self.size = size
+        self.isSelected = isSelected
+    }
+
     var body: some View {
         Group {
-            if workspace.loadRemoteImages, let imageURL = sanitizedPictureURL {
+            if let localImagePayload {
+                DownsampledDataImage(payload: localImagePayload, maxPixelSize: size * 2) { image in
+                    image
+                        .resizable()
+                        .scaledToFill()
+                } placeholder: {
+                    AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected, drawsChrome: false)
+                }
+            } else if workspace.loadRemoteImages, let imageURL = sanitizedPictureURL {
                 DownsampledAsyncImage(url: imageURL, maxPixelSize: size * 2) { image in
                     image
                         .resizable()
@@ -1334,6 +1359,7 @@ struct ConversationHeader: View {
                             seed: chat.avatarSeed,
                             initials: chat.title,
                             sanitizedPictureURL: chat.sanitizedPictureURL,
+                            localImagePayload: chat.groupImagePayload,
                             size: 38,
                             isSelected: false
                         )
@@ -1530,6 +1556,7 @@ struct MessageForwardSheet: View {
                                     seed: chat.avatarSeed,
                                     initials: chat.title,
                                     sanitizedPictureURL: chat.sanitizedPictureURL,
+                                    localImagePayload: chat.groupImagePayload,
                                     size: 34,
                                     isSelected: false
                                 )

@@ -548,6 +548,7 @@ struct ChatRowContent: View {
                 seed: chat.avatarSeed,
                 initials: chat.title,
                 sanitizedPictureURL: chat.sanitizedPictureURL,
+                localImagePayload: chat.groupImagePayload,
                 size: 46,
                 isSelected: false
             )

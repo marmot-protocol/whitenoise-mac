@@ -20,6 +20,8 @@ nonisolated protocol MarmotRuntime: Sendable {
     func publishUserProfile(
         accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]
     ) async throws -> UserProfileMetadataFfi
+    func uploadProfileImage(accountRef: String, data: Data, mediaType: String, blossomServer: String?) async throws
+        -> String
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi]
     func auditLogFiles() throws -> [AuditLogFileFfi]
@@ -62,6 +64,10 @@ nonisolated protocol MarmotRuntime: Sendable {
     func setGroupArchived(accountRef: String, groupIdHex: String, archived: Bool) async throws -> AppGroupRecordFfi
     func updateGroupAvatarUrl(accountRef: String, groupIdHex: String, url: String?, dim: String?, thumbhash: String?)
         async throws -> SendSummaryFfi
+    func updateGroupImage(accountRef: String, groupIdHex: String, plaintext: Data, mediaType: String) async throws
+        -> SendSummaryFfi
+    func clearGroupImage(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi
+    func downloadGroupBlossomImage(accountRef: String, groupIdHex: String) async throws -> Data
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
         -> SendSummaryFfi
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription
@@ -176,6 +182,17 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             profile: profile,
             defaultRelays: defaultRelays,
             bootstrapRelays: bootstrapRelays
+        )
+    }
+
+    func uploadProfileImage(accountRef: String, data: Data, mediaType: String, blossomServer: String?) async throws
+        -> String
+    {
+        try await marmot.uploadProfileImage(
+            accountRef: accountRef,
+            data: data,
+            mediaType: mediaType,
+            blossomServer: blossomServer
         )
     }
 
@@ -392,6 +409,25 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
             dim: dim,
             thumbhash: thumbhash
         )
+    }
+
+    func updateGroupImage(accountRef: String, groupIdHex: String, plaintext: Data, mediaType: String) async throws
+        -> SendSummaryFfi
+    {
+        try await marmot.updateGroupImage(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            plaintext: plaintext,
+            mediaType: mediaType
+        )
+    }
+
+    func clearGroupImage(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
+        try await marmot.clearGroupImage(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func downloadGroupBlossomImage(accountRef: String, groupIdHex: String) async throws -> Data {
+        try await marmot.downloadGroupBlossomImage(accountRef: accountRef, groupIdHex: groupIdHex)
     }
 
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws

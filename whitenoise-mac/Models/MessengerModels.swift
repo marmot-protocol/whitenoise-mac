@@ -115,6 +115,11 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let pictureURL: String?
     /// Pre-sanitized avatar URL for chat rows/headers; the view still applies `loadRemoteImages`.
     let sanitizedPictureURL: URL?
+    /// Decrypted encrypted-Blossom group image. Direct chats leave this nil and use the peer
+    /// profile picture instead. The payload id is the component's content hash, so decoded-image
+    /// caching naturally invalidates when the group commits a replacement image.
+    let groupImagePayload: DownloadedMediaPayload?
+    let groupImageHashHex: String?
     let unreadCount: Int
     /// Unread messages in this chat that @-mention the active account.
     let unreadMentionCount: Int
@@ -154,6 +159,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         avatarSeed: String,
         pictureURL: String?,
         sanitizedPictureURL: URL? = nil,
+        groupImagePayload: DownloadedMediaPayload? = nil,
+        groupImageHashHex: String? = nil,
         unreadCount: Int,
         unreadMentionCount: Int = 0,
         isDirect: Bool = false,
@@ -169,6 +176,8 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.pictureURL = pictureURL
         self.sanitizedPictureURL =
             sanitizedPictureURL ?? RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
+        self.groupImagePayload = groupImagePayload
+        self.groupImageHashHex = groupImageHashHex
         self.unreadCount = unreadCount
         self.unreadMentionCount = unreadMentionCount
         self.isDirect = isDirect
@@ -2313,6 +2322,7 @@ struct ProfileDraft: Equatable {
         }
     }
     private(set) var sanitizedPictureURL: URL?
+    var banner: String
     var nip05: String
     var lud16: String
 
@@ -2321,6 +2331,7 @@ struct ProfileDraft: Equatable {
         displayName: String = "",
         about: String = "",
         picture: String = "",
+        banner: String = "",
         nip05: String = "",
         lud16: String = ""
     ) {
@@ -2329,6 +2340,7 @@ struct ProfileDraft: Equatable {
         self.about = about
         self.picture = picture
         self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: picture)
+        self.banner = banner
         self.nip05 = nip05
         self.lud16 = lud16
     }
@@ -2415,16 +2427,18 @@ struct KeyPackageItem: Identifiable, Equatable {
     }
 
     var sourceLabel: String {
-        switch (isLocal, isRelayDiscovered) {
-        case (true, true):
-            L10n.string("Local + fetched")
-        case (true, false):
-            L10n.string("Local")
-        case (false, true):
-            L10n.string("Fetched")
-        case (false, false):
-            L10n.string("Unknown")
+        statusLabels.joined(separator: " + ")
+    }
+
+    var statusLabels: [String] {
+        var labels: [String] = []
+        if isLocal {
+            labels.append(L10n.string("Local"))
         }
+        if isRelayDiscovered {
+            labels.append(L10n.string("Synced"))
+        }
+        return labels.isEmpty ? [L10n.string("Unknown")] : labels
     }
 
     var publishedLabel: String {

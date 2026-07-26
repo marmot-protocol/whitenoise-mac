@@ -193,6 +193,8 @@ nonisolated struct ChatListOrdering {
             updatedAt: chat.updatedAt,
             avatarSeed: current.avatarSeed,
             pictureURL: current.pictureURL,
+            groupImagePayload: current.groupImagePayload,
+            groupImageHashHex: current.groupImageHashHex,
             unreadCount: chat.unreadCount,
             unreadMentionCount: chat.unreadMentionCount,
             isDirect: current.isDirect,
@@ -1170,6 +1172,14 @@ final class WorkspaceState {
     var groupImageResults: [GroupImageSearchResult] = []
     var isSearchingGroupImages = false
     var isSavingGroupImage = false
+    var isProfileImagePickerPresented = false
+    var profileImageSearchQuery = ""
+    var profileImageResults: [GroupImageSearchResult] = []
+    var isSearchingProfileImages = false
+    var isUploadingProfileImage = false
+    /// Decrypted group avatars are account/group/content-addressed. Chat items retain the payload
+    /// they render; this lookup avoids a Blossom fetch on every chat-list enrichment pass.
+    @ObservationIgnored var groupImagePayloadCache: [String: DownloadedMediaPayload] = [:]
     var isGroupDetailsPresented = false
     var groupDetailsSnapshot: GroupDetailsSnapshot?
     /// Contact currently shown over the conversation/group-details pane. Unlike direct-chat
@@ -1272,6 +1282,7 @@ final class WorkspaceState {
     let transcriptExportDestinationPicker: @MainActor (String) -> URL?
     let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     let groupImageSearchClient: any GroupImageSearchClient
+    let groupImageSourceLoader: any GroupImageSourceLoading
     let nip05Resolver: any NIP05Resolving
     /// Injectable clock for peer-profile cache TTL decisions, so tests can drive cache
     /// expiry deterministically (whitenoise-mac#8). Defaults to the system clock.
@@ -1375,6 +1386,8 @@ final class WorkspaceState {
     /// (issues #2, #4) and uses the same wrapping-token overflow hardening (issue #182).
     /// See `searchGroupImages` / issue #110.
     var groupImageSearchGeneration: UInt64 = 0
+    var profileImageSearchGeneration: UInt64 = 0
+    var profileImageUploadGeneration: UInt64 = 0
     /// Monotonic token identifying the most recently started group-details load. `loadGroupDetails`
     /// captures the value on entry and only applies the fetched snapshot, clears
     /// `isLoadingGroupDetails`, or reports errors while it is still current — i.e. no newer load or
@@ -1736,6 +1749,7 @@ final class WorkspaceState {
             TelemetryBuildConfig.current()
         },
         groupImageSearchClient: (any GroupImageSearchClient)? = nil,
+        groupImageSourceLoader: (any GroupImageSourceLoading)? = nil,
         nip05Resolver: (any NIP05Resolving)? = nil,
         nowProvider: @escaping @MainActor () -> Date = { Date() },
         microphoneAccessProvider: @escaping @MainActor () async -> Bool = {
@@ -1760,6 +1774,7 @@ final class WorkspaceState {
         self.transcriptExportDestinationPicker = transcriptExportDestinationPicker
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
+        self.groupImageSourceLoader = groupImageSourceLoader ?? SecureGroupImageSourceLoader()
         self.nip05Resolver = nip05Resolver ?? NIP05Resolver()
         self.nowProvider = nowProvider
         self.microphoneAccessProvider = microphoneAccessProvider
@@ -2719,6 +2734,16 @@ protocol GroupImageSearchClient {
     func searchImages(query: String) async throws -> [GroupImageSearchResult]
 }
 
+protocol GroupImageSourceLoading {
+    func data(for url: URL) async -> Data?
+}
+
+struct SecureGroupImageSourceLoader: GroupImageSourceLoading {
+    func data(for url: URL) async -> Data? {
+        await RemoteImageLoader.shared.data(for: url)
+    }
+}
+
 struct OpenverseGroupImageSearchClient: GroupImageSearchClient, Sendable {
     private let endpoint = URL(string: "https://api.openverse.org/v1/images/")!
 
@@ -2823,7 +2848,7 @@ struct PreviewRuntimeError: Error {}
 
 extension ProfileDraft {
     init(fallbackName: String) {
-        self.init(name: "", displayName: fallbackName, about: "", picture: "", nip05: "", lud16: "")
+        self.init(name: "", displayName: fallbackName, about: "", picture: "", banner: "", nip05: "", lud16: "")
     }
 
     init(profile: UserProfileMetadataFfi?, fallbackName: String) {
@@ -2832,6 +2857,7 @@ extension ProfileDraft {
             displayName: profile?.displayName ?? fallbackName,
             about: profile?.about ?? "",
             picture: profile?.picture ?? "",
+            banner: profile?.banner ?? "",
             nip05: profile?.nip05 ?? "",
             lud16: profile?.lud16 ?? ""
         )
@@ -2843,6 +2869,7 @@ extension ProfileDraft {
             displayName: displayName.nilIfBlank,
             about: about.nilIfBlank,
             picture: picture.nilIfBlank,
+            banner: banner.nilIfBlank,
             nip05: nip05.nilIfBlank,
             lud16: lud16.nilIfBlank
         )

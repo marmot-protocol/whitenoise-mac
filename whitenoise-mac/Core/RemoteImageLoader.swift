@@ -637,6 +637,14 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }
     }
 
+    /// Returns bounded source bytes for a user-selected web image. This deliberately reuses the
+    /// avatar loader's pinned-address, redirect, timeout, and response-size protections before the
+    /// caller hands plaintext to MarmotKit for encrypted Blossom upload.
+    func data(for url: URL) async -> Data? {
+        guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
+        return await Self.download(url, using: session)
+    }
+
     /// Downsamples and caches local/decrypted image bytes.
     ///
     /// The cache key is part of the decoded-image identity and is checked before looking at

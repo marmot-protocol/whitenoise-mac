@@ -38,6 +38,7 @@ extension ChatItem {
         activeAccountIdHex: String?,
         directPeer: ChatPeerProfile? = nil,
         groupAvatarURL: String? = nil,
+        groupImagePayload: DownloadedMediaPayload? = nil,
         mentionNames: MarkdownMentionNames = [:]
     ) {
         let groupName = PeerDisplayText.sanitize(row.groupName) ?? ""
@@ -78,6 +79,8 @@ extension ChatItem {
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
             pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
+            groupImagePayload: directPeer == nil ? groupImagePayload : nil,
+            groupImageHashHex: directPeer == nil ? row.avatar?.imageHashHex.nilIfBlank : nil,
             unreadCount: Int(clamping: row.unreadCount),
             unreadMentionCount: Int(clamping: row.unreadMentionCount),
             isDirect: directPeer != nil,
@@ -1166,7 +1169,7 @@ private nonisolated enum MessageMediaParser {
             let nonceHex = string(dictionary, keys: ["nonce_hex", "nonceHex", "nonce"]),
             let fileName = string(dictionary, keys: ["file_name", "fileName", "filename"]),
             let mediaType = string(dictionary, keys: ["media_type", "mediaType", "m"]),
-            let version = string(dictionary, keys: ["version", "v"])
+            let version = encryptedMediaVersion(string(dictionary, keys: ["version", "v"]))
         else { return nil }
 
         return MediaAttachmentReferenceFfi(
@@ -1215,7 +1218,7 @@ private nonisolated enum MessageMediaParser {
             let nonce = required("nonce", in: fields),
             let fileName = required("filename", in: fields),
             let mediaType = required("m", in: fields),
-            let version = required("v", in: fields)
+            let version = encryptedMediaVersion(required("v", in: fields))
         else { return nil }
 
         return MediaAttachmentReferenceFfi(
@@ -1230,6 +1233,17 @@ private nonisolated enum MessageMediaParser {
             dim: fields["dim"],
             thumbhash: fields["thumbhash"]
         )
+    }
+
+    private static func encryptedMediaVersion(_ value: String?) -> EncryptedMediaVersionFfi? {
+        switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "marmot.encrypted-media.v1", "v1", "1":
+            return .v1
+        case "marmot.encrypted-media.v2", "v2", "2":
+            return .v2
+        default:
+            return nil
+        }
     }
 
     private static func locators(fromJSONObject value: Any?) -> [MediaLocatorFfi] {

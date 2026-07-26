@@ -14,6 +14,30 @@ import Observation
 import SwiftUI
 import UserNotifications
 
+private enum ProfileImageSelectionError: LocalizedError {
+    case invalidWebImage
+    case downloadFailed
+    case notAnImage
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidWebImage:
+            L10n.string("The selected web image URL is not safe to download.")
+        case .downloadFailed:
+            L10n.string("The selected web image could not be downloaded.")
+        case .notAnImage:
+            L10n.string("Choose an image file.")
+        }
+    }
+}
+
+private struct ProfileImageUploadContext {
+    let client: any MarmotRuntime
+    let accountId: String
+    let accountRef: String
+    let generation: UInt64
+}
+
 @MainActor
 extension WorkspaceState {
     /// Loads the aggregate settings snapshot (profile, relays, notifications, privacy/security)
@@ -426,6 +450,146 @@ extension WorkspaceState {
             guard activeAccountId == accountId else { return }
             lastError = error.localizedDescription
         }
+    }
+
+    func showProfileImagePicker() {
+        guard activeAccount != nil else { return }
+        lastError = nil
+        profileImageSearchGeneration &+= 1
+        profileImageSearchQuery = ""
+        profileImageResults = []
+        isSearchingProfileImages = false
+        isProfileImagePickerPresented = true
+    }
+
+    func closeProfileImagePicker() {
+        isProfileImagePickerPresented = false
+        profileImageSearchGeneration &+= 1
+        profileImageResults = []
+        isSearchingProfileImages = false
+    }
+
+    func searchProfileImages() async {
+        let query = profileImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            profileImageSearchGeneration &+= 1
+            profileImageResults = []
+            isSearchingProfileImages = false
+            return
+        }
+
+        lastError = nil
+        profileImageSearchGeneration &+= 1
+        let generation = profileImageSearchGeneration
+        isSearchingProfileImages = true
+        defer {
+            if profileImageSearchGeneration == generation {
+                isSearchingProfileImages = false
+            }
+        }
+
+        do {
+            let results = try await groupImageSearchClient.searchImages(query: query)
+            guard profileImageSearchGeneration == generation,
+                isProfileImagePickerPresented,
+                profileImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
+            else { return }
+            profileImageResults = results
+        } catch {
+            guard profileImageSearchGeneration == generation, isProfileImagePickerPresented else { return }
+            profileImageResults = []
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setProfileImage(_ result: GroupImageSearchResult) async {
+        guard let context = beginProfileImageUpload() else { return }
+        defer { finishProfileImageUpload(context) }
+
+        guard let sourceURL = RemoteImageURLPolicy.sanitizedURL(from: result.imageURL) else {
+            lastError = ProfileImageSelectionError.invalidWebImage.localizedDescription
+            return
+        }
+        guard let data = await groupImageSourceLoader.data(for: sourceURL) else {
+            lastError = ProfileImageSelectionError.downloadFailed.localizedDescription
+            return
+        }
+
+        do {
+            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(
+                fromPastedImageData: data,
+                typeIdentifier: nil
+            )
+            try await uploadSelectedProfileImage(attachment, context: context)
+        } catch is CancellationError {
+            return
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setProfileImage(fileURL: URL) async {
+        guard let context = beginProfileImageUpload() else { return }
+        defer { finishProfileImageUpload(context) }
+
+        let isSecurityScoped = fileURL.startAccessingSecurityScopedResource()
+        defer {
+            if isSecurityScoped {
+                fileURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        do {
+            let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: fileURL)
+            try await uploadSelectedProfileImage(attachment, context: context)
+        } catch is CancellationError {
+            return
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func beginProfileImageUpload() -> ProfileImageUploadContext? {
+        guard let client, let activeAccount, !isUploadingProfileImage else { return nil }
+        profileImageUploadGeneration &+= 1
+        lastError = nil
+        isUploadingProfileImage = true
+        return ProfileImageUploadContext(
+            client: client,
+            accountId: activeAccount.id,
+            accountRef: activeAccount.accountRef,
+            generation: profileImageUploadGeneration
+        )
+    }
+
+    private func finishProfileImageUpload(_ context: ProfileImageUploadContext) {
+        if profileImageUploadGeneration == context.generation {
+            isUploadingProfileImage = false
+        }
+    }
+
+    private func uploadSelectedProfileImage(
+        _ attachment: PendingMediaAttachment,
+        context: ProfileImageUploadContext
+    ) async throws {
+        guard attachment.kind == .image else {
+            throw ProfileImageSelectionError.notAnImage
+        }
+        guard activeAccountId == context.accountId,
+            profileImageUploadGeneration == context.generation
+        else { return }
+
+        let url = try await context.client.uploadProfileImage(
+            accountRef: context.accountRef,
+            data: attachment.data,
+            mediaType: attachment.mediaType,
+            blossomServer: nil
+        )
+        guard activeAccountId == context.accountId,
+            profileImageUploadGeneration == context.generation
+        else { return }
+        profileDraft.picture = url
+        closeProfileImagePicker()
     }
 
     func loadNotificationSettings() async {
