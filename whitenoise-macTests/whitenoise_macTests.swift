@@ -6651,7 +6651,7 @@ struct whitenoise_macTests {
                         "nonce": reference.nonceHex,
                         "file_name": reference.fileName,
                         "media_type": reference.mediaType,
-                        "version": reference.version,
+                        "version": mediaVersionJSONString(reference.version),
                         "locators": [
                             ["kind": "blossom", "value": "https://blob.example/valid"],
                             0,
@@ -6698,7 +6698,7 @@ struct whitenoise_macTests {
                         "nonce": reference.nonceHex,
                         "file_name": reference.fileName,
                         "media_type": reference.mediaType,
-                        "version": reference.version,
+                        "version": mediaVersionJSONString(reference.version),
                         "locators": locators,
                     ])
                 )
@@ -6737,7 +6737,7 @@ struct whitenoise_macTests {
             "nonce \(reference.nonceHex)",
             "filename \(reference.fileName)",
             "m \(reference.mediaType)",
-            "v \(reference.version)",
+            "v \(mediaVersionJSONString(reference.version))",
         ])
         let page = TimelinePageFfi(
             messages: [
@@ -6795,7 +6795,7 @@ struct whitenoise_macTests {
                         "nonce": reference.nonceHex,
                         "file_name": reference.fileName,
                         "media_type": reference.mediaType,
-                        "version": reference.version,
+                        "version": mediaVersionJSONString(reference.version),
                         "locators": [
                             ["kind": overKind, "value": "https://blob.example/over-kind"],
                             ["kind": "blossom", "value": overValue],
@@ -6854,7 +6854,7 @@ struct whitenoise_macTests {
                             "nonce \(reference.nonceHex)",
                             "filename \(reference.fileName)",
                             "m \(reference.mediaType)",
-                            "v \(reference.version)",
+                            "v \(mediaVersionJSONString(reference.version))",
                         ])
                     ],
                     recordedAt: 1_700_000_000
@@ -6906,7 +6906,7 @@ struct whitenoise_macTests {
                         "mediaType": true,
                         "m": reference.mediaType,
                         "version": true,
-                        "v": reference.version,
+                        "v": mediaVersionJSONString(reference.version),
                         "dim": true,
                         "thumbhash": true,
                         "locators": [
@@ -27704,7 +27704,7 @@ private func mediaJsonWithIMetaAndFlatKeys(for reference: MediaAttachmentReferen
         "nonce": reference.nonceHex,
         "file_name": reference.fileName,
         "media_type": reference.mediaType,
-        "version": reference.version,
+        "version": mediaVersionJSONString(reference.version),
     ]
     return mediaJSONString(fromJSONObject: object)
 }
@@ -27712,6 +27712,15 @@ private func mediaJsonWithIMetaAndFlatKeys(for reference: MediaAttachmentReferen
 private func mediaJSONString(fromJSONObject object: Any) -> String {
     let data = try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     return String(data: data, encoding: .utf8)!
+}
+
+private func mediaVersionJSONString(_ version: EncryptedMediaVersionFfi) -> String {
+    switch version {
+    case .v1:
+        "v1"
+    case .v2:
+        "v2"
+    }
 }
 
 private func mediaIMetaTag(for reference: MediaAttachmentReferenceFfi) -> MessageTagFfi {
@@ -27722,7 +27731,7 @@ private func mediaIMetaTag(for reference: MediaAttachmentReferenceFfi) -> Messag
     values.append("nonce \(reference.nonceHex)")
     values.append("filename \(reference.fileName)")
     values.append("m \(reference.mediaType)")
-    values.append("v \(reference.version)")
+    values.append("v \(mediaVersionJSONString(reference.version))")
     if let dim = reference.dim {
         values.append("dim \(dim)")
     }
