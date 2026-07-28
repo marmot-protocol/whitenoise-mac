@@ -196,8 +196,15 @@ nonisolated struct ChatListOrdering {
             groupImagePayload: current.groupImagePayload,
             groupImageHashHex: current.groupImageHashHex,
             unreadCount: chat.unreadCount,
+            hasUnread: chat.hasUnread,
+            manuallyMarkedUnread: chat.manuallyMarkedUnread,
             unreadMentionCount: chat.unreadMentionCount,
-            isDirect: current.isDirect,
+            isDirect: chat.hasAuthoritativeConversationKind ? chat.isDirect : current.isDirect,
+            hasAuthoritativeConversationKind: chat.hasAuthoritativeConversationKind,
+            muted: chat.muted,
+            mutedUntilMs: chat.mutedUntilMs,
+            leaveRequestPending: chat.leaveRequestPending,
+            latestMessageDelivery: chat.latestMessageDelivery,
             pendingConfirmation: chat.pendingConfirmation,
             selfMembership: chat.selfMembership
         )
@@ -1000,6 +1007,7 @@ final class WorkspaceState {
     @ObservationIgnored var globalMessageSearchGeneration: UInt64 = 0
     var chatListFilter: ChatListFilter = .active
     var archivingChatId: String?
+    var mutatingChatPreferenceIds: Set<String> = []
     var isChatListVisible = true
     var draftText: String {
         get {
@@ -2358,6 +2366,8 @@ final class WorkspaceState {
             canInvite: managementState.canInvite,
             canLeave: managementState.canLeave,
             requiresSelfDemoteBeforeLeave: managementState.requiresSelfDemoteBeforeLeave,
+            leaveRequestPending: managementState.leaveRequestPending,
+            leaveRequestedAtMs: managementState.leaveRequestedAtMs,
             disappearingMessageSecs: details.group.disappearingMessageSecs
         )
     }

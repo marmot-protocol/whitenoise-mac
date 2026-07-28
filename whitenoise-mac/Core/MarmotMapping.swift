@@ -57,13 +57,15 @@ extension ChatItem {
         let preview = row.lastMessage.map {
             ChatItem.previewText(for: $0, activeAccountIdHex: activeAccountIdHex, mentionNames: mentionNames)
         }
-        let previewTimestamp = row.lastMessage?.timelineAt ?? 0
-        let timestamp = previewTimestamp > 0 ? previewTimestamp : row.updatedAt
+        // MDK owns durable chat ordering. `updatedAt` includes maintenance-only
+        // writes and must not make a conversation jump in the sidebar.
+        let timestamp = row.activitySortAt > 0 ? row.activitySortAt : row.conversationCreatedAt
         let updatedAt = timestamp > 0 ? Date(timeIntervalSince1970: TimeInterval(timestamp)) : nil
+        let isDirect = row.conversationKind == .direct || directPeer != nil
         let subtitle: String
         if row.archived {
             subtitle = L10n.string("Archived")
-        } else if directPeer != nil {
+        } else if isDirect {
             subtitle = L10n.string("Direct message")
         } else if !groupName.isEmpty {
             subtitle = groupName
@@ -79,11 +81,18 @@ extension ChatItem {
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
             pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
-            groupImagePayload: directPeer == nil ? groupImagePayload : nil,
-            groupImageHashHex: directPeer == nil ? row.avatar?.imageHashHex.nilIfBlank : nil,
+            groupImagePayload: isDirect ? nil : groupImagePayload,
+            groupImageHashHex: isDirect ? nil : row.avatar?.imageHashHex.nilIfBlank,
             unreadCount: Int(clamping: row.unreadCount),
+            hasUnread: row.hasUnread,
+            manuallyMarkedUnread: row.manuallyMarkedUnread,
             unreadMentionCount: Int(clamping: row.unreadMentionCount),
-            isDirect: directPeer != nil,
+            isDirect: isDirect,
+            hasAuthoritativeConversationKind: row.conversationKind != .unknown,
+            muted: row.muted,
+            mutedUntilMs: row.mutedUntilMs,
+            leaveRequestPending: row.leaveRequestPending,
+            latestMessageDelivery: ChatMessageDeliveryState(row.lastMessage?.deliveryState),
             pendingConfirmation: row.pendingConfirmation,
             selfMembership: ChatSelfMembership(row.selfMembership)
         )
@@ -107,20 +116,19 @@ extension ChatItem {
             invalidationStatus: nil,
             hasMediaAttachments: false
         )
-        // `ChatListMessagePreviewFfi` carries no media payload, so a media-only chat
-        // message arrives with empty `plaintext` and `displayText` reports it as
-        // "Unsupported message". Only treat that sentinel as media-only when the
-        // source preview text is empty; a user can send that literal text.
         let sourceTextIsEmpty = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let isMediaOnlyChat =
             presentation.isChatBubble
             && sourceTextIsEmpty
-            && text == L10n.string("Unsupported message")
+            && (preview.attachmentCount > 0 || text == L10n.string("Unsupported message"))
         // Resolve the body first so the sender prefix applies to media-only previews too, not
         // just text — otherwise a group attachment shows up unattributed.
         let body: String
         if text.isEmpty || isMediaOnlyChat {
-            body = presentation.isChatBubble ? L10n.string("Attachment") : L10n.string("Unsupported message")
+            body =
+                presentation.isChatBubble
+                ? attachmentPreview(kind: preview.attachmentKind, count: preview.attachmentCount)
+                : L10n.string("Unsupported message")
         } else {
             body = MentionDisplayResolver.resolve(in: text, mentionNames: mentionNames)
         }
@@ -135,6 +143,50 @@ extension ChatItem {
         return "\(PeerDisplayText.templateFragment(senderName)): \(body)"
     }
 
+    private static func attachmentPreview(kind: ChatListAttachmentKindFfi?, count: UInt32) -> String {
+        guard count > 1 else {
+            switch kind {
+            case .photo:
+                return L10n.string("Photo")
+            case .video:
+                return L10n.string("Video")
+            case .audio:
+                return L10n.string("Audio")
+            case .file:
+                return L10n.string("File")
+            case .mixed, .none:
+                return L10n.string("Attachment")
+            }
+        }
+        switch kind {
+        case .photo:
+            return L10n.plural("%lld photos", Int64(count))
+        case .video:
+            return L10n.plural("%lld videos", Int64(count))
+        case .audio:
+            return L10n.plural("%lld audio clips", Int64(count))
+        case .file:
+            return L10n.plural("%lld files", Int64(count))
+        case .mixed, .none:
+            return L10n.plural("%lld attachments", Int64(count))
+        }
+    }
+
+}
+
+extension ChatMessageDeliveryState {
+    nonisolated init(_ state: ChatListMessageDeliveryStateFfi?) {
+        switch state {
+        case .pending:
+            self = .pending
+        case .delivered:
+            self = .delivered
+        case .failed:
+            self = .failed
+        case .notApplicable, .none:
+            self = .notApplicable
+        }
+    }
 }
 
 nonisolated enum MessageEditMutation: Equatable, Sendable {
@@ -241,6 +293,9 @@ nonisolated extension MessageItem {
             id: record.messageIdHex,
             groupIdHex: record.groupIdHex,
             sourceMessageIdHex: record.sourceMessageIdHex,
+            sourceEpoch: record.sourceEpoch,
+            retentionSeconds: record.retentionSeconds,
+            retentionExpiresAt: record.retentionExpiresAt,
             replyTargetIdHex: record.replyToMessageIdHex,
             senderAccountIdHex: record.sender,
             senderName: MessageItem.senderName(

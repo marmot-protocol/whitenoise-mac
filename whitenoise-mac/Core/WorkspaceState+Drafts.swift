@@ -47,7 +47,8 @@ extension WorkspaceState {
     /// Flush every dirty draft through the normal off-main FFI boundary. Account teardown uses
     /// the scoped form before non-destructive sign-out so the encrypted draft survives sign-in.
     func flushComposerDraftPersistence(forAccountId accountId: String? = nil) async {
-        let keys = dirtyComposerDraftKeys
+        let keys =
+            dirtyComposerDraftKeys
             .filter { accountId == nil || $0.accountId == accountId }
             .sorted {
                 if $0.accountId != $1.accountId { return $0.accountId < $1.accountId }

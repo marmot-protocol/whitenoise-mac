@@ -111,6 +111,17 @@ nonisolated protocol MarmotRuntime: Sendable {
     func updateMessageRetention(accountRef: String, groupIdHex: String, disappearingMessageSecs: UInt64) async throws
         -> SendSummaryFfi
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi
+    func sweepExpiredRetention(accountRef: String, nowMs: UInt64) async throws -> RetentionSweepReportFfi
+    func setChatManuallyUnread(accountRef: String, groupIdHex: String, manuallyUnread: Bool) throws -> ChatListRowFfi?
+    func chatNotificationSettings(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi
+    func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?) throws
+        -> ChatNotificationSettingsFfi
+    func clearChatMuted(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi
+    func recordHostPerformance(
+        operation: HostPerformanceOperationFfi,
+        durationMs: UInt64,
+        outcome: HostPerformanceOutcomeFfi
+    )
 }
 
 // `marmot` is a UniFFI handle whose Rust object is internally Send + Sync, and all
@@ -609,6 +620,40 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
         try await marmot.secureDeleteExpired(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func sweepExpiredRetention(accountRef: String, nowMs: UInt64) async throws -> RetentionSweepReportFfi {
+        try await marmot.sweepExpiredRetention(accountRef: accountRef, nowMs: nowMs)
+    }
+
+    func setChatManuallyUnread(accountRef: String, groupIdHex: String, manuallyUnread: Bool) throws -> ChatListRowFfi? {
+        try marmot.setChatManuallyUnread(
+            accountRef: accountRef,
+            groupIdHex: groupIdHex,
+            manuallyUnread: manuallyUnread
+        )
+    }
+
+    func chatNotificationSettings(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi {
+        try marmot.chatNotificationSettings(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?) throws
+        -> ChatNotificationSettingsFfi
+    {
+        try marmot.setChatMuted(accountRef: accountRef, groupIdHex: groupIdHex, mutedUntilMs: mutedUntilMs)
+    }
+
+    func clearChatMuted(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi {
+        try marmot.clearChatMuted(accountRef: accountRef, groupIdHex: groupIdHex)
+    }
+
+    func recordHostPerformance(
+        operation: HostPerformanceOperationFfi,
+        durationMs: UInt64,
+        outcome: HostPerformanceOutcomeFfi
+    ) {
+        marmot.recordHostPerformance(operation: operation, durationMs: durationMs, outcome: outcome)
     }
 }
 

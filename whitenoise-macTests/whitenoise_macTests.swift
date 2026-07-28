@@ -5288,6 +5288,41 @@ struct whitenoise_macTests {
         #expect(!structured.supportsInlineMetadata)
     }
 
+    @Test func singleEmojiMessagesAreClassifiedForStickerPresentation() {
+        let singleEmoji = [
+            "😀",
+            "  👍🏽\n",
+            "🇮🇹",
+            "1️⃣",
+            "👨‍👩‍👧‍👦",
+            "❤️",
+        ]
+        for candidate in singleEmoji {
+            #expect(EmojiPresentation.singleEmoji(in: candidate) != nil)
+        }
+
+        let regularText = [
+            "",
+            "1",
+            "A",
+            "©",
+            "😀😀",
+            "Hello 😀",
+        ]
+        for candidate in regularText {
+            #expect(EmojiPresentation.singleEmoji(in: candidate) == nil)
+        }
+
+        let message = MessageItem(
+            id: "emoji",
+            senderName: "Alice",
+            body: "  👋🏽  ",
+            sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+            isOutgoing: false
+        )
+        #expect(message.singleEmoji == "👋🏽")
+    }
+
     @MainActor
     @Test func messageItemEqualityAndHashingIgnoreDerivedMarkdownAST() async throws {
         let sentAt = Date(timeIntervalSince1970: 1_700_000_000)
@@ -24290,6 +24325,148 @@ struct whitenoise_macTests {
 
 }
 
+@Suite(.serialized)
+struct MarmotKit098IntegrationTests {
+    @MainActor
+    @Test func legacyMediaOnlyPreviewStillUsesAttachmentFallback() async throws {
+        let row = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: "",
+            sender: "alice",
+            timelineAt: 1_700_000_000
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        #expect(chat.preview == L10n.string("Attachment"))
+    }
+
+    @MainActor
+    @Test func chatRowProjectsDurableInteractionFields() async throws {
+        let row = ChatListRowFfi(
+            groupIdHex: "direct-group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Alice",
+            groupName: "",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "message",
+                sender: "alice",
+                senderDisplayName: "Alice",
+                plaintext: "",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                timelineAt: 1_700_000_000,
+                deleted: false,
+                attachmentKind: .photo,
+                attachmentCount: 2,
+                deliveryState: .failed
+            ),
+            unreadCount: 0,
+            hasUnread: true,
+            manuallyMarkedUnread: true,
+            unreadMentionCount: 0,
+            unreadMention: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            conversationCreatedAt: 1_600_000_000,
+            activitySortAt: 1_700_000_000,
+            updatedAt: 1_800_000_000,
+            selfMembership: .member,
+            conversationKind: .direct,
+            muted: true,
+            mutedUntilMs: nil,
+            leaveRequestPending: true,
+            leaveRequestedAtMs: 1_700_000_000_000
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        #expect(chat.updatedAt == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(chat.preview == "\(isolated("Alice")): 2 photos")
+        #expect(chat.isDirect)
+        #expect(chat.hasAuthoritativeConversationKind)
+        #expect(chat.hasUnread && chat.manuallyMarkedUnread && chat.unreadCount == 0)
+        #expect(chat.muted && chat.leaveRequestPending)
+        #expect(chat.latestMessageDelivery == .failed)
+    }
+
+    @MainActor
+    @Test func chatPreferenceActionsCall098RuntimeSurface() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.installGroups([messageGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+
+        await state.setChatManuallyUnread(chat, manuallyUnread: true)
+        await state.setChatMuted(chat, duration: nil)
+        await state.clearChatMuted(chat)
+
+        #expect(runtime.setChatManuallyUnreadCallCount == 1)
+        #expect(runtime.lastManuallyUnreadValue == true)
+        #expect(runtime.setChatMutedCallCount == 1)
+        #expect(runtime.lastMutedUntilMs == nil)
+        #expect(runtime.clearChatMutedCallCount == 1)
+    }
+
+    @MainActor
+    @Test func startupReportsHostReadinessAndSchedulesRetentionSweep() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        for _ in 0..<1_000 where runtime.sweepExpiredRetentionCallCount == 0 {
+            await Task.yield()
+        }
+
+        #expect(runtime.sweepExpiredRetentionCallCount == 1)
+        #expect(
+            runtime.recordedHostPerformance.contains {
+                $0.0 == .splashReady && $0.2 == .success
+            }
+        )
+
+        state.recordForegroundLocalReady(since: DispatchTime.now().uptimeNanoseconds)
+        #expect(runtime.recordedHostPerformance.last?.0 == .foregroundLocalReady)
+        #expect(runtime.recordedHostPerformance.last?.2 == .success)
+    }
+
+    @MainActor
+    @Test func pendingLeaveIntentBlocksDuplicatePublish() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false),
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: false,
+                isLastAdmin: false,
+                canInvite: false,
+                canLeave: false,
+                requiresSelfDemoteBeforeLeave: false,
+                leaveRequestPending: true,
+                leaveRequestedAtMs: 1_700_000_000_000,
+                memberActions: []
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+        await state.showGroupDetails(for: chat)
+
+        await state.leaveSelectedGroup()
+
+        #expect(state.groupDetailsSnapshot?.leaveRequestPending == true)
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(state.lastError == L10n.string("Your leave request is already pending."))
+    }
+}
+
 private actor FakeGroupImageSearchClient: GroupImageSearchClient {
     private let results: [GroupImageSearchResult]
     private(set) var queries: [String] = []
@@ -26009,6 +26186,13 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var updateMessageRetentionCallCount = 0
     var lastRetentionSecs: UInt64?
     var secureDeleteExpiredCallCount = 0
+    var sweepExpiredRetentionCallCount = 0
+    var setChatManuallyUnreadCallCount = 0
+    var lastManuallyUnreadValue: Bool?
+    var setChatMutedCallCount = 0
+    var clearChatMutedCallCount = 0
+    var lastMutedUntilMs: Int64?
+    var recordedHostPerformance: [(HostPerformanceOperationFfi, UInt64, HostPerformanceOutcomeFfi)] = []
     private let secureDeleteExpiredGate = AsyncFfiGate()
     var secureDeleteExpiredGateEnabled: Bool {
         get { secureDeleteExpiredGate.isEnabled }
@@ -26100,6 +26284,63 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         secureDeleteExpiredCallCount += 1
         await secureDeleteExpiredGate.passIfArmed()
         return SecureDeleteExpiredResultFfi(prunedMessages: 0, secretsDeleted: 0, mediaCiphertextSha256: [])
+    }
+
+    func sweepExpiredRetention(accountRef: String, nowMs: UInt64) async throws -> RetentionSweepReportFfi {
+        sweepExpiredRetentionCallCount += 1
+        return RetentionSweepReportFfi(groups: [])
+    }
+
+    func setChatManuallyUnread(accountRef: String, groupIdHex: String, manuallyUnread: Bool) throws -> ChatListRowFfi? {
+        setChatManuallyUnreadCallCount += 1
+        lastManuallyUnreadValue = manuallyUnread
+        return nil
+    }
+
+    func chatNotificationSettings(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi {
+        ChatNotificationSettingsFfi(
+            accountRef: accountRef,
+            accountIdHex: accountRef,
+            groupIdHex: groupIdHex,
+            muted: false,
+            mutedUntilMs: nil,
+            updatedAtMs: 0
+        )
+    }
+
+    func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?) throws
+        -> ChatNotificationSettingsFfi
+    {
+        setChatMutedCallCount += 1
+        lastMutedUntilMs = mutedUntilMs
+        return ChatNotificationSettingsFfi(
+            accountRef: accountRef,
+            accountIdHex: accountRef,
+            groupIdHex: groupIdHex,
+            muted: true,
+            mutedUntilMs: mutedUntilMs,
+            updatedAtMs: 0
+        )
+    }
+
+    func clearChatMuted(accountRef: String, groupIdHex: String) throws -> ChatNotificationSettingsFfi {
+        clearChatMutedCallCount += 1
+        return ChatNotificationSettingsFfi(
+            accountRef: accountRef,
+            accountIdHex: accountRef,
+            groupIdHex: groupIdHex,
+            muted: false,
+            mutedUntilMs: nil,
+            updatedAtMs: 0
+        )
+    }
+
+    func recordHostPerformance(
+        operation: HostPerformanceOperationFfi,
+        durationMs: UInt64,
+        outcome: HostPerformanceOutcomeFfi
+    ) {
+        recordedHostPerformance.append((operation, durationMs, outcome))
     }
 
     func releaseSecureDeleteExpiredGate() {

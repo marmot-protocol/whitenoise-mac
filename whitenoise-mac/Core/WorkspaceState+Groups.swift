@@ -655,6 +655,10 @@ extension WorkspaceState {
             let snapshot = groupDetailsSnapshot,
             !hasInFlightGroupCommit
         else { return }
+        guard !snapshot.leaveRequestPending else {
+            lastError = L10n.string("Your leave request is already pending.")
+            return
+        }
         guard snapshot.canLeave, !snapshot.requiresSelfDemoteBeforeLeave else {
             lastError = L10n.string("Demote yourself from admin before leaving this group.")
             return
@@ -1160,13 +1164,16 @@ extension WorkspaceState {
         groupIdHex: String
     ) {
         switch trigger {
-        case .newGroup, .membershipChanged, .snapshotRefresh, .removed:
+        case .newGroup, .membershipChanged, .conversationKindChanged, .snapshotRefresh, .removed:
             invalidateGroupMembers(for: groupIdHex)
         case .newLastMessage,
             .lastMessageDeleted,
+            .latestMessageDeliveryChanged,
             .archiveChanged,
             .pendingConfirmationChanged,
-            .unreadChanged:
+            .unreadChanged,
+            .manualUnreadChanged,
+            .muteChanged:
             break
         }
     }

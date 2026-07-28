@@ -121,9 +121,19 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let groupImagePayload: DownloadedMediaPayload?
     let groupImageHashHex: String?
     let unreadCount: Int
+    /// Includes ordinary unread messages and the user's durable manual-unread reminder.
+    let hasUnread: Bool
+    let manuallyMarkedUnread: Bool
     /// Unread messages in this chat that @-mention the active account.
     let unreadMentionCount: Int
     let isDirect: Bool
+    /// True when MDK supplied `.direct`/`.group`; false permits legacy roster enrichment.
+    let hasAuthoritativeConversationKind: Bool
+    let muted: Bool
+    /// Absolute Unix epoch milliseconds for a finite mute; nil means indefinite while muted.
+    let mutedUntilMs: Int64?
+    let leaveRequestPending: Bool
+    let latestMessageDelivery: ChatMessageDeliveryState
     let pendingConfirmation: Bool
     let selfMembership: ChatSelfMembership
     /// Precomputed once from `updatedAt` (which is immutable for a given value) to
@@ -162,8 +172,15 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         groupImagePayload: DownloadedMediaPayload? = nil,
         groupImageHashHex: String? = nil,
         unreadCount: Int,
+        hasUnread: Bool? = nil,
+        manuallyMarkedUnread: Bool = false,
         unreadMentionCount: Int = 0,
         isDirect: Bool = false,
+        hasAuthoritativeConversationKind: Bool = false,
+        muted: Bool = false,
+        mutedUntilMs: Int64? = nil,
+        leaveRequestPending: Bool = false,
+        latestMessageDelivery: ChatMessageDeliveryState = .notApplicable,
         pendingConfirmation: Bool = false,
         selfMembership: ChatSelfMembership = .member
     ) {
@@ -179,8 +196,15 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.groupImagePayload = groupImagePayload
         self.groupImageHashHex = groupImageHashHex
         self.unreadCount = unreadCount
+        self.hasUnread = hasUnread ?? (unreadCount > 0)
+        self.manuallyMarkedUnread = manuallyMarkedUnread
         self.unreadMentionCount = unreadMentionCount
         self.isDirect = isDirect
+        self.hasAuthoritativeConversationKind = hasAuthoritativeConversationKind
+        self.muted = muted
+        self.mutedUntilMs = mutedUntilMs
+        self.leaveRequestPending = leaveRequestPending
+        self.latestMessageDelivery = latestMessageDelivery
         self.pendingConfirmation = pendingConfirmation
         self.selfMembership = selfMembership
         if let updatedAt {
@@ -189,6 +213,13 @@ nonisolated struct ChatItem: Identifiable, Hashable {
             self.timestampLabel = ""
         }
     }
+}
+
+nonisolated enum ChatMessageDeliveryState: Hashable, Sendable {
+    case notApplicable
+    case pending
+    case delivered
+    case failed
 }
 
 // `Sendable` so the timeline window/projection mapping can capture the resolved
@@ -250,8 +281,58 @@ struct GroupDetailsSnapshot: Hashable {
     let canInvite: Bool
     let canLeave: Bool
     let requiresSelfDemoteBeforeLeave: Bool
+    let leaveRequestPending: Bool
+    let leaveRequestedAtMs: UInt64?
     /// Per-group disappearing-message timer in seconds; `0` means messages never expire.
     let disappearingMessageSecs: UInt64
+
+    init(
+        groupIdHex: String,
+        endpoint: String,
+        name: String,
+        description: String,
+        avatarURL: String?,
+        sanitizedAvatarURL: URL?,
+        avatarDimension: String?,
+        nostrGroupIdHex: String,
+        relays: [String],
+        adminIds: [String],
+        archived: Bool,
+        pendingConfirmation: Bool,
+        selfMembership: ChatSelfMembership,
+        members: [GroupMemberItem],
+        isSelfAdmin: Bool,
+        isLastAdmin: Bool,
+        canInvite: Bool,
+        canLeave: Bool,
+        requiresSelfDemoteBeforeLeave: Bool,
+        leaveRequestPending: Bool = false,
+        leaveRequestedAtMs: UInt64? = nil,
+        disappearingMessageSecs: UInt64
+    ) {
+        self.groupIdHex = groupIdHex
+        self.endpoint = endpoint
+        self.name = name
+        self.description = description
+        self.avatarURL = avatarURL
+        self.sanitizedAvatarURL = sanitizedAvatarURL
+        self.avatarDimension = avatarDimension
+        self.nostrGroupIdHex = nostrGroupIdHex
+        self.relays = relays
+        self.adminIds = adminIds
+        self.archived = archived
+        self.pendingConfirmation = pendingConfirmation
+        self.selfMembership = selfMembership
+        self.members = members
+        self.isSelfAdmin = isSelfAdmin
+        self.isLastAdmin = isLastAdmin
+        self.canInvite = canInvite
+        self.canLeave = canLeave
+        self.requiresSelfDemoteBeforeLeave = requiresSelfDemoteBeforeLeave
+        self.leaveRequestPending = leaveRequestPending
+        self.leaveRequestedAtMs = leaveRequestedAtMs
+        self.disappearingMessageSecs = disappearingMessageSecs
+    }
 
     var memberCountLabel: String {
         L10n.plural("%lld members", Int64(members.count))
@@ -1630,6 +1711,10 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let id: String
     let groupIdHex: String
     let sourceMessageIdHex: String?
+    /// Authenticated MLS epoch and pinned retention decision for this exact message.
+    let sourceEpoch: UInt64?
+    let retentionSeconds: UInt64?
+    let retentionExpiresAt: UInt64?
     let replyTargetIdHex: String?
     let senderAccountIdHex: String
     let senderName: String
@@ -1664,6 +1749,10 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
+
+    /// A single rendered emoji, including multi-scalar flags, skin tones, keycaps, and
+    /// joined families. Used by the chat row to opt into the large, bubble-free treatment.
+    var singleEmoji: String? { EmojiPresentation.singleEmoji(in: trimmedBody) }
 
     /// The sender's avatar URL, passed through the remote-image policy for incoming-bubble avatars.
     var senderSanitizedPictureURL: URL? { RemoteImageURLPolicy.sanitizedURL(from: senderPictureURL) }
@@ -1713,6 +1802,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         id: String,
         groupIdHex: String = "",
         sourceMessageIdHex: String? = nil,
+        sourceEpoch: UInt64? = nil,
+        retentionSeconds: UInt64? = nil,
+        retentionExpiresAt: UInt64? = nil,
         replyTargetIdHex: String? = nil,
         senderAccountIdHex: String? = nil,
         senderName: String,
@@ -1739,6 +1831,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.id = id
         self.groupIdHex = groupIdHex
         self.sourceMessageIdHex = Self.nonBlank(sourceMessageIdHex)
+        self.sourceEpoch = sourceEpoch
+        self.retentionSeconds = retentionSeconds
+        self.retentionExpiresAt = retentionExpiresAt
         self.replyTargetIdHex = Self.nonBlank(replyTargetIdHex)
         self.senderAccountIdHex = senderAccountIdHex ?? senderName
         self.senderName = senderName
@@ -1820,6 +1915,9 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             id: id,
             groupIdHex: groupIdHex,
             sourceMessageIdHex: sourceMessageIdHex,
+            sourceEpoch: sourceEpoch,
+            retentionSeconds: retentionSeconds,
+            retentionExpiresAt: retentionExpiresAt,
             replyTargetIdHex: replyTargetIdHex,
             senderAccountIdHex: senderAccountIdHex,
             senderName: senderName,

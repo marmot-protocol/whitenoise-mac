@@ -1780,6 +1780,16 @@ public protocol MarmotProtocol : AnyObject {
     func chatList(accountRef: String, includeArchived: Bool) throws  -> [ChatListRowFfi]
     
     /**
+     * Read the current MDK timed/indefinite mute state for one chat.
+     */
+    func chatNotificationSettings(accountRef: String, groupIdHex: String) throws  -> ChatNotificationSettingsFfi
+    
+    /**
+     * Clear either a finite or indefinite MDK chat mute.
+     */
+    func clearChatMuted(accountRef: String, groupIdHex: String) throws  -> ChatNotificationSettingsFfi
+    
+    /**
      * Clear the group's encrypted Blossom avatar by committing the absent
      * `marmot.group.blossom.image.v1` component state.
      */
@@ -2099,6 +2109,14 @@ public protocol MarmotProtocol : AnyObject {
     func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId: String, emoji: String) async throws  -> SendSummaryFfi
     
     /**
+     * Record one approved host-app milestone.
+     *
+     * The operation is a closed enum and the exported metrics carry no
+     * caller-supplied labels.
+     */
+    func recordHostPerformance(operation: HostPerformanceOperationFfi, durationMs: UInt64, outcome: HostPerformanceOutcomeFfi) 
+    
+    /**
      * Fetch and cache an account's own Nostr kind:0 profile from `relays`.
      * After this resolves, `user_profile` / `display_name` return the
      * freshly-fetched metadata (name, picture, etc.) for that account.
@@ -2268,6 +2286,18 @@ public protocol MarmotProtocol : AnyObject {
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws  -> AuditLogTrackerConfigFfi
     
     /**
+     * Set or clear a manual unread reminder without moving the durable
+     * timeline read marker backwards.
+     */
+    func setChatManuallyUnread(accountRef: String, groupIdHex: String, manuallyUnread: Bool) throws  -> ChatListRowFfi?
+    
+    /**
+     * Mute one chat until an absolute Unix epoch millisecond timestamp, or
+     * indefinitely when `muted_until_ms` is `None`.
+     */
+    func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?) throws  -> ChatNotificationSettingsFfi
+    
+    /**
      * Flag a group archived (or restore it). Local-only projection state —
      * it does not change membership or publish anything. The chats list
      * filters archived groups unless `include_archived` is set.
@@ -2340,8 +2370,16 @@ public protocol MarmotProtocol : AnyObject {
     func signOutAndWipe(accountRef: String) async throws  -> WipeOutcomeFfi
     
     /**
-     * Bring the runtime online: reconcile known accounts, start workers,
-     * subscribe to transport events.
+     * Bring the runtime to local readiness.
+     *
+     * On success, persisted account state is hydrated and worker-routed local
+     * reads are available. Relay activation, group-subscription registration,
+     * shared-directory synchronization, and initial catch-up continue
+     * asynchronously. Hosts should render local projections immediately and
+     * represent network progress separately.
+     *
+     * The binding signature and result type are unchanged; this local-ready
+     * completion point is the behavioral contract for this implementation.
      */
     func start() async throws 
     
@@ -2398,6 +2436,13 @@ public protocol MarmotProtocol : AnyObject {
      * The snapshot and each update are full pages for the supplied query.
      */
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws  -> TimelineMessagesSubscription
+    
+    /**
+     * Run the engine-owned disappearing-message sweep for one account using
+     * the supplied Unix wall-clock time in milliseconds. Each group reports
+     * pruning, a fail-closed deferral, or a privacy-safe failure category.
+     */
+    func sweepExpiredRetention(accountRef: String, nowMs: UInt64) async throws  -> RetentionSweepReportFfi
     
     /**
      * Stable random identifier for this app install, suitable for the OTLP
@@ -2760,6 +2805,30 @@ open func chatList(accountRef: String, includeArchived: Bool)throws  -> [ChatLis
     uniffi_marmot_uniffi_fn_method_marmot_chat_list(self.uniffiClonePointer(),
         FfiConverterString.lower(accountRef),
         FfiConverterBool.lower(includeArchived),$0
+    )
+})
+}
+    
+    /**
+     * Read the current MDK timed/indefinite mute state for one chat.
+     */
+open func chatNotificationSettings(accountRef: String, groupIdHex: String)throws  -> ChatNotificationSettingsFfi {
+    return try  FfiConverterTypeChatNotificationSettingsFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_chat_notification_settings(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),
+        FfiConverterString.lower(groupIdHex),$0
+    )
+})
+}
+    
+    /**
+     * Clear either a finite or indefinite MDK chat mute.
+     */
+open func clearChatMuted(accountRef: String, groupIdHex: String)throws  -> ChatNotificationSettingsFfi {
+    return try  FfiConverterTypeChatNotificationSettingsFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_clear_chat_muted(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),
+        FfiConverterString.lower(groupIdHex),$0
     )
 })
 }
@@ -3772,6 +3841,21 @@ open func reactToMessage(accountRef: String, groupIdHex: String, targetMessageId
 }
     
     /**
+     * Record one approved host-app milestone.
+     *
+     * The operation is a closed enum and the exported metrics carry no
+     * caller-supplied labels.
+     */
+open func recordHostPerformance(operation: HostPerformanceOperationFfi, durationMs: UInt64, outcome: HostPerformanceOutcomeFfi) {try! rustCall() {
+    uniffi_marmot_uniffi_fn_method_marmot_record_host_performance(self.uniffiClonePointer(),
+        FfiConverterTypeHostPerformanceOperationFfi.lower(operation),
+        FfiConverterUInt64.lower(durationMs),
+        FfiConverterTypeHostPerformanceOutcomeFfi.lower(outcome),$0
+    )
+}
+}
+    
+    /**
      * Fetch and cache an account's own Nostr kind:0 profile from `relays`.
      * After this resolves, `user_profile` / `display_name` return the
      * freshly-fetched metadata (name, picture, etc.) for that account.
@@ -4314,6 +4398,34 @@ open func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi)throws  -> A
 }
     
     /**
+     * Set or clear a manual unread reminder without moving the durable
+     * timeline read marker backwards.
+     */
+open func setChatManuallyUnread(accountRef: String, groupIdHex: String, manuallyUnread: Bool)throws  -> ChatListRowFfi? {
+    return try  FfiConverterOptionTypeChatListRowFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_set_chat_manually_unread(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),
+        FfiConverterString.lower(groupIdHex),
+        FfiConverterBool.lower(manuallyUnread),$0
+    )
+})
+}
+    
+    /**
+     * Mute one chat until an absolute Unix epoch millisecond timestamp, or
+     * indefinitely when `muted_until_ms` is `None`.
+     */
+open func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?)throws  -> ChatNotificationSettingsFfi {
+    return try  FfiConverterTypeChatNotificationSettingsFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_set_chat_muted(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),
+        FfiConverterString.lower(groupIdHex),
+        FfiConverterOptionInt64.lower(mutedUntilMs),$0
+    )
+})
+}
+    
+    /**
      * Flag a group archived (or restore it). Local-only projection state —
      * it does not change membership or publish anything. The chats list
      * filters archived groups unless `include_archived` is set.
@@ -4529,8 +4641,16 @@ open func signOutAndWipe(accountRef: String)async throws  -> WipeOutcomeFfi {
 }
     
     /**
-     * Bring the runtime online: reconcile known accounts, start workers,
-     * subscribe to transport events.
+     * Bring the runtime to local readiness.
+     *
+     * On success, persisted account state is hydrated and worker-routed local
+     * reads are available. Relay activation, group-subscription registration,
+     * shared-directory synchronization, and initial catch-up continue
+     * asynchronously. Hosts should render local projections immediately and
+     * represent network progress separately.
+     *
+     * The binding signature and result type are unchanged; this local-ready
+     * completion point is the behavioral contract for this implementation.
      */
 open func start()async throws  {
     return
@@ -4709,6 +4829,28 @@ open func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, lim
             completeFunc: ffi_marmot_uniffi_rust_future_complete_pointer,
             freeFunc: ffi_marmot_uniffi_rust_future_free_pointer,
             liftFunc: FfiConverterTypeTimelineMessagesSubscription.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
+}
+    
+    /**
+     * Run the engine-owned disappearing-message sweep for one account using
+     * the supplied Unix wall-clock time in milliseconds. Each group reports
+     * pruning, a fail-closed deferral, or a privacy-safe failure category.
+     */
+open func sweepExpiredRetention(accountRef: String, nowMs: UInt64)async throws  -> RetentionSweepReportFfi {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_sweep_expired_retention(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterUInt64.lower(nowMs)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRetentionSweepReportFfi.lift,
             errorHandler: FfiConverterTypeMarmotKitError.lift
         )
 }
@@ -6462,6 +6604,20 @@ public struct AppGroupRecordFfi {
      * whether it left voluntarily or was removed.
      */
     public var selfMembership: SelfMembershipFfi
+    /**
+     * The local account asked to leave this group and the request has not
+     * resolved yet. Orthogonal to `self_membership`, which records the locally
+     * classified departure rather than whether the request resolved — see
+     * `ChatListRowFfi::leave_request_pending` for the full state table.
+     *
+     * Always equal to `leave_requested_at_ms != null`.
+     */
+    public var leaveRequestPending: Bool
+    /**
+     * When the local account asked to leave, in milliseconds since the Unix
+     * epoch; `null` when no leave is pending.
+     */
+    public var leaveRequestedAtMs: UInt64?
     public var welcomerAccountIdHex: String?
     public var viaWelcomeMessageIdHex: String?
 
@@ -6491,7 +6647,19 @@ public struct AppGroupRecordFfi {
         /**
          * Whether the local account is still a member of this group, and if not,
          * whether it left voluntarily or was removed.
-         */selfMembership: SelfMembershipFfi, welcomerAccountIdHex: String?, viaWelcomeMessageIdHex: String?) {
+         */selfMembership: SelfMembershipFfi, 
+        /**
+         * The local account asked to leave this group and the request has not
+         * resolved yet. Orthogonal to `self_membership`, which records the locally
+         * classified departure rather than whether the request resolved — see
+         * `ChatListRowFfi::leave_request_pending` for the full state table.
+         *
+         * Always equal to `leave_requested_at_ms != null`.
+         */leaveRequestPending: Bool, 
+        /**
+         * When the local account asked to leave, in milliseconds since the Unix
+         * epoch; `null` when no leave is pending.
+         */leaveRequestedAtMs: UInt64?, welcomerAccountIdHex: String?, viaWelcomeMessageIdHex: String?) {
         self.groupIdHex = groupIdHex
         self.protocolProfile = protocolProfile
         self.endpoint = endpoint
@@ -6511,6 +6679,8 @@ public struct AppGroupRecordFfi {
         self.pendingConfirmation = pendingConfirmation
         self.unrecoverable = unrecoverable
         self.selfMembership = selfMembership
+        self.leaveRequestPending = leaveRequestPending
+        self.leaveRequestedAtMs = leaveRequestedAtMs
         self.welcomerAccountIdHex = welcomerAccountIdHex
         self.viaWelcomeMessageIdHex = viaWelcomeMessageIdHex
     }
@@ -6577,6 +6747,12 @@ extension AppGroupRecordFfi: Equatable, Hashable {
         if lhs.selfMembership != rhs.selfMembership {
             return false
         }
+        if lhs.leaveRequestPending != rhs.leaveRequestPending {
+            return false
+        }
+        if lhs.leaveRequestedAtMs != rhs.leaveRequestedAtMs {
+            return false
+        }
         if lhs.welcomerAccountIdHex != rhs.welcomerAccountIdHex {
             return false
         }
@@ -6606,6 +6782,8 @@ extension AppGroupRecordFfi: Equatable, Hashable {
         hasher.combine(pendingConfirmation)
         hasher.combine(unrecoverable)
         hasher.combine(selfMembership)
+        hasher.combine(leaveRequestPending)
+        hasher.combine(leaveRequestedAtMs)
         hasher.combine(welcomerAccountIdHex)
         hasher.combine(viaWelcomeMessageIdHex)
     }
@@ -6638,6 +6816,8 @@ public struct FfiConverterTypeAppGroupRecordFfi: FfiConverterRustBuffer {
                 pendingConfirmation: FfiConverterBool.read(from: &buf), 
                 unrecoverable: FfiConverterBool.read(from: &buf), 
                 selfMembership: FfiConverterTypeSelfMembershipFfi.read(from: &buf), 
+                leaveRequestPending: FfiConverterBool.read(from: &buf), 
+                leaveRequestedAtMs: FfiConverterOptionUInt64.read(from: &buf), 
                 welcomerAccountIdHex: FfiConverterOptionString.read(from: &buf), 
                 viaWelcomeMessageIdHex: FfiConverterOptionString.read(from: &buf)
         )
@@ -6663,6 +6843,8 @@ public struct FfiConverterTypeAppGroupRecordFfi: FfiConverterRustBuffer {
         FfiConverterBool.write(value.pendingConfirmation, into: &buf)
         FfiConverterBool.write(value.unrecoverable, into: &buf)
         FfiConverterTypeSelfMembershipFfi.write(value.selfMembership, into: &buf)
+        FfiConverterBool.write(value.leaveRequestPending, into: &buf)
+        FfiConverterOptionUInt64.write(value.leaveRequestedAtMs, into: &buf)
         FfiConverterOptionString.write(value.welcomerAccountIdHex, into: &buf)
         FfiConverterOptionString.write(value.viaWelcomeMessageIdHex, into: &buf)
     }
@@ -7652,10 +7834,13 @@ public struct ChatListMessagePreviewFfi {
     public var kind: UInt64
     public var timelineAt: UInt64
     public var deleted: Bool
+    public var attachmentKind: ChatListAttachmentKindFfi?
+    public var attachmentCount: UInt32
+    public var deliveryState: ChatListMessageDeliveryStateFfi
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(messageIdHex: String, sender: String, senderDisplayName: String?, plaintext: String, contentTokens: MarkdownDocumentFfi, kind: UInt64, timelineAt: UInt64, deleted: Bool) {
+    public init(messageIdHex: String, sender: String, senderDisplayName: String?, plaintext: String, contentTokens: MarkdownDocumentFfi, kind: UInt64, timelineAt: UInt64, deleted: Bool, attachmentKind: ChatListAttachmentKindFfi?, attachmentCount: UInt32, deliveryState: ChatListMessageDeliveryStateFfi) {
         self.messageIdHex = messageIdHex
         self.sender = sender
         self.senderDisplayName = senderDisplayName
@@ -7664,6 +7849,9 @@ public struct ChatListMessagePreviewFfi {
         self.kind = kind
         self.timelineAt = timelineAt
         self.deleted = deleted
+        self.attachmentKind = attachmentKind
+        self.attachmentCount = attachmentCount
+        self.deliveryState = deliveryState
     }
 }
 
@@ -7695,6 +7883,15 @@ extension ChatListMessagePreviewFfi: Equatable, Hashable {
         if lhs.deleted != rhs.deleted {
             return false
         }
+        if lhs.attachmentKind != rhs.attachmentKind {
+            return false
+        }
+        if lhs.attachmentCount != rhs.attachmentCount {
+            return false
+        }
+        if lhs.deliveryState != rhs.deliveryState {
+            return false
+        }
         return true
     }
 
@@ -7707,6 +7904,9 @@ extension ChatListMessagePreviewFfi: Equatable, Hashable {
         hasher.combine(kind)
         hasher.combine(timelineAt)
         hasher.combine(deleted)
+        hasher.combine(attachmentKind)
+        hasher.combine(attachmentCount)
+        hasher.combine(deliveryState)
     }
 }
 
@@ -7725,7 +7925,10 @@ public struct FfiConverterTypeChatListMessagePreviewFfi: FfiConverterRustBuffer 
                 contentTokens: FfiConverterTypeMarkdownDocumentFfi.read(from: &buf), 
                 kind: FfiConverterUInt64.read(from: &buf), 
                 timelineAt: FfiConverterUInt64.read(from: &buf), 
-                deleted: FfiConverterBool.read(from: &buf)
+                deleted: FfiConverterBool.read(from: &buf), 
+                attachmentKind: FfiConverterOptionTypeChatListAttachmentKindFfi.read(from: &buf), 
+                attachmentCount: FfiConverterUInt32.read(from: &buf), 
+                deliveryState: FfiConverterTypeChatListMessageDeliveryStateFfi.read(from: &buf)
         )
     }
 
@@ -7738,6 +7941,9 @@ public struct FfiConverterTypeChatListMessagePreviewFfi: FfiConverterRustBuffer 
         FfiConverterUInt64.write(value.kind, into: &buf)
         FfiConverterUInt64.write(value.timelineAt, into: &buf)
         FfiConverterBool.write(value.deleted, into: &buf)
+        FfiConverterOptionTypeChatListAttachmentKindFfi.write(value.attachmentKind, into: &buf)
+        FfiConverterUInt32.write(value.attachmentCount, into: &buf)
+        FfiConverterTypeChatListMessageDeliveryStateFfi.write(value.deliveryState, into: &buf)
     }
 }
 
@@ -7768,25 +7974,115 @@ public struct ChatListRowFfi {
     public var lastMessage: ChatListMessagePreviewFfi?
     public var unreadCount: UInt64
     public var hasUnread: Bool
+    /**
+     * User-created unread reminder independent of unread incoming messages.
+     */
+    public var manuallyMarkedUnread: Bool
     public var unreadMentionCount: UInt64
     public var unreadMention: Bool
     public var firstUnreadMessageIdHex: String?
     public var lastReadMessageIdHex: String?
     public var lastReadTimelineAt: UInt64?
+    public var conversationCreatedAt: UInt64
+    public var activitySortAt: UInt64
     public var updatedAt: UInt64
     /**
      * Whether the local account is still a member of this group, and if not,
      * whether it left voluntarily or was removed.
      */
     public var selfMembership: SelfMembershipFfi
+    public var conversationKind: ChatConversationKindFfi
+    /**
+     * Effective MDK mute state. This is separate from host notification modes
+     * such as all/mentions/nothing.
+     */
+    public var muted: Bool
+    /**
+     * Absolute Unix epoch milliseconds for a finite mute. `None` is
+     * indefinite when `muted` is true and unmuted when it is false.
+     */
+    public var mutedUntilMs: Int64?
+    /**
+     * The local account asked to leave this group and the request has not
+     * resolved yet. Render the conversation as leaving, and do not offer Leave
+     * again — see `GroupManagementStateFfi::can_leave`.
+     *
+     * Durable unresolved *intent*, which survives a failed publish and app
+     * termination — so a cold launch can rediscover it. Read this rather than
+     * `self_membership` to decide whether to show a leave in progress.
+     *
+     * This is orthogonal to `self_membership`, not a precursor to it. The two
+     * answer different questions and combine freely:
+     *
+     * | `self_membership` | this flag | meaning |
+     * |---|---|---|
+     * | `Member` | `true`  | leave requested, publish failed or was interrupted |
+     * | `Left`   | `true`  | leave published, still waiting for a member to commit it |
+     * | `Left`   | `false` | leave resolved |
+     * | `Removed`| `false` | removed by someone else |
+     *
+     * `self_membership` is the locally *classified departure* — `Left` is
+     * recorded as soon as the SelfRemove proposal publishes, so it does **not**
+     * imply a commit removed the member, and `Removed` marks an involuntary
+     * removal. This flag is about whether the request is still outstanding.
+     *
+     * Always equal to `leave_requested_at_ms != null`.
+     */
+    public var leaveRequestPending: Bool
+    /**
+     * When the local account asked to leave, in milliseconds since the Unix
+     * epoch; `null` when no leave is pending.
+     */
+    public var leaveRequestedAtMs: UInt64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(groupIdHex: String, archived: Bool, pendingConfirmation: Bool, title: String, groupName: String, avatarUrl: String?, avatar: ChatListAvatarFfi?, lastMessage: ChatListMessagePreviewFfi?, unreadCount: UInt64, hasUnread: Bool, unreadMentionCount: UInt64, unreadMention: Bool, firstUnreadMessageIdHex: String?, lastReadMessageIdHex: String?, lastReadTimelineAt: UInt64?, updatedAt: UInt64, 
+    public init(groupIdHex: String, archived: Bool, pendingConfirmation: Bool, title: String, groupName: String, avatarUrl: String?, avatar: ChatListAvatarFfi?, lastMessage: ChatListMessagePreviewFfi?, unreadCount: UInt64, hasUnread: Bool, 
+        /**
+         * User-created unread reminder independent of unread incoming messages.
+         */manuallyMarkedUnread: Bool, unreadMentionCount: UInt64, unreadMention: Bool, firstUnreadMessageIdHex: String?, lastReadMessageIdHex: String?, lastReadTimelineAt: UInt64?, conversationCreatedAt: UInt64, activitySortAt: UInt64, updatedAt: UInt64, 
         /**
          * Whether the local account is still a member of this group, and if not,
          * whether it left voluntarily or was removed.
-         */selfMembership: SelfMembershipFfi) {
+         */selfMembership: SelfMembershipFfi, conversationKind: ChatConversationKindFfi, 
+        /**
+         * Effective MDK mute state. This is separate from host notification modes
+         * such as all/mentions/nothing.
+         */muted: Bool, 
+        /**
+         * Absolute Unix epoch milliseconds for a finite mute. `None` is
+         * indefinite when `muted` is true and unmuted when it is false.
+         */mutedUntilMs: Int64?, 
+        /**
+         * The local account asked to leave this group and the request has not
+         * resolved yet. Render the conversation as leaving, and do not offer Leave
+         * again — see `GroupManagementStateFfi::can_leave`.
+         *
+         * Durable unresolved *intent*, which survives a failed publish and app
+         * termination — so a cold launch can rediscover it. Read this rather than
+         * `self_membership` to decide whether to show a leave in progress.
+         *
+         * This is orthogonal to `self_membership`, not a precursor to it. The two
+         * answer different questions and combine freely:
+         *
+         * | `self_membership` | this flag | meaning |
+         * |---|---|---|
+         * | `Member` | `true`  | leave requested, publish failed or was interrupted |
+         * | `Left`   | `true`  | leave published, still waiting for a member to commit it |
+         * | `Left`   | `false` | leave resolved |
+         * | `Removed`| `false` | removed by someone else |
+         *
+         * `self_membership` is the locally *classified departure* — `Left` is
+         * recorded as soon as the SelfRemove proposal publishes, so it does **not**
+         * imply a commit removed the member, and `Removed` marks an involuntary
+         * removal. This flag is about whether the request is still outstanding.
+         *
+         * Always equal to `leave_requested_at_ms != null`.
+         */leaveRequestPending: Bool, 
+        /**
+         * When the local account asked to leave, in milliseconds since the Unix
+         * epoch; `null` when no leave is pending.
+         */leaveRequestedAtMs: UInt64?) {
         self.groupIdHex = groupIdHex
         self.archived = archived
         self.pendingConfirmation = pendingConfirmation
@@ -7797,13 +8093,21 @@ public struct ChatListRowFfi {
         self.lastMessage = lastMessage
         self.unreadCount = unreadCount
         self.hasUnread = hasUnread
+        self.manuallyMarkedUnread = manuallyMarkedUnread
         self.unreadMentionCount = unreadMentionCount
         self.unreadMention = unreadMention
         self.firstUnreadMessageIdHex = firstUnreadMessageIdHex
         self.lastReadMessageIdHex = lastReadMessageIdHex
         self.lastReadTimelineAt = lastReadTimelineAt
+        self.conversationCreatedAt = conversationCreatedAt
+        self.activitySortAt = activitySortAt
         self.updatedAt = updatedAt
         self.selfMembership = selfMembership
+        self.conversationKind = conversationKind
+        self.muted = muted
+        self.mutedUntilMs = mutedUntilMs
+        self.leaveRequestPending = leaveRequestPending
+        self.leaveRequestedAtMs = leaveRequestedAtMs
     }
 }
 
@@ -7841,6 +8145,9 @@ extension ChatListRowFfi: Equatable, Hashable {
         if lhs.hasUnread != rhs.hasUnread {
             return false
         }
+        if lhs.manuallyMarkedUnread != rhs.manuallyMarkedUnread {
+            return false
+        }
         if lhs.unreadMentionCount != rhs.unreadMentionCount {
             return false
         }
@@ -7856,10 +8163,31 @@ extension ChatListRowFfi: Equatable, Hashable {
         if lhs.lastReadTimelineAt != rhs.lastReadTimelineAt {
             return false
         }
+        if lhs.conversationCreatedAt != rhs.conversationCreatedAt {
+            return false
+        }
+        if lhs.activitySortAt != rhs.activitySortAt {
+            return false
+        }
         if lhs.updatedAt != rhs.updatedAt {
             return false
         }
         if lhs.selfMembership != rhs.selfMembership {
+            return false
+        }
+        if lhs.conversationKind != rhs.conversationKind {
+            return false
+        }
+        if lhs.muted != rhs.muted {
+            return false
+        }
+        if lhs.mutedUntilMs != rhs.mutedUntilMs {
+            return false
+        }
+        if lhs.leaveRequestPending != rhs.leaveRequestPending {
+            return false
+        }
+        if lhs.leaveRequestedAtMs != rhs.leaveRequestedAtMs {
             return false
         }
         return true
@@ -7876,13 +8204,21 @@ extension ChatListRowFfi: Equatable, Hashable {
         hasher.combine(lastMessage)
         hasher.combine(unreadCount)
         hasher.combine(hasUnread)
+        hasher.combine(manuallyMarkedUnread)
         hasher.combine(unreadMentionCount)
         hasher.combine(unreadMention)
         hasher.combine(firstUnreadMessageIdHex)
         hasher.combine(lastReadMessageIdHex)
         hasher.combine(lastReadTimelineAt)
+        hasher.combine(conversationCreatedAt)
+        hasher.combine(activitySortAt)
         hasher.combine(updatedAt)
         hasher.combine(selfMembership)
+        hasher.combine(conversationKind)
+        hasher.combine(muted)
+        hasher.combine(mutedUntilMs)
+        hasher.combine(leaveRequestPending)
+        hasher.combine(leaveRequestedAtMs)
     }
 }
 
@@ -7904,13 +8240,21 @@ public struct FfiConverterTypeChatListRowFfi: FfiConverterRustBuffer {
                 lastMessage: FfiConverterOptionTypeChatListMessagePreviewFfi.read(from: &buf), 
                 unreadCount: FfiConverterUInt64.read(from: &buf), 
                 hasUnread: FfiConverterBool.read(from: &buf), 
+                manuallyMarkedUnread: FfiConverterBool.read(from: &buf), 
                 unreadMentionCount: FfiConverterUInt64.read(from: &buf), 
                 unreadMention: FfiConverterBool.read(from: &buf), 
                 firstUnreadMessageIdHex: FfiConverterOptionString.read(from: &buf), 
                 lastReadMessageIdHex: FfiConverterOptionString.read(from: &buf), 
                 lastReadTimelineAt: FfiConverterOptionUInt64.read(from: &buf), 
+                conversationCreatedAt: FfiConverterUInt64.read(from: &buf), 
+                activitySortAt: FfiConverterUInt64.read(from: &buf), 
                 updatedAt: FfiConverterUInt64.read(from: &buf), 
-                selfMembership: FfiConverterTypeSelfMembershipFfi.read(from: &buf)
+                selfMembership: FfiConverterTypeSelfMembershipFfi.read(from: &buf), 
+                conversationKind: FfiConverterTypeChatConversationKindFfi.read(from: &buf), 
+                muted: FfiConverterBool.read(from: &buf), 
+                mutedUntilMs: FfiConverterOptionInt64.read(from: &buf), 
+                leaveRequestPending: FfiConverterBool.read(from: &buf), 
+                leaveRequestedAtMs: FfiConverterOptionUInt64.read(from: &buf)
         )
     }
 
@@ -7925,13 +8269,21 @@ public struct FfiConverterTypeChatListRowFfi: FfiConverterRustBuffer {
         FfiConverterOptionTypeChatListMessagePreviewFfi.write(value.lastMessage, into: &buf)
         FfiConverterUInt64.write(value.unreadCount, into: &buf)
         FfiConverterBool.write(value.hasUnread, into: &buf)
+        FfiConverterBool.write(value.manuallyMarkedUnread, into: &buf)
         FfiConverterUInt64.write(value.unreadMentionCount, into: &buf)
         FfiConverterBool.write(value.unreadMention, into: &buf)
         FfiConverterOptionString.write(value.firstUnreadMessageIdHex, into: &buf)
         FfiConverterOptionString.write(value.lastReadMessageIdHex, into: &buf)
         FfiConverterOptionUInt64.write(value.lastReadTimelineAt, into: &buf)
+        FfiConverterUInt64.write(value.conversationCreatedAt, into: &buf)
+        FfiConverterUInt64.write(value.activitySortAt, into: &buf)
         FfiConverterUInt64.write(value.updatedAt, into: &buf)
         FfiConverterTypeSelfMembershipFfi.write(value.selfMembership, into: &buf)
+        FfiConverterTypeChatConversationKindFfi.write(value.conversationKind, into: &buf)
+        FfiConverterBool.write(value.muted, into: &buf)
+        FfiConverterOptionInt64.write(value.mutedUntilMs, into: &buf)
+        FfiConverterBool.write(value.leaveRequestPending, into: &buf)
+        FfiConverterOptionUInt64.write(value.leaveRequestedAtMs, into: &buf)
     }
 }
 
@@ -7948,6 +8300,104 @@ public func FfiConverterTypeChatListRowFfi_lift(_ buf: RustBuffer) throws -> Cha
 #endif
 public func FfiConverterTypeChatListRowFfi_lower(_ value: ChatListRowFfi) -> RustBuffer {
     return FfiConverterTypeChatListRowFfi.lower(value)
+}
+
+
+public struct ChatNotificationSettingsFfi {
+    public var accountRef: String
+    public var accountIdHex: String
+    public var groupIdHex: String
+    public var muted: Bool
+    public var mutedUntilMs: Int64?
+    public var updatedAtMs: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(accountRef: String, accountIdHex: String, groupIdHex: String, muted: Bool, mutedUntilMs: Int64?, updatedAtMs: Int64) {
+        self.accountRef = accountRef
+        self.accountIdHex = accountIdHex
+        self.groupIdHex = groupIdHex
+        self.muted = muted
+        self.mutedUntilMs = mutedUntilMs
+        self.updatedAtMs = updatedAtMs
+    }
+}
+
+
+
+extension ChatNotificationSettingsFfi: Equatable, Hashable {
+    public static func ==(lhs: ChatNotificationSettingsFfi, rhs: ChatNotificationSettingsFfi) -> Bool {
+        if lhs.accountRef != rhs.accountRef {
+            return false
+        }
+        if lhs.accountIdHex != rhs.accountIdHex {
+            return false
+        }
+        if lhs.groupIdHex != rhs.groupIdHex {
+            return false
+        }
+        if lhs.muted != rhs.muted {
+            return false
+        }
+        if lhs.mutedUntilMs != rhs.mutedUntilMs {
+            return false
+        }
+        if lhs.updatedAtMs != rhs.updatedAtMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(accountRef)
+        hasher.combine(accountIdHex)
+        hasher.combine(groupIdHex)
+        hasher.combine(muted)
+        hasher.combine(mutedUntilMs)
+        hasher.combine(updatedAtMs)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatNotificationSettingsFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatNotificationSettingsFfi {
+        return
+            try ChatNotificationSettingsFfi(
+                accountRef: FfiConverterString.read(from: &buf), 
+                accountIdHex: FfiConverterString.read(from: &buf), 
+                groupIdHex: FfiConverterString.read(from: &buf), 
+                muted: FfiConverterBool.read(from: &buf), 
+                mutedUntilMs: FfiConverterOptionInt64.read(from: &buf), 
+                updatedAtMs: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ChatNotificationSettingsFfi, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.accountRef, into: &buf)
+        FfiConverterString.write(value.accountIdHex, into: &buf)
+        FfiConverterString.write(value.groupIdHex, into: &buf)
+        FfiConverterBool.write(value.muted, into: &buf)
+        FfiConverterOptionInt64.write(value.mutedUntilMs, into: &buf)
+        FfiConverterInt64.write(value.updatedAtMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatNotificationSettingsFfi_lift(_ buf: RustBuffer) throws -> ChatNotificationSettingsFfi {
+    return try FfiConverterTypeChatNotificationSettingsFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatNotificationSettingsFfi_lower(_ value: ChatNotificationSettingsFfi) -> RustBuffer {
+    return FfiConverterTypeChatNotificationSettingsFfi.lower(value)
 }
 
 
@@ -8366,19 +8816,59 @@ public struct GroupManagementStateFfi {
     public var isSelfAdmin: Bool
     public var isLastAdmin: Bool
     public var canInvite: Bool
+    /**
+     * Whether a Leave action would do anything: the local account is a member,
+     * is not an admin, and has no leave already in flight.
+     *
+     * When this is `false`, the reason is one of
+     * `requires_self_demote_before_leave` (demote first) or
+     * `leave_request_pending` (already leaving) — or the account is not a member
+     * at all. Check those before reporting an error to the user.
+     */
     public var canLeave: Bool
     public var requiresSelfDemoteBeforeLeave: Bool
+    /**
+     * A leave is already in flight for this group; `Marmot::leave_group` would
+     * return `MarmotKitError::LeaveAlreadyRequested`. Render progress rather
+     * than a Leave affordance.
+     */
+    public var leaveRequestPending: Bool
+    /**
+     * When the local account asked to leave, in milliseconds since the Unix
+     * epoch; `null` when no leave is pending.
+     */
+    public var leaveRequestedAtMs: UInt64?
     public var memberActions: [GroupMemberActionStateFfi]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(myAccountIdHex: String, isSelfAdmin: Bool, isLastAdmin: Bool, canInvite: Bool, canLeave: Bool, requiresSelfDemoteBeforeLeave: Bool, memberActions: [GroupMemberActionStateFfi]) {
+    public init(myAccountIdHex: String, isSelfAdmin: Bool, isLastAdmin: Bool, canInvite: Bool, 
+        /**
+         * Whether a Leave action would do anything: the local account is a member,
+         * is not an admin, and has no leave already in flight.
+         *
+         * When this is `false`, the reason is one of
+         * `requires_self_demote_before_leave` (demote first) or
+         * `leave_request_pending` (already leaving) — or the account is not a member
+         * at all. Check those before reporting an error to the user.
+         */canLeave: Bool, requiresSelfDemoteBeforeLeave: Bool, 
+        /**
+         * A leave is already in flight for this group; `Marmot::leave_group` would
+         * return `MarmotKitError::LeaveAlreadyRequested`. Render progress rather
+         * than a Leave affordance.
+         */leaveRequestPending: Bool, 
+        /**
+         * When the local account asked to leave, in milliseconds since the Unix
+         * epoch; `null` when no leave is pending.
+         */leaveRequestedAtMs: UInt64?, memberActions: [GroupMemberActionStateFfi]) {
         self.myAccountIdHex = myAccountIdHex
         self.isSelfAdmin = isSelfAdmin
         self.isLastAdmin = isLastAdmin
         self.canInvite = canInvite
         self.canLeave = canLeave
         self.requiresSelfDemoteBeforeLeave = requiresSelfDemoteBeforeLeave
+        self.leaveRequestPending = leaveRequestPending
+        self.leaveRequestedAtMs = leaveRequestedAtMs
         self.memberActions = memberActions
     }
 }
@@ -8405,6 +8895,12 @@ extension GroupManagementStateFfi: Equatable, Hashable {
         if lhs.requiresSelfDemoteBeforeLeave != rhs.requiresSelfDemoteBeforeLeave {
             return false
         }
+        if lhs.leaveRequestPending != rhs.leaveRequestPending {
+            return false
+        }
+        if lhs.leaveRequestedAtMs != rhs.leaveRequestedAtMs {
+            return false
+        }
         if lhs.memberActions != rhs.memberActions {
             return false
         }
@@ -8418,6 +8914,8 @@ extension GroupManagementStateFfi: Equatable, Hashable {
         hasher.combine(canInvite)
         hasher.combine(canLeave)
         hasher.combine(requiresSelfDemoteBeforeLeave)
+        hasher.combine(leaveRequestPending)
+        hasher.combine(leaveRequestedAtMs)
         hasher.combine(memberActions)
     }
 }
@@ -8436,6 +8934,8 @@ public struct FfiConverterTypeGroupManagementStateFfi: FfiConverterRustBuffer {
                 canInvite: FfiConverterBool.read(from: &buf), 
                 canLeave: FfiConverterBool.read(from: &buf), 
                 requiresSelfDemoteBeforeLeave: FfiConverterBool.read(from: &buf), 
+                leaveRequestPending: FfiConverterBool.read(from: &buf), 
+                leaveRequestedAtMs: FfiConverterOptionUInt64.read(from: &buf), 
                 memberActions: FfiConverterSequenceTypeGroupMemberActionStateFfi.read(from: &buf)
         )
     }
@@ -8447,6 +8947,8 @@ public struct FfiConverterTypeGroupManagementStateFfi: FfiConverterRustBuffer {
         FfiConverterBool.write(value.canInvite, into: &buf)
         FfiConverterBool.write(value.canLeave, into: &buf)
         FfiConverterBool.write(value.requiresSelfDemoteBeforeLeave, into: &buf)
+        FfiConverterBool.write(value.leaveRequestPending, into: &buf)
+        FfiConverterOptionUInt64.write(value.leaveRequestedAtMs, into: &buf)
         FfiConverterSequenceTypeGroupMemberActionStateFfi.write(value.memberActions, into: &buf)
     }
 }
@@ -12671,6 +13173,162 @@ public func FfiConverterTypeRelayTelemetrySettingsFfi_lower(_ value: RelayTeleme
 }
 
 
+public struct RetentionSweepGroupOutcomeFfi {
+    public var groupIdHex: String
+    public var status: RetentionSweepStatusFfi
+    public var prunedMessages: UInt64
+    public var secretsDeleted: UInt64
+    public var mediaCiphertextSha256: [String]
+    public var failureKind: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(groupIdHex: String, status: RetentionSweepStatusFfi, prunedMessages: UInt64, secretsDeleted: UInt64, mediaCiphertextSha256: [String], failureKind: String?) {
+        self.groupIdHex = groupIdHex
+        self.status = status
+        self.prunedMessages = prunedMessages
+        self.secretsDeleted = secretsDeleted
+        self.mediaCiphertextSha256 = mediaCiphertextSha256
+        self.failureKind = failureKind
+    }
+}
+
+
+
+extension RetentionSweepGroupOutcomeFfi: Equatable, Hashable {
+    public static func ==(lhs: RetentionSweepGroupOutcomeFfi, rhs: RetentionSweepGroupOutcomeFfi) -> Bool {
+        if lhs.groupIdHex != rhs.groupIdHex {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        if lhs.prunedMessages != rhs.prunedMessages {
+            return false
+        }
+        if lhs.secretsDeleted != rhs.secretsDeleted {
+            return false
+        }
+        if lhs.mediaCiphertextSha256 != rhs.mediaCiphertextSha256 {
+            return false
+        }
+        if lhs.failureKind != rhs.failureKind {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(groupIdHex)
+        hasher.combine(status)
+        hasher.combine(prunedMessages)
+        hasher.combine(secretsDeleted)
+        hasher.combine(mediaCiphertextSha256)
+        hasher.combine(failureKind)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRetentionSweepGroupOutcomeFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RetentionSweepGroupOutcomeFfi {
+        return
+            try RetentionSweepGroupOutcomeFfi(
+                groupIdHex: FfiConverterString.read(from: &buf), 
+                status: FfiConverterTypeRetentionSweepStatusFfi.read(from: &buf), 
+                prunedMessages: FfiConverterUInt64.read(from: &buf), 
+                secretsDeleted: FfiConverterUInt64.read(from: &buf), 
+                mediaCiphertextSha256: FfiConverterSequenceString.read(from: &buf), 
+                failureKind: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RetentionSweepGroupOutcomeFfi, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.groupIdHex, into: &buf)
+        FfiConverterTypeRetentionSweepStatusFfi.write(value.status, into: &buf)
+        FfiConverterUInt64.write(value.prunedMessages, into: &buf)
+        FfiConverterUInt64.write(value.secretsDeleted, into: &buf)
+        FfiConverterSequenceString.write(value.mediaCiphertextSha256, into: &buf)
+        FfiConverterOptionString.write(value.failureKind, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRetentionSweepGroupOutcomeFfi_lift(_ buf: RustBuffer) throws -> RetentionSweepGroupOutcomeFfi {
+    return try FfiConverterTypeRetentionSweepGroupOutcomeFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRetentionSweepGroupOutcomeFfi_lower(_ value: RetentionSweepGroupOutcomeFfi) -> RustBuffer {
+    return FfiConverterTypeRetentionSweepGroupOutcomeFfi.lower(value)
+}
+
+
+public struct RetentionSweepReportFfi {
+    public var groups: [RetentionSweepGroupOutcomeFfi]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(groups: [RetentionSweepGroupOutcomeFfi]) {
+        self.groups = groups
+    }
+}
+
+
+
+extension RetentionSweepReportFfi: Equatable, Hashable {
+    public static func ==(lhs: RetentionSweepReportFfi, rhs: RetentionSweepReportFfi) -> Bool {
+        if lhs.groups != rhs.groups {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(groups)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRetentionSweepReportFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RetentionSweepReportFfi {
+        return
+            try RetentionSweepReportFfi(
+                groups: FfiConverterSequenceTypeRetentionSweepGroupOutcomeFfi.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RetentionSweepReportFfi, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeRetentionSweepGroupOutcomeFfi.write(value.groups, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRetentionSweepReportFfi_lift(_ buf: RustBuffer) throws -> RetentionSweepReportFfi {
+    return try FfiConverterTypeRetentionSweepReportFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRetentionSweepReportFfi_lower(_ value: RetentionSweepReportFfi) -> RustBuffer {
+    return FfiConverterTypeRetentionSweepReportFfi.lower(value)
+}
+
+
 public struct RuntimeMessageReceivedFfi {
     public var accountIdHex: String
     public var accountLabel: String
@@ -13190,6 +13848,21 @@ public struct TimelineMessageRecordFfi {
      * id and is always `Some(..)`.
      */
     public var sourceMessageIdHex: String?
+    /**
+     * Authenticated MLS source epoch used to resolve this message's pinned
+     * retention and encrypted-media decisions.
+     */
+    public var sourceEpoch: UInt64?
+    /**
+     * `None` means no recoverable source-epoch decision (legacy/safe retain).
+     * `Some(0)` means retention was explicitly disabled for this message.
+     */
+    public var retentionSeconds: UInt64?
+    /**
+     * Exact pinned expiration timestamp. A positive retention duration can
+     * still have no finite expiry when timestamp addition overflowed.
+     */
+    public var retentionExpiresAt: UInt64?
     public var direction: String
     public var groupIdHex: String
     public var sender: String
@@ -13249,7 +13922,19 @@ public struct TimelineMessageRecordFfi {
          * without minting a duplicate, call `retry_group_convergence` rather than
          * re-sending the text. For received messages this is the originating event
          * id and is always `Some(..)`.
-         */sourceMessageIdHex: String?, direction: String, groupIdHex: String, sender: String, plaintext: String, contentTokens: MarkdownDocumentFfi, kind: UInt64, tags: [MessageTagFfi], 
+         */sourceMessageIdHex: String?, 
+        /**
+         * Authenticated MLS source epoch used to resolve this message's pinned
+         * retention and encrypted-media decisions.
+         */sourceEpoch: UInt64?, 
+        /**
+         * `None` means no recoverable source-epoch decision (legacy/safe retain).
+         * `Some(0)` means retention was explicitly disabled for this message.
+         */retentionSeconds: UInt64?, 
+        /**
+         * Exact pinned expiration timestamp. A positive retention duration can
+         * still have no finite expiry when timestamp addition overflowed.
+         */retentionExpiresAt: UInt64?, direction: String, groupIdHex: String, sender: String, plaintext: String, contentTokens: MarkdownDocumentFfi, kind: UInt64, tags: [MessageTagFfi], 
         /**
          * Authenticated inner app-event time, or observation time for synthesized
          * rows without an inner timestamp.
@@ -13277,6 +13962,9 @@ public struct TimelineMessageRecordFfi {
          */invalidationStatus: String?) {
         self.messageIdHex = messageIdHex
         self.sourceMessageIdHex = sourceMessageIdHex
+        self.sourceEpoch = sourceEpoch
+        self.retentionSeconds = retentionSeconds
+        self.retentionExpiresAt = retentionExpiresAt
         self.direction = direction
         self.groupIdHex = groupIdHex
         self.sender = sender
@@ -13307,6 +13995,15 @@ extension TimelineMessageRecordFfi: Equatable, Hashable {
             return false
         }
         if lhs.sourceMessageIdHex != rhs.sourceMessageIdHex {
+            return false
+        }
+        if lhs.sourceEpoch != rhs.sourceEpoch {
+            return false
+        }
+        if lhs.retentionSeconds != rhs.retentionSeconds {
+            return false
+        }
+        if lhs.retentionExpiresAt != rhs.retentionExpiresAt {
             return false
         }
         if lhs.direction != rhs.direction {
@@ -13372,6 +14069,9 @@ extension TimelineMessageRecordFfi: Equatable, Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(messageIdHex)
         hasher.combine(sourceMessageIdHex)
+        hasher.combine(sourceEpoch)
+        hasher.combine(retentionSeconds)
+        hasher.combine(retentionExpiresAt)
         hasher.combine(direction)
         hasher.combine(groupIdHex)
         hasher.combine(sender)
@@ -13404,6 +14104,9 @@ public struct FfiConverterTypeTimelineMessageRecordFfi: FfiConverterRustBuffer {
             try TimelineMessageRecordFfi(
                 messageIdHex: FfiConverterString.read(from: &buf), 
                 sourceMessageIdHex: FfiConverterOptionString.read(from: &buf), 
+                sourceEpoch: FfiConverterOptionUInt64.read(from: &buf), 
+                retentionSeconds: FfiConverterOptionUInt64.read(from: &buf), 
+                retentionExpiresAt: FfiConverterOptionUInt64.read(from: &buf), 
                 direction: FfiConverterString.read(from: &buf), 
                 groupIdHex: FfiConverterString.read(from: &buf), 
                 sender: FfiConverterString.read(from: &buf), 
@@ -13429,6 +14132,9 @@ public struct FfiConverterTypeTimelineMessageRecordFfi: FfiConverterRustBuffer {
     public static func write(_ value: TimelineMessageRecordFfi, into buf: inout [UInt8]) {
         FfiConverterString.write(value.messageIdHex, into: &buf)
         FfiConverterOptionString.write(value.sourceMessageIdHex, into: &buf)
+        FfiConverterOptionUInt64.write(value.sourceEpoch, into: &buf)
+        FfiConverterOptionUInt64.write(value.retentionSeconds, into: &buf)
+        FfiConverterOptionUInt64.write(value.retentionExpiresAt, into: &buf)
         FfiConverterString.write(value.direction, into: &buf)
         FfiConverterString.write(value.groupIdHex, into: &buf)
         FfiConverterString.write(value.sender, into: &buf)
@@ -14743,6 +15449,240 @@ extension AuditDataModeFfi: Equatable, Hashable {}
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
+public enum ChatConversationKindFfi {
+    
+    case unknown
+    case direct
+    case group
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatConversationKindFfi: FfiConverterRustBuffer {
+    typealias SwiftType = ChatConversationKindFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatConversationKindFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .unknown
+        
+        case 2: return .direct
+        
+        case 3: return .group
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ChatConversationKindFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .direct:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .group:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatConversationKindFfi_lift(_ buf: RustBuffer) throws -> ChatConversationKindFfi {
+    return try FfiConverterTypeChatConversationKindFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatConversationKindFfi_lower(_ value: ChatConversationKindFfi) -> RustBuffer {
+    return FfiConverterTypeChatConversationKindFfi.lower(value)
+}
+
+
+
+extension ChatConversationKindFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum ChatListAttachmentKindFfi {
+    
+    case photo
+    case video
+    case audio
+    case file
+    case mixed
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatListAttachmentKindFfi: FfiConverterRustBuffer {
+    typealias SwiftType = ChatListAttachmentKindFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatListAttachmentKindFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .photo
+        
+        case 2: return .video
+        
+        case 3: return .audio
+        
+        case 4: return .file
+        
+        case 5: return .mixed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ChatListAttachmentKindFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .photo:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .video:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .audio:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .file:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .mixed:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatListAttachmentKindFfi_lift(_ buf: RustBuffer) throws -> ChatListAttachmentKindFfi {
+    return try FfiConverterTypeChatListAttachmentKindFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatListAttachmentKindFfi_lower(_ value: ChatListAttachmentKindFfi) -> RustBuffer {
+    return FfiConverterTypeChatListAttachmentKindFfi.lower(value)
+}
+
+
+
+extension ChatListAttachmentKindFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum ChatListMessageDeliveryStateFfi {
+    
+    case notApplicable
+    case pending
+    case delivered
+    case failed
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatListMessageDeliveryStateFfi: FfiConverterRustBuffer {
+    typealias SwiftType = ChatListMessageDeliveryStateFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatListMessageDeliveryStateFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .notApplicable
+        
+        case 2: return .pending
+        
+        case 3: return .delivered
+        
+        case 4: return .failed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ChatListMessageDeliveryStateFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .notApplicable:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .pending:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .delivered:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .failed:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatListMessageDeliveryStateFfi_lift(_ buf: RustBuffer) throws -> ChatListMessageDeliveryStateFfi {
+    return try FfiConverterTypeChatListMessageDeliveryStateFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatListMessageDeliveryStateFfi_lower(_ value: ChatListMessageDeliveryStateFfi) -> RustBuffer {
+    return FfiConverterTypeChatListMessageDeliveryStateFfi.lower(value)
+}
+
+
+
+extension ChatListMessageDeliveryStateFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 public enum ChatListSubscriptionUpdateFfi {
     
     case row(trigger: ChatListUpdateTriggerFfi, row: ChatListRowFfi
@@ -14824,6 +15764,10 @@ public enum ChatListUpdateTriggerFfi {
     case pendingConfirmationChanged
     case membershipChanged
     case unreadChanged
+    case manualUnreadChanged
+    case muteChanged
+    case conversationKindChanged
+    case latestMessageDeliveryChanged
     case snapshotRefresh
     case removed
 }
@@ -14853,9 +15797,17 @@ public struct FfiConverterTypeChatListUpdateTriggerFfi: FfiConverterRustBuffer {
         
         case 7: return .unreadChanged
         
-        case 8: return .snapshotRefresh
+        case 8: return .manualUnreadChanged
         
-        case 9: return .removed
+        case 9: return .muteChanged
+        
+        case 10: return .conversationKindChanged
+        
+        case 11: return .latestMessageDeliveryChanged
+        
+        case 12: return .snapshotRefresh
+        
+        case 13: return .removed
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -14893,12 +15845,28 @@ public struct FfiConverterTypeChatListUpdateTriggerFfi: FfiConverterRustBuffer {
             writeInt(&buf, Int32(7))
         
         
-        case .snapshotRefresh:
+        case .manualUnreadChanged:
             writeInt(&buf, Int32(8))
         
         
-        case .removed:
+        case .muteChanged:
             writeInt(&buf, Int32(9))
+        
+        
+        case .conversationKindChanged:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .latestMessageDeliveryChanged:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .snapshotRefresh:
+            writeInt(&buf, Int32(12))
+        
+        
+        case .removed:
+            writeInt(&buf, Int32(13))
         
         }
     }
@@ -15356,6 +16324,134 @@ public func FfiConverterTypeGroupEvolutionPhaseFfi_lower(_ value: GroupEvolution
 
 
 extension GroupEvolutionPhaseFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum HostPerformanceOperationFfi {
+    
+    case splashReady
+    case foregroundLocalReady
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostPerformanceOperationFfi: FfiConverterRustBuffer {
+    typealias SwiftType = HostPerformanceOperationFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostPerformanceOperationFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .splashReady
+        
+        case 2: return .foregroundLocalReady
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HostPerformanceOperationFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .splashReady:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .foregroundLocalReady:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPerformanceOperationFfi_lift(_ buf: RustBuffer) throws -> HostPerformanceOperationFfi {
+    return try FfiConverterTypeHostPerformanceOperationFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPerformanceOperationFfi_lower(_ value: HostPerformanceOperationFfi) -> RustBuffer {
+    return FfiConverterTypeHostPerformanceOperationFfi.lower(value)
+}
+
+
+
+extension HostPerformanceOperationFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum HostPerformanceOutcomeFfi {
+    
+    case success
+    case failure
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostPerformanceOutcomeFfi: FfiConverterRustBuffer {
+    typealias SwiftType = HostPerformanceOutcomeFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostPerformanceOutcomeFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .success
+        
+        case 2: return .failure
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: HostPerformanceOutcomeFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .success:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .failure:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPerformanceOutcomeFfi_lift(_ buf: RustBuffer) throws -> HostPerformanceOutcomeFfi {
+    return try FfiConverterTypeHostPerformanceOutcomeFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostPerformanceOutcomeFfi_lower(_ value: HostPerformanceOutcomeFfi) -> RustBuffer {
+    return FfiConverterTypeHostPerformanceOutcomeFfi.lower(value)
+}
+
+
+
+extension HostPerformanceOutcomeFfi: Equatable, Hashable {}
 
 
 
@@ -16585,6 +17681,14 @@ public enum MarmotKitError {
     )
     case AdminCannotSelfRemove(groupIdHex: String
     )
+    /**
+     * A leave is already in flight for this group. The durable request survives
+     * restarts and the engine keeps re-proposing until a commit removes us, so
+     * this is not a failure to retry — surface progress instead. Check
+     * `GroupManagementStateFfi::leave_request_pending` before offering Leave.
+     */
+    case LeaveAlreadyRequested(groupIdHex: String
+    )
     case WouldRemoveLastAdmin(groupIdHex: String
     )
     case MemberNotInGroup(groupIdHex: String, memberIdHex: String
@@ -16718,43 +17822,46 @@ public struct FfiConverterTypeMarmotKitError: FfiConverterRustBuffer {
         case 15: return .AdminCannotSelfRemove(
             groupIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 16: return .WouldRemoveLastAdmin(
+        case 16: return .LeaveAlreadyRequested(
             groupIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 17: return .MemberNotInGroup(
+        case 17: return .WouldRemoveLastAdmin(
+            groupIdHex: try FfiConverterString.read(from: &buf)
+            )
+        case 18: return .MemberNotInGroup(
             groupIdHex: try FfiConverterString.read(from: &buf), 
             memberIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 18: return .AlreadyAdmin(
+        case 19: return .AlreadyAdmin(
             groupIdHex: try FfiConverterString.read(from: &buf), 
             memberIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 19: return .NotAdmin(
+        case 20: return .NotAdmin(
             groupIdHex: try FfiConverterString.read(from: &buf), 
             memberIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 20: return .StorageBusy(
+        case 21: return .StorageBusy(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 21: return .SecretNotFound(
+        case 22: return .SecretNotFound(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 22: return .KeystoreUnavailable(
+        case 23: return .KeystoreUnavailable(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 23: return .EmptyPassphrase
-        case 24: return .EncryptionFailed(
+        case 24: return .EmptyPassphrase
+        case 25: return .EncryptionFailed(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 25: return .Io(
+        case 26: return .Io(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 26: return .ExternalSignerUnavailable(
+        case 27: return .ExternalSignerUnavailable(
             account: try FfiConverterString.read(from: &buf)
             )
-        case 27: return .ExternalSignerMismatch
-        case 28: return .ExternalSignerRejected
-        case 29: return .Runtime(
+        case 28: return .ExternalSignerMismatch
+        case 29: return .ExternalSignerRejected
+        case 30: return .Runtime(
             details: try FfiConverterString.read(from: &buf)
             )
 
@@ -16842,73 +17949,78 @@ public struct FfiConverterTypeMarmotKitError: FfiConverterRustBuffer {
             FfiConverterString.write(groupIdHex, into: &buf)
             
         
-        case let .WouldRemoveLastAdmin(groupIdHex):
+        case let .LeaveAlreadyRequested(groupIdHex):
             writeInt(&buf, Int32(16))
             FfiConverterString.write(groupIdHex, into: &buf)
             
         
-        case let .MemberNotInGroup(groupIdHex,memberIdHex):
+        case let .WouldRemoveLastAdmin(groupIdHex):
             writeInt(&buf, Int32(17))
             FfiConverterString.write(groupIdHex, into: &buf)
-            FfiConverterString.write(memberIdHex, into: &buf)
             
         
-        case let .AlreadyAdmin(groupIdHex,memberIdHex):
+        case let .MemberNotInGroup(groupIdHex,memberIdHex):
             writeInt(&buf, Int32(18))
             FfiConverterString.write(groupIdHex, into: &buf)
             FfiConverterString.write(memberIdHex, into: &buf)
             
         
-        case let .NotAdmin(groupIdHex,memberIdHex):
+        case let .AlreadyAdmin(groupIdHex,memberIdHex):
             writeInt(&buf, Int32(19))
             FfiConverterString.write(groupIdHex, into: &buf)
             FfiConverterString.write(memberIdHex, into: &buf)
             
         
-        case let .StorageBusy(details):
+        case let .NotAdmin(groupIdHex,memberIdHex):
             writeInt(&buf, Int32(20))
-            FfiConverterString.write(details, into: &buf)
+            FfiConverterString.write(groupIdHex, into: &buf)
+            FfiConverterString.write(memberIdHex, into: &buf)
             
         
-        case let .SecretNotFound(details):
+        case let .StorageBusy(details):
             writeInt(&buf, Int32(21))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .KeystoreUnavailable(details):
+        case let .SecretNotFound(details):
             writeInt(&buf, Int32(22))
             FfiConverterString.write(details, into: &buf)
             
         
-        case .EmptyPassphrase:
+        case let .KeystoreUnavailable(details):
             writeInt(&buf, Int32(23))
-        
-        
-        case let .EncryptionFailed(details):
-            writeInt(&buf, Int32(24))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .Io(details):
+        case .EmptyPassphrase:
+            writeInt(&buf, Int32(24))
+        
+        
+        case let .EncryptionFailed(details):
             writeInt(&buf, Int32(25))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .ExternalSignerUnavailable(account):
+        case let .Io(details):
             writeInt(&buf, Int32(26))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case let .ExternalSignerUnavailable(account):
+            writeInt(&buf, Int32(27))
             FfiConverterString.write(account, into: &buf)
             
         
         case .ExternalSignerMismatch:
-            writeInt(&buf, Int32(27))
-        
-        
-        case .ExternalSignerRejected:
             writeInt(&buf, Int32(28))
         
         
-        case let .Runtime(details):
+        case .ExternalSignerRejected:
             writeInt(&buf, Int32(29))
+        
+        
+        case let .Runtime(details):
+            writeInt(&buf, Int32(30))
             FfiConverterString.write(details, into: &buf)
             
         }
@@ -17549,6 +18661,98 @@ public func FfiConverterTypePushRegistrationShareStatusFfi_lower(_ value: PushRe
 
 
 extension PushRegistrationShareStatusFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum RetentionSweepStatusFfi {
+    
+    case noExpiredMessages
+    case pruned
+    case deferredClockSkew
+    case deferredUnread
+    case deferredScanExhausted
+    case failed
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRetentionSweepStatusFfi: FfiConverterRustBuffer {
+    typealias SwiftType = RetentionSweepStatusFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RetentionSweepStatusFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .noExpiredMessages
+        
+        case 2: return .pruned
+        
+        case 3: return .deferredClockSkew
+        
+        case 4: return .deferredUnread
+        
+        case 5: return .deferredScanExhausted
+        
+        case 6: return .failed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RetentionSweepStatusFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .noExpiredMessages:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .pruned:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .deferredClockSkew:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .deferredUnread:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .deferredScanExhausted:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .failed:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRetentionSweepStatusFfi_lift(_ buf: RustBuffer) throws -> RetentionSweepStatusFfi {
+    return try FfiConverterTypeRetentionSweepStatusFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRetentionSweepStatusFfi_lower(_ value: RetentionSweepStatusFfi) -> RustBuffer {
+    return FfiConverterTypeRetentionSweepStatusFfi.lower(value)
+}
+
+
+
+extension RetentionSweepStatusFfi: Equatable, Hashable {}
 
 
 
@@ -18616,6 +19820,30 @@ fileprivate struct FfiConverterOptionTypeAgentStreamUpdateFfi: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeChatListAttachmentKindFfi: FfiConverterRustBuffer {
+    typealias SwiftType = ChatListAttachmentKindFfi?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeChatListAttachmentKindFfi.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeChatListAttachmentKindFfi.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeChatListSubscriptionUpdateFfi: FfiConverterRustBuffer {
     typealias SwiftType = ChatListSubscriptionUpdateFfi?
 
@@ -19561,6 +20789,31 @@ fileprivate struct FfiConverterSequenceTypeRelayFailureFfi: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRetentionSweepGroupOutcomeFfi: FfiConverterRustBuffer {
+    typealias SwiftType = [RetentionSweepGroupOutcomeFfi]
+
+    public static func write(_ value: [RetentionSweepGroupOutcomeFfi], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRetentionSweepGroupOutcomeFfi.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RetentionSweepGroupOutcomeFfi] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RetentionSweepGroupOutcomeFfi]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRetentionSweepGroupOutcomeFfi.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTimelineMessageRecordFfi: FfiConverterRustBuffer {
     typealias SwiftType = [TimelineMessageRecordFfi]
 
@@ -19971,6 +21224,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_chat_list() != 43260) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_chat_notification_settings() != 6301) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_clear_chat_muted() != 45980) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_clear_group_image() != 5081) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -20136,6 +21395,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_react_to_message() != 39138) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_record_host_performance() != 50448) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_refresh_profile() != 33641) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -20217,6 +21479,12 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_audit_log_tracker_config() != 61397) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_set_chat_manually_unread() != 46440) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_set_chat_muted() != 63462) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_group_archived() != 17316) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -20247,7 +21515,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_sign_out_and_wipe() != 44173) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_marmot_uniffi_checksum_method_marmot_start() != 20136) {
+    if (uniffi_marmot_uniffi_checksum_method_marmot_start() != 2138) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_start_agent_text_stream() != 35574) {
@@ -20272,6 +21540,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_subscribe_timeline_messages() != 20678) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_sweep_expired_retention() != 8624) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_telemetry_install_id() != 40706) {

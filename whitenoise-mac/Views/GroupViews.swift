@@ -446,11 +446,14 @@ struct GroupDetailsSheet: View {
                                 showLeaveConfirmation = true
                             } label: {
                                 Label(
-                                    workspace.isLeavingGroup ? L10n.string("Leaving...") : L10n.string("Leave Group"),
+                                    workspace.isLeavingGroup || snapshot.leaveRequestPending
+                                        ? L10n.string("Leaving...")
+                                        : L10n.string("Leave Group"),
                                     systemImage: "rectangle.portrait.and.arrow.right")
                             }
                             .disabled(
                                 workspace.hasInFlightGroupCommit
+                                    || snapshot.leaveRequestPending
                                     || !snapshot.canLeave
                                     || snapshot.requiresSelfDemoteBeforeLeave
                             )
@@ -469,7 +472,13 @@ struct GroupDetailsSheet: View {
                             Spacer()
                         }
 
-                        if snapshot.requiresSelfDemoteBeforeLeave {
+                        if snapshot.leaveRequestPending {
+                            Text(
+                                "Your leave request is pending. This conversation will update when the group commits it."
+                            )
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        } else if snapshot.requiresSelfDemoteBeforeLeave {
                             Text("Demote yourself from admin before leaving this group.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
@@ -528,6 +537,14 @@ struct GroupDetailsSheet: View {
                                 copyable: false)
                             GroupDiagnosticsValueRow(
                                 title: "Can leave", value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Leave request pending",
+                                value: snapshot.leaveRequestPending ? L10n.string("Yes") : L10n.string("No"),
+                                copyable: false)
+                            GroupDiagnosticsValueRow(
+                                title: "Leave requested at (ms)",
+                                value: snapshot.leaveRequestedAtMs.map(String.init) ?? "",
                                 copyable: false)
                             GroupDiagnosticsValueRow(
                                 title: "Pending confirmation",
@@ -610,7 +627,10 @@ struct GroupDetailsSheet: View {
             Button("Leave Group", role: .destructive) {
                 Task { await workspace.leaveSelectedGroup() }
             }
-            .disabled(workspace.hasInFlightGroupCommit)
+            .disabled(
+                workspace.hasInFlightGroupCommit
+                    || workspace.groupDetailsSnapshot?.leaveRequestPending == true
+            )
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("You will no longer receive messages from this group on this account.")

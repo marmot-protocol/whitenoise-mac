@@ -75,6 +75,7 @@ struct ContentView: View {
                     for: NSApplication.didBecomeActiveNotification
                 )
             ) { _ in
+                let foregroundStartedAt = DispatchTime.now().uptimeNanoseconds
                 refreshTimestampReferenceDateIfNeeded()
                 workspace.refreshSystemLanguageIfNeeded()
                 // The app just regained focus. Flush any read-marking that was deferred
@@ -82,6 +83,7 @@ struct ContentView: View {
                 // state now that the user may be looking at it again.
                 Task {
                     await workspace.handleConversationVisibilityChange()
+                    workspace.recordForegroundLocalReady(since: foregroundStartedAt)
                     await workspace.refreshAccountProfiles()
                 }
             }

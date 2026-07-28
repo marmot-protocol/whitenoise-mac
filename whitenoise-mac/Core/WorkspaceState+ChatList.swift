@@ -16,6 +16,76 @@ import UserNotifications
 
 @MainActor
 extension WorkspaceState {
+    func isMutatingChatPreferences(_ chat: ChatItem) -> Bool {
+        mutatingChatPreferenceIds.contains(chat.id)
+    }
+
+    func setChatManuallyUnread(_ chat: ChatItem, manuallyUnread: Bool) async {
+        guard let client, let activeAccount, !mutatingChatPreferenceIds.contains(chat.id) else { return }
+        let accountId = activeAccount.id
+        mutatingChatPreferenceIds.insert(chat.id)
+        defer { mutatingChatPreferenceIds.remove(chat.id) }
+        do {
+            let row = try await runOffMain {
+                try client.setChatManuallyUnread(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: chat.id,
+                    manuallyUnread: manuallyUnread
+                )
+            }
+            guard activeAccountId == accountId else { return }
+            if let row {
+                await applyChatRow(row, account: activeAccount, shouldEnrich: false)
+            } else {
+                await reloadChats(forceFreshSnapshot: true)
+            }
+        } catch {
+            guard activeAccountId == accountId else { return }
+            lastError = error.localizedDescription
+        }
+    }
+
+    func setChatMuted(_ chat: ChatItem, duration: TimeInterval?) async {
+        guard let client, let activeAccount, !mutatingChatPreferenceIds.contains(chat.id) else { return }
+        let accountId = activeAccount.id
+        let mutedUntilMs = duration.map {
+            Int64((Date().timeIntervalSince1970 + $0) * 1_000)
+        }
+        mutatingChatPreferenceIds.insert(chat.id)
+        defer { mutatingChatPreferenceIds.remove(chat.id) }
+        do {
+            _ = try await runOffMain {
+                try client.setChatMuted(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: chat.id,
+                    mutedUntilMs: mutedUntilMs
+                )
+            }
+            guard activeAccountId == accountId else { return }
+            await reloadChats(forceFreshSnapshot: true)
+        } catch {
+            guard activeAccountId == accountId else { return }
+            lastError = error.localizedDescription
+        }
+    }
+
+    func clearChatMuted(_ chat: ChatItem) async {
+        guard let client, let activeAccount, !mutatingChatPreferenceIds.contains(chat.id) else { return }
+        let accountId = activeAccount.id
+        mutatingChatPreferenceIds.insert(chat.id)
+        defer { mutatingChatPreferenceIds.remove(chat.id) }
+        do {
+            _ = try await runOffMain {
+                try client.clearChatMuted(accountRef: activeAccount.accountRef, groupIdHex: chat.id)
+            }
+            guard activeAccountId == accountId else { return }
+            await reloadChats(forceFreshSnapshot: true)
+        } catch {
+            guard activeAccountId == accountId else { return }
+            lastError = error.localizedDescription
+        }
+    }
+
     func reloadChats(forceFreshSnapshot: Bool = false) async {
         guard client != nil, let activeAccount else {
             discardStartupChatRestoration()
@@ -279,9 +349,11 @@ extension WorkspaceState {
     /// `shouldEnrich: false` fast path and never trigger the per-row FFI fan-out.
     func chatListTriggerRequiresEnrichment(_ trigger: ChatListUpdateTriggerFfi) -> Bool {
         switch trigger {
-        case .newLastMessage, .lastMessageDeleted, .pendingConfirmationChanged, .unreadChanged:
+        case .newLastMessage, .lastMessageDeleted, .latestMessageDeliveryChanged,
+            .pendingConfirmationChanged, .unreadChanged, .manualUnreadChanged, .muteChanged:
             return false
-        case .newGroup, .archiveChanged, .membershipChanged, .snapshotRefresh, .removed:
+        case .newGroup, .archiveChanged, .membershipChanged, .conversationKindChanged,
+            .snapshotRefresh, .removed:
             return true
         }
     }
@@ -565,8 +637,18 @@ extension WorkspaceState {
                 ?? (enrichedItem.groupImageHashHex == current.groupImageHashHex ? current.groupImagePayload : nil),
             groupImageHashHex: enrichedItem.groupImageHashHex,
             unreadCount: current.unreadCount,
+            hasUnread: current.hasUnread,
+            manuallyMarkedUnread: current.manuallyMarkedUnread,
             unreadMentionCount: current.unreadMentionCount,
-            isDirect: enrichedItem.isDirect,
+            isDirect:
+                current.hasAuthoritativeConversationKind
+                ? current.isDirect
+                : enrichedItem.isDirect,
+            hasAuthoritativeConversationKind: current.hasAuthoritativeConversationKind,
+            muted: current.muted,
+            mutedUntilMs: current.mutedUntilMs,
+            leaveRequestPending: current.leaveRequestPending,
+            latestMessageDelivery: current.latestMessageDelivery,
             pendingConfirmation: current.pendingConfirmation,
             selfMembership: current.selfMembership
         )
@@ -601,7 +683,7 @@ extension WorkspaceState {
             )
         }
         let groupImagePayload =
-            directPeer == nil && groupAvatarURL == nil
+            row.conversationKind != .direct && directPeer == nil && groupAvatarURL == nil
             ? await decryptedGroupImagePayload(from: row, account: account, client: client)
             : nil
 

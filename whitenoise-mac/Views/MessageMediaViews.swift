@@ -266,7 +266,7 @@ struct MessageBubble: View {
                 // Hang the chips on the bubble's bottom edge (a slight upward overlap) instead of
                 // floating as a detached row, matching the sibling clients' bubble-bound reactions.
                 .padding(.horizontal, 10)
-                .padding(.top, -10)
+                .padding(.top, usesStickerStyle ? 0 : -10)
                 .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
                     MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
                 }
@@ -334,6 +334,21 @@ struct MessageBubble: View {
         showsDebugMetadata || message.hasBubbleContent
     }
 
+    /// Replies, media captions, deleted messages, and debug rows retain the normal bubble
+    /// because they contain additional visual context that needs a shared surface.
+    private var stickerEmoji: String? {
+        guard !showsDebugMetadata,
+            !message.isDeleted,
+            message.replyContext == nil,
+            message.mediaAttachments.isEmpty
+        else { return nil }
+        return message.singleEmoji
+    }
+
+    private var usesStickerStyle: Bool {
+        stickerEmoji != nil
+    }
+
     /// Incoming messages in a group carry the sender's avatar in a leading gutter; DMs and the
     /// local account's own messages do not (the peer/self is unambiguous there).
     private var showsSenderAvatar: Bool {
@@ -372,7 +387,35 @@ struct MessageBubble: View {
         return controlWidth + spacingWidth + 8
     }
 
+    @ViewBuilder
     private var bubbleContent: some View {
+        if let stickerEmoji {
+            stickerContent(stickerEmoji)
+        } else {
+            standardBubbleContent
+        }
+    }
+
+    private func stickerContent(_ emoji: String) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(verbatim: emoji)
+                .font(.system(size: 56))
+                .lineLimit(1)
+                .padding(.horizontal, 4)
+
+            if showsBubbleMetadata {
+                compactMetadata
+                    .padding(.horizontal, 4)
+            }
+        }
+        .textSelectable(isSelectable)
+        .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
+            inlineActions
+        }
+        .frame(maxWidth: 540, alignment: message.isOutgoing ? .trailing : .leading)
+    }
+
+    private var standardBubbleContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             if showsDebugMetadata {
                 MessageDebugMetadataView(message: message, isOutgoing: message.isOutgoing)
@@ -470,7 +513,7 @@ struct MessageBubble: View {
     }
 
     private var metadataColor: Color {
-        message.isOutgoing && message.hasBubbleContent
+        message.isOutgoing && message.hasBubbleContent && !usesStickerStyle
             ? Color.white.opacity(0.68) : Color.secondary.opacity(0.72)
     }
 
