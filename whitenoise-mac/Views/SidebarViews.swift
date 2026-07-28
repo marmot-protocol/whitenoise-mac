@@ -288,7 +288,7 @@ extension ChatListDrawerView {
         case .active:
             chats = workspace.activeChats
         case .unread:
-            chats = workspace.activeChats.filter { $0.unreadCount > 0 }
+            chats = workspace.activeChats.filter(\.hasUnread)
         case .archived:
             chats = workspace.archivedChats
         }
@@ -394,6 +394,52 @@ private struct ChatSidebarRow: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
         .contextMenu {
+            Button {
+                Task {
+                    await workspace.setChatManuallyUnread(
+                        chat,
+                        manuallyUnread: !chat.manuallyMarkedUnread
+                    )
+                }
+            } label: {
+                Label(
+                    chat.manuallyMarkedUnread
+                        ? L10n.string("Clear Unread Reminder")
+                        : L10n.string("Mark as Unread"),
+                    systemImage: chat.manuallyMarkedUnread ? "envelope.open" : "envelope.badge"
+                )
+            }
+            .disabled(workspace.isMutatingChatPreferences(chat))
+
+            if chat.muted {
+                Button {
+                    Task { await workspace.clearChatMuted(chat) }
+                } label: {
+                    Label(L10n.string("Unmute"), systemImage: "bell")
+                }
+                .disabled(workspace.isMutatingChatPreferences(chat))
+            } else {
+                Menu {
+                    Button(L10n.string("For 1 Hour")) {
+                        Task { await workspace.setChatMuted(chat, duration: 60 * 60) }
+                    }
+                    Button(L10n.string("For 8 Hours")) {
+                        Task { await workspace.setChatMuted(chat, duration: 8 * 60 * 60) }
+                    }
+                    Button(L10n.string("For 1 Week")) {
+                        Task { await workspace.setChatMuted(chat, duration: 7 * 24 * 60 * 60) }
+                    }
+                    Button(L10n.string("Until I Turn It Back On")) {
+                        Task { await workspace.setChatMuted(chat, duration: nil) }
+                    }
+                } label: {
+                    Label(L10n.string("Mute"), systemImage: "bell.slash")
+                }
+                .disabled(workspace.isMutatingChatPreferences(chat))
+            }
+
+            Divider()
+
             if isArchived {
                 Button {
                     Task { await workspace.setChatArchived(chat, archived: false) }
@@ -561,7 +607,9 @@ struct ChatRowContent: View {
                     // An ended membership supersedes a pending invite: show a single
                     // badge rather than a contradictory "Invite" + "Removed" pair if
                     // the FFI ever delivers both flags together.
-                    if chat.isNoLongerMember {
+                    if chat.leaveRequestPending {
+                        LeavingGroupBadge()
+                    } else if chat.isNoLongerMember {
                         MembershipEndedBadge(membership: chat.selfMembership)
                     } else if chat.pendingConfirmation {
                         PendingInviteBadge()
@@ -571,6 +619,12 @@ struct ChatRowContent: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .accessibilityLabel(L10n.string("Pinned"))
+                    }
+                    if chat.muted {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(L10n.string("Muted"))
                     }
                     Spacer(minLength: 8)
                     ChatTimestampText(
@@ -589,7 +643,10 @@ struct ChatRowContent: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if chat.unreadCount > 0 {
+                    if searchResult == nil {
+                        ChatDeliveryStateIcon(state: chat.latestMessageDelivery)
+                    }
+                    if chat.hasUnread {
                         if chat.hasMention {
                             Image(systemName: "at")
                                 .font(.caption2.weight(.bold))
@@ -598,7 +655,14 @@ struct ChatRowContent: View {
                                 .background(Circle().fill(Color.accentColor))
                                 .help(L10n.string("You were mentioned"))
                         }
-                        UnreadCountBadge(count: chat.unreadCount, font: MessagesType.badge)
+                        if chat.unreadCount > 0 {
+                            UnreadCountBadge(count: chat.unreadCount, font: MessagesType.badge)
+                        } else {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 9, height: 9)
+                                .accessibilityLabel(L10n.string("Marked unread"))
+                        }
                     }
                 }
             }
@@ -617,6 +681,29 @@ struct ChatRowContent: View {
             + Text(searchResult.snippet.leading)
             + Text(searchResult.snippet.match).bold().foregroundColor(.primary)
             + Text(searchResult.snippet.trailing)
+    }
+}
+
+private struct ChatDeliveryStateIcon: View {
+    let state: ChatMessageDeliveryState
+
+    var body: some View {
+        switch state {
+        case .notApplicable:
+            EmptyView()
+        case .pending:
+            Image(systemName: "clock")
+                .foregroundStyle(.secondary)
+                .help(L10n.string("Sending"))
+        case .delivered:
+            Image(systemName: "checkmark")
+                .foregroundStyle(.secondary)
+                .help(L10n.string("Delivered"))
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.red)
+                .help(L10n.string("Not delivered"))
+        }
     }
 }
 
@@ -653,6 +740,19 @@ struct PendingInviteBadge: View {
             .foregroundStyle(.secondary)
             .background(.quaternary, in: Capsule())
             .help(L10n.string("Group invite pending"))
+    }
+}
+
+struct LeavingGroupBadge: View {
+    var body: some View {
+        Label("Leaving", systemImage: "hourglass")
+            .font(.caption2.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(.secondary)
+            .background(.quaternary, in: Capsule())
+            .help(L10n.string("Leave request pending"))
     }
 }
 

@@ -18,6 +18,8 @@ import UserNotifications
 extension WorkspaceState {
     func bootstrap() async {
         guard client == nil, case .bootstrapping = phase else { return }
+        let splashStartedAt = DispatchTime.now().uptimeNanoseconds
+        var performanceRuntime: (any MarmotRuntime)?
         lastError = nil
         // Wipe any decrypted/plaintext media scratch left by a prior session before the
         // UI can surface new media or prepare outgoing attachments.
@@ -27,6 +29,7 @@ extension WorkspaceState {
         }
         do {
             let runtime = try clientFactory()
+            performanceRuntime = runtime
             client = runtime
             storageRootPath = runtime.storageRootPath
             if hiddenMessageStore == nil {
@@ -46,6 +49,11 @@ extension WorkspaceState {
             if accounts.isEmpty {
                 discardStartupChatRestoration()
                 phase = .onboarding
+                runtime.recordHostPerformance(
+                    operation: .splashReady,
+                    durationMs: Self.elapsedMilliseconds(since: splashStartedAt),
+                    outcome: .success
+                )
                 return
             }
 
@@ -53,8 +61,18 @@ extension WorkspaceState {
             accounts = try await accountItemsFromRuntime(client: runtime)
             restoreOrSelectFirstAccount()
             await activateReadyState()
+            runtime.recordHostPerformance(
+                operation: .splashReady,
+                durationMs: Self.elapsedMilliseconds(since: splashStartedAt),
+                outcome: .success
+            )
             await refreshAccountProfiles()
         } catch {
+            performanceRuntime?.recordHostPerformance(
+                operation: .splashReady,
+                durationMs: Self.elapsedMilliseconds(since: splashStartedAt),
+                outcome: .failure
+            )
             phase = .failed(error.localizedDescription)
             lastError = error.localizedDescription
         }
@@ -138,6 +156,57 @@ extension WorkspaceState {
         await reloadChats()
         startNotificationListener()
         flushPendingDeepLinkIfReady()
+        Task { [weak self] in
+            await self?.sweepExpiredRetentionBestEffort()
+        }
+    }
+
+    private static func elapsedMilliseconds(since startedAt: UInt64) -> UInt64 {
+        (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+    }
+
+    func recordForegroundLocalReady(since startedAt: UInt64) {
+        guard case .ready = phase, let client else { return }
+        client.recordHostPerformance(
+            operation: .foregroundLocalReady,
+            durationMs: Self.elapsedMilliseconds(since: startedAt),
+            outcome: .success
+        )
+    }
+
+    /// Runs MDK's account-wide, fail-closed retention policy without delaying local-ready UI.
+    func sweepExpiredRetentionBestEffort() async {
+        guard let client, let activeAccount else { return }
+        let accountId = activeAccount.id
+        let nowMs = UInt64(max(0, Date().timeIntervalSince1970 * 1_000))
+        guard
+            let report = try? await client.sweepExpiredRetention(
+                accountRef: activeAccount.accountRef,
+                nowMs: nowMs
+            ), activeAccountId == accountId
+        else { return }
+
+        let pruned = report.groups.filter { $0.status == .pruned && $0.prunedMessages > 0 }
+        guard !pruned.isEmpty else { return }
+
+        let prunedGroupIds = Set(pruned.map(\.groupIdHex))
+        for groupIdHex in prunedGroupIds {
+            clearMediaReferenceResolutionCache(forAccountId: accountId, groupIdHex: groupIdHex)
+            messageTimelineStores[groupIdHex]?.clear()
+        }
+
+        // The host cache is keyed by attachment references rather than MDK's returned
+        // ciphertext hashes, so purge this account when any swept message owned media.
+        if pruned.contains(where: { !$0.mediaCiphertextSha256.isEmpty }) {
+            resetMediaDownloadStateStores()
+            await mediaDiskCache.purgeAccount(accountId)
+            await refreshMediaCacheFootprint()
+        }
+
+        await reloadChats(forceFreshSnapshot: true)
+        if let selectedChat, prunedGroupIds.contains(selectedChat.id) {
+            await loadMessages(groupIdHex: selectedChat.id)
+        }
     }
 
     func showLogin() {
@@ -680,16 +749,10 @@ extension WorkspaceState {
         selection = nil
     }
 
-    /// Brings the Marmot runtime online so newly added accounts start their
-    /// workers and subscribe to transport events. `start()` is idempotent —
-    /// it reconciles all known accounts (spawning a worker for any that lacks
-    /// a live one) and rebuilds the user-directory subscriptions, and only
-    /// fails when the runtime is shutting down. It must therefore be re-invoked
-    /// after every `login()` / `signUp()`, not just once per launch: the
-    /// Settings → Add Account flow adds a 2nd+ account while the runtime is
-    /// already running, and that account stays offline (no live relay sync /
-    /// notifications) until relaunch unless the runtime is brought online
-    /// again. See issues #31 and #74.
+    /// Returns once MDK's local account/runtime state is ready. In 0.9.8 relay
+    /// activation and catch-up continue asynchronously, so UI readiness no longer
+    /// waits on network I/O. `start()` remains idempotent and must be called after
+    /// every login/sign-up so newly added accounts get workers and subscriptions.
     func bringRuntimeOnline(_ runtime: any MarmotRuntime) async throws {
         try await runtime.start()
     }
