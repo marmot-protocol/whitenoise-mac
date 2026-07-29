@@ -674,7 +674,8 @@ nonisolated enum MarmotAccountKeychainPurgeError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .deleteFailed(let status):
-            "Unable to delete Marmot account keys from Keychain (\(status))."
+            return String(
+                format: L10n.string("Unable to delete Marmot account keys from Keychain (%@)."), String(status))
         }
     }
 }
@@ -702,12 +703,17 @@ enum MarmotStorageRootError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .applicationSupportUnavailable(let error):
-            return
-                "Unable to resolve a durable Application Support directory for Marmot storage: \(error.localizedDescription)"
+            return String(
+                format: L10n.string(
+                    "Unable to resolve a durable Application Support directory for Marmot storage: %@"),
+                error.localizedDescription)
         case .createDirectoryFailed(let path, let error):
-            return "Unable to create durable Marmot storage directory at \(path): \(error.localizedDescription)"
+            return String(
+                format: L10n.string("Unable to create durable Marmot storage directory at %@: %@"), path,
+                error.localizedDescription)
         case .rootIsNotDirectory(let path):
-            return "Marmot storage path exists but is not a directory: \(path)"
+            return String(
+                format: L10n.string("Marmot storage path exists but is not a directory: %@"), path)
         }
     }
 }
@@ -760,7 +766,7 @@ nonisolated enum MarmotStorageRoot {
     // Best-effort display label used before bootstrap; resolve() is the authoritative path.
     static func expectedPath(fileManager: FileManager = .default) -> String {
         guard let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return "Application Support unavailable"
+            return L10n.string("Application Support unavailable")
         }
         return storageRootURL(baseURL: base).path
     }

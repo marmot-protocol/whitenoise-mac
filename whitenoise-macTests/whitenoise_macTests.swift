@@ -8842,10 +8842,12 @@ struct whitenoise_macTests {
         #expect(normalizedSource.contains(".onExitCommand(perform:onClose)"))
         #expect(normalizedSource.contains(".keyboardShortcut(.leftArrow,modifiers:[])"))
         #expect(normalizedSource.contains(".keyboardShortcut(.rightArrow,modifiers:[])"))
-        #expect(normalizedSource.contains(".accessibilityLabel(\"Close\")"))
+        // The labels route through `L10n.string` so VoiceOver announces them in the
+        // selected app language rather than the system locale.
+        #expect(normalizedSource.contains(".accessibilityLabel(L10n.string(\"Close\"))"))
         #expect(normalizedSource.contains(".accessibilityLabel(accessibilityLabel)"))
-        #expect(overlaySource.contains("accessibilityLabel: \"Previous image\""))
-        #expect(overlaySource.contains("accessibilityLabel: \"Next image\""))
+        #expect(overlaySource.contains("accessibilityLabel: L10n.string(\"Previous image\")"))
+        #expect(overlaySource.contains("accessibilityLabel: L10n.string(\"Next image\")"))
     }
 
     @Test func automaticMediaDownloadCancelsWhenTileLeavesViewport() throws {

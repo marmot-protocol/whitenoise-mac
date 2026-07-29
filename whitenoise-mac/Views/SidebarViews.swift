@@ -15,7 +15,7 @@ private struct UnreadCountBadge: View {
     var font: Font = .caption2.weight(.bold)
 
     var body: some View {
-        Text(count > 99 ? "99+" : "\(count)")
+        Text(verbatim: count > 99 ? "99+" : "\(count)")
             .font(font)
             .foregroundStyle(.white)
             .padding(.horizontal, 5)
@@ -70,7 +70,7 @@ struct AccountRailView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(isSettingsSelected ? Color.primary : Color.secondary)
-            .help("Settings")
+            .help(L10n.string("Settings"))
         }
         .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
         .padding(.bottom, 14)
@@ -121,14 +121,14 @@ private struct AccountRailAvatar: View {
                 Button {
                     Task { await workspace.signInAccount(account) }
                 } label: {
-                    Label("Sign In", systemImage: "person.crop.circle.badge.checkmark")
+                    Label(L10n.string("Sign In"), systemImage: "person.crop.circle.badge.checkmark")
                 }
                 .disabled(workspace.isAccountMutationInProgress)
             } else {
                 Button {
                     Task { await workspace.signOutAccount(account) }
                 } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label(L10n.string("Sign Out"), systemImage: "rectangle.portrait.and.arrow.right")
                 }
                 .disabled(workspace.isAccountMutationInProgress)
             }
@@ -207,7 +207,7 @@ struct ChatListDrawerView: View {
                             }
                             .buttonStyle(.plain)
                             .keyboardShortcut("n", modifiers: .command)
-                            .help("New chat")
+                            .help(L10n.string("New chat"))
                         }
                     }
 
@@ -477,7 +477,7 @@ struct SettingsListDrawerView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Settings")
+                Text(L10n.string("Settings"))
                     .font(.title2.weight(.semibold))
 
                 activeAccountSummary
@@ -527,7 +527,7 @@ struct SettingsListDrawerView: View {
                     CopyableKeyLabel(accountIdHex: account.accountIdHex, head: 8, tail: 6, showsCopyButton: false)
                 }
             } else {
-                Label("No account", systemImage: "person.crop.circle.badge.exclamationmark")
+                Label(L10n.string("No account"), systemImage: "person.crop.circle.badge.exclamationmark")
                     .font(.callout.weight(.semibold))
             }
 
@@ -677,7 +677,7 @@ struct ChatRowContent: View {
 
     private var previewText: Text {
         guard let searchResult else { return Text(chat.preview) }
-        return Text("\(searchResult.senderName): ").bold()
+        return Text(verbatim: "\(searchResult.senderName): ").bold()
             + Text(searchResult.snippet.leading)
             + Text(searchResult.snippet.match).bold().foregroundColor(.primary)
             + Text(searchResult.snippet.trailing)
@@ -732,7 +732,7 @@ private struct ChatTimestampText: View, Equatable {
 
 struct PendingInviteBadge: View {
     var body: some View {
-        Label("Invite", systemImage: "envelope.badge")
+        Label(L10n.string("Invite"), systemImage: "envelope.badge")
             .font(.caption2.weight(.semibold))
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
@@ -745,7 +745,7 @@ struct PendingInviteBadge: View {
 
 struct LeavingGroupBadge: View {
     var body: some View {
-        Label("Leaving", systemImage: "hourglass")
+        Label(L10n.string("Leaving"), systemImage: "hourglass")
             .font(.caption2.weight(.semibold))
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)

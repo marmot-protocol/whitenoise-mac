@@ -19,17 +19,21 @@ nonisolated enum ConversationTranscriptExport {
         var errorDescription: String? {
             switch self {
             case .emptyPageWithMoreHistory:
-                return
+                return L10n.string(
                     "Transcript export stopped early: the timeline reported more history but the pagination "
-                    + "cursor could not advance, so older messages could not be loaded."
+                        + "cursor could not advance, so older messages could not be loaded.")
             case .unableToCreateTemporaryFile(let url):
-                return "Transcript export could not create a temporary file at \(url.path)."
+                return String(
+                    format: L10n.string("Transcript export could not create a temporary file at %@."), url.path)
             case .unableToCreateReplacementDirectory(let url):
-                return "Transcript export could not prepare a temporary file for \(url.path)."
+                return String(
+                    format: L10n.string("Transcript export could not prepare a temporary file for %@."), url.path)
             case .invalidSpoolData:
-                return "Transcript export could not read its temporary data."
+                return L10n.string("Transcript export could not read its temporary data.")
             case .destinationIsDirectory(let url):
-                return "Transcript export cannot replace the folder at \(url.path) with a JSON file."
+                return String(
+                    format: L10n.string("Transcript export cannot replace the folder at %@ with a JSON file."), url.path
+                )
             }
         }
     }

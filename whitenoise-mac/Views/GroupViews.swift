@@ -190,10 +190,12 @@ struct GroupDetailsSheet: View {
             if let snapshot = workspace.groupDetailsSnapshot {
                 Form {
                     if snapshot.pendingConfirmation {
-                        Section("Invitation") {
+                        Section(L10n.string("Invitation")) {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(
-                                    "Accept this invite to confirm membership, or decline it to remove the group from your chat list."
+                                    L10n.string(
+                                        "Accept this invite to confirm membership, or decline it to remove the group from your chat list."
+                                    )
                                 )
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
@@ -230,7 +232,7 @@ struct GroupDetailsSheet: View {
                     }
 
                     if let endedDescription = snapshot.selfMembership.endedDescription {
-                        Section("Membership") {
+                        Section(L10n.string("Membership")) {
                             Label {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(endedDescription)
@@ -248,12 +250,14 @@ struct GroupDetailsSheet: View {
                         }
                     }
 
-                    Section("Profile") {
-                        TextField("Group name", text: $workspace.groupProfileDraftName)
+                    Section(L10n.string("Profile")) {
+                        TextField(L10n.string("Group name"), text: $workspace.groupProfileDraftName)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Description", text: $workspace.groupProfileDraftDescription, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(2...4)
+                        TextField(
+                            L10n.string("Description"), text: $workspace.groupProfileDraftDescription, axis: .vertical
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(2...4)
 
                         HStack(spacing: 10) {
                             // Group image is a group-only affordance;
@@ -264,7 +268,7 @@ struct GroupDetailsSheet: View {
                                     workspace.closeGroupDetails()
                                     workspace.showGroupImagePicker(for: chat)
                                 } label: {
-                                    Label("Search Web Image", systemImage: "photo.badge.plus")
+                                    Label(L10n.string("Search Web Image"), systemImage: "photo.badge.plus")
                                 }
                                 .disabled(workspace.hasInFlightGroupCommit)
                             }
@@ -290,18 +294,18 @@ struct GroupDetailsSheet: View {
                     .disabled(snapshot.selfMembership != .member)
 
                     if chat.isDirect {
-                        Section("Groups in Common") {
+                        Section(L10n.string("Groups in Common")) {
                             if workspace.isLoadingCommonGroups
                                 && workspace.commonGroupsForContact.isEmpty
                             {
                                 HStack(spacing: 8) {
                                     ProgressView()
                                         .controlSize(.small)
-                                    Text("Checking shared groups…")
+                                    Text(L10n.string("Checking shared groups…"))
                                         .foregroundStyle(.secondary)
                                 }
                             } else if workspace.commonGroupsForContact.isEmpty {
-                                Label("No groups in common", systemImage: "person.2.slash")
+                                Label(L10n.string("No groups in common"), systemImage: "person.2.slash")
                                     .foregroundStyle(.secondary)
                             } else {
                                 ForEach(workspace.commonGroupsForContact) { commonGroup in
@@ -341,7 +345,7 @@ struct GroupDetailsSheet: View {
                             }
 
                             if workspace.commonGroupsLoadHadFailures {
-                                Text("Some groups could not be checked.")
+                                Text(L10n.string("Some groups could not be checked."))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -371,7 +375,7 @@ struct GroupDetailsSheet: View {
                         Text(snapshot.memberCountLabel)
                     }
 
-                    Section("Disappearing Messages") {
+                    Section(L10n.string("Disappearing Messages")) {
                         Picker(
                             selection: Binding<DisappearingChoice>(
                                 get: {
@@ -399,7 +403,7 @@ struct GroupDetailsSheet: View {
                             }
                             Text(L10n.string("Custom…")).tag(DisappearingChoice.customEntry)
                         } label: {
-                            Label("Auto-delete after", systemImage: "timer")
+                            Label(L10n.string("Auto-delete after"), systemImage: "timer")
                         }
                         // Retention changes are group commits — rejected for non-members.
                         // "Delete expired now" below stays enabled: it is a local prune.
@@ -414,14 +418,14 @@ struct GroupDetailsSheet: View {
                             Button {
                                 Task { await workspace.secureDeleteExpiredMessages(groupIdHex: snapshot.groupIdHex) }
                             } label: {
-                                Label("Delete expired now", systemImage: "trash")
+                                Label(L10n.string("Delete expired now"), systemImage: "trash")
                             }
                             .disabled(workspace.isSecureDeletingExpired)
                             .help(L10n.string("Securely prune already-expired messages on this device"))
                         }
                     }
 
-                    Section("Group Actions") {
+                    Section(L10n.string("Group Actions")) {
                         HStack(spacing: 10) {
                             Button(role: snapshot.archived ? nil : .destructive) {
                                 showArchiveConfirmation = true
@@ -437,7 +441,7 @@ struct GroupDetailsSheet: View {
                                 Button(role: .destructive) {
                                     showSelfDemoteConfirmation = true
                                 } label: {
-                                    Label("Step Down as Admin", systemImage: "star.slash")
+                                    Label(L10n.string("Step Down as Admin"), systemImage: "star.slash")
                                 }
                                 .disabled(workspace.hasInFlightGroupCommit || snapshot.isLastAdmin)
                             }
@@ -474,23 +478,25 @@ struct GroupDetailsSheet: View {
 
                         if snapshot.leaveRequestPending {
                             Text(
-                                "Your leave request is pending. This conversation will update when the group commits it."
+                                L10n.string(
+                                    "Your leave request is pending. This conversation will update when the group commits it."
+                                )
                             )
                             .font(.callout)
                             .foregroundStyle(.secondary)
                         } else if snapshot.requiresSelfDemoteBeforeLeave {
-                            Text("Demote yourself from admin before leaving this group.")
+                            Text(L10n.string("Demote yourself from admin before leaving this group."))
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         } else if snapshot.isLastAdmin {
-                            Text("Make another member an admin before stepping down or leaving.")
+                            Text(L10n.string("Make another member an admin before stepping down or leaving."))
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
                     }
 
                     if workspace.developerMode {
-                        Section("Developer") {
+                        Section(L10n.string("Developer")) {
                             HStack(spacing: 10) {
                                 Button {
                                     workspace.startExportSelectedGroupTranscript()
@@ -517,41 +523,47 @@ struct GroupDetailsSheet: View {
                                 }
                             }
 
-                            GroupDiagnosticsValueRow(title: "Group ID", value: snapshot.groupIdHex)
-                            GroupDiagnosticsValueRow(title: "Nostr group ID", value: snapshot.nostrGroupIdHex)
-                            GroupDiagnosticsValueRow(title: "Endpoint", value: snapshot.endpoint)
-                            GroupDiagnosticsValueRow(title: "Avatar URL", value: snapshot.avatarURL ?? "")
-                            GroupDiagnosticsValueRow(title: "Avatar dimension", value: snapshot.avatarDimension ?? "")
+                            GroupDiagnosticsValueRow(title: L10n.string("Group ID"), value: snapshot.groupIdHex)
                             GroupDiagnosticsValueRow(
-                                title: "Relays", value: snapshot.relays.joined(separator: "\n"), lineLimit: 4)
+                                title: L10n.string("Nostr group ID"), value: snapshot.nostrGroupIdHex)
+                            GroupDiagnosticsValueRow(title: L10n.string("Endpoint"), value: snapshot.endpoint)
+                            GroupDiagnosticsValueRow(title: L10n.string("Avatar URL"), value: snapshot.avatarURL ?? "")
                             GroupDiagnosticsValueRow(
-                                title: "Admins", value: snapshot.adminIds.joined(separator: "\n"), lineLimit: 4)
+                                title: L10n.string("Avatar dimension"), value: snapshot.avatarDimension ?? "")
                             GroupDiagnosticsValueRow(
-                                title: "Self admin",
+                                title: L10n.string("Relays"), value: snapshot.relays.joined(separator: "\n"),
+                                lineLimit: 4)
+                            GroupDiagnosticsValueRow(
+                                title: L10n.string("Admins"), value: snapshot.adminIds.joined(separator: "\n"),
+                                lineLimit: 4)
+                            GroupDiagnosticsValueRow(
+                                title: L10n.string("Self admin"),
                                 value: snapshot.isSelfAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
                             GroupDiagnosticsValueRow(
-                                title: "Last admin",
+                                title: L10n.string("Last admin"),
                                 value: snapshot.isLastAdmin ? L10n.string("Yes") : L10n.string("No"), copyable: false)
                             GroupDiagnosticsValueRow(
-                                title: "Can invite", value: snapshot.canInvite ? L10n.string("Yes") : L10n.string("No"),
+                                title: L10n.string("Can invite"),
+                                value: snapshot.canInvite ? L10n.string("Yes") : L10n.string("No"),
                                 copyable: false)
                             GroupDiagnosticsValueRow(
-                                title: "Can leave", value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"),
+                                title: L10n.string("Can leave"),
+                                value: snapshot.canLeave ? L10n.string("Yes") : L10n.string("No"),
                                 copyable: false)
                             GroupDiagnosticsValueRow(
-                                title: "Leave request pending",
+                                title: L10n.string("Leave request pending"),
                                 value: snapshot.leaveRequestPending ? L10n.string("Yes") : L10n.string("No"),
                                 copyable: false)
                             GroupDiagnosticsValueRow(
-                                title: "Leave requested at (ms)",
+                                title: L10n.string("Leave requested at (ms)"),
                                 value: snapshot.leaveRequestedAtMs.map(String.init) ?? "",
                                 copyable: false)
                             GroupDiagnosticsValueRow(
-                                title: "Pending confirmation",
+                                title: L10n.string("Pending confirmation"),
                                 value: snapshot.pendingConfirmation ? L10n.string("Yes") : L10n.string("No"),
                                 copyable: false)
                             GroupDiagnosticsValueRow(
-                                title: "Self membership",
+                                title: L10n.string("Self membership"),
                                 value: snapshot.selfMembership.sidebarBadgeLabel ?? L10n.string("Member"),
                                 copyable: false)
                         }
@@ -596,56 +608,58 @@ struct GroupDetailsSheet: View {
         ) {
             if let snapshot = workspace.groupDetailsSnapshot {
                 Button(
-                    snapshot.archived ? "Unarchive Group" : "Archive Group",
+                    snapshot.archived ? L10n.string("Unarchive Group") : L10n.string("Archive Group"),
                     role: snapshot.archived ? nil : .destructive
                 ) {
                     Task { await workspace.setSelectedGroupArchived(!snapshot.archived) }
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("Archived groups are hidden from the active chat list.")
+            Text(L10n.string("Archived groups are hidden from the active chat list."))
         }
         .confirmationDialog(
-            "Step down as admin?",
+            L10n.string("Step down as admin?"),
             isPresented: $showSelfDemoteConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Step Down", role: .destructive) {
+            Button(L10n.string("Step Down"), role: .destructive) {
                 Task { await workspace.selfDemoteSelectedGroupAdmin() }
             }
             .disabled(workspace.hasInFlightGroupCommit)
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("You'll stay in the group, but another admin will need to restore your admin status.")
+            Text(L10n.string("You'll stay in the group, but another admin will need to restore your admin status."))
         }
         .confirmationDialog(
-            "Leave this group?",
+            L10n.string("Leave this group?"),
             isPresented: $showLeaveConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Leave Group", role: .destructive) {
+            Button(L10n.string("Leave Group"), role: .destructive) {
                 Task { await workspace.leaveSelectedGroup() }
             }
             .disabled(
                 workspace.hasInFlightGroupCommit
                     || workspace.groupDetailsSnapshot?.leaveRequestPending == true
             )
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("You will no longer receive messages from this group on this account.")
+            Text(L10n.string("You will no longer receive messages from this group on this account."))
         }
         .confirmationDialog(
-            "Remove this conversation from this device?",
+            L10n.string("Remove this conversation from this device?"),
             isPresented: $showRemoveLocallyConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Remove From This Device", role: .destructive) {
+            Button(L10n.string("Remove From This Device"), role: .destructive) {
                 Task { await workspace.deleteGroupLocally(groupIdHex: chat.id) }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("This deletes the local copy only. Other members are not notified, and you can be re-added later.")
+            Text(
+                L10n.string(
+                    "This deletes the local copy only. Other members are not notified, and you can be re-added later."))
         }
     }
 
@@ -698,7 +712,7 @@ struct GroupDiagnosticsValueRow: View {
                         .frame(width: 24, height: 24)
                 }
                 .nativeGlassButtonStyle()
-                .help("\(L10n.string("Copy")) \(title)")
+                .help(String(format: L10n.string("Copy %@"), title))
             }
         }
     }
@@ -732,7 +746,7 @@ struct GroupMemberRow: View {
                                 .lineLimit(1)
 
                             if member.isAdmin {
-                                Text("Admin")
+                                Text(L10n.string("Admin"))
                                     .font(.caption2.weight(.semibold))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
@@ -740,7 +754,7 @@ struct GroupMemberRow: View {
                             }
 
                             if member.isSelf {
-                                Text("You")
+                                Text(L10n.string("You"))
                                     .font(.caption2.weight(.semibold))
                                     .foregroundStyle(.secondary)
                             }
@@ -769,19 +783,19 @@ struct GroupMemberRow: View {
             if hasActions {
                 Menu {
                     if member.canPromote {
-                        Button("Make Admin") {
+                        Button(L10n.string("Make Admin")) {
                             Task { await workspace.promoteGroupMember(member) }
                         }
                     }
 
                     if member.canDemote {
-                        Button(member.isSelf ? "Demote Myself" : "Remove Admin") {
+                        Button(member.isSelf ? L10n.string("Demote Myself") : L10n.string("Remove Admin")) {
                             Task { await workspace.demoteGroupMember(member) }
                         }
                     }
 
                     if member.canRemove {
-                        Button("Remove Member", role: .destructive) {
+                        Button(L10n.string("Remove Member"), role: .destructive) {
                             showRemoveConfirmation = true
                         }
                     }
@@ -794,17 +808,20 @@ struct GroupMemberRow: View {
             }
         }
         .confirmationDialog(
-            "Remove this member?",
+            L10n.string("Remove this member?"),
             isPresented: $showRemoveConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Remove Member", role: .destructive) {
+            Button(L10n.string("Remove Member"), role: .destructive) {
                 Task { await workspace.removeGroupMember(member) }
             }
             .disabled(workspace.hasInFlightGroupCommit)
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("This removes \(PeerDisplayText.templateFragment(member.displayName)) from the group.")
+            Text(
+                String(
+                    format: L10n.string("This removes %@ from the group."),
+                    PeerDisplayText.templateFragment(member.displayName)))
         }
     }
 }
@@ -853,8 +870,8 @@ struct ContactDetailsView: View {
             GlassSeparator(axis: .horizontal)
 
             Form {
-                Section("Contact") {
-                    LabeledContent("Public key") {
+                Section(L10n.string("Contact")) {
+                    LabeledContent(L10n.string("Public key")) {
                         Text(contact.npub.isEmpty ? contact.accountIdHex : contact.npub)
                             .font(.callout.monospaced())
                             .lineLimit(1)
@@ -870,7 +887,7 @@ struct ContactDetailsView: View {
                                 forType: .string
                             )
                         } label: {
-                            Label("Copy Public Key", systemImage: "doc.on.doc")
+                            Label(L10n.string("Copy Public Key"), systemImage: "doc.on.doc")
                         }
 
                         if !isSelf {
@@ -878,7 +895,7 @@ struct ContactDetailsView: View {
                             Button {
                                 Task { await workspace.messageContact(contact) }
                             } label: {
-                                Label("Message", systemImage: "message")
+                                Label(L10n.string("Message"), systemImage: "message")
                             }
                             .nativeGlassProminentButtonStyle()
                             .disabled(workspace.isCreatingChat)
@@ -886,18 +903,18 @@ struct ContactDetailsView: View {
                     }
                 }
 
-                Section("Groups in Common") {
+                Section(L10n.string("Groups in Common")) {
                     if workspace.isLoadingCommonGroups
                         && workspace.commonGroupsForContact.isEmpty
                     {
                         HStack(spacing: 8) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Checking shared groups…")
+                            Text(L10n.string("Checking shared groups…"))
                                 .foregroundStyle(.secondary)
                         }
                     } else if workspace.commonGroupsForContact.isEmpty {
-                        Label("No groups in common", systemImage: "person.2.slash")
+                        Label(L10n.string("No groups in common"), systemImage: "person.2.slash")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(workspace.commonGroupsForContact) { commonGroup in
@@ -935,7 +952,7 @@ struct ContactDetailsView: View {
                     }
 
                     if workspace.commonGroupsLoadHadFailures {
-                        Text("Some groups could not be checked.")
+                        Text(L10n.string("Some groups could not be checked."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -974,7 +991,7 @@ struct GroupImagePickerSheet: View {
                         Text(chat.title)
                             .font(.headline)
                             .lineLimit(1)
-                        Text("Group image")
+                        Text(L10n.string("Group image"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -995,11 +1012,11 @@ struct GroupImagePickerSheet: View {
                         Button {
                             isFileImporterPresented = true
                         } label: {
-                            Label("Choose from Mac", systemImage: "photo.badge.plus")
+                            Label(L10n.string("Choose from Mac"), systemImage: "photo.badge.plus")
                         }
                         .disabled(workspace.hasInFlightGroupCommit)
 
-                        Text("or search the web")
+                        Text(L10n.string("or search the web"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -1007,7 +1024,7 @@ struct GroupImagePickerSheet: View {
                     }
 
                     HStack(spacing: 8) {
-                        TextField("Search images", text: $workspace.groupImageSearchQuery)
+                        TextField(L10n.string("Search images"), text: $workspace.groupImageSearchQuery)
                             .textFieldStyle(.roundedBorder)
                             .onSubmit {
                                 Task { await workspace.searchGroupImages() }
@@ -1021,17 +1038,17 @@ struct GroupImagePickerSheet: View {
                         Button {
                             Task { await workspace.searchGroupImages() }
                         } label: {
-                            Label("Search", systemImage: "magnifyingglass")
+                            Label(L10n.string("Search"), systemImage: "magnifyingglass")
                         }
                         .nativeGlassProminentButtonStyle()
                         .disabled(
                             workspace.groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 || workspace.isSearchingGroupImages
                         )
-                        .help("Search")
+                        .help(L10n.string("Search"))
                     }
 
-                    Text("Search terms are sent to Openverse.")
+                    Text(L10n.string("Search terms are sent to Openverse."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1044,7 +1061,7 @@ struct GroupImagePickerSheet: View {
                             Button {
                                 Task { await workspace.clearGroupImage() }
                             } label: {
-                                Label("Clear", systemImage: "xmark.circle")
+                                Label(L10n.string("Clear"), systemImage: "xmark.circle")
                             }
                             .controlSize(.small)
                             .disabled(workspace.hasInFlightGroupCommit)
@@ -1058,9 +1075,12 @@ struct GroupImagePickerSheet: View {
                                 Image(systemName: "photo.on.rectangle.angled")
                                     .font(.system(size: 28, weight: .light))
                                     .foregroundStyle(.secondary)
-                                Text(workspace.isSearchingGroupImages ? "Searching" : "No images")
-                                    .font(.callout.weight(.medium))
-                                    .foregroundStyle(.secondary)
+                                Text(
+                                    workspace.isSearchingGroupImages
+                                        ? L10n.string("Searching") : L10n.string("No images")
+                                )
+                                .font(.callout.weight(.medium))
+                                .foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity, minHeight: 300)
                         } else {

@@ -29,7 +29,7 @@ struct MarkdownMessageView: View {
                     MarkdownBlockView(block: block.block)
                 }
                 if document.truncated {
-                    Text("… (message truncated)")
+                    Text(L10n.string("… (message truncated)"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
