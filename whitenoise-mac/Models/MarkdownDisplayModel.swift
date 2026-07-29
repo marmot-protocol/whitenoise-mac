@@ -299,6 +299,16 @@ nonisolated struct MarkdownDisplayTableRow: Identifiable {
     let cells: [MarkdownDisplayTableCell]
 }
 
+nonisolated fileprivate struct MarkdownDisplayLink {
+    enum Presentation {
+        case underlined
+        case mention
+    }
+
+    let url: URL
+    let presentation: Presentation
+}
+
 nonisolated enum MarkdownDisplayInlineBuilder {
     static func attributedString(
         from inlines: [MarkdownInlineFfi],
@@ -343,7 +353,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     private static func render(
         _ inline: MarkdownInlineFfi,
         intent: InlinePresentationIntent,
-        link: URL?,
+        link: MarkdownDisplayLink?,
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
         truncated: inout Bool
@@ -419,11 +429,12 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     private static func actionableURL(
         from destination: String,
         classification: MarkdownLinkDestinationKindFfi
-    ) -> URL? {
+    ) -> MarkdownDisplayLink? {
         switch classification {
-        case .web, .contact, .app, .nostr:
-            return MarkdownLinkPolicy.sanitizedURL(from: destination)
-        case .relative, .unknown, .dangerous, .sensitive:
+        case .web, .app, .nostr:
+            guard let url = MarkdownLinkPolicy.sanitizedURL(from: destination) else { return nil }
+            return MarkdownDisplayLink(url: url, presentation: .underlined)
+        case .contact, .relative, .unknown, .dangerous, .sensitive:
             return nil
         @unknown default:
             return nil
@@ -433,7 +444,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     private static func concat(
         _ inlines: [MarkdownInlineFfi],
         intent: InlinePresentationIntent,
-        link: URL?,
+        link: MarkdownDisplayLink?,
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
         truncated: inout Bool
@@ -461,7 +472,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     private static func concat(
         _ text: String,
         intent: InlinePresentationIntent,
-        link: URL?
+        link: MarkdownDisplayLink?
     ) -> AttributedString {
         styled(text, intent: intent, link: link)
     }
@@ -469,14 +480,17 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     private static func styled(
         _ string: String,
         intent: InlinePresentationIntent,
-        link: URL?
+        link: MarkdownDisplayLink?
     ) -> AttributedString {
         var attributed = AttributedString(PeerDisplayText.strippingBidiControls(string))
         if !intent.isEmpty {
             attributed.inlinePresentationIntent = intent
         }
         if let link {
-            attributed.link = link
+            attributed.link = link.url
+            if link.presentation == .underlined {
+                attributed.underlineStyle = .single
+            }
         }
         return attributed
     }
@@ -488,7 +502,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     ) -> AttributedString {
         let shortReference = shortBech32(entity.bech32)
         let displayText: String
-        var isMention = false
+        let presentation: MarkdownDisplayLink.Presentation
         switch entity.hrp {
         case .npub, .nprofile:
             // A known group member renders as "@Display Name"; otherwise the truncated bech32
@@ -498,22 +512,26 @@ nonisolated enum MarkdownDisplayInlineBuilder {
             } else {
                 displayText = "@\(shortReference)"
             }
-            isMention = true
+            presentation = .mention
         case .note, .nevent, .naddr, .nrelay:
             displayText = shortReference
+            presentation = .underlined
         @unknown default:
             displayText = shortReference
+            presentation = .underlined
         }
         // No baked foreground color: the bubble owns `.tint` so the linked reference stays visible
         // on both sent and received. A mention is set off by a subtle background pill (Signal's
-        // treatment) rather than bold weight or a color — `.primary` adapts to light/dark and the
-        // low alpha reads as a soft highlight over either bubble fill.
+        // treatment) rather than bold weight, a color, or a decoration — `.primary` adapts to
+        // light/dark and the low alpha reads as a soft highlight over either bubble fill.
         var attributed = styled(
             displayText,
             intent: intent,
-            link: MarkdownLinkPolicy.nostrURL(for: entity.bech32)
+            link: MarkdownLinkPolicy.nostrURL(for: entity.bech32).map {
+                MarkdownDisplayLink(url: $0, presentation: presentation)
+            }
         )
-        if isMention {
+        if presentation == .mention {
             attributed.backgroundColor = Color.primary.opacity(0.14)
         }
         return attributed

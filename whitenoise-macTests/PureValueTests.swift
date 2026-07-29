@@ -2591,6 +2591,131 @@ struct PureValueTests {
         #expect(!containsBidiEmbeddingOrIsolate(mathContent))
     }
 
+    @Test func markdownDisplayUnderlinesLinksButNotMentions() async throws {
+        let webAutolink = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.autolink(url: "https://example.com", kind: .uri, classification: .web)],
+            remainingDepth: 32
+        )
+        #expect(links(in: webAutolink).map(\.absoluteString) == ["https://example.com"])
+        #expect(underlineStyles(in: webAutolink) == [.single])
+
+        let emphasizedLink = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .link(
+                    dest: "https://example.com/docs",
+                    title: nil,
+                    children: [
+                        .strong(children: [.text(content: "bold")]),
+                        .text(content: " plain"),
+                    ],
+                    classification: .web
+                )
+            ],
+            remainingDepth: 32
+        )
+        #expect(String(emphasizedLink.characters) == "bold plain")
+        #expect(underlineStyles(in: emphasizedLink) == [.single, .single])
+        #expect(
+            links(in: emphasizedLink).map(\.absoluteString) == [
+                "https://example.com/docs", "https://example.com/docs",
+            ])
+        #expect(emphasizedLink.runs.first?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
+
+        let npub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
+        let mention = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub))],
+            remainingDepth: 32
+        )
+        #expect(links(in: mention).map(\.absoluteString) == ["nostr:\(npub)"])
+        #expect(mention.runs.allSatisfy { $0.backgroundColor != nil })
+        #expect(underlineStyles(in: mention) == [nil])
+
+        let note = "note1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
+        let noteReference = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.nostrUri(entity: MarkdownNostrEntityFfi(hrp: .note, bech32: note))],
+            remainingDepth: 32
+        )
+        #expect(links(in: noteReference).map(\.absoluteString) == ["nostr:\(note)"])
+        #expect(noteReference.runs.allSatisfy { $0.backgroundColor == nil })
+        #expect(underlineStyles(in: noteReference) == [.single])
+
+        let mentionInsideLink = MarkdownDisplayInlineBuilder.attributedString(
+            from: [
+                .link(
+                    dest: "https://example.com",
+                    title: nil,
+                    children: [
+                        .text(content: "see "),
+                        .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub)),
+                    ],
+                    classification: .web
+                )
+            ],
+            remainingDepth: 32
+        )
+        #expect(underlineStyles(in: mentionInsideLink) == [.single, nil])
+        #expect(
+            links(in: mentionInsideLink).map(\.absoluteString) == [
+                "https://example.com", "nostr:\(npub)",
+            ])
+
+        let plain = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.text(content: "plain")],
+            remainingDepth: 32
+        )
+        #expect(underlineStyles(in: plain) == [nil])
+
+        let rejected: [MarkdownLinkDestinationKindFfi] = [.dangerous, .sensitive, .relative, .unknown]
+        for classification in rejected {
+            let dropped = MarkdownDisplayInlineBuilder.attributedString(
+                from: [
+                    .link(
+                        dest: "https://example.com",
+                        title: nil,
+                        children: [.text(content: "label")],
+                        classification: classification
+                    )
+                ],
+                remainingDepth: 32
+            )
+            #expect(links(in: dropped).isEmpty, "expected no link for \(classification)")
+            #expect(underlineStyles(in: dropped) == [nil], "expected no underline for \(classification)")
+        }
+    }
+
+    @Test func markdownDisplayLeavesContactAndForeignAppAutolinksInert() async throws {
+        let contactAutolinks: [MarkdownInlineFfi] = [
+            .autolink(url: "a@b.com", kind: .email, classification: .contact),
+            .autolink(url: "mailto:foo@bar.com", kind: .uri, classification: .contact),
+            .autolink(url: "tel:+15551234567", kind: .uri, classification: .contact),
+        ]
+        for inline in contactAutolinks {
+            let attributed = MarkdownDisplayInlineBuilder.attributedString(
+                from: [inline],
+                remainingDepth: 32
+            )
+            #expect(links(in: attributed).isEmpty, "expected no link for \(inline)")
+            #expect(underlineStyles(in: attributed) == [nil], "expected no underline for \(inline)")
+        }
+
+        // `whitenoise://` classifies as `.app` and stays inert — this app registers `marmot://`.
+        let foreignAppScheme = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.autolink(url: "whitenoise://group/abc", kind: .uri, classification: .app)],
+            remainingDepth: 32
+        )
+        #expect(links(in: foreignAppScheme).isEmpty)
+        #expect(underlineStyles(in: foreignAppScheme) == [nil])
+
+        // ...while `marmot://profile/<nprofile>` is the `.app` form the app does consume, so the
+        // branch is not dead.
+        let profileLink = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.autolink(url: "marmot://profile/nprofile1alyce", kind: .uri, classification: .app)],
+            remainingDepth: 32
+        )
+        #expect(links(in: profileLink).map(\.absoluteString) == ["marmot://profile/nprofile1alyce"])
+        #expect(underlineStyles(in: profileLink) == [.single])
+    }
+
     @Test func markdownInlineBuilderDropsUnsafeMarkdownLinks() async throws {
         let safe = MarkdownDisplayInlineBuilder.attributedString(
             from: [
@@ -2885,6 +3010,10 @@ struct PureValueTests {
             }
         }
         return result
+    }
+
+    private func underlineStyles(in attributed: AttributedString) -> [Text.LineStyle?] {
+        attributed.runs.map(\.underlineStyle)
     }
 
     private func groupDetailsSnapshot(avatarURL: String?, sanitizedAvatarURL: URL?) -> GroupDetailsSnapshot {
