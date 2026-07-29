@@ -52,15 +52,20 @@ enum MessageMediaDiskCacheError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .keychainReadFailed(let status):
-            "Unable to read the media cache encryption key from Keychain (\(status))."
+            return String(
+                format: L10n.string("Unable to read the media cache encryption key from Keychain (%@)."),
+                String(status))
         case .keychainWriteFailed(let status):
-            "Unable to store the media cache encryption key in Keychain (\(status))."
+            return String(
+                format: L10n.string("Unable to store the media cache encryption key in Keychain (%@)."),
+                String(status))
         case .randomKeyGenerationFailed(let status):
-            "Unable to generate a media cache encryption key (\(status))."
+            return String(
+                format: L10n.string("Unable to generate a media cache encryption key (%@)."), String(status))
         case .invalidKeychainData:
-            "The media cache encryption key stored in Keychain is invalid."
+            return L10n.string("The media cache encryption key stored in Keychain is invalid.")
         case .invalidSealedBox:
-            "The cached media payload is not a valid encrypted record."
+            return L10n.string("The cached media payload is not a valid encrypted record.")
         }
     }
 }

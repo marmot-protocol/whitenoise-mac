@@ -663,7 +663,7 @@ struct PendingMediaDraftStrip: View {
                                         Color(nsColor: .windowBackgroundColor), Color.primary.opacity(0.82))
                             }
                             .buttonStyle(.plain)
-                            .help("Remove attachment")
+                            .help(L10n.string("Remove attachment"))
                             .offset(x: 7, y: -7)
                         }
                     }
@@ -867,7 +867,7 @@ struct VoiceRecordingComposerView: View {
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
-            .help("Cancel recording")
+            .help(L10n.string("Cancel recording"))
 
             ComposerAudioWaveformView(
                 samples: samples,
@@ -891,7 +891,7 @@ struct VoiceRecordingComposerView: View {
                     .background(Color.accentColor, in: Circle())
             }
             .buttonStyle(.plain)
-            .help("Finish recording")
+            .help(L10n.string("Finish recording"))
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 10)
@@ -1032,14 +1032,14 @@ struct TimelineInitialLoadingView: View {
         VStack(spacing: 10) {
             ProgressView()
                 .controlSize(.regular)
-            Text("Loading messages...")
+            Text(L10n.string("Loading messages..."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Loading messages")
+        .accessibilityLabel(L10n.string("Loading messages"))
     }
 }
 
@@ -1070,7 +1070,7 @@ struct ReplyComposerContextView: View {
                 .frame(width: 4, height: 38)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Replying to \(context.senderName)")
+                Text(String(format: L10n.string("Replying to %@"), context.senderName))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(MessagesPalette.sentBubble)
                     .lineLimit(1)
@@ -1092,7 +1092,7 @@ struct ReplyComposerContextView: View {
             }
             .buttonStyle(.plain)
             .background { MessagesCircleControlBackground() }
-            .help("Cancel reply")
+            .help(L10n.string("Cancel reply"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 12)
@@ -1112,7 +1112,7 @@ struct EditComposerContextView: View {
                 .foregroundStyle(MessagesPalette.sentBubble)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Editing message")
+                Text(L10n.string("Editing message"))
                     .font(.caption.weight(.semibold))
                 Text(context.originalBody)
                     .font(.caption)
@@ -1376,7 +1376,7 @@ struct ConversationHeader: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Chat info")
+                .help(L10n.string("Chat info"))
 
                 Spacer()
 
@@ -1395,7 +1395,7 @@ struct ConversationHeader: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .help("Set group image")
+                    .help(L10n.string("Set group image"))
                 }
             }
         }

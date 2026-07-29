@@ -37,8 +37,8 @@ struct GroupSharedMediaSection: View {
     private let columns = Array(repeating: GridItem(.flexible(minimum: 72), spacing: 3), count: 3)
 
     var body: some View {
-        Section("Shared Media") {
-            Picker("Shared media type", selection: $selectedCategory) {
+        Section(L10n.string("Shared Media")) {
+            Picker(L10n.string("Shared media type"), selection: $selectedCategory) {
                 ForEach(GroupSharedMediaCategory.allCases) { category in
                     Text(category.label).tag(category)
                 }

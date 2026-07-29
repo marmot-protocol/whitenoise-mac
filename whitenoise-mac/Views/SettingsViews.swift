@@ -66,19 +66,19 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         SettingsScaffold(
-            title: "General",
-            subtitle: "Choose how White Noise behaves when you start your Mac."
+            title: L10n.string("General"),
+            subtitle: L10n.string("Choose how White Noise behaves when you start your Mac.")
         ) {
-            Section("Startup") {
+            Section(L10n.string("Startup")) {
                 Toggle(
-                    "Launch White Noise at Login",
+                    L10n.string("Launch White Noise at Login"),
                     isOn: Binding(
                         get: { launchAtLogin.isEnabled },
                         set: { launchAtLogin.setEnabled($0) }
                     )
                 )
 
-                Text("Open the White Noise window automatically when you log in to your Mac.")
+                Text(L10n.string("Open the White Noise window automatically when you log in to your Mac."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -87,7 +87,7 @@ struct GeneralSettingsView: View {
                 Divider()
 
                 Toggle(
-                    "Restore last selected chat on launch",
+                    L10n.string("Restore last selected chat on launch"),
                     isOn: Binding(
                         get: { workspace.restoreLastSelectedChat },
                         set: { workspace.setRestoreLastSelectedChat($0) }
@@ -95,7 +95,8 @@ struct GeneralSettingsView: View {
                 )
 
                 Text(
-                    "Return to the last conversation selected for this account after White Noise finishes loading."
+                    L10n.string(
+                        "Return to the last conversation selected for this account after White Noise finishes loading.")
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -125,19 +126,19 @@ struct GeneralSettingsView: View {
         case .requiresApproval:
             VStack(alignment: .leading, spacing: 8) {
                 Label(
-                    "White Noise needs approval in Login Items before it can open at login.",
+                    L10n.string("White Noise needs approval in Login Items before it can open at login."),
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                Button("Open Login Items Settings") {
+                Button(L10n.string("Open Login Items Settings")) {
                     launchAtLogin.openSystemSettings()
                 }
             }
         case .notFound:
             Label(
-                "macOS could not find White Noise's login item.",
+                L10n.string("macOS could not find White Noise's login item."),
                 systemImage: "exclamationmark.triangle"
             )
             .font(.caption)
@@ -149,8 +150,8 @@ struct GeneralSettingsView: View {
 }
 
 struct SettingsHeader: View {
-    let title: LocalizedStringKey
-    var subtitle: LocalizedStringKey?
+    let title: String
+    var subtitle: String?
     var backAction: (() -> Void)?
 
     var body: some View {
@@ -163,7 +164,7 @@ struct SettingsHeader: View {
                             .frame(width: 28, height: 28)
                     }
                     .nativeGlassButtonStyle()
-                    .help("Back to settings")
+                    .help(L10n.string("Back to settings"))
                 }
 
                 Text(title)
@@ -206,15 +207,15 @@ struct SettingsNativeForm<Content: View>: View {
 
 struct SettingsScaffold<Content: View>: View {
     @Environment(WorkspaceState.self) private var workspace
-    let title: LocalizedStringKey
-    var subtitle: LocalizedStringKey?
-    var errorSectionTitle: LocalizedStringKey?
+    let title: String
+    var subtitle: String?
+    var errorSectionTitle: String?
     let content: Content
 
     init(
-        title: LocalizedStringKey,
-        subtitle: LocalizedStringKey? = nil,
-        errorSectionTitle: LocalizedStringKey? = nil,
+        title: String,
+        subtitle: String? = nil,
+        errorSectionTitle: String? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
@@ -252,8 +253,11 @@ struct SettingsScaffold<Content: View>: View {
     }
 }
 
-private let removeAccountConfirmationMessage: LocalizedStringKey =
-    "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
+private var removeAccountConfirmationMessage: String {
+    L10n.string(
+        "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
+    )
+}
 
 private func removeAccountConfirmationTitle(for account: AccountItem?) -> String {
     guard let account else { return L10n.string("Remove account?") }
@@ -272,11 +276,11 @@ private struct RemoveAccountConfirmationModifier: ViewModifier {
             isPresented: $isPresented,
             titleVisibility: .visible
         ) {
-            Button("Remove Account", role: .destructive) {
+            Button(L10n.string("Remove Account"), role: .destructive) {
                 onRemove()
             }
             .disabled(isRemoveDisabled)
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
             Text(removeAccountConfirmationMessage)
         }
@@ -310,9 +314,9 @@ struct AccountsSettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: "Accounts",
-            subtitle: "Manage the identities available on this Mac.",
-            errorSectionTitle: "Status"
+            title: L10n.string("Accounts"),
+            subtitle: L10n.string("Manage the identities available on this Mac."),
+            errorSectionTitle: L10n.string("Status")
         ) {
             Section {
                 ForEach(workspace.accounts) { account in
@@ -336,17 +340,19 @@ struct AccountsSettingsView: View {
                     )
                 }
             } header: {
-                Text("Accounts")
+                Text(L10n.string("Accounts"))
             } footer: {
                 Text(
-                    "Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network."
+                    L10n.string(
+                        "Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network."
+                    )
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
 
-            Section("Add Account") {
-                SecureField("", text: $workspace.loginIdentity, prompt: Text("nsec1..."))
+            Section(L10n.string("Add Account")) {
+                SecureField(L10n.string(""), text: $workspace.loginIdentity, prompt: Text(L10n.string("nsec1...")))
                     .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .disabled(workspace.isAuthenticating)
@@ -396,20 +402,20 @@ struct AccountsSettingsView: View {
             Task { await workspace.removeAccount(account) }
         }
         .confirmationDialog(
-            "Sign out of this account?",
+            L10n.string("Sign out of this account?"),
             isPresented: signOutConfirmationBinding,
             titleVisibility: .visible
         ) {
-            Button("Sign Out", role: .destructive) {
+            Button(L10n.string("Sign Out"), role: .destructive) {
                 guard let account = accountPendingSignOut else { return }
                 accountPendingSignOut = nil
                 Task { await workspace.signOutAccount(account) }
             }
-            Button("Cancel", role: .cancel) {
+            Button(L10n.string("Cancel"), role: .cancel) {
                 accountPendingSignOut = nil
             }
         } message: {
-            Text("The account and its local data will stay on this Mac so you can sign in again later.")
+            Text(L10n.string("The account and its local data will stay on this Mac so you can sign in again later."))
         }
     }
 
@@ -471,7 +477,7 @@ struct AccountSettingsRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     if isActive {
-                        Label("Active", systemImage: "checkmark.circle.fill")
+                        Label(L10n.string("Active"), systemImage: "checkmark.circle.fill")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.tint)
                     }
@@ -491,16 +497,16 @@ struct AccountSettingsRow: View {
             Menu {
                 if account.signedOut {
                     Button(action: onSignIn) {
-                        Label("Sign In", systemImage: "person.crop.circle.badge.checkmark")
+                        Label(L10n.string("Sign In"), systemImage: "person.crop.circle.badge.checkmark")
                     }
                 } else {
                     Button(action: onSignOut) {
-                        Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                        Label(L10n.string("Sign Out"), systemImage: "rectangle.portrait.and.arrow.right")
                     }
                 }
                 Divider()
                 Button(role: .destructive, action: onRemove) {
-                    Label("Remove Account", systemImage: "person.crop.circle.badge.minus")
+                    Label(L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -543,8 +549,8 @@ struct PublicIdentityQRCodeButton: View {
                 .frame(width: 24, height: 24)
         }
         .buttonStyle(.borderless)
-        .help("Show npub QR code")
-        .accessibilityLabel(Text("Show npub QR code"))
+        .help(L10n.string("Show npub QR code"))
+        .accessibilityLabel(Text(L10n.string("Show npub QR code")))
         .sheet(isPresented: $isPresented) {
             PublicIdentityQRCodeSheet(displayName: displayName, npub: npub)
         }
@@ -564,7 +570,7 @@ struct PublicIdentityQRCodeSheet: View {
                     Text(displayName)
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
-                    Text("Public identity")
+                    Text(L10n.string("Public identity"))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -603,7 +609,7 @@ struct PublicIdentityQRCodeSheet: View {
                 Button {
                     workspace.copyText(npub)
                 } label: {
-                    Label("Copy npub", systemImage: "doc.on.doc")
+                    Label(L10n.string("Copy npub"), systemImage: "doc.on.doc")
                 }
                 .nativeGlassButtonStyle()
 
@@ -612,7 +618,7 @@ struct PublicIdentityQRCodeSheet: View {
                 Button {
                     dismiss()
                 } label: {
-                    Label("Done", systemImage: "checkmark")
+                    Label(L10n.string("Done"), systemImage: "checkmark")
                 }
                 .nativeGlassProminentButtonStyle()
             }
@@ -699,11 +705,11 @@ struct ProfileSettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: "Profile",
-            subtitle: "Publish the profile other people see for this identity."
+            title: L10n.string("Profile"),
+            subtitle: L10n.string("Publish the profile other people see for this identity.")
         ) {
             if let account = workspace.activeAccount {
-                Section("Preview") {
+                Section(L10n.string("Preview")) {
                     HStack(spacing: 12) {
                         Button {
                             workspace.showProfileImagePicker()
@@ -726,8 +732,8 @@ struct ProfileSettingsView: View {
                             .contentShape(Circle())
                         }
                         .buttonStyle(.plain)
-                        .help("Change profile image")
-                        .accessibilityLabel("Change profile image")
+                        .help(L10n.string("Change profile image"))
+                        .accessibilityLabel(L10n.string("Change profile image"))
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(profilePreviewName(fallback: account))
@@ -746,14 +752,14 @@ struct ProfileSettingsView: View {
                 }
             }
 
-            Section("Profile") {
-                TextField("Name", text: $workspace.profileDraft.displayName)
-                TextField("About", text: $workspace.profileDraft.about, axis: .vertical)
+            Section(L10n.string("Profile")) {
+                TextField(L10n.string("Name"), text: $workspace.profileDraft.displayName)
+                TextField(L10n.string("About"), text: $workspace.profileDraft.about, axis: .vertical)
                     .lineLimit(3...5)
 
                 DisclosureGroup("More", isExpanded: $isMoreExpanded) {
-                    TextField("Profile image URL", text: $workspace.profileDraft.picture)
-                    TextField("Banner image URL", text: $workspace.profileDraft.banner)
+                    TextField(L10n.string("Profile image URL"), text: $workspace.profileDraft.picture)
+                    TextField(L10n.string("Banner image URL"), text: $workspace.profileDraft.banner)
                 }
             }
 
@@ -816,9 +822,9 @@ struct ProfileImagePickerSheet: View {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Profile image")
+                    Text(L10n.string("Profile image"))
                         .font(.headline)
-                    Text("Choose from your Mac or search the web")
+                    Text(L10n.string("Choose from your Mac or search the web"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -839,7 +845,7 @@ struct ProfileImagePickerSheet: View {
                     Button {
                         isFileImporterPresented = true
                     } label: {
-                        Label("Choose from Mac", systemImage: "photo.badge.plus")
+                        Label(L10n.string("Choose from Mac"), systemImage: "photo.badge.plus")
                     }
                     .disabled(workspace.isUploadingProfileImage)
 
@@ -847,7 +853,7 @@ struct ProfileImagePickerSheet: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField("Search images", text: $workspace.profileImageSearchQuery)
+                    TextField(L10n.string("Search images"), text: $workspace.profileImageSearchQuery)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit {
                             Task { await workspace.searchProfileImages() }
@@ -861,7 +867,7 @@ struct ProfileImagePickerSheet: View {
                     Button {
                         Task { await workspace.searchProfileImages() }
                     } label: {
-                        Label("Search", systemImage: "magnifyingglass")
+                        Label(L10n.string("Search"), systemImage: "magnifyingglass")
                     }
                     .nativeGlassProminentButtonStyle()
                     .disabled(
@@ -871,10 +877,12 @@ struct ProfileImagePickerSheet: View {
                     )
                 }
 
-                Text("Search terms are sent to Openverse. Selected images are copied to Blossom before use.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(
+                    L10n.string("Search terms are sent to Openverse. Selected images are copied to Blossom before use.")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 SettingsErrorView(error: workspace.lastError)
                     .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
@@ -885,9 +893,11 @@ struct ProfileImagePickerSheet: View {
                             Image(systemName: "person.crop.circle.badge.plus")
                                 .font(.system(size: 28, weight: .light))
                                 .foregroundStyle(.secondary)
-                            Text(workspace.isSearchingProfileImages ? "Searching" : "No images")
-                                .font(.callout.weight(.medium))
-                                .foregroundStyle(.secondary)
+                            Text(
+                                workspace.isSearchingProfileImages ? L10n.string("Searching") : L10n.string("No images")
+                            )
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, minHeight: 300)
                     } else {
@@ -935,11 +945,11 @@ struct IdentityKeysSettingsView: View {
 
     var body: some View {
         SettingsScaffold(
-            title: "Identity & Keys",
-            subtitle: "Public identity details and local signing state."
+            title: L10n.string("Identity & Keys"),
+            subtitle: L10n.string("Public identity details and local signing state.")
         ) {
             if let account = workspace.activeAccount {
-                Section("Account") {
+                Section(L10n.string("Account")) {
                     HStack(spacing: 12) {
                         ProfileImageAvatarView(
                             seed: account.accountIdHex,
@@ -960,9 +970,9 @@ struct IdentityKeysSettingsView: View {
                     }
                 }
 
-                Section("Public Identity") {
+                Section(L10n.string("Public Identity")) {
                     let npub = workspace.npub(forAccountIdHex: account.accountIdHex)
-                    LabeledContent("npub") {
+                    LabeledContent(L10n.string("npub")) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(npub)
                                 .font(.system(.callout, design: .monospaced))
@@ -976,7 +986,7 @@ struct IdentityKeysSettingsView: View {
                                 Image(systemName: "doc.on.doc")
                             }
                             .buttonStyle(.borderless)
-                            .help("\(L10n.string("Copy")) npub")
+                            .help(L10n.string("Copy npub"))
 
                             PublicIdentityQRCodeButton(
                                 accountIdHex: account.accountIdHex,
@@ -986,8 +996,8 @@ struct IdentityKeysSettingsView: View {
                     }
                 }
 
-                Section("Private Key") {
-                    LabeledContent("Private key") {
+                Section(L10n.string("Private Key")) {
+                    LabeledContent(L10n.string("Private key")) {
                         Text(
                             account.localSigning
                                 ? L10n.string("Stored in Keychain")
@@ -999,7 +1009,7 @@ struct IdentityKeysSettingsView: View {
                     Button {
                         showKeyBackup = true
                     } label: {
-                        Label("Back Up Private Key…", systemImage: "key")
+                        Label(L10n.string("Back Up Private Key…"), systemImage: "key")
                     }
                     .disabled(!account.localSigning)
                     .help(
@@ -1008,9 +1018,11 @@ struct IdentityKeysSettingsView: View {
                             : L10n.string("This account has no private key stored on this Mac"))
                 }
 
-                Section("Account Removal") {
+                Section(L10n.string("Account Removal")) {
                     Text(
-                        "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally."
+                        L10n.string(
+                            "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally."
+                        )
                     )
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1071,7 +1083,7 @@ struct PrivateKeyBackupSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Back Up Private Key")
+                Text(L10n.string("Back Up Private Key"))
                     .font(.title3.weight(.semibold))
                 Spacer()
                 Button {
@@ -1087,15 +1099,17 @@ struct PrivateKeyBackupSheet: View {
 
             switch mode {
             case .encrypted:
-                Text("Protect your key with a passphrase. You'll need it to restore the backup.")
+                Text(L10n.string("Protect your key with a passphrase. You'll need it to restore the backup."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                SecureField("Passphrase", text: $passphrase)
+                SecureField(L10n.string("Passphrase"), text: $passphrase)
                     .textFieldStyle(.roundedBorder)
             case .nsec:
                 Label(
-                    "Anyone with your nsec controls this account. Never share it. Revealing it is recorded in your audit log.",
+                    L10n.string(
+                        "Anyone with your nsec controls this account. Never share it. Revealing it is recorded in your audit log."
+                    ),
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.callout)
@@ -1150,8 +1164,8 @@ struct PrivateKeyBackupSheet: View {
 
     private var backupTypeSelector: some View {
         HStack(spacing: 0) {
-            backupTypeButton("Encrypted (NIP-49)", mode: .encrypted)
-            backupTypeButton("Raw nsec", mode: .nsec)
+            backupTypeButton(L10n.string("Encrypted (NIP-49)"), mode: .encrypted)
+            backupTypeButton(L10n.string("Raw nsec"), mode: .nsec)
         }
         .padding(2)
         .frame(maxWidth: .infinity)
@@ -1160,10 +1174,10 @@ struct PrivateKeyBackupSheet: View {
                 .fill(Color.primary.opacity(0.10))
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Backup type")
+        .accessibilityLabel(L10n.string("Backup type"))
     }
 
-    private func backupTypeButton(_ title: LocalizedStringKey, mode targetMode: Mode) -> some View {
+    private func backupTypeButton(_ title: String, mode targetMode: Mode) -> some View {
         let isSelected = mode == targetMode
         return Button {
             withAnimation(.easeInOut(duration: 0.12)) {
@@ -1243,10 +1257,10 @@ struct AppearanceSettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: "Appearance",
-            subtitle: "Choose how White Noise follows macOS appearance."
+            title: L10n.string("Appearance"),
+            subtitle: L10n.string("Choose how White Noise follows macOS appearance.")
         ) {
-            Section("Appearance") {
+            Section(L10n.string("Appearance")) {
                 Picker(L10n.string("Theme"), selection: $workspace.appearancePreference) {
                     ForEach(AppearancePreference.allCases) { preference in
                         Text(preference.label).tag(preference)
@@ -1264,8 +1278,8 @@ struct AppearanceSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Quick reactions") {
-                Text("Choose and order the six reactions shown in message actions.")
+            Section(L10n.string("Quick reactions")) {
+                Text(L10n.string("Choose and order the six reactions shown in message actions."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -1306,7 +1320,7 @@ struct AppearanceSettingsView: View {
                         }
                         .buttonStyle(.borderless)
                         .disabled(index == workspace.quickReactions.startIndex)
-                        .help("Move earlier")
+                        .help(L10n.string("Move earlier"))
 
                         Button {
                             workspace.moveQuickReaction(at: index, by: 1)
@@ -1315,11 +1329,11 @@ struct AppearanceSettingsView: View {
                         }
                         .buttonStyle(.borderless)
                         .disabled(index == workspace.quickReactions.index(before: workspace.quickReactions.endIndex))
-                        .help("Move later")
+                        .help(L10n.string("Move later"))
                     }
                 }
 
-                Button("Restore defaults") {
+                Button(L10n.string("Restore defaults")) {
                     workspace.restoreDefaultQuickReactions()
                 }
                 .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
@@ -1354,27 +1368,31 @@ struct PrivacySecuritySettingsView: View {
 
     var body: some View {
         SettingsScaffold(
-            title: "Privacy & Security",
-            subtitle: "Telemetry and audit logs stay off until you enable them."
+            title: L10n.string("Privacy & Security"),
+            subtitle: L10n.string("Telemetry and audit logs stay off until you enable them.")
         ) {
-            Section("Remote Content") {
+            Section(L10n.string("Remote Content")) {
                 Toggle(
                     isOn: Binding(
                         get: { workspace.loadRemoteImages },
                         set: { workspace.loadRemoteImages = $0 }
                     )
                 ) {
-                    Label("Load Remote Profile Images", systemImage: "person.crop.circle.badge.exclamationmark")
+                    Label(
+                        L10n.string("Load Remote Profile Images"),
+                        systemImage: "person.crop.circle.badge.exclamationmark")
                 }
 
                 Text(
-                    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
+                    L10n.string(
+                        "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
+                    )
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
 
-            Section("Data Sharing") {
+            Section(L10n.string("Data Sharing")) {
                 Toggle(
                     isOn: Binding(
                         get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
@@ -1383,7 +1401,7 @@ struct PrivacySecuritySettingsView: View {
                         }
                     )
                 ) {
-                    Label("Anonymous Telemetry", systemImage: "waveform.path.ecg")
+                    Label(L10n.string("Anonymous Telemetry"), systemImage: "waveform.path.ecg")
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
 
@@ -1395,7 +1413,7 @@ struct PrivacySecuritySettingsView: View {
                         }
                     )
                 ) {
-                    Label("Audit Logging", systemImage: "doc.text.magnifyingglass")
+                    Label(L10n.string("Audit Logging"), systemImage: "doc.text.magnifyingglass")
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
 
@@ -1408,10 +1426,10 @@ struct PrivacySecuritySettingsView: View {
                     )
                 ) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Label("Full Data Logging", systemImage: "eye.trianglebadge.exclamationmark")
+                        Label(L10n.string("Full Data Logging"), systemImage: "eye.trianglebadge.exclamationmark")
                         Text(
-                            "Record decrypted message content and full identifiers. "
-                                + "Leave off to keep sensitive data obfuscated."
+                            L10n.string("Record decrypted message content and full identifiers. ")
+                                + L10n.string("Leave off to keep sensitive data obfuscated.")
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1423,13 +1441,13 @@ struct PrivacySecuritySettingsView: View {
                     HStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Saving...")
+                        Text(L10n.string("Saving..."))
                             .foregroundStyle(.secondary)
                     }
                 }
             }
 
-            Section("Audit Log Files") {
+            Section(L10n.string("Audit Log Files")) {
                 HStack {
                     if workspace.isLoadingAuditLogFiles {
                         ProgressView()
@@ -1439,7 +1457,7 @@ struct PrivacySecuritySettingsView: View {
                     Button {
                         Task { await workspace.loadAuditLogFiles() }
                     } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                        Label(L10n.string("Refresh"), systemImage: "arrow.clockwise")
                     }
                     .disabled(workspace.isLoadingAuditLogFiles)
                 }
@@ -1490,7 +1508,7 @@ struct PrivacySecuritySettingsView: View {
                 }
             }
 
-            Section("Reset") {
+            Section(L10n.string("Reset")) {
                 Button(role: .destructive) {
                     showDeleteAllDataConfirmation = true
                 } label: {
@@ -1503,7 +1521,7 @@ struct PrivacySecuritySettingsView: View {
                 .tint(.red)
                 .disabled(workspace.isAccountMutationInProgress)
 
-                Text("Reset White Noise to a newly installed state on this Mac.")
+                Text(L10n.string("Reset White Noise to a newly installed state on this Mac."))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1513,25 +1531,27 @@ struct PrivacySecuritySettingsView: View {
             await workspace.loadAuditLogFiles()
         }
         .confirmationDialog(
-            "Delete all audit logs?",
+            L10n.string("Delete all audit logs?"),
             isPresented: $showDeleteAuditLogsConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Delete All Audit Logs", role: .destructive) {
+            Button(L10n.string("Delete All Audit Logs"), role: .destructive) {
                 Task { await workspace.deleteAllAuditLogFiles() }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("This permanently removes every local audit JSONL file on this Mac.")
+            Text(L10n.string("This permanently removes every local audit JSONL file on this Mac."))
         }
-        .alert("Delete all data?", isPresented: $showDeleteAllDataConfirmation) {
-            Button("Delete All Data", role: .destructive) {
+        .alert(L10n.string("Delete all data?"), isPresented: $showDeleteAllDataConfirmation) {
+            Button(L10n.string("Delete All Data"), role: .destructive) {
                 Task { await workspace.deleteAllData() }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
             Text(
-                "This clears all accounts, chats, and messages from this Mac and resets White Noise to a newly installed state. This cannot be undone."
+                L10n.string(
+                    "This clears all accounts, chats, and messages from this Mac and resets White Noise to a newly installed state. This cannot be undone."
+                )
             )
         }
     }
@@ -1595,10 +1615,10 @@ struct NotificationsSettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: "Notifications",
-            subtitle: "Local alerts for this Mac."
+            title: L10n.string("Notifications"),
+            subtitle: L10n.string("Local alerts for this Mac.")
         ) {
-            Section("Local Alerts") {
+            Section(L10n.string("Local Alerts")) {
                 Toggle(
                     isOn: Binding(
                         get: { workspace.notificationSettings.localNotificationsEnabled },
@@ -1607,11 +1627,11 @@ struct NotificationsSettingsView: View {
                         }
                     )
                 ) {
-                    Label("Local notifications", systemImage: "bell.badge")
+                    Label(L10n.string("Local notifications"), systemImage: "bell.badge")
                 }
                 .disabled(workspace.activeAccount == nil || workspace.isSavingNotifications)
 
-                LabeledContent("Permission") {
+                LabeledContent(L10n.string("Permission")) {
                     HStack(spacing: 8) {
                         Text(workspace.notificationAuthorizationStatus.label)
                             .foregroundStyle(.secondary)
@@ -1626,18 +1646,18 @@ struct NotificationsSettingsView: View {
                     Button {
                         Task { await workspace.requestLocalNotificationPermission() }
                     } label: {
-                        Label("Allow Notifications", systemImage: "checkmark.circle")
+                        Label(L10n.string("Allow Notifications"), systemImage: "checkmark.circle")
                     }
                 } else if workspace.notificationAuthorizationStatus == .denied {
                     Button {
                         workspace.openSystemNotificationSettings()
                     } label: {
-                        Label("Open System Settings", systemImage: "gear")
+                        Label(L10n.string("Open System Settings"), systemImage: "gear")
                     }
                 }
             }
 
-            Section("Privacy") {
+            Section(L10n.string("Privacy")) {
                 Picker(L10n.string("Message preview"), selection: $workspace.notificationPreviewMode) {
                     ForEach(NotificationPreviewMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -1660,11 +1680,11 @@ struct StorageSettingsView: View {
 
     var body: some View {
         SettingsScaffold(
-            title: "Storage",
-            subtitle: "Downloaded attachments stored on this Mac."
+            title: L10n.string("Storage"),
+            subtitle: L10n.string("Downloaded attachments stored on this Mac.")
         ) {
-            Section("Media Cache") {
-                LabeledContent("Cached attachments") {
+            Section(L10n.string("Media Cache")) {
+                LabeledContent(L10n.string("Cached attachments")) {
                     if workspace.isLoadingMediaCacheFootprint {
                         ProgressView()
                             .controlSize(.small)
@@ -1676,7 +1696,9 @@ struct StorageSettingsView: View {
                 }
 
                 Text(
-                    "White Noise encrypts cached attachment data on this Mac. Clearing it does not remove accounts, messages, drafts, or settings."
+                    L10n.string(
+                        "White Noise encrypts cached attachment data on this Mac. Clearing it does not remove accounts, messages, drafts, or settings."
+                    )
                 )
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1717,14 +1739,14 @@ struct StorageSettingsView: View {
             await workspace.refreshMediaCacheFootprint()
         }
         .confirmationDialog(
-            "Clear media cache?",
+            L10n.string("Clear media cache?"),
             isPresented: $showClearConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Clear Cache", role: .destructive) {
+            Button(L10n.string("Clear Cache"), role: .destructive) {
                 Task { await workspace.clearMediaCache() }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
             Text(
                 String(
@@ -1749,23 +1771,23 @@ struct DeveloperModeSettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: "Developer mode",
-            subtitle: "Storage and diagnostics."
+            title: L10n.string("Developer mode"),
+            subtitle: L10n.string("Storage and diagnostics.")
         ) {
-            Section("Developer") {
+            Section(L10n.string("Developer")) {
                 Toggle(isOn: $workspace.developerMode) {
-                    Label("Developer mode", systemImage: "stethoscope")
+                    Label(L10n.string("Developer mode"), systemImage: "stethoscope")
                 }
 
                 Toggle(isOn: $workspace.streamingDebugMode) {
-                    Label("Streaming debug", systemImage: "waveform.path.ecg")
+                    Label(L10n.string("Streaming debug"), systemImage: "waveform.path.ecg")
                 }
                 .disabled(!workspace.developerMode)
             }
 
-            Section("Storage") {
+            Section(L10n.string("Storage")) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Location")
+                    Text(L10n.string("Location"))
 
                     Text(workspace.storageRootPath)
                         .foregroundStyle(.secondary)
@@ -1776,11 +1798,11 @@ struct DeveloperModeSettingsView: View {
                 Button {
                     NSWorkspace.shared.open(URL(fileURLWithPath: workspace.storageRootPath, isDirectory: true))
                 } label: {
-                    Label("Open Storage Folder", systemImage: "folder")
+                    Label(L10n.string("Open Storage Folder"), systemImage: "folder")
                 }
             }
 
-            Section("Diagnostics") {
+            Section(L10n.string("Diagnostics")) {
                 ForEach(workspace.diagnosticsInfo) { item in
                     LabeledContent(item.title) {
                         Text(item.value)
@@ -1801,14 +1823,14 @@ struct RelaySettingsView: View {
         @Bindable var workspace = workspace
 
         SettingsScaffold(
-            title: "Relays",
-            subtitle: "Manage the relay lists published for this account."
+            title: L10n.string("Relays"),
+            subtitle: L10n.string("Manage the relay lists published for this account.")
         ) {
             Section {
                 RelayDiagnosticsView(settings: workspace.relaySettings)
             }
 
-            Section("Relays") {
+            Section(L10n.string("Relays")) {
                 if workspace.relayDraft.isEmpty {
                     ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
                         .frame(minHeight: 160)
@@ -1821,17 +1843,19 @@ struct RelaySettingsView: View {
                 }
             }
 
-            Section("Add Relay") {
+            Section(L10n.string("Add Relay")) {
                 HStack(spacing: 8) {
-                    TextField("", text: $workspace.newRelayURL, prompt: Text("wss://relay.example"))
-                        .labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit {
-                            workspace.addRelayDraftURL()
-                        }
-                        .frame(maxWidth: .infinity)
+                    TextField(
+                        L10n.string(""), text: $workspace.newRelayURL, prompt: Text(L10n.string("wss://relay.example"))
+                    )
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        workspace.addRelayDraftURL()
+                    }
+                    .frame(maxWidth: .infinity)
 
-                    Picker("Relay list", selection: $workspace.selectedRelaySection) {
+                    Picker(L10n.string("Relay list"), selection: $workspace.selectedRelaySection) {
                         ForEach(RelaySettingsSection.allCases) { section in
                             Text(section.label).tag(section)
                         }
@@ -1846,9 +1870,9 @@ struct RelaySettingsView: View {
                     Button {
                         workspace.addRelayDraftURL()
                     } label: {
-                        Label("Add", systemImage: "plus")
+                        Label(L10n.string("Add"), systemImage: "plus")
                     }
-                    .help("Add relay")
+                    .help(L10n.string("Add relay"))
                 }
             }
 
@@ -1867,7 +1891,7 @@ struct RelaySettingsView: View {
                     Button {
                         workspace.restoreRelayDraftDefaults()
                     } label: {
-                        Label("Restore defaults", systemImage: "arrow.counterclockwise")
+                        Label(L10n.string("Restore defaults"), systemImage: "arrow.counterclockwise")
                     }
                     .disabled(workspace.isSavingRelays)
 
@@ -1892,7 +1916,7 @@ struct RelayDiagnosticsView: View {
             HStack(spacing: 8) {
                 Image(systemName: settings.isComplete ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                     .foregroundStyle(settings.isComplete ? .green : .orange)
-                Text("Published Relay Lists")
+                Text(L10n.string("Published Relay Lists"))
                     .font(.callout.weight(.semibold))
                 Spacer()
                 Text(settings.isComplete ? L10n.string("Complete") : L10n.string("Missing"))
@@ -1900,11 +1924,13 @@ struct RelayDiagnosticsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            RelayDiagnosticsRow(title: "NIP-65", systemImage: "list.bullet", relays: settings.publishedNip65)
-            RelayDiagnosticsRow(title: "Inbox", systemImage: "tray.and.arrow.down", relays: settings.publishedInbox)
+            RelayDiagnosticsRow(
+                title: L10n.string("NIP-65"), systemImage: "list.bullet", relays: settings.publishedNip65)
+            RelayDiagnosticsRow(
+                title: L10n.string("Inbox"), systemImage: "tray.and.arrow.down", relays: settings.publishedInbox)
 
             if !settings.missing.isEmpty {
-                Text("Missing: \(settings.missing.joined(separator: ", "))")
+                Text(String(format: L10n.string("Missing: %@"), settings.missing.joined(separator: ", ")))
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -1921,7 +1947,7 @@ struct RelayDiagnosticsRow: View {
     var body: some View {
         DisclosureGroup {
             if relays.isEmpty {
-                Text("Not published")
+                Text(L10n.string("Not published"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -1941,7 +1967,7 @@ struct RelayDiagnosticsRow: View {
                     .frame(width: 18)
                 Text(title)
                 Spacer()
-                Text("\(relays.count)")
+                Text(verbatim: "\(relays.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 7)
@@ -1958,8 +1984,8 @@ struct KeyPackageSettingsView: View {
 
     var body: some View {
         SettingsScaffold(
-            title: "Key Packages",
-            subtitle: "Manage the KeyPackages this identity has published for invites."
+            title: L10n.string("Key Packages"),
+            subtitle: L10n.string("Manage the KeyPackages this identity has published for invites.")
         ) {
             Section {
                 HStack(spacing: 10) {
@@ -1992,7 +2018,7 @@ struct KeyPackageSettingsView: View {
                 }
             }
 
-            Section("Published Key Packages") {
+            Section(L10n.string("Published Key Packages")) {
                 if workspace.keyPackages.isEmpty {
                     ContentUnavailableView("No key packages", systemImage: "key.slash")
                         .frame(minHeight: 220)
@@ -2062,7 +2088,7 @@ struct KeyPackageRow: View {
                     if workspace.developerMode {
                         keyValue("KeyPackageRef", package.keyPackageRefHex)
                         keyValue("Slot", package.keyPackageId)
-                        Text("\(package.keyPackageBytes) bytes")
+                        Text(L10n.plural("%llu bytes", package.keyPackageBytes))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -2075,13 +2101,13 @@ struct KeyPackageRow: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.red)
-                .help("Delete key package")
+                .help(L10n.string("Delete key package"))
                 .disabled(package.eventIdHex.isEmpty || workspace.deletingKeyPackageId != nil)
             }
 
             if workspace.developerMode && !package.sourceRelays.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Source relays")
+                    Text(L10n.string("Source relays"))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ForEach(package.sourceRelays, id: \.self) { relay in
@@ -2096,7 +2122,7 @@ struct KeyPackageRow: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(package.sourceLabel), \(package.publishedLabel)")
+        .accessibilityLabel(String(format: L10n.string("%@, %@"), package.sourceLabel, package.publishedLabel))
     }
 
     private func statusBadge(_ title: String, systemImage: String, tint: Color) -> some View {
@@ -2160,7 +2186,7 @@ struct RelayRow: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Remove relay")
+            .help(L10n.string("Remove relay"))
         }
         .padding(.vertical, 4)
     }

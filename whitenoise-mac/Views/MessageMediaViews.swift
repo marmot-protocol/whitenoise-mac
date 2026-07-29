@@ -176,7 +176,7 @@ struct TimelineNoticeRow: View {
                 Button {
                     workspace.copyText(of: message)
                 } label: {
-                    Label("Copy Text", systemImage: "doc.on.doc")
+                    Label(L10n.string("Copy Text"), systemImage: "doc.on.doc")
                 }
             }
 
@@ -491,7 +491,7 @@ struct MessageBubble: View {
         if message.isEdited {
             result =
                 result
-                + Text("Edited").font(.system(size: 10.5, weight: .medium))
+                + Text(L10n.string("Edited")).font(.system(size: 10.5, weight: .medium))
                 + Text(verbatim: " ")
         }
         result =
@@ -520,7 +520,7 @@ struct MessageBubble: View {
     private var compactMetadata: some View {
         HStack(spacing: 4) {
             if message.isEdited {
-                Button("Edited") { workspace.messagePendingEditHistory = message }
+                Button(L10n.string("Edited")) { workspace.messagePendingEditHistory = message }
                     .buttonStyle(.plain)
                     .help(L10n.string("View edit history"))
             }
@@ -846,7 +846,7 @@ struct MessageVisualMediaTile: View {
 
             if hiddenCount > 0 {
                 Color.black.opacity(0.46)
-                Text("+\(hiddenCount)")
+                Text(verbatim: "+\(hiddenCount)")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
             }
@@ -1605,7 +1605,7 @@ struct MessageImageGalleryOverlay: View {
                         Spacer()
 
                         if canNavigate {
-                            Text("\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
+                            Text(verbatim: "\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
                                 .font(.caption.monospacedDigit().weight(.semibold))
                                 .foregroundStyle(.white.opacity(0.72))
                         }
@@ -1618,8 +1618,8 @@ struct MessageImageGalleryOverlay: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.white)
-                        .help("Close")
-                        .accessibilityLabel("Close")
+                        .help(L10n.string("Close"))
+                        .accessibilityLabel(L10n.string("Close"))
                     }
                     .padding(.horizontal, 22)
                     .padding(.top, 18)
@@ -1631,7 +1631,7 @@ struct MessageImageGalleryOverlay: View {
                     HStack {
                         navigationButton(
                             systemName: "chevron.left",
-                            accessibilityLabel: "Previous image",
+                            accessibilityLabel: L10n.string("Previous image"),
                             isEnabled: selectedIndex > 0
                         ) {
                             selectedIndex = max(0, selectedIndex - 1)
@@ -1642,7 +1642,7 @@ struct MessageImageGalleryOverlay: View {
 
                         navigationButton(
                             systemName: "chevron.right",
-                            accessibilityLabel: "Next image",
+                            accessibilityLabel: L10n.string("Next image"),
                             isEnabled: selectedIndex < presentation.imageAttachments.count - 1
                         ) {
                             selectedIndex = min(presentation.imageAttachments.count - 1, selectedIndex + 1)
@@ -1702,12 +1702,12 @@ struct MessageImageGalleryContent: View {
                 VStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.title2)
-                    Text("Image unavailable")
+                    Text(L10n.string("Image unavailable"))
                         .font(.callout.weight(.semibold))
                     Button {
                         Task { await workspace.loadMediaAttachment(attachment, for: message) }
                     } label: {
-                        Label("Retry", systemImage: "arrow.clockwise")
+                        Label(L10n.string("Retry"), systemImage: "arrow.clockwise")
                     }
                 }
                 .foregroundStyle(.white)
@@ -1744,7 +1744,7 @@ struct DownsampledMessageGalleryImage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(attachment.fileName)
             } placeholder: {
-                Text("Image unavailable")
+                Text(L10n.string("Image unavailable"))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1784,7 +1784,7 @@ struct MessageInlineActions: View {
                 Button {
                     isEmojiPickerPresented = true
                 } label: {
-                    MessageInlineActionIcon(systemName: "face.smiling", label: "React")
+                    MessageInlineActionIcon(systemName: "face.smiling", label: L10n.string("React"))
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $isEmojiPickerPresented, arrowEdge: .bottom) {
@@ -1793,24 +1793,24 @@ struct MessageInlineActions: View {
                         Task { await workspace.react(to: message, emoji: emoji) }
                     }
                 }
-                .help("React")
+                .help(L10n.string("React"))
             }
 
             if message.canReply {
                 Button {
                     workspace.startReply(to: message)
                 } label: {
-                    MessageInlineActionIcon(systemName: "arrowshape.turn.up.left", label: "Reply")
+                    MessageInlineActionIcon(systemName: "arrowshape.turn.up.left", label: L10n.string("Reply"))
                 }
                 .buttonStyle(.plain)
-                .help("Reply")
+                .help(L10n.string("Reply"))
             }
 
             if message.supportsChatActions {
                 Button {
                     isOverflowPresented = true
                 } label: {
-                    MessageInlineActionIcon(systemName: "ellipsis", label: "More")
+                    MessageInlineActionIcon(systemName: "ellipsis", label: L10n.string("More"))
                 }
                 .buttonStyle(.plain)
                 .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
@@ -1818,7 +1818,7 @@ struct MessageInlineActions: View {
                         isOverflowPresented = false
                     }
                 }
-                .help("More")
+                .help(L10n.string("More"))
             }
         }
         .fixedSize(horizontal: true, vertical: true)
@@ -1936,7 +1936,7 @@ struct MessageRowAction: Identifiable {
     enum Kind { case retry, info, select, forward, edit, copy, delete }
 
     let kind: Kind
-    let title: LocalizedStringKey
+    let title: String
     let systemImage: String
     let role: ButtonRole?
     let run: () -> Void
@@ -1954,7 +1954,7 @@ struct MessageRowAction: Identifiable {
             actions.append(
                 MessageRowAction(
                     kind: .retry,
-                    title: "Retry",
+                    title: L10n.string("Retry"),
                     systemImage: "arrow.clockwise",
                     role: nil
                 ) {
@@ -1963,39 +1963,42 @@ struct MessageRowAction: Identifiable {
                 })
         }
         actions.append(
-            MessageRowAction(kind: .info, title: "Message Info", systemImage: "info.circle", role: nil) {
+            MessageRowAction(kind: .info, title: L10n.string("Message Info"), systemImage: "info.circle", role: nil) {
                 workspace.showMessageInfo(message)
                 dismiss()
             })
         actions.append(
-            MessageRowAction(kind: .select, title: "Select", systemImage: "checkmark.circle", role: nil) {
+            MessageRowAction(kind: .select, title: L10n.string("Select"), systemImage: "checkmark.circle", role: nil) {
                 workspace.beginMessageSelection(message)
                 dismiss()
             })
         if message.canForward {
             actions.append(
-                MessageRowAction(kind: .forward, title: "Forward", systemImage: "arrowshape.turn.up.right", role: nil) {
+                MessageRowAction(
+                    kind: .forward, title: L10n.string("Forward"), systemImage: "arrowshape.turn.up.right", role: nil
+                ) {
                     workspace.startForwarding([message])
                     dismiss()
                 })
         }
         if message.canEdit {
             actions.append(
-                MessageRowAction(kind: .edit, title: "Edit", systemImage: "pencil", role: nil) {
+                MessageRowAction(kind: .edit, title: L10n.string("Edit"), systemImage: "pencil", role: nil) {
                     workspace.startEditingMessage(message)
                     dismiss()
                 })
         }
         if message.canCopyText {
             actions.append(
-                MessageRowAction(kind: .copy, title: "Copy Text", systemImage: "doc.on.doc", role: nil) {
+                MessageRowAction(kind: .copy, title: L10n.string("Copy Text"), systemImage: "doc.on.doc", role: nil) {
                     workspace.copyText(of: message)
                     dismiss()
                 })
         }
         if workspace.canDeleteMessage(message) {
             actions.append(
-                MessageRowAction(kind: .delete, title: "Delete", systemImage: "trash", role: .destructive) {
+                MessageRowAction(kind: .delete, title: L10n.string("Delete"), systemImage: "trash", role: .destructive)
+                {
                     dismiss()
                     workspace.messagePendingDeletion = workspace.messageDeletionTarget(for: message)
                 })
@@ -2059,7 +2062,7 @@ struct MessageContextMenuItems: View {
                     Text(emoji)
                 }
             } label: {
-                Label("React", systemImage: "face.smiling")
+                Label(L10n.string("React"), systemImage: "face.smiling")
             }
 
             Divider()
@@ -2101,7 +2104,7 @@ struct MessageReplyContextView: View {
             .multilineTextAlignment(.leading)
         }
         .buttonStyle(.plain)
-        .help("Show replied-to message")
+        .help(L10n.string("Show replied-to message"))
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background {

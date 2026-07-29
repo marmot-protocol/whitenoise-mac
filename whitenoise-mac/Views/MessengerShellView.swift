@@ -129,7 +129,7 @@ private struct WelcomeAuthView: View {
                 Button {
                     workspace.showLogin()
                 } label: {
-                    Text("Log in with Key")
+                    Text(L10n.string("Log in with Key"))
                         .frame(maxWidth: .infinity)
                 }
                 .controlSize(.extraLarge)
@@ -140,7 +140,7 @@ private struct WelcomeAuthView: View {
 
             if workspace.authenticationMode == .login {
                 VStack(spacing: 12) {
-                    SecureField("nsec1...", text: $workspace.loginIdentity)
+                    SecureField(L10n.string("nsec1..."), text: $workspace.loginIdentity)
                         .textFieldStyle(.plain)
                         .frame(width: 360)
                         .padding(.horizontal, 12)
@@ -149,7 +149,7 @@ private struct WelcomeAuthView: View {
                         .disabled(workspace.isAuthenticating)
 
                     HStack(spacing: 10) {
-                        Button("Cancel") {
+                        Button(L10n.string("Cancel")) {
                             workspace.cancelLogin()
                         }
                         .disabled(workspace.isAuthenticating)
@@ -236,9 +236,9 @@ private struct SignedOutAccountsView: View {
                 .frame(width: 80, height: 80)
 
             VStack(spacing: 5) {
-                Text("Choose an account")
+                Text(L10n.string("Choose an account"))
                     .font(.title2.weight(.semibold))
-                Text("Sign in to continue with an account stored on this Mac.")
+                Text(L10n.string("Sign in to continue with an account stored on this Mac."))
                     .foregroundStyle(.secondary)
             }
 
@@ -263,7 +263,7 @@ private struct SignedOutAccountsView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 20)
-                            Text("Sign In")
+                            Text(L10n.string("Sign In"))
                                 .font(.callout.weight(.semibold))
                         }
                         .padding(12)
@@ -277,7 +277,7 @@ private struct SignedOutAccountsView: View {
             }
             .frame(maxWidth: 440)
 
-            Button("Use another account") {
+            Button(L10n.string("Use another account")) {
                 workspace.showAccountOnboarding()
             }
             .nativeGlassButtonStyle()
@@ -769,7 +769,7 @@ private struct ConversationView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(workspace.isSending)
-                    .help("Emoji")
+                    .help(L10n.string("Emoji"))
                     .popover(isPresented: $isComposerEmojiPickerPresented, arrowEdge: .bottom) {
                         ChatEmojiPicker { emoji in
                             composerEmojiInsertion = ComposerEmojiInsertion(emoji: emoji)
@@ -789,7 +789,7 @@ private struct ConversationView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(workspace.isSending)
-                    .help("Attach files")
+                    .help(L10n.string("Attach files"))
                 }
 
                 ComposerMessageInputView(
@@ -857,7 +857,7 @@ private struct ConversationView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(workspace.isSending)
-                    .help("Voice message")
+                    .help(L10n.string("Voice message"))
                 }
 
                 Button {
@@ -881,7 +881,7 @@ private struct ConversationView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!workspace.canSend)
-                .help(workspace.editingMessageContext == nil ? "Send" : "Save edit")
+                .help(workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit"))
             }
         }
     }
@@ -991,7 +991,7 @@ private struct StartupView: View {
     var body: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("Starting Marmot")
+            Text(L10n.string("Starting Marmot"))
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -1034,7 +1034,7 @@ private struct FailureView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("Startup failed", systemImage: "exclamationmark.triangle")
+            Label(L10n.string("Startup failed"), systemImage: "exclamationmark.triangle")
         } description: {
             Text(message)
         }
