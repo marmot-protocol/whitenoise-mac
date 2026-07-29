@@ -39,7 +39,7 @@ struct whitenoise_macApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             CommandMenu("Navigate") {
-                Button("Search All Messages…") {
+                Button(L10n.string("Search All Messages…")) {
                     workspace.presentGlobalMessageSearch()
                 }
                 .keyboardShortcut("f", modifiers: [.command, .shift])

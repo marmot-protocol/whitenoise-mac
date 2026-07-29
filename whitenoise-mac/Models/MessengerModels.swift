@@ -1060,13 +1060,13 @@ nonisolated enum OutgoingMediaDraftProcessor {
         var errorDescription: String? {
             switch self {
             case .unsupportedImage:
-                return "That image could not be opened."
+                return L10n.string("That image could not be opened.")
             case .unsupportedAttachment:
-                return "That file type is not supported."
+                return L10n.string("That file type is not supported.")
             case .encodingFailed:
-                return "That attachment could not be prepared."
+                return L10n.string("That attachment could not be prepared.")
             case .attachmentTooLarge:
-                return "That attachment is too large to send."
+                return L10n.string("That attachment is too large to send.")
             }
         }
     }

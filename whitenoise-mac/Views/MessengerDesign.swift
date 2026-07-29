@@ -533,6 +533,6 @@ struct GlassCircleCloseButton: View {
                 .frame(width: 28, height: 28)
         }
         .nativeGlassCircleButtonStyle()
-        .help(helpText)
+        .help(L10n.string(helpText))
     }
 }

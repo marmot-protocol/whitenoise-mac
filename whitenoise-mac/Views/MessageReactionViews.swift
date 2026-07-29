@@ -39,7 +39,7 @@ struct MessageReactionChips: View {
             HStack(spacing: 3) {
                 Text(emojis)
                 if totalCount > 1 {
-                    Text("\(totalCount)")
+                    Text(verbatim: "\(totalCount)")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
@@ -124,7 +124,7 @@ struct MessageReactionDetailsView: View {
         } label: {
             HStack(spacing: 5) {
                 Text(label)
-                Text("\(count)")
+                Text(verbatim: "\(count)")
                     .font(.caption.weight(.semibold))
             }
             .font(.subheadline.weight(.semibold))
