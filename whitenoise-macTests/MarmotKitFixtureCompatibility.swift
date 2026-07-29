@@ -1,3 +1,4 @@
+import Foundation
 import MarmotKit
 
 nonisolated extension SendSummaryFfi {
@@ -73,8 +74,41 @@ nonisolated extension AppGroupRecordFfi {
             selfMembership: selfMembership,
             leaveRequestPending: false,
             leaveRequestedAtMs: nil,
+            disbanding: false,
+            disbandRequest: nil,
+            disbanded: false,
             welcomerAccountIdHex: welcomerAccountIdHex,
             viaWelcomeMessageIdHex: viaWelcomeMessageIdHex
+        )
+    }
+}
+
+nonisolated extension GroupDetailsFfi {
+    init(group: AppGroupRecordFfi, members: [GroupMemberDetailsFfi]) {
+        let lifecycleState: GroupLifecycleStateFfi =
+            if group.disbanded {
+                .disbanded
+            } else if group.unrecoverable {
+                .unrecoverable
+            } else {
+                .stable
+            }
+        self.init(
+            group: group,
+            members: members,
+            mlsState: AppGroupMlsStateFfi(
+                groupIdHex: group.groupIdHex,
+                protocolProfile: group.protocolProfile,
+                lifecycleState: lifecycleState,
+                epoch: 0,
+                memberCount: UInt32(members.count),
+                unrecoverable: group.unrecoverable,
+                requiredAppComponents: [],
+                disbandingEnabled: false,
+                disbanding: group.disbanding,
+                disbandingBlockers: [],
+                disbandRequest: group.disbandRequest
+            )
         )
     }
 }
@@ -130,8 +164,13 @@ nonisolated extension ChatListRowFfi {
         let activitySortAt = previewTimelineAt > 0 ? previewTimelineAt : updatedAt
         self.init(
             groupIdHex: groupIdHex,
+            pinned: false,
+            pinnedPosition: nil,
             archived: archived,
             pendingConfirmation: pendingConfirmation,
+            lifecycleState: .stable,
+            disbanding: false,
+            disbandRequest: nil,
             title: title,
             groupName: groupName,
             avatarUrl: avatarUrl,
@@ -166,6 +205,8 @@ nonisolated extension GroupManagementStateFfi {
         canInvite: Bool,
         canLeave: Bool,
         requiresSelfDemoteBeforeLeave: Bool,
+        leaveRequestPending: Bool = false,
+        leaveRequestedAtMs: UInt64? = nil,
         memberActions: [GroupMemberActionStateFfi]
     ) {
         self.init(
@@ -175,8 +216,15 @@ nonisolated extension GroupManagementStateFfi {
             canInvite: canInvite,
             canLeave: canLeave,
             requiresSelfDemoteBeforeLeave: requiresSelfDemoteBeforeLeave,
-            leaveRequestPending: false,
-            leaveRequestedAtMs: nil,
+            leaveRequestPending: leaveRequestPending,
+            leaveRequestedAtMs: leaveRequestedAtMs,
+            lifecycleState: .stable,
+            disbandingEnabled: false,
+            disbanding: false,
+            canEnableDisbanding: false,
+            canDisband: false,
+            disbandingBlockers: [],
+            disbandRequest: nil,
             memberActions: memberActions
         )
     }
@@ -231,6 +279,26 @@ nonisolated extension TimelineMessageRecordFfi {
             deleted: deleted,
             deletedByMessageIdHex: deletedByMessageIdHex,
             invalidationStatus: invalidationStatus
+        )
+    }
+}
+
+nonisolated extension MarkdownDocumentFfi {
+    init(blocks: [MarkdownBlockFfi], truncated: Bool) {
+        self.init(
+            blocks: blocks,
+            truncated: truncated,
+            blankLinesBefore: Data(repeating: 0, count: blocks.count)
+        )
+    }
+}
+
+nonisolated extension MarkdownListItemFfi {
+    init(blocks: [MarkdownBlockFfi], checked: Bool?) {
+        self.init(
+            blocks: blocks,
+            checked: checked,
+            blankLinesBefore: Data(repeating: 0, count: blocks.count)
         )
     }
 }

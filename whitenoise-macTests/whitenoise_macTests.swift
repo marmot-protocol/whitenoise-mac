@@ -24346,8 +24346,13 @@ struct MarmotKit098IntegrationTests {
     @Test func chatRowProjectsDurableInteractionFields() async throws {
         let row = ChatListRowFfi(
             groupIdHex: "direct-group",
+            pinned: false,
+            pinnedPosition: nil,
             archived: false,
             pendingConfirmation: false,
+            lifecycleState: .stable,
+            disbanding: false,
+            disbandRequest: nil,
             title: "Alice",
             groupName: "",
             avatarUrl: nil,
@@ -27932,7 +27937,7 @@ private func emptyMarkdownDocument() -> MarkdownDocumentFfi {
 private func nestedBlockQuote(depth: Int, leaf: MarkdownBlockFfi) -> MarkdownBlockFfi {
     var block = leaf
     for _ in 0..<depth {
-        block = .blockQuote(blocks: [block])
+        block = .blockQuote(blocks: [block], blankLinesBefore: Data([0]))
     }
     return block
 }

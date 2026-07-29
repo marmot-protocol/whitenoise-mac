@@ -340,6 +340,11 @@ extension WorkspaceState {
         case .removeRow(trigger: _, let groupIdHex):
             removeChat(groupIdHex: groupIdHex, account: account)
             removeArchivedChatFromList(chatId: groupIdHex, forAccountId: account.id)
+        case .snapshot(let trigger, let rows):
+            for row in rows {
+                invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
+            }
+            await applyChatRows(rows, account: account)
         }
     }
 
@@ -350,7 +355,8 @@ extension WorkspaceState {
     func chatListTriggerRequiresEnrichment(_ trigger: ChatListUpdateTriggerFfi) -> Bool {
         switch trigger {
         case .newLastMessage, .lastMessageDeleted, .latestMessageDeliveryChanged,
-            .pendingConfirmationChanged, .unreadChanged, .manualUnreadChanged, .muteChanged:
+            .pendingConfirmationChanged, .unreadChanged, .manualUnreadChanged, .muteChanged,
+            .pinOrderChanged:
             return false
         case .newGroup, .archiveChanged, .membershipChanged, .conversationKindChanged,
             .snapshotRefresh, .removed:

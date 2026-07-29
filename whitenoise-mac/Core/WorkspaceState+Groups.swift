@@ -1173,7 +1173,8 @@ extension WorkspaceState {
             .pendingConfirmationChanged,
             .unreadChanged,
             .manualUnreadChanged,
-            .muteChanged:
+            .muteChanged,
+            .pinOrderChanged:
             break
         }
     }
