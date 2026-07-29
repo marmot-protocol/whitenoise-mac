@@ -160,7 +160,7 @@ nonisolated enum MarkdownDisplayBlock {
             self = .thematicBreak
         case .codeBlock(_, _, let content):
             self = .codeBlock(PeerDisplayText.strippingBidiControls(content))
-        case .blockQuote(let blocks):
+        case .blockQuote(let blocks, _):
             self = .blockQuote(
                 MarkdownDisplayDocument.makeBlocks(
                     from: blocks,

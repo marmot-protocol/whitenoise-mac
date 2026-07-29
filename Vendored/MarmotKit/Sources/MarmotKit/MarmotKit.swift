@@ -736,8 +736,27 @@ public func FfiConverterTypeAgentStreamSubscription_lower(_ value: AgentStreamSu
 
 public protocol ChatListSubscriptionProtocol : AnyObject {
     
+    /**
+     * Legacy row-only update stream.
+     *
+     * Atomic replacement snapshots are flattened into every visible row in
+     * authoritative order so existing clients can observe changed pin fields.
+     * This can yield many rows for one pin or archive operation and cannot
+     * express the replacement boundary or removals. New clients that need
+     * correct manual ordering and archive removals should use `next_update`.
+     *
+     * `next` and `next_update` consume the same stream and must not be mixed
+     * for the lifetime of one subscription.
+     */
     func next() async  -> ChatListRowFfi?
     
+    /**
+     * Typed update stream, including atomic full-list replacement snapshots.
+     *
+     * Do not mix this with `next` on the same subscription: both consume the
+     * same underlying stream, while `next` may also hold flattened snapshot
+     * rows in its compatibility buffer.
+     */
     func nextUpdate() async  -> ChatListSubscriptionUpdateFfi?
     
     func snapshot()  -> [ChatListRowFfi]
@@ -794,6 +813,18 @@ open class ChatListSubscription:
     
 
     
+    /**
+     * Legacy row-only update stream.
+     *
+     * Atomic replacement snapshots are flattened into every visible row in
+     * authoritative order so existing clients can observe changed pin fields.
+     * This can yield many rows for one pin or archive operation and cannot
+     * express the replacement boundary or removals. New clients that need
+     * correct manual ordering and archive removals should use `next_update`.
+     *
+     * `next` and `next_update` consume the same stream and must not be mixed
+     * for the lifetime of one subscription.
+     */
 open func next()async  -> ChatListRowFfi? {
     return
         try!  await uniffiRustCallAsync(
@@ -812,6 +843,13 @@ open func next()async  -> ChatListRowFfi? {
         )
 }
     
+    /**
+     * Typed update stream, including atomic full-list replacement snapshots.
+     *
+     * Do not mix this with `next` on the same subscription: both consume the
+     * same underlying stream, while `next` may also hold flattened snapshot
+     * rows in its compatibility buffer.
+     */
 open func nextUpdate()async  -> ChatListSubscriptionUpdateFfi? {
     return
         try!  await uniffiRustCallAsync(
@@ -1718,6 +1756,16 @@ public protocol MarmotProtocol : AnyObject {
     func acceptGroupInvite(accountRef: String, groupIdHex: String) async throws  -> AppGroupRecordFfi
     
     /**
+     * Return the complete locally cached kind-3 follow list for `account_ref`
+     * as canonical lowercase public-key hex strings.
+     *
+     * This is a synchronous, network-free read intended for profile screens
+     * and bulk membership checks. Follow/unfollow and directory refreshes
+     * update the cache before returning.
+     */
+    func accountFollows(accountRef: String) throws  -> [String]
+    
+    /**
      * Normalize a public-key reference (npub or hex) to canonical hex.
      * `None` if it isn't a valid public key. Used to resolve a scanned or
      * deep-linked npub back to the account id the rest of the API expects.
@@ -1751,6 +1799,8 @@ public protocol MarmotProtocol : AnyObject {
      */
     func accountUnreadSummary() throws  -> [AccountUnreadFfi]
     
+    func acknowledgeDisbandFailure(accountRef: String, groupIdHex: String) async throws  -> Bool
+    
     /**
      * Local JSONL audit logs available for explicit forensic upload.
      */
@@ -1783,6 +1833,14 @@ public protocol MarmotProtocol : AnyObject {
      * Read the current MDK timed/indefinite mute state for one chat.
      */
     func chatNotificationSettings(accountRef: String, groupIdHex: String) throws  -> ChatNotificationSettingsFfi
+    
+    /**
+     * Classify relay URLs using the same policy enforced at the dial boundary.
+     *
+     * Results preserve input order and cardinality so clients can batch the
+     * NIP-65 and inbox lists and associate every decision with its source URL.
+     */
+    func classifyRelayEndpoints(endpoints: [String])  -> [RelayEndpointClassificationFfi]
     
     /**
      * Clear either a finite or indefinite MDK chat mute.
@@ -1819,7 +1877,8 @@ public protocol MarmotProtocol : AnyObject {
     
     /**
      * Create a brand-new Nostr identity, store its secret in the platform
-     * keychain, and publish initial relay lists + key package.
+     * keychain, and publish initial relay lists, an empty follow list, and a
+     * key package.
      */
     func createIdentity(defaultRelays: [String], bootstrapRelays: [String]) async throws  -> AccountSummaryFfi
     
@@ -1874,6 +1933,12 @@ public protocol MarmotProtocol : AnyObject {
     func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef: String) async throws  -> GroupMutationResultFfi
     
     /**
+     * Durably accept an irreversible disband request. Completion is observed
+     * through normal group state updates after bounded convergence.
+     */
+    func disbandGroup(accountRef: String, groupIdHex: String) async throws  -> DisbandRequestFfi
+    
+    /**
      * Best-effort cached display name for an account id. Returns the Nostr
      * kind:0 display_name/name when the runtime has projected one, or the
      * local account label if the id refers to one of our own accounts.
@@ -1912,6 +1977,11 @@ public protocol MarmotProtocol : AnyObject {
     func editMessage(accountRef: String, groupIdHex: String, targetMessageId: String, content: String) async throws  -> SendSummaryFfi
     
     /**
+     * Install lifecycle-v1 and require it in one admin Commit.
+     */
+    func enableGroupDisbanding(accountRef: String, groupIdHex: String) async throws  -> GroupMutationResultFfi
+    
+    /**
      * Export the active account's private key as a password-encrypted NIP-49
      * `ncryptsec1...` bech32 backup string (mdk#544).
      *
@@ -1922,6 +1992,17 @@ public protocol MarmotProtocol : AnyObject {
      * not returned to the host app.
      */
     func exportEncryptedSecretKey(accountRef: String, passphrase: String) throws  -> String
+    
+    /**
+     * Follow `user_ref` while preserving every other entry in the account's
+     * current kind-3 contact list. Returns the complete updated list.
+     *
+     * This fetches the current replaceable event from the account's known
+     * outbox/default relays before publishing. If no current event can be
+     * established, it returns `FollowListUnavailable` rather than risking a
+     * destructive replacement.
+     */
+    func followUser(accountRef: String, userRef: String) async throws  -> [String]
     
     /**
      * Group plus enriched member rows for detail screens.
@@ -1958,6 +2039,13 @@ public protocol MarmotProtocol : AnyObject {
     func inviteMembers(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws  -> SendSummaryFfi
     
     func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRefs: [String]) async throws  -> GroupMutationResultFfi
+    
+    /**
+     * Return whether `account_ref` currently follows `user_ref`, using the
+     * same local cache as [`Self::account_follows`]. `user_ref` accepts npub,
+     * hex, `nostr:npub…`, and Marmot profile links.
+     */
+    func isFollowing(accountRef: String, userRef: String) throws  -> Bool
     
     /**
      * True once shutdown has started. Host apps can use this to avoid
@@ -2175,6 +2263,11 @@ public protocol MarmotProtocol : AnyObject {
     func resumeMaintenance(accountRef: String) async throws 
     
     /**
+     * Hostnames the relay plane will never dial or adopt.
+     */
+    func retiredRelayHosts()  -> [String]
+    
+    /**
      * Re-attempt publishing a group's pending (committed-but-undelivered)
      * commit(s) without minting a new event.
      *
@@ -2226,6 +2319,33 @@ public protocol MarmotProtocol : AnyObject {
     func saveMessageDraft(accountRef: String, groupIdHex: String, content: String, replyToMessageIdHex: String?, mediaAttachments: [MessageDraftAttachmentFfi]) throws  -> MessageDraftFfi
     
     func scheduleGroupSelfUpdate(accountRef: String, groupIdHex: String) async throws  -> String
+    
+    /**
+     * Search the searcher's web of trust, streaming matches as each radius
+     * resolves.
+     *
+     * `radius_start`/`radius_end` are inclusive social distances: 0 is the
+     * searcher, 1 their direct follows. Lower radii are still traversed to
+     * reach the window, they just do not emit — which is what makes
+     * `radius_start` usable for paging further out without re-delivering
+     * results the host already has.
+     *
+     * Returns as soon as the traversal is spawned; drive
+     * [`UserSearchSubscription::next_update`] in a loop until it yields
+     * `None`. Dropping the subscription cancels the traversal, so a host that
+     * abandons a search should release it rather than draining it.
+     *
+     * Radius 1 covers more than the follow list: people sharing a group with
+     * the searcher are seeded into it, because sharing a group is social
+     * proximity even when neither has followed the other. That membership is
+     * gathered here, where both the app and the runtime are in scope, rather
+     * than inside the search — hosts pass nothing extra for it.
+     *
+     * People found this way are deliberately *not* added to the local
+     * directory: a search result is not a relationship. `user_profile` keeps
+     * answering only for accounts the user has actually interacted with.
+     */
+    func searchUsers(accountIdHex: String, query: String, radiusStart: UInt8, radiusEnd: UInt8) async throws  -> UserSearchSubscription
     
     /**
      * Securely scrub and prune expired disappearing-message plaintext for a
@@ -2298,6 +2418,12 @@ public protocol MarmotProtocol : AnyObject {
     func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int64?) throws  -> ChatNotificationSettingsFfi
     
     /**
+     * Pin or unpin one local chat. Newly pinned chats enter at the top of the
+     * manually ordered pinned section.
+     */
+    func setChatPinned(accountRef: String, groupIdHex: String, pinned: Bool) throws  -> ChatPinStateFfi
+    
+    /**
      * Flag a group archived (or restore it). Local-only projection state —
      * it does not change membership or publish anything. The chats list
      * filters archived groups unless `include_archived` is set.
@@ -2309,6 +2435,12 @@ public protocol MarmotProtocol : AnyObject {
     func setNativePushEnabled(accountRef: String, enabled: Bool) async throws  -> NotificationSettingsFfi
     
     func setPeriodicMaintenancePolicy(accountRef: String, policy: PeriodicMaintenancePolicyFfi) async throws 
+    
+    /**
+     * Atomically replace the order of the current pinned set. The input must
+     * contain every currently pinned group exactly once.
+     */
+    func setPinnedChatOrder(accountRef: String, orderedGroupIds: [String]) throws  -> ChatPinStateFfi
     
     /**
      * Supply non-persisted OTLP runtime metadata: optional metrics URL
@@ -2468,6 +2600,12 @@ public protocol MarmotProtocol : AnyObject {
      * thread. Retained for one-shot diagnostics/tooling only.
      */
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws  -> TimelinePageFfi
+    
+    /**
+     * Unfollow `user_ref` while preserving every other entry in the account's
+     * current kind-3 contact list. Returns the complete updated list.
+     */
+    func unfollowUser(accountRef: String, userRef: String) async throws  -> [String]
     
     /**
      * Remove this account's reaction from `target_message_id`.
@@ -2657,6 +2795,22 @@ open func acceptGroupInvite(accountRef: String, groupIdHex: String)async throws 
 }
     
     /**
+     * Return the complete locally cached kind-3 follow list for `account_ref`
+     * as canonical lowercase public-key hex strings.
+     *
+     * This is a synchronous, network-free read intended for profile screens
+     * and bulk membership checks. Follow/unfollow and directory refreshes
+     * update the cache before returning.
+     */
+open func accountFollows(accountRef: String)throws  -> [String] {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_account_follows(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),$0
+    )
+})
+}
+    
+    /**
      * Normalize a public-key reference (npub or hex) to canonical hex.
      * `None` if it isn't a valid public key. Used to resolve a scanned or
      * deep-linked npub back to the account id the rest of the API expects.
@@ -2732,6 +2886,23 @@ open func accountUnreadSummary()throws  -> [AccountUnreadFfi] {
     uniffi_marmot_uniffi_fn_method_marmot_account_unread_summary(self.uniffiClonePointer(),$0
     )
 })
+}
+    
+open func acknowledgeDisbandFailure(accountRef: String, groupIdHex: String)async throws  -> Bool {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_acknowledge_disband_failure(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterString.lower(groupIdHex)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_i8,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_i8,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
 }
     
     /**
@@ -2817,6 +2988,20 @@ open func chatNotificationSettings(accountRef: String, groupIdHex: String)throws
     uniffi_marmot_uniffi_fn_method_marmot_chat_notification_settings(self.uniffiClonePointer(),
         FfiConverterString.lower(accountRef),
         FfiConverterString.lower(groupIdHex),$0
+    )
+})
+}
+    
+    /**
+     * Classify relay URLs using the same policy enforced at the dial boundary.
+     *
+     * Results preserve input order and cardinality so clients can batch the
+     * NIP-65 and inbox lists and associate every decision with its source URL.
+     */
+open func classifyRelayEndpoints(endpoints: [String]) -> [RelayEndpointClassificationFfi] {
+    return try!  FfiConverterSequenceTypeRelayEndpointClassificationFfi.lift(try! rustCall() {
+    uniffi_marmot_uniffi_fn_method_marmot_classify_relay_endpoints(self.uniffiClonePointer(),
+        FfiConverterSequenceString.lower(endpoints),$0
     )
 })
 }
@@ -2938,7 +3123,8 @@ open func createGroupWithInitialImage(accountRef: String, name: String, memberRe
     
     /**
      * Create a brand-new Nostr identity, store its secret in the platform
-     * keychain, and publish initial relay lists + key package.
+     * keychain, and publish initial relay lists, an empty follow list, and a
+     * key package.
      */
 open func createIdentity(defaultRelays: [String], bootstrapRelays: [String])async throws  -> AccountSummaryFfi {
     return
@@ -3119,6 +3305,27 @@ open func demoteAdminDetailed(accountRef: String, groupIdHex: String, memberRef:
 }
     
     /**
+     * Durably accept an irreversible disband request. Completion is observed
+     * through normal group state updates after bounded convergence.
+     */
+open func disbandGroup(accountRef: String, groupIdHex: String)async throws  -> DisbandRequestFfi {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_disband_group(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterString.lower(groupIdHex)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeDisbandRequestFfi.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
+}
+    
+    /**
      * Best-effort cached display name for an account id. Returns the Nostr
      * kind:0 display_name/name when the runtime has projected one, or the
      * local account label if the id refers to one of our own accounts.
@@ -3208,6 +3415,26 @@ open func editMessage(accountRef: String, groupIdHex: String, targetMessageId: S
 }
     
     /**
+     * Install lifecycle-v1 and require it in one admin Commit.
+     */
+open func enableGroupDisbanding(accountRef: String, groupIdHex: String)async throws  -> GroupMutationResultFfi {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_enable_group_disbanding(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterString.lower(groupIdHex)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGroupMutationResultFfi.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
+}
+    
+    /**
      * Export the active account's private key as a password-encrypted NIP-49
      * `ncryptsec1...` bech32 backup string (mdk#544).
      *
@@ -3224,6 +3451,32 @@ open func exportEncryptedSecretKey(accountRef: String, passphrase: String)throws
         FfiConverterString.lower(passphrase),$0
     )
 })
+}
+    
+    /**
+     * Follow `user_ref` while preserving every other entry in the account's
+     * current kind-3 contact list. Returns the complete updated list.
+     *
+     * This fetches the current replaceable event from the account's known
+     * outbox/default relays before publishing. If no current event can be
+     * established, it returns `FollowListUnavailable` rather than risking a
+     * destructive replacement.
+     */
+open func followUser(accountRef: String, userRef: String)async throws  -> [String] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_follow_user(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterString.lower(userRef)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
 }
     
     /**
@@ -3387,6 +3640,20 @@ open func inviteMembersDetailed(accountRef: String, groupIdHex: String, memberRe
             liftFunc: FfiConverterTypeGroupMutationResultFfi.lift,
             errorHandler: FfiConverterTypeMarmotKitError.lift
         )
+}
+    
+    /**
+     * Return whether `account_ref` currently follows `user_ref`, using the
+     * same local cache as [`Self::account_follows`]. `user_ref` accepts npub,
+     * hex, `nostr:npub…`, and Marmot profile links.
+     */
+open func isFollowing(accountRef: String, userRef: String)throws  -> Bool {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_is_following(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),
+        FfiConverterString.lower(userRef),$0
+    )
+})
 }
     
     /**
@@ -4070,6 +4337,16 @@ open func resumeMaintenance(accountRef: String)async throws  {
 }
     
     /**
+     * Hostnames the relay plane will never dial or adopt.
+     */
+open func retiredRelayHosts() -> [String] {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_marmot_uniffi_fn_method_marmot_retired_relay_hosts(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
      * Re-attempt publishing a group's pending (committed-but-undelivered)
      * commit(s) without minting a new event.
      *
@@ -4194,6 +4471,48 @@ open func scheduleGroupSelfUpdate(accountRef: String, groupIdHex: String)async t
             completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
             freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
             liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
+}
+    
+    /**
+     * Search the searcher's web of trust, streaming matches as each radius
+     * resolves.
+     *
+     * `radius_start`/`radius_end` are inclusive social distances: 0 is the
+     * searcher, 1 their direct follows. Lower radii are still traversed to
+     * reach the window, they just do not emit — which is what makes
+     * `radius_start` usable for paging further out without re-delivering
+     * results the host already has.
+     *
+     * Returns as soon as the traversal is spawned; drive
+     * [`UserSearchSubscription::next_update`] in a loop until it yields
+     * `None`. Dropping the subscription cancels the traversal, so a host that
+     * abandons a search should release it rather than draining it.
+     *
+     * Radius 1 covers more than the follow list: people sharing a group with
+     * the searcher are seeded into it, because sharing a group is social
+     * proximity even when neither has followed the other. That membership is
+     * gathered here, where both the app and the runtime are in scope, rather
+     * than inside the search — hosts pass nothing extra for it.
+     *
+     * People found this way are deliberately *not* added to the local
+     * directory: a search result is not a relationship. `user_profile` keeps
+     * answering only for accounts the user has actually interacted with.
+     */
+open func searchUsers(accountIdHex: String, query: String, radiusStart: UInt8, radiusEnd: UInt8)async throws  -> UserSearchSubscription {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_search_users(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountIdHex),FfiConverterString.lower(query),FfiConverterUInt8.lower(radiusStart),FfiConverterUInt8.lower(radiusEnd)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_pointer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_pointer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_pointer,
+            liftFunc: FfiConverterTypeUserSearchSubscription.lift,
             errorHandler: FfiConverterTypeMarmotKitError.lift
         )
 }
@@ -4426,6 +4745,20 @@ open func setChatMuted(accountRef: String, groupIdHex: String, mutedUntilMs: Int
 }
     
     /**
+     * Pin or unpin one local chat. Newly pinned chats enter at the top of the
+     * manually ordered pinned section.
+     */
+open func setChatPinned(accountRef: String, groupIdHex: String, pinned: Bool)throws  -> ChatPinStateFfi {
+    return try  FfiConverterTypeChatPinStateFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_set_chat_pinned(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),
+        FfiConverterString.lower(groupIdHex),
+        FfiConverterBool.lower(pinned),$0
+    )
+})
+}
+    
+    /**
      * Flag a group archived (or restore it). Local-only projection state —
      * it does not change membership or publish anything. The chats list
      * filters archived groups unless `include_archived` is set.
@@ -4488,6 +4821,19 @@ open func setPeriodicMaintenancePolicy(accountRef: String, policy: PeriodicMaint
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeMarmotKitError.lift
         )
+}
+    
+    /**
+     * Atomically replace the order of the current pinned set. The input must
+     * contain every currently pinned group exactly once.
+     */
+open func setPinnedChatOrder(accountRef: String, orderedGroupIds: [String])throws  -> ChatPinStateFfi {
+    return try  FfiConverterTypeChatPinStateFfi.lift(try rustCallWithError(FfiConverterTypeMarmotKitError.lift) {
+    uniffi_marmot_uniffi_fn_method_marmot_set_pinned_chat_order(self.uniffiClonePointer(),
+        FfiConverterString.lower(accountRef),
+        FfiConverterSequenceString.lower(orderedGroupIds),$0
+    )
+})
 }
     
     /**
@@ -4890,6 +5236,27 @@ open func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi)th
         FfiConverterTypeTimelineMessageQueryFfi.lower(query),$0
     )
 })
+}
+    
+    /**
+     * Unfollow `user_ref` while preserving every other entry in the account's
+     * current kind-3 contact list. Returns the complete updated list.
+     */
+open func unfollowUser(accountRef: String, userRef: String)async throws  -> [String] {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_marmot_unfollow_user(
+                    self.uniffiClonePointer(),
+                    FfiConverterString.lower(accountRef),FfiConverterString.lower(userRef)
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceString.lift,
+            errorHandler: FfiConverterTypeMarmotKitError.lift
+        )
 }
     
     /**
@@ -5706,6 +6073,163 @@ public func FfiConverterTypeTimelineMessagesSubscription_lower(_ value: Timeline
 }
 
 
+
+
+/**
+ * A live user search. Dropping it cancels the traversal.
+ *
+ * Unlike the runtime subscriptions above there is no `snapshot()`: a search
+ * has no initial state, only results that arrive as each radius resolves.
+ */
+public protocol UserSearchSubscriptionProtocol : AnyObject {
+    
+    /**
+     * Await the next step of the search, or `None` once it is over.
+     *
+     * `None` follows the `SearchCompleted` trigger, so a host can loop until
+     * either signal. Dropping this object stops the traversal at its next
+     * checkpoint.
+     */
+    func nextUpdate() async  -> UserSearchUpdateFfi?
+    
+}
+
+/**
+ * A live user search. Dropping it cancels the traversal.
+ *
+ * Unlike the runtime subscriptions above there is no `snapshot()`: a search
+ * has no initial state, only results that arrive as each radius resolves.
+ */
+open class UserSearchSubscription:
+    UserSearchSubscriptionProtocol {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_marmot_uniffi_fn_clone_usersearchsubscription(self.pointer, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_marmot_uniffi_fn_free_usersearchsubscription(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * Await the next step of the search, or `None` once it is over.
+     *
+     * `None` follows the `SearchCompleted` trigger, so a host can loop until
+     * either signal. Dropping this object stops the traversal at its next
+     * checkpoint.
+     */
+open func nextUpdate()async  -> UserSearchUpdateFfi? {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_marmot_uniffi_fn_method_usersearchsubscription_next_update(
+                    self.uniffiClonePointer()
+                    
+                )
+            },
+            pollFunc: ffi_marmot_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_marmot_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_marmot_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeUserSearchUpdateFfi.lift,
+            errorHandler: nil
+            
+        )
+}
+    
+
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUserSearchSubscription: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = UserSearchSubscription
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> UserSearchSubscription {
+        return UserSearchSubscription(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: UserSearchSubscription) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UserSearchSubscription {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: UserSearchSubscription, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserSearchSubscription_lift(_ pointer: UnsafeMutableRawPointer) throws -> UserSearchSubscription {
+    return try FfiConverterTypeUserSearchSubscription.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserSearchSubscription_lower(_ value: UserSearchSubscription) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeUserSearchSubscription.lower(value)
+}
+
+
 public struct AccountKeyPackageFfi {
     public var accountRef: String?
     public var accountIdHex: String
@@ -6465,20 +6989,38 @@ public func FfiConverterTypeAppGroupMemberRecordFfi_lower(_ value: AppGroupMembe
 public struct AppGroupMlsStateFfi {
     public var groupIdHex: String
     public var protocolProfile: AppProtocolProfileFfi
+    public var lifecycleState: GroupLifecycleStateFfi
     public var epoch: UInt64
     public var memberCount: UInt32
     public var unrecoverable: Bool
     public var requiredAppComponents: [UInt16]
+    public var disbandingEnabled: Bool
+    /**
+     * True while application messages and all other ordinary outbound group
+     * work are gated pending terminal convergence.
+     */
+    public var disbanding: Bool
+    public var disbandingBlockers: [String]
+    public var disbandRequest: DisbandRequestFfi?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(groupIdHex: String, protocolProfile: AppProtocolProfileFfi, epoch: UInt64, memberCount: UInt32, unrecoverable: Bool, requiredAppComponents: [UInt16]) {
+    public init(groupIdHex: String, protocolProfile: AppProtocolProfileFfi, lifecycleState: GroupLifecycleStateFfi, epoch: UInt64, memberCount: UInt32, unrecoverable: Bool, requiredAppComponents: [UInt16], disbandingEnabled: Bool, 
+        /**
+         * True while application messages and all other ordinary outbound group
+         * work are gated pending terminal convergence.
+         */disbanding: Bool, disbandingBlockers: [String], disbandRequest: DisbandRequestFfi?) {
         self.groupIdHex = groupIdHex
         self.protocolProfile = protocolProfile
+        self.lifecycleState = lifecycleState
         self.epoch = epoch
         self.memberCount = memberCount
         self.unrecoverable = unrecoverable
         self.requiredAppComponents = requiredAppComponents
+        self.disbandingEnabled = disbandingEnabled
+        self.disbanding = disbanding
+        self.disbandingBlockers = disbandingBlockers
+        self.disbandRequest = disbandRequest
     }
 }
 
@@ -6490,6 +7032,9 @@ extension AppGroupMlsStateFfi: Equatable, Hashable {
             return false
         }
         if lhs.protocolProfile != rhs.protocolProfile {
+            return false
+        }
+        if lhs.lifecycleState != rhs.lifecycleState {
             return false
         }
         if lhs.epoch != rhs.epoch {
@@ -6504,16 +7049,33 @@ extension AppGroupMlsStateFfi: Equatable, Hashable {
         if lhs.requiredAppComponents != rhs.requiredAppComponents {
             return false
         }
+        if lhs.disbandingEnabled != rhs.disbandingEnabled {
+            return false
+        }
+        if lhs.disbanding != rhs.disbanding {
+            return false
+        }
+        if lhs.disbandingBlockers != rhs.disbandingBlockers {
+            return false
+        }
+        if lhs.disbandRequest != rhs.disbandRequest {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(groupIdHex)
         hasher.combine(protocolProfile)
+        hasher.combine(lifecycleState)
         hasher.combine(epoch)
         hasher.combine(memberCount)
         hasher.combine(unrecoverable)
         hasher.combine(requiredAppComponents)
+        hasher.combine(disbandingEnabled)
+        hasher.combine(disbanding)
+        hasher.combine(disbandingBlockers)
+        hasher.combine(disbandRequest)
     }
 }
 
@@ -6527,20 +7089,30 @@ public struct FfiConverterTypeAppGroupMlsStateFfi: FfiConverterRustBuffer {
             try AppGroupMlsStateFfi(
                 groupIdHex: FfiConverterString.read(from: &buf), 
                 protocolProfile: FfiConverterTypeAppProtocolProfileFfi.read(from: &buf), 
+                lifecycleState: FfiConverterTypeGroupLifecycleStateFfi.read(from: &buf), 
                 epoch: FfiConverterUInt64.read(from: &buf), 
                 memberCount: FfiConverterUInt32.read(from: &buf), 
                 unrecoverable: FfiConverterBool.read(from: &buf), 
-                requiredAppComponents: FfiConverterSequenceUInt16.read(from: &buf)
+                requiredAppComponents: FfiConverterSequenceUInt16.read(from: &buf), 
+                disbandingEnabled: FfiConverterBool.read(from: &buf), 
+                disbanding: FfiConverterBool.read(from: &buf), 
+                disbandingBlockers: FfiConverterSequenceString.read(from: &buf), 
+                disbandRequest: FfiConverterOptionTypeDisbandRequestFfi.read(from: &buf)
         )
     }
 
     public static func write(_ value: AppGroupMlsStateFfi, into buf: inout [UInt8]) {
         FfiConverterString.write(value.groupIdHex, into: &buf)
         FfiConverterTypeAppProtocolProfileFfi.write(value.protocolProfile, into: &buf)
+        FfiConverterTypeGroupLifecycleStateFfi.write(value.lifecycleState, into: &buf)
         FfiConverterUInt64.write(value.epoch, into: &buf)
         FfiConverterUInt32.write(value.memberCount, into: &buf)
         FfiConverterBool.write(value.unrecoverable, into: &buf)
         FfiConverterSequenceUInt16.write(value.requiredAppComponents, into: &buf)
+        FfiConverterBool.write(value.disbandingEnabled, into: &buf)
+        FfiConverterBool.write(value.disbanding, into: &buf)
+        FfiConverterSequenceString.write(value.disbandingBlockers, into: &buf)
+        FfiConverterOptionTypeDisbandRequestFfi.write(value.disbandRequest, into: &buf)
     }
 }
 
@@ -6618,6 +7190,21 @@ public struct AppGroupRecordFfi {
      * epoch; `null` when no leave is pending.
      */
     public var leaveRequestedAtMs: UInt64?
+    /**
+     * Hide/disable the message composer while this is true. It includes both
+     * this account's durable request and another admin's authenticated
+     * terminal candidate awaiting convergence.
+     */
+    public var disbanding: Bool
+    /**
+     * This account's durable request outcome, if any. Another admin's pending
+     * candidate can make `disbanding` true while this remains `null`.
+     */
+    public var disbandRequest: DisbandRequestFfi?
+    /**
+     * Hide the composer permanently for this group id when terminal.
+     */
+    public var disbanded: Bool
     public var welcomerAccountIdHex: String?
     public var viaWelcomeMessageIdHex: String?
 
@@ -6659,7 +7246,19 @@ public struct AppGroupRecordFfi {
         /**
          * When the local account asked to leave, in milliseconds since the Unix
          * epoch; `null` when no leave is pending.
-         */leaveRequestedAtMs: UInt64?, welcomerAccountIdHex: String?, viaWelcomeMessageIdHex: String?) {
+         */leaveRequestedAtMs: UInt64?, 
+        /**
+         * Hide/disable the message composer while this is true. It includes both
+         * this account's durable request and another admin's authenticated
+         * terminal candidate awaiting convergence.
+         */disbanding: Bool, 
+        /**
+         * This account's durable request outcome, if any. Another admin's pending
+         * candidate can make `disbanding` true while this remains `null`.
+         */disbandRequest: DisbandRequestFfi?, 
+        /**
+         * Hide the composer permanently for this group id when terminal.
+         */disbanded: Bool, welcomerAccountIdHex: String?, viaWelcomeMessageIdHex: String?) {
         self.groupIdHex = groupIdHex
         self.protocolProfile = protocolProfile
         self.endpoint = endpoint
@@ -6681,6 +7280,9 @@ public struct AppGroupRecordFfi {
         self.selfMembership = selfMembership
         self.leaveRequestPending = leaveRequestPending
         self.leaveRequestedAtMs = leaveRequestedAtMs
+        self.disbanding = disbanding
+        self.disbandRequest = disbandRequest
+        self.disbanded = disbanded
         self.welcomerAccountIdHex = welcomerAccountIdHex
         self.viaWelcomeMessageIdHex = viaWelcomeMessageIdHex
     }
@@ -6753,6 +7355,15 @@ extension AppGroupRecordFfi: Equatable, Hashable {
         if lhs.leaveRequestedAtMs != rhs.leaveRequestedAtMs {
             return false
         }
+        if lhs.disbanding != rhs.disbanding {
+            return false
+        }
+        if lhs.disbandRequest != rhs.disbandRequest {
+            return false
+        }
+        if lhs.disbanded != rhs.disbanded {
+            return false
+        }
         if lhs.welcomerAccountIdHex != rhs.welcomerAccountIdHex {
             return false
         }
@@ -6784,6 +7395,9 @@ extension AppGroupRecordFfi: Equatable, Hashable {
         hasher.combine(selfMembership)
         hasher.combine(leaveRequestPending)
         hasher.combine(leaveRequestedAtMs)
+        hasher.combine(disbanding)
+        hasher.combine(disbandRequest)
+        hasher.combine(disbanded)
         hasher.combine(welcomerAccountIdHex)
         hasher.combine(viaWelcomeMessageIdHex)
     }
@@ -6818,6 +7432,9 @@ public struct FfiConverterTypeAppGroupRecordFfi: FfiConverterRustBuffer {
                 selfMembership: FfiConverterTypeSelfMembershipFfi.read(from: &buf), 
                 leaveRequestPending: FfiConverterBool.read(from: &buf), 
                 leaveRequestedAtMs: FfiConverterOptionUInt64.read(from: &buf), 
+                disbanding: FfiConverterBool.read(from: &buf), 
+                disbandRequest: FfiConverterOptionTypeDisbandRequestFfi.read(from: &buf), 
+                disbanded: FfiConverterBool.read(from: &buf), 
                 welcomerAccountIdHex: FfiConverterOptionString.read(from: &buf), 
                 viaWelcomeMessageIdHex: FfiConverterOptionString.read(from: &buf)
         )
@@ -6845,6 +7462,9 @@ public struct FfiConverterTypeAppGroupRecordFfi: FfiConverterRustBuffer {
         FfiConverterTypeSelfMembershipFfi.write(value.selfMembership, into: &buf)
         FfiConverterBool.write(value.leaveRequestPending, into: &buf)
         FfiConverterOptionUInt64.write(value.leaveRequestedAtMs, into: &buf)
+        FfiConverterBool.write(value.disbanding, into: &buf)
+        FfiConverterOptionTypeDisbandRequestFfi.write(value.disbandRequest, into: &buf)
+        FfiConverterBool.write(value.disbanded, into: &buf)
         FfiConverterOptionString.write(value.welcomerAccountIdHex, into: &buf)
         FfiConverterOptionString.write(value.viaWelcomeMessageIdHex, into: &buf)
     }
@@ -7965,8 +8585,20 @@ public func FfiConverterTypeChatListMessagePreviewFfi_lower(_ value: ChatListMes
 
 public struct ChatListRowFfi {
     public var groupIdHex: String
+    public var pinned: Bool
+    public var pinnedPosition: UInt32?
     public var archived: Bool
     public var pendingConfirmation: Bool
+    public var lifecycleState: GroupLifecycleStateFfi
+    /**
+     * Hide/disable the message composer while terminal convergence is in
+     * progress. This also covers another admin's inbound candidate.
+     */
+    public var disbanding: Bool
+    /**
+     * This account's durable request outcome, if any.
+     */
+    public var disbandRequest: DisbandRequestFfi?
     public var title: String
     public var groupName: String
     public var avatarUrl: String?
@@ -8037,7 +8669,14 @@ public struct ChatListRowFfi {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(groupIdHex: String, archived: Bool, pendingConfirmation: Bool, title: String, groupName: String, avatarUrl: String?, avatar: ChatListAvatarFfi?, lastMessage: ChatListMessagePreviewFfi?, unreadCount: UInt64, hasUnread: Bool, 
+    public init(groupIdHex: String, pinned: Bool, pinnedPosition: UInt32?, archived: Bool, pendingConfirmation: Bool, lifecycleState: GroupLifecycleStateFfi, 
+        /**
+         * Hide/disable the message composer while terminal convergence is in
+         * progress. This also covers another admin's inbound candidate.
+         */disbanding: Bool, 
+        /**
+         * This account's durable request outcome, if any.
+         */disbandRequest: DisbandRequestFfi?, title: String, groupName: String, avatarUrl: String?, avatar: ChatListAvatarFfi?, lastMessage: ChatListMessagePreviewFfi?, unreadCount: UInt64, hasUnread: Bool, 
         /**
          * User-created unread reminder independent of unread incoming messages.
          */manuallyMarkedUnread: Bool, unreadMentionCount: UInt64, unreadMention: Bool, firstUnreadMessageIdHex: String?, lastReadMessageIdHex: String?, lastReadTimelineAt: UInt64?, conversationCreatedAt: UInt64, activitySortAt: UInt64, updatedAt: UInt64, 
@@ -8084,8 +8723,13 @@ public struct ChatListRowFfi {
          * epoch; `null` when no leave is pending.
          */leaveRequestedAtMs: UInt64?) {
         self.groupIdHex = groupIdHex
+        self.pinned = pinned
+        self.pinnedPosition = pinnedPosition
         self.archived = archived
         self.pendingConfirmation = pendingConfirmation
+        self.lifecycleState = lifecycleState
+        self.disbanding = disbanding
+        self.disbandRequest = disbandRequest
         self.title = title
         self.groupName = groupName
         self.avatarUrl = avatarUrl
@@ -8118,10 +8762,25 @@ extension ChatListRowFfi: Equatable, Hashable {
         if lhs.groupIdHex != rhs.groupIdHex {
             return false
         }
+        if lhs.pinned != rhs.pinned {
+            return false
+        }
+        if lhs.pinnedPosition != rhs.pinnedPosition {
+            return false
+        }
         if lhs.archived != rhs.archived {
             return false
         }
         if lhs.pendingConfirmation != rhs.pendingConfirmation {
+            return false
+        }
+        if lhs.lifecycleState != rhs.lifecycleState {
+            return false
+        }
+        if lhs.disbanding != rhs.disbanding {
+            return false
+        }
+        if lhs.disbandRequest != rhs.disbandRequest {
             return false
         }
         if lhs.title != rhs.title {
@@ -8195,8 +8854,13 @@ extension ChatListRowFfi: Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(groupIdHex)
+        hasher.combine(pinned)
+        hasher.combine(pinnedPosition)
         hasher.combine(archived)
         hasher.combine(pendingConfirmation)
+        hasher.combine(lifecycleState)
+        hasher.combine(disbanding)
+        hasher.combine(disbandRequest)
         hasher.combine(title)
         hasher.combine(groupName)
         hasher.combine(avatarUrl)
@@ -8231,8 +8895,13 @@ public struct FfiConverterTypeChatListRowFfi: FfiConverterRustBuffer {
         return
             try ChatListRowFfi(
                 groupIdHex: FfiConverterString.read(from: &buf), 
+                pinned: FfiConverterBool.read(from: &buf), 
+                pinnedPosition: FfiConverterOptionUInt32.read(from: &buf), 
                 archived: FfiConverterBool.read(from: &buf), 
                 pendingConfirmation: FfiConverterBool.read(from: &buf), 
+                lifecycleState: FfiConverterTypeGroupLifecycleStateFfi.read(from: &buf), 
+                disbanding: FfiConverterBool.read(from: &buf), 
+                disbandRequest: FfiConverterOptionTypeDisbandRequestFfi.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
                 groupName: FfiConverterString.read(from: &buf), 
                 avatarUrl: FfiConverterOptionString.read(from: &buf), 
@@ -8260,8 +8929,13 @@ public struct FfiConverterTypeChatListRowFfi: FfiConverterRustBuffer {
 
     public static func write(_ value: ChatListRowFfi, into buf: inout [UInt8]) {
         FfiConverterString.write(value.groupIdHex, into: &buf)
+        FfiConverterBool.write(value.pinned, into: &buf)
+        FfiConverterOptionUInt32.write(value.pinnedPosition, into: &buf)
         FfiConverterBool.write(value.archived, into: &buf)
         FfiConverterBool.write(value.pendingConfirmation, into: &buf)
+        FfiConverterTypeGroupLifecycleStateFfi.write(value.lifecycleState, into: &buf)
+        FfiConverterBool.write(value.disbanding, into: &buf)
+        FfiConverterOptionTypeDisbandRequestFfi.write(value.disbandRequest, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterString.write(value.groupName, into: &buf)
         FfiConverterOptionString.write(value.avatarUrl, into: &buf)
@@ -8401,15 +9075,84 @@ public func FfiConverterTypeChatNotificationSettingsFfi_lower(_ value: ChatNotif
 }
 
 
-public struct GroupDetailsFfi {
-    public var group: AppGroupRecordFfi
-    public var members: [GroupMemberDetailsFfi]
+/**
+ * Authoritative device-local order of every currently pinned chat.
+ */
+public struct ChatPinStateFfi {
+    /**
+     * Group ids in normalized zero-based display order.
+     */
+    public var orderedGroupIds: [String]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(group: AppGroupRecordFfi, members: [GroupMemberDetailsFfi]) {
+    public init(
+        /**
+         * Group ids in normalized zero-based display order.
+         */orderedGroupIds: [String]) {
+        self.orderedGroupIds = orderedGroupIds
+    }
+}
+
+
+
+extension ChatPinStateFfi: Equatable, Hashable {
+    public static func ==(lhs: ChatPinStateFfi, rhs: ChatPinStateFfi) -> Bool {
+        if lhs.orderedGroupIds != rhs.orderedGroupIds {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(orderedGroupIds)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeChatPinStateFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatPinStateFfi {
+        return
+            try ChatPinStateFfi(
+                orderedGroupIds: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ChatPinStateFfi, into buf: inout [UInt8]) {
+        FfiConverterSequenceString.write(value.orderedGroupIds, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatPinStateFfi_lift(_ buf: RustBuffer) throws -> ChatPinStateFfi {
+    return try FfiConverterTypeChatPinStateFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeChatPinStateFfi_lower(_ value: ChatPinStateFfi) -> RustBuffer {
+    return FfiConverterTypeChatPinStateFfi.lower(value)
+}
+
+
+public struct GroupDetailsFfi {
+    public var group: AppGroupRecordFfi
+    public var members: [GroupMemberDetailsFfi]
+    public var mlsState: AppGroupMlsStateFfi
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(group: AppGroupRecordFfi, members: [GroupMemberDetailsFfi], mlsState: AppGroupMlsStateFfi) {
         self.group = group
         self.members = members
+        self.mlsState = mlsState
     }
 }
 
@@ -8423,12 +9166,16 @@ extension GroupDetailsFfi: Equatable, Hashable {
         if lhs.members != rhs.members {
             return false
         }
+        if lhs.mlsState != rhs.mlsState {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(group)
         hasher.combine(members)
+        hasher.combine(mlsState)
     }
 }
 
@@ -8441,13 +9188,15 @@ public struct FfiConverterTypeGroupDetailsFfi: FfiConverterRustBuffer {
         return
             try GroupDetailsFfi(
                 group: FfiConverterTypeAppGroupRecordFfi.read(from: &buf), 
-                members: FfiConverterSequenceTypeGroupMemberDetailsFfi.read(from: &buf)
+                members: FfiConverterSequenceTypeGroupMemberDetailsFfi.read(from: &buf), 
+                mlsState: FfiConverterTypeAppGroupMlsStateFfi.read(from: &buf)
         )
     }
 
     public static func write(_ value: GroupDetailsFfi, into buf: inout [UInt8]) {
         FfiConverterTypeAppGroupRecordFfi.write(value.group, into: &buf)
         FfiConverterSequenceTypeGroupMemberDetailsFfi.write(value.members, into: &buf)
+        FfiConverterTypeAppGroupMlsStateFfi.write(value.mlsState, into: &buf)
     }
 }
 
@@ -8822,10 +9571,15 @@ public struct GroupManagementStateFfi {
      *
      * When this is `false`, the reason is one of
      * `requires_self_demote_before_leave` (demote first) or
-     * `leave_request_pending` (already leaving) — or the account is not a member
-     * at all. Check those before reporting an error to the user.
+     * `leave_request_pending` (already leaving), or `disbanding` / terminal
+     * `lifecycle_state` (ordinary group actions are unavailable) — or the
+     * account is not a member at all. Check those before reporting an error.
      */
     public var canLeave: Bool
+    /**
+     * Whether an admin must self-demote before leaving. Disbanding and a
+     * terminal lifecycle take precedence and keep this false.
+     */
     public var requiresSelfDemoteBeforeLeave: Bool
     /**
      * A leave is already in flight for this group; `Marmot::leave_group` would
@@ -8838,6 +9592,17 @@ public struct GroupManagementStateFfi {
      * epoch; `null` when no leave is pending.
      */
     public var leaveRequestedAtMs: UInt64?
+    public var lifecycleState: GroupLifecycleStateFfi
+    public var disbandingEnabled: Bool
+    /**
+     * Whether terminal convergence currently blocks all ordinary outbound
+     * group work. Hosts should hide the message composer while true.
+     */
+    public var disbanding: Bool
+    public var canEnableDisbanding: Bool
+    public var canDisband: Bool
+    public var disbandingBlockers: [String]
+    public var disbandRequest: DisbandRequestFfi?
     public var memberActions: [GroupMemberActionStateFfi]
 
     // Default memberwise initializers are never public by default, so we
@@ -8849,9 +9614,14 @@ public struct GroupManagementStateFfi {
          *
          * When this is `false`, the reason is one of
          * `requires_self_demote_before_leave` (demote first) or
-         * `leave_request_pending` (already leaving) — or the account is not a member
-         * at all. Check those before reporting an error to the user.
-         */canLeave: Bool, requiresSelfDemoteBeforeLeave: Bool, 
+         * `leave_request_pending` (already leaving), or `disbanding` / terminal
+         * `lifecycle_state` (ordinary group actions are unavailable) — or the
+         * account is not a member at all. Check those before reporting an error.
+         */canLeave: Bool, 
+        /**
+         * Whether an admin must self-demote before leaving. Disbanding and a
+         * terminal lifecycle take precedence and keep this false.
+         */requiresSelfDemoteBeforeLeave: Bool, 
         /**
          * A leave is already in flight for this group; `Marmot::leave_group` would
          * return `MarmotKitError::LeaveAlreadyRequested`. Render progress rather
@@ -8860,7 +9630,11 @@ public struct GroupManagementStateFfi {
         /**
          * When the local account asked to leave, in milliseconds since the Unix
          * epoch; `null` when no leave is pending.
-         */leaveRequestedAtMs: UInt64?, memberActions: [GroupMemberActionStateFfi]) {
+         */leaveRequestedAtMs: UInt64?, lifecycleState: GroupLifecycleStateFfi, disbandingEnabled: Bool, 
+        /**
+         * Whether terminal convergence currently blocks all ordinary outbound
+         * group work. Hosts should hide the message composer while true.
+         */disbanding: Bool, canEnableDisbanding: Bool, canDisband: Bool, disbandingBlockers: [String], disbandRequest: DisbandRequestFfi?, memberActions: [GroupMemberActionStateFfi]) {
         self.myAccountIdHex = myAccountIdHex
         self.isSelfAdmin = isSelfAdmin
         self.isLastAdmin = isLastAdmin
@@ -8869,6 +9643,13 @@ public struct GroupManagementStateFfi {
         self.requiresSelfDemoteBeforeLeave = requiresSelfDemoteBeforeLeave
         self.leaveRequestPending = leaveRequestPending
         self.leaveRequestedAtMs = leaveRequestedAtMs
+        self.lifecycleState = lifecycleState
+        self.disbandingEnabled = disbandingEnabled
+        self.disbanding = disbanding
+        self.canEnableDisbanding = canEnableDisbanding
+        self.canDisband = canDisband
+        self.disbandingBlockers = disbandingBlockers
+        self.disbandRequest = disbandRequest
         self.memberActions = memberActions
     }
 }
@@ -8901,6 +9682,27 @@ extension GroupManagementStateFfi: Equatable, Hashable {
         if lhs.leaveRequestedAtMs != rhs.leaveRequestedAtMs {
             return false
         }
+        if lhs.lifecycleState != rhs.lifecycleState {
+            return false
+        }
+        if lhs.disbandingEnabled != rhs.disbandingEnabled {
+            return false
+        }
+        if lhs.disbanding != rhs.disbanding {
+            return false
+        }
+        if lhs.canEnableDisbanding != rhs.canEnableDisbanding {
+            return false
+        }
+        if lhs.canDisband != rhs.canDisband {
+            return false
+        }
+        if lhs.disbandingBlockers != rhs.disbandingBlockers {
+            return false
+        }
+        if lhs.disbandRequest != rhs.disbandRequest {
+            return false
+        }
         if lhs.memberActions != rhs.memberActions {
             return false
         }
@@ -8916,6 +9718,13 @@ extension GroupManagementStateFfi: Equatable, Hashable {
         hasher.combine(requiresSelfDemoteBeforeLeave)
         hasher.combine(leaveRequestPending)
         hasher.combine(leaveRequestedAtMs)
+        hasher.combine(lifecycleState)
+        hasher.combine(disbandingEnabled)
+        hasher.combine(disbanding)
+        hasher.combine(canEnableDisbanding)
+        hasher.combine(canDisband)
+        hasher.combine(disbandingBlockers)
+        hasher.combine(disbandRequest)
         hasher.combine(memberActions)
     }
 }
@@ -8936,6 +9745,13 @@ public struct FfiConverterTypeGroupManagementStateFfi: FfiConverterRustBuffer {
                 requiresSelfDemoteBeforeLeave: FfiConverterBool.read(from: &buf), 
                 leaveRequestPending: FfiConverterBool.read(from: &buf), 
                 leaveRequestedAtMs: FfiConverterOptionUInt64.read(from: &buf), 
+                lifecycleState: FfiConverterTypeGroupLifecycleStateFfi.read(from: &buf), 
+                disbandingEnabled: FfiConverterBool.read(from: &buf), 
+                disbanding: FfiConverterBool.read(from: &buf), 
+                canEnableDisbanding: FfiConverterBool.read(from: &buf), 
+                canDisband: FfiConverterBool.read(from: &buf), 
+                disbandingBlockers: FfiConverterSequenceString.read(from: &buf), 
+                disbandRequest: FfiConverterOptionTypeDisbandRequestFfi.read(from: &buf), 
                 memberActions: FfiConverterSequenceTypeGroupMemberActionStateFfi.read(from: &buf)
         )
     }
@@ -8949,6 +9765,13 @@ public struct FfiConverterTypeGroupManagementStateFfi: FfiConverterRustBuffer {
         FfiConverterBool.write(value.requiresSelfDemoteBeforeLeave, into: &buf)
         FfiConverterBool.write(value.leaveRequestPending, into: &buf)
         FfiConverterOptionUInt64.write(value.leaveRequestedAtMs, into: &buf)
+        FfiConverterTypeGroupLifecycleStateFfi.write(value.lifecycleState, into: &buf)
+        FfiConverterBool.write(value.disbandingEnabled, into: &buf)
+        FfiConverterBool.write(value.disbanding, into: &buf)
+        FfiConverterBool.write(value.canEnableDisbanding, into: &buf)
+        FfiConverterBool.write(value.canDisband, into: &buf)
+        FfiConverterSequenceString.write(value.disbandingBlockers, into: &buf)
+        FfiConverterOptionTypeDisbandRequestFfi.write(value.disbandRequest, into: &buf)
         FfiConverterSequenceTypeGroupMemberActionStateFfi.write(value.memberActions, into: &buf)
     }
 }
@@ -10318,6 +11141,11 @@ public struct MarkdownDocumentFfi {
      * were parsed from a UTF-8-boundary prefix.
      */
     public var truncated: Bool
+    /**
+     * Blank source lines before each corresponding block, clamped by
+     * `marmot-markdown` to its documented maximum.
+     */
+    public var blankLinesBefore: Data
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -10325,9 +11153,14 @@ public struct MarkdownDocumentFfi {
         /**
          * True when the input exceeded the FFI Markdown safety cap and `blocks`
          * were parsed from a UTF-8-boundary prefix.
-         */truncated: Bool) {
+         */truncated: Bool, 
+        /**
+         * Blank source lines before each corresponding block, clamped by
+         * `marmot-markdown` to its documented maximum.
+         */blankLinesBefore: Data) {
         self.blocks = blocks
         self.truncated = truncated
+        self.blankLinesBefore = blankLinesBefore
     }
 }
 
@@ -10341,12 +11174,16 @@ extension MarkdownDocumentFfi: Equatable, Hashable {
         if lhs.truncated != rhs.truncated {
             return false
         }
+        if lhs.blankLinesBefore != rhs.blankLinesBefore {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(blocks)
         hasher.combine(truncated)
+        hasher.combine(blankLinesBefore)
     }
 }
 
@@ -10359,13 +11196,15 @@ public struct FfiConverterTypeMarkdownDocumentFfi: FfiConverterRustBuffer {
         return
             try MarkdownDocumentFfi(
                 blocks: FfiConverterSequenceTypeMarkdownBlockFfi.read(from: &buf), 
-                truncated: FfiConverterBool.read(from: &buf)
+                truncated: FfiConverterBool.read(from: &buf), 
+                blankLinesBefore: FfiConverterData.read(from: &buf)
         )
     }
 
     public static func write(_ value: MarkdownDocumentFfi, into buf: inout [UInt8]) {
         FfiConverterSequenceTypeMarkdownBlockFfi.write(value.blocks, into: &buf)
         FfiConverterBool.write(value.truncated, into: &buf)
+        FfiConverterData.write(value.blankLinesBefore, into: &buf)
     }
 }
 
@@ -10392,6 +11231,10 @@ public struct MarkdownListItemFfi {
      * `Some(true)` for `[x]`.
      */
     public var checked: Bool?
+    /**
+     * Blank source lines before each corresponding child block.
+     */
+    public var blankLinesBefore: Data
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -10399,9 +11242,13 @@ public struct MarkdownListItemFfi {
         /**
          * `None` for plain bullets/ordered items, `Some(false)` for `[ ]`,
          * `Some(true)` for `[x]`.
-         */checked: Bool?) {
+         */checked: Bool?, 
+        /**
+         * Blank source lines before each corresponding child block.
+         */blankLinesBefore: Data) {
         self.blocks = blocks
         self.checked = checked
+        self.blankLinesBefore = blankLinesBefore
     }
 }
 
@@ -10415,12 +11262,16 @@ extension MarkdownListItemFfi: Equatable, Hashable {
         if lhs.checked != rhs.checked {
             return false
         }
+        if lhs.blankLinesBefore != rhs.blankLinesBefore {
+            return false
+        }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(blocks)
         hasher.combine(checked)
+        hasher.combine(blankLinesBefore)
     }
 }
 
@@ -10433,13 +11284,15 @@ public struct FfiConverterTypeMarkdownListItemFfi: FfiConverterRustBuffer {
         return
             try MarkdownListItemFfi(
                 blocks: FfiConverterSequenceTypeMarkdownBlockFfi.read(from: &buf), 
-                checked: FfiConverterOptionBool.read(from: &buf)
+                checked: FfiConverterOptionBool.read(from: &buf), 
+                blankLinesBefore: FfiConverterData.read(from: &buf)
         )
     }
 
     public static func write(_ value: MarkdownListItemFfi, into buf: inout [UInt8]) {
         FfiConverterSequenceTypeMarkdownBlockFfi.write(value.blocks, into: &buf)
         FfiConverterOptionBool.write(value.checked, into: &buf)
+        FfiConverterData.write(value.blankLinesBefore, into: &buf)
     }
 }
 
@@ -12641,6 +13494,83 @@ public func FfiConverterTypeReceivedMessageFfi_lower(_ value: ReceivedMessageFfi
 }
 
 
+/**
+ * Policy classification for one caller-supplied relay endpoint.
+ */
+public struct RelayEndpointClassificationFfi {
+    public var endpoint: String
+    public var normalizedEndpoint: String?
+    public var policy: RelayEndpointPolicyFfi
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(endpoint: String, normalizedEndpoint: String?, policy: RelayEndpointPolicyFfi) {
+        self.endpoint = endpoint
+        self.normalizedEndpoint = normalizedEndpoint
+        self.policy = policy
+    }
+}
+
+
+
+extension RelayEndpointClassificationFfi: Equatable, Hashable {
+    public static func ==(lhs: RelayEndpointClassificationFfi, rhs: RelayEndpointClassificationFfi) -> Bool {
+        if lhs.endpoint != rhs.endpoint {
+            return false
+        }
+        if lhs.normalizedEndpoint != rhs.normalizedEndpoint {
+            return false
+        }
+        if lhs.policy != rhs.policy {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(endpoint)
+        hasher.combine(normalizedEndpoint)
+        hasher.combine(policy)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayEndpointClassificationFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayEndpointClassificationFfi {
+        return
+            try RelayEndpointClassificationFfi(
+                endpoint: FfiConverterString.read(from: &buf), 
+                normalizedEndpoint: FfiConverterOptionString.read(from: &buf), 
+                policy: FfiConverterTypeRelayEndpointPolicyFfi.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RelayEndpointClassificationFfi, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.endpoint, into: &buf)
+        FfiConverterOptionString.write(value.normalizedEndpoint, into: &buf)
+        FfiConverterTypeRelayEndpointPolicyFfi.write(value.policy, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayEndpointClassificationFfi_lift(_ buf: RustBuffer) throws -> RelayEndpointClassificationFfi {
+    return try FfiConverterTypeRelayEndpointClassificationFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayEndpointClassificationFfi_lower(_ value: RelayEndpointClassificationFfi) -> RustBuffer {
+    return FfiConverterTypeRelayEndpointClassificationFfi.lower(value)
+}
+
+
 public struct RelayFailureFfi {
     public var eventIdHex: String
     public var reason: String
@@ -12723,10 +13653,16 @@ public struct RelayHealthFfi {
     public var sleeping: UInt32
     public var connectionAttempts: UInt32
     public var connectionSuccesses: UInt32
+    public var notificationForwarderRunning: Bool
+    public var notificationForwarderRestarts: UInt64
+    public var notificationForwarderLagIncidents: UInt64
+    public var notificationForwarderLaggedNotifications: UInt64
+    public var notificationForwarderPanics: UInt64
+    public var notificationForwarderUnexpectedExits: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(sdkBacked: Bool, totalRelays: UInt32, initialized: UInt32, pending: UInt32, connecting: UInt32, connected: UInt32, disconnected: UInt32, terminated: UInt32, banned: UInt32, sleeping: UInt32, connectionAttempts: UInt32, connectionSuccesses: UInt32) {
+    public init(sdkBacked: Bool, totalRelays: UInt32, initialized: UInt32, pending: UInt32, connecting: UInt32, connected: UInt32, disconnected: UInt32, terminated: UInt32, banned: UInt32, sleeping: UInt32, connectionAttempts: UInt32, connectionSuccesses: UInt32, notificationForwarderRunning: Bool, notificationForwarderRestarts: UInt64, notificationForwarderLagIncidents: UInt64, notificationForwarderLaggedNotifications: UInt64, notificationForwarderPanics: UInt64, notificationForwarderUnexpectedExits: UInt64) {
         self.sdkBacked = sdkBacked
         self.totalRelays = totalRelays
         self.initialized = initialized
@@ -12739,6 +13675,12 @@ public struct RelayHealthFfi {
         self.sleeping = sleeping
         self.connectionAttempts = connectionAttempts
         self.connectionSuccesses = connectionSuccesses
+        self.notificationForwarderRunning = notificationForwarderRunning
+        self.notificationForwarderRestarts = notificationForwarderRestarts
+        self.notificationForwarderLagIncidents = notificationForwarderLagIncidents
+        self.notificationForwarderLaggedNotifications = notificationForwarderLaggedNotifications
+        self.notificationForwarderPanics = notificationForwarderPanics
+        self.notificationForwarderUnexpectedExits = notificationForwarderUnexpectedExits
     }
 }
 
@@ -12782,6 +13724,24 @@ extension RelayHealthFfi: Equatable, Hashable {
         if lhs.connectionSuccesses != rhs.connectionSuccesses {
             return false
         }
+        if lhs.notificationForwarderRunning != rhs.notificationForwarderRunning {
+            return false
+        }
+        if lhs.notificationForwarderRestarts != rhs.notificationForwarderRestarts {
+            return false
+        }
+        if lhs.notificationForwarderLagIncidents != rhs.notificationForwarderLagIncidents {
+            return false
+        }
+        if lhs.notificationForwarderLaggedNotifications != rhs.notificationForwarderLaggedNotifications {
+            return false
+        }
+        if lhs.notificationForwarderPanics != rhs.notificationForwarderPanics {
+            return false
+        }
+        if lhs.notificationForwarderUnexpectedExits != rhs.notificationForwarderUnexpectedExits {
+            return false
+        }
         return true
     }
 
@@ -12798,6 +13758,12 @@ extension RelayHealthFfi: Equatable, Hashable {
         hasher.combine(sleeping)
         hasher.combine(connectionAttempts)
         hasher.combine(connectionSuccesses)
+        hasher.combine(notificationForwarderRunning)
+        hasher.combine(notificationForwarderRestarts)
+        hasher.combine(notificationForwarderLagIncidents)
+        hasher.combine(notificationForwarderLaggedNotifications)
+        hasher.combine(notificationForwarderPanics)
+        hasher.combine(notificationForwarderUnexpectedExits)
     }
 }
 
@@ -12820,7 +13786,13 @@ public struct FfiConverterTypeRelayHealthFfi: FfiConverterRustBuffer {
                 banned: FfiConverterUInt32.read(from: &buf), 
                 sleeping: FfiConverterUInt32.read(from: &buf), 
                 connectionAttempts: FfiConverterUInt32.read(from: &buf), 
-                connectionSuccesses: FfiConverterUInt32.read(from: &buf)
+                connectionSuccesses: FfiConverterUInt32.read(from: &buf), 
+                notificationForwarderRunning: FfiConverterBool.read(from: &buf), 
+                notificationForwarderRestarts: FfiConverterUInt64.read(from: &buf), 
+                notificationForwarderLagIncidents: FfiConverterUInt64.read(from: &buf), 
+                notificationForwarderLaggedNotifications: FfiConverterUInt64.read(from: &buf), 
+                notificationForwarderPanics: FfiConverterUInt64.read(from: &buf), 
+                notificationForwarderUnexpectedExits: FfiConverterUInt64.read(from: &buf)
         )
     }
 
@@ -12837,6 +13809,12 @@ public struct FfiConverterTypeRelayHealthFfi: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.sleeping, into: &buf)
         FfiConverterUInt32.write(value.connectionAttempts, into: &buf)
         FfiConverterUInt32.write(value.connectionSuccesses, into: &buf)
+        FfiConverterBool.write(value.notificationForwarderRunning, into: &buf)
+        FfiConverterUInt64.write(value.notificationForwarderRestarts, into: &buf)
+        FfiConverterUInt64.write(value.notificationForwarderLagIncidents, into: &buf)
+        FfiConverterUInt64.write(value.notificationForwarderLaggedNotifications, into: &buf)
+        FfiConverterUInt64.write(value.notificationForwarderPanics, into: &buf)
+        FfiConverterUInt64.write(value.notificationForwarderUnexpectedExits, into: &buf)
     }
 }
 
@@ -14851,6 +15829,129 @@ public func FfiConverterTypeTransportFanoutStatusFfi_lower(_ value: TransportFan
 }
 
 
+/**
+ * One person the search found.
+ *
+ * `radius` is social distance from the searcher: 0 is the searcher, 1 a
+ * direct follow. Render it as provenance ("via someone you follow").
+ *
+ * `255` is the exception and means *off-graph*: this person came from a
+ * configured fallback or a discovery provider rather than through anyone the user
+ * knows. Present those as discovery, never as a connection -- they are not a
+ * distance from the user at all.
+ */
+public struct UserDirectorySearchResultFfi {
+    public var accountIdHex: String
+    public var npub: String
+    public var radius: UInt8
+    public var matchedField: MatchedFieldFfi
+    public var matchQuality: MatchQualityFfi
+    /**
+     * Rank supplied by an off-graph discovery provider.
+     */
+    public var providerRank: Double?
+    public var profile: UserProfileMetadataFfi?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(accountIdHex: String, npub: String, radius: UInt8, matchedField: MatchedFieldFfi, matchQuality: MatchQualityFfi, 
+        /**
+         * Rank supplied by an off-graph discovery provider.
+         */providerRank: Double?, profile: UserProfileMetadataFfi?) {
+        self.accountIdHex = accountIdHex
+        self.npub = npub
+        self.radius = radius
+        self.matchedField = matchedField
+        self.matchQuality = matchQuality
+        self.providerRank = providerRank
+        self.profile = profile
+    }
+}
+
+
+
+extension UserDirectorySearchResultFfi: Equatable, Hashable {
+    public static func ==(lhs: UserDirectorySearchResultFfi, rhs: UserDirectorySearchResultFfi) -> Bool {
+        if lhs.accountIdHex != rhs.accountIdHex {
+            return false
+        }
+        if lhs.npub != rhs.npub {
+            return false
+        }
+        if lhs.radius != rhs.radius {
+            return false
+        }
+        if lhs.matchedField != rhs.matchedField {
+            return false
+        }
+        if lhs.matchQuality != rhs.matchQuality {
+            return false
+        }
+        if lhs.providerRank != rhs.providerRank {
+            return false
+        }
+        if lhs.profile != rhs.profile {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(accountIdHex)
+        hasher.combine(npub)
+        hasher.combine(radius)
+        hasher.combine(matchedField)
+        hasher.combine(matchQuality)
+        hasher.combine(providerRank)
+        hasher.combine(profile)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUserDirectorySearchResultFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UserDirectorySearchResultFfi {
+        return
+            try UserDirectorySearchResultFfi(
+                accountIdHex: FfiConverterString.read(from: &buf), 
+                npub: FfiConverterString.read(from: &buf), 
+                radius: FfiConverterUInt8.read(from: &buf), 
+                matchedField: FfiConverterTypeMatchedFieldFfi.read(from: &buf), 
+                matchQuality: FfiConverterTypeMatchQualityFfi.read(from: &buf), 
+                providerRank: FfiConverterOptionDouble.read(from: &buf), 
+                profile: FfiConverterOptionTypeUserProfileMetadataFfi.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: UserDirectorySearchResultFfi, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.accountIdHex, into: &buf)
+        FfiConverterString.write(value.npub, into: &buf)
+        FfiConverterUInt8.write(value.radius, into: &buf)
+        FfiConverterTypeMatchedFieldFfi.write(value.matchedField, into: &buf)
+        FfiConverterTypeMatchQualityFfi.write(value.matchQuality, into: &buf)
+        FfiConverterOptionDouble.write(value.providerRank, into: &buf)
+        FfiConverterOptionTypeUserProfileMetadataFfi.write(value.profile, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserDirectorySearchResultFfi_lift(_ buf: RustBuffer) throws -> UserDirectorySearchResultFfi {
+    return try FfiConverterTypeUserDirectorySearchResultFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserDirectorySearchResultFfi_lower(_ value: UserDirectorySearchResultFfi) -> RustBuffer {
+    return FfiConverterTypeUserDirectorySearchResultFfi.lower(value)
+}
+
+
 public struct UserProfileMetadataFfi {
     public var name: String?
     public var displayName: String?
@@ -14954,6 +16055,101 @@ public func FfiConverterTypeUserProfileMetadataFfi_lift(_ buf: RustBuffer) throw
 #endif
 public func FfiConverterTypeUserProfileMetadataFfi_lower(_ value: UserProfileMetadataFfi) -> RustBuffer {
     return FfiConverterTypeUserProfileMetadataFfi.lower(value)
+}
+
+
+/**
+ * One incremental step of a running search.
+ */
+public struct UserSearchUpdateFfi {
+    public var trigger: SearchUpdateTriggerFfi
+    /**
+     * Matches found by this step, pre-sorted within the batch. Ordering
+     * *across* graph updates is radius order; an optional discovery batch
+     * follows graph traversal and may contain results retaining graph
+     * provenance. A host rendering one flat list should re-sort the aggregate.
+     */
+    public var newResults: [UserDirectorySearchResultFfi]
+    /**
+     * Running total this search has emitted so far, including `new_results`.
+     */
+    public var totalResultCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(trigger: SearchUpdateTriggerFfi, 
+        /**
+         * Matches found by this step, pre-sorted within the batch. Ordering
+         * *across* graph updates is radius order; an optional discovery batch
+         * follows graph traversal and may contain results retaining graph
+         * provenance. A host rendering one flat list should re-sort the aggregate.
+         */newResults: [UserDirectorySearchResultFfi], 
+        /**
+         * Running total this search has emitted so far, including `new_results`.
+         */totalResultCount: UInt32) {
+        self.trigger = trigger
+        self.newResults = newResults
+        self.totalResultCount = totalResultCount
+    }
+}
+
+
+
+extension UserSearchUpdateFfi: Equatable, Hashable {
+    public static func ==(lhs: UserSearchUpdateFfi, rhs: UserSearchUpdateFfi) -> Bool {
+        if lhs.trigger != rhs.trigger {
+            return false
+        }
+        if lhs.newResults != rhs.newResults {
+            return false
+        }
+        if lhs.totalResultCount != rhs.totalResultCount {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(trigger)
+        hasher.combine(newResults)
+        hasher.combine(totalResultCount)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUserSearchUpdateFfi: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UserSearchUpdateFfi {
+        return
+            try UserSearchUpdateFfi(
+                trigger: FfiConverterTypeSearchUpdateTriggerFfi.read(from: &buf), 
+                newResults: FfiConverterSequenceTypeUserDirectorySearchResultFfi.read(from: &buf), 
+                totalResultCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: UserSearchUpdateFfi, into buf: inout [UInt8]) {
+        FfiConverterTypeSearchUpdateTriggerFfi.write(value.trigger, into: &buf)
+        FfiConverterSequenceTypeUserDirectorySearchResultFfi.write(value.newResults, into: &buf)
+        FfiConverterUInt32.write(value.totalResultCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserSearchUpdateFfi_lift(_ buf: RustBuffer) throws -> UserSearchUpdateFfi {
+    return try FfiConverterTypeUserSearchUpdateFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserSearchUpdateFfi_lower(_ value: UserSearchUpdateFfi) -> RustBuffer {
+    return FfiConverterTypeUserSearchUpdateFfi.lower(value)
 }
 
 
@@ -15689,6 +16885,14 @@ public enum ChatListSubscriptionUpdateFfi {
     )
     case removeRow(trigger: ChatListUpdateTriggerFfi, groupIdHex: String
     )
+    /**
+     * Full replacement for the subscribed visible chat list.
+     *
+     * Swift and Kotlin hosts must atomically replace their locally held rows
+     * with `rows` and drop any prior row absent from this value.
+     */
+    case snapshot(trigger: ChatListUpdateTriggerFfi, rows: [ChatListRowFfi]
+    )
 }
 
 
@@ -15706,6 +16910,9 @@ public struct FfiConverterTypeChatListSubscriptionUpdateFfi: FfiConverterRustBuf
         )
         
         case 2: return .removeRow(trigger: try FfiConverterTypeChatListUpdateTriggerFfi.read(from: &buf), groupIdHex: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .snapshot(trigger: try FfiConverterTypeChatListUpdateTriggerFfi.read(from: &buf), rows: try FfiConverterSequenceTypeChatListRowFfi.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -15726,6 +16933,12 @@ public struct FfiConverterTypeChatListSubscriptionUpdateFfi: FfiConverterRustBuf
             writeInt(&buf, Int32(2))
             FfiConverterTypeChatListUpdateTriggerFfi.write(trigger, into: &buf)
             FfiConverterString.write(groupIdHex, into: &buf)
+            
+        
+        case let .snapshot(trigger,rows):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeChatListUpdateTriggerFfi.write(trigger, into: &buf)
+            FfiConverterSequenceTypeChatListRowFfi.write(rows, into: &buf)
             
         }
     }
@@ -15768,6 +16981,7 @@ public enum ChatListUpdateTriggerFfi {
     case muteChanged
     case conversationKindChanged
     case latestMessageDeliveryChanged
+    case pinOrderChanged
     case snapshotRefresh
     case removed
 }
@@ -15805,9 +17019,11 @@ public struct FfiConverterTypeChatListUpdateTriggerFfi: FfiConverterRustBuffer {
         
         case 11: return .latestMessageDeliveryChanged
         
-        case 12: return .snapshotRefresh
+        case 12: return .pinOrderChanged
         
-        case 13: return .removed
+        case 13: return .snapshotRefresh
+        
+        case 14: return .removed
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -15861,12 +17077,16 @@ public struct FfiConverterTypeChatListUpdateTriggerFfi: FfiConverterRustBuffer {
             writeInt(&buf, Int32(11))
         
         
-        case .snapshotRefresh:
+        case .pinOrderChanged:
             writeInt(&buf, Int32(12))
         
         
-        case .removed:
+        case .snapshotRefresh:
             writeInt(&buf, Int32(13))
+        
+        
+        case .removed:
+            writeInt(&buf, Int32(14))
         
         }
     }
@@ -15968,6 +17188,141 @@ public func FfiConverterTypeCursorPersistenceFfi_lower(_ value: CursorPersistenc
 
 
 extension CursorPersistenceFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum DisbandFailureReasonFfi {
+    
+    case noLongerAdmin
+    case noLongerMember
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDisbandFailureReasonFfi: FfiConverterRustBuffer {
+    typealias SwiftType = DisbandFailureReasonFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DisbandFailureReasonFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .noLongerAdmin
+        
+        case 2: return .noLongerMember
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DisbandFailureReasonFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .noLongerAdmin:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .noLongerMember:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDisbandFailureReasonFfi_lift(_ buf: RustBuffer) throws -> DisbandFailureReasonFfi {
+    return try FfiConverterTypeDisbandFailureReasonFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDisbandFailureReasonFfi_lower(_ value: DisbandFailureReasonFfi) -> RustBuffer {
+    return FfiConverterTypeDisbandFailureReasonFfi.lower(value)
+}
+
+
+
+extension DisbandFailureReasonFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum DisbandRequestFfi {
+    
+    case pending(requestedAtMs: UInt64
+    )
+    case failed(requestedAtMs: UInt64, reason: DisbandFailureReasonFfi
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDisbandRequestFfi: FfiConverterRustBuffer {
+    typealias SwiftType = DisbandRequestFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DisbandRequestFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .pending(requestedAtMs: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 2: return .failed(requestedAtMs: try FfiConverterUInt64.read(from: &buf), reason: try FfiConverterTypeDisbandFailureReasonFfi.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: DisbandRequestFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .pending(requestedAtMs):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(requestedAtMs, into: &buf)
+            
+        
+        case let .failed(requestedAtMs,reason):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt64.write(requestedAtMs, into: &buf)
+            FfiConverterTypeDisbandFailureReasonFfi.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDisbandRequestFfi_lift(_ buf: RustBuffer) throws -> DisbandRequestFfi {
+    return try FfiConverterTypeDisbandRequestFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDisbandRequestFfi_lower(_ value: DisbandRequestFfi) -> RustBuffer {
+    return FfiConverterTypeDisbandRequestFfi.lower(value)
+}
+
+
+
+extension DisbandRequestFfi: Equatable, Hashable {}
 
 
 
@@ -16324,6 +17679,98 @@ public func FfiConverterTypeGroupEvolutionPhaseFfi_lower(_ value: GroupEvolution
 
 
 extension GroupEvolutionPhaseFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum GroupLifecycleStateFfi {
+    
+    case stable
+    case pendingPublish
+    case merging
+    case recovering
+    case unrecoverable
+    case disbanded
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGroupLifecycleStateFfi: FfiConverterRustBuffer {
+    typealias SwiftType = GroupLifecycleStateFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GroupLifecycleStateFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .stable
+        
+        case 2: return .pendingPublish
+        
+        case 3: return .merging
+        
+        case 4: return .recovering
+        
+        case 5: return .unrecoverable
+        
+        case 6: return .disbanded
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GroupLifecycleStateFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .stable:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .pendingPublish:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .merging:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .recovering:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .unrecoverable:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .disbanded:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupLifecycleStateFfi_lift(_ buf: RustBuffer) throws -> GroupLifecycleStateFfi {
+    return try FfiConverterTypeGroupLifecycleStateFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroupLifecycleStateFfi_lower(_ value: GroupLifecycleStateFfi) -> RustBuffer {
+    return FfiConverterTypeGroupLifecycleStateFfi.lower(value)
+}
+
+
+
+extension GroupLifecycleStateFfi: Equatable, Hashable {}
 
 
 
@@ -16828,7 +18275,10 @@ public enum MarkdownBlockFfi {
     case thematicBreak
     case codeBlock(kind: MarkdownCodeBlockKindFfi, info: String, content: String
     )
-    case blockQuote(blocks: [MarkdownBlockFfi]
+    case blockQuote(blocks: [MarkdownBlockFfi], 
+        /**
+         * Blank source lines before each corresponding child block.
+         */blankLinesBefore: Data
     )
     /**
      * Named `ListBlock` (not `List`) to match the sibling `*Block` variants and
@@ -16864,7 +18314,7 @@ public struct FfiConverterTypeMarkdownBlockFfi: FfiConverterRustBuffer {
         case 4: return .codeBlock(kind: try FfiConverterTypeMarkdownCodeBlockKindFfi.read(from: &buf), info: try FfiConverterString.read(from: &buf), content: try FfiConverterString.read(from: &buf)
         )
         
-        case 5: return .blockQuote(blocks: try FfiConverterSequenceTypeMarkdownBlockFfi.read(from: &buf)
+        case 5: return .blockQuote(blocks: try FfiConverterSequenceTypeMarkdownBlockFfi.read(from: &buf), blankLinesBefore: try FfiConverterData.read(from: &buf)
         )
         
         case 6: return .listBlock(kind: try FfiConverterTypeMarkdownListKindFfi.read(from: &buf), tight: try FfiConverterBool.read(from: &buf), items: try FfiConverterSequenceTypeMarkdownListItemFfi.read(from: &buf)
@@ -16906,9 +18356,10 @@ public struct FfiConverterTypeMarkdownBlockFfi: FfiConverterRustBuffer {
             FfiConverterString.write(content, into: &buf)
             
         
-        case let .blockQuote(blocks):
+        case let .blockQuote(blocks,blankLinesBefore):
             writeInt(&buf, Int32(5))
             FfiConverterSequenceTypeMarkdownBlockFfi.write(blocks, into: &buf)
+            FfiConverterData.write(blankLinesBefore, into: &buf)
             
         
         case let .listBlock(kind,tight,items):
@@ -17640,6 +19091,8 @@ public enum MarmotKitError {
     )
     case UnknownGroup(groupIdHex: String
     )
+    case InvalidChatPin(details: String
+    )
     /**
      * Host-supplied draft attachment metadata is malformed.
      */
@@ -17666,6 +19119,12 @@ public enum MarmotKitError {
     )
     case Publish(details: String
     )
+    /**
+     * No current kind-3 event was found on the account's known outbox/default
+     * relays. Retrying after directory/relay recovery is safe; publishing from
+     * an assumed empty list is not.
+     */
+    case FollowListUnavailable
     case TransportClosed
     case RuntimeStopping
     /**
@@ -17690,6 +19149,12 @@ public enum MarmotKitError {
     case LeaveAlreadyRequested(groupIdHex: String
     )
     case WouldRemoveLastAdmin(groupIdHex: String
+    )
+    case DisbandingUnsupportedMembers(groupIdHex: String, memberIdsHex: [String]
+    )
+    case DisbandingNotEnabled(groupIdHex: String
+    )
+    case GroupDisbanding(groupIdHex: String
     )
     case MemberNotInGroup(groupIdHex: String, memberIdHex: String
     )
@@ -17790,78 +19255,92 @@ public struct FfiConverterTypeMarmotKitError: FfiConverterRustBuffer {
         case 3: return .UnknownGroup(
             groupIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 4: return .InvalidMessageDraft(
+        case 4: return .InvalidChatPin(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 5: return .InvalidMediaReference(
+        case 5: return .InvalidMessageDraft(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 6: return .InvalidHex(
+        case 6: return .InvalidMediaReference(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 7: return .InvalidIdentity(
+        case 7: return .InvalidHex(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 8: return .InvalidKeyPackageEvent(
+        case 8: return .InvalidIdentity(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 9: return .MissingKeyPackage(
+        case 9: return .InvalidKeyPackageEvent(
+            details: try FfiConverterString.read(from: &buf)
+            )
+        case 10: return .MissingKeyPackage(
             account: try FfiConverterString.read(from: &buf)
             )
-        case 10: return .Publish(
+        case 11: return .Publish(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 11: return .TransportClosed
-        case 12: return .RuntimeStopping
-        case 13: return .AccountCatchUp(
+        case 12: return .FollowListUnavailable
+        case 13: return .TransportClosed
+        case 14: return .RuntimeStopping
+        case 15: return .AccountCatchUp(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 14: return .NotGroupAdmin(
+        case 16: return .NotGroupAdmin(
             groupIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 15: return .AdminCannotSelfRemove(
+        case 17: return .AdminCannotSelfRemove(
             groupIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 16: return .LeaveAlreadyRequested(
+        case 18: return .LeaveAlreadyRequested(
             groupIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 17: return .WouldRemoveLastAdmin(
+        case 19: return .WouldRemoveLastAdmin(
             groupIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 18: return .MemberNotInGroup(
+        case 20: return .DisbandingUnsupportedMembers(
+            groupIdHex: try FfiConverterString.read(from: &buf), 
+            memberIdsHex: try FfiConverterSequenceString.read(from: &buf)
+            )
+        case 21: return .DisbandingNotEnabled(
+            groupIdHex: try FfiConverterString.read(from: &buf)
+            )
+        case 22: return .GroupDisbanding(
+            groupIdHex: try FfiConverterString.read(from: &buf)
+            )
+        case 23: return .MemberNotInGroup(
             groupIdHex: try FfiConverterString.read(from: &buf), 
             memberIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 19: return .AlreadyAdmin(
+        case 24: return .AlreadyAdmin(
             groupIdHex: try FfiConverterString.read(from: &buf), 
             memberIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 20: return .NotAdmin(
+        case 25: return .NotAdmin(
             groupIdHex: try FfiConverterString.read(from: &buf), 
             memberIdHex: try FfiConverterString.read(from: &buf)
             )
-        case 21: return .StorageBusy(
+        case 26: return .StorageBusy(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 22: return .SecretNotFound(
+        case 27: return .SecretNotFound(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 23: return .KeystoreUnavailable(
+        case 28: return .KeystoreUnavailable(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 24: return .EmptyPassphrase
-        case 25: return .EncryptionFailed(
+        case 29: return .EmptyPassphrase
+        case 30: return .EncryptionFailed(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 26: return .Io(
+        case 31: return .Io(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 27: return .ExternalSignerUnavailable(
+        case 32: return .ExternalSignerUnavailable(
             account: try FfiConverterString.read(from: &buf)
             )
-        case 28: return .ExternalSignerMismatch
-        case 29: return .ExternalSignerRejected
-        case 30: return .Runtime(
+        case 33: return .ExternalSignerMismatch
+        case 34: return .ExternalSignerRejected
+        case 35: return .Runtime(
             details: try FfiConverterString.read(from: &buf)
             )
 
@@ -17891,136 +19370,161 @@ public struct FfiConverterTypeMarmotKitError: FfiConverterRustBuffer {
             FfiConverterString.write(groupIdHex, into: &buf)
             
         
-        case let .InvalidMessageDraft(details):
+        case let .InvalidChatPin(details):
             writeInt(&buf, Int32(4))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .InvalidMediaReference(details):
+        case let .InvalidMessageDraft(details):
             writeInt(&buf, Int32(5))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .InvalidHex(details):
+        case let .InvalidMediaReference(details):
             writeInt(&buf, Int32(6))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .InvalidIdentity(details):
+        case let .InvalidHex(details):
             writeInt(&buf, Int32(7))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .InvalidKeyPackageEvent(details):
+        case let .InvalidIdentity(details):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .MissingKeyPackage(account):
+        case let .InvalidKeyPackageEvent(details):
             writeInt(&buf, Int32(9))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case let .MissingKeyPackage(account):
+            writeInt(&buf, Int32(10))
             FfiConverterString.write(account, into: &buf)
             
         
         case let .Publish(details):
-            writeInt(&buf, Int32(10))
+            writeInt(&buf, Int32(11))
             FfiConverterString.write(details, into: &buf)
             
         
-        case .TransportClosed:
-            writeInt(&buf, Int32(11))
-        
-        
-        case .RuntimeStopping:
+        case .FollowListUnavailable:
             writeInt(&buf, Int32(12))
         
         
-        case let .AccountCatchUp(details):
+        case .TransportClosed:
             writeInt(&buf, Int32(13))
+        
+        
+        case .RuntimeStopping:
+            writeInt(&buf, Int32(14))
+        
+        
+        case let .AccountCatchUp(details):
+            writeInt(&buf, Int32(15))
             FfiConverterString.write(details, into: &buf)
             
         
         case let .NotGroupAdmin(groupIdHex):
-            writeInt(&buf, Int32(14))
-            FfiConverterString.write(groupIdHex, into: &buf)
-            
-        
-        case let .AdminCannotSelfRemove(groupIdHex):
-            writeInt(&buf, Int32(15))
-            FfiConverterString.write(groupIdHex, into: &buf)
-            
-        
-        case let .LeaveAlreadyRequested(groupIdHex):
             writeInt(&buf, Int32(16))
             FfiConverterString.write(groupIdHex, into: &buf)
             
         
-        case let .WouldRemoveLastAdmin(groupIdHex):
+        case let .AdminCannotSelfRemove(groupIdHex):
             writeInt(&buf, Int32(17))
             FfiConverterString.write(groupIdHex, into: &buf)
             
         
-        case let .MemberNotInGroup(groupIdHex,memberIdHex):
+        case let .LeaveAlreadyRequested(groupIdHex):
             writeInt(&buf, Int32(18))
+            FfiConverterString.write(groupIdHex, into: &buf)
+            
+        
+        case let .WouldRemoveLastAdmin(groupIdHex):
+            writeInt(&buf, Int32(19))
+            FfiConverterString.write(groupIdHex, into: &buf)
+            
+        
+        case let .DisbandingUnsupportedMembers(groupIdHex,memberIdsHex):
+            writeInt(&buf, Int32(20))
+            FfiConverterString.write(groupIdHex, into: &buf)
+            FfiConverterSequenceString.write(memberIdsHex, into: &buf)
+            
+        
+        case let .DisbandingNotEnabled(groupIdHex):
+            writeInt(&buf, Int32(21))
+            FfiConverterString.write(groupIdHex, into: &buf)
+            
+        
+        case let .GroupDisbanding(groupIdHex):
+            writeInt(&buf, Int32(22))
+            FfiConverterString.write(groupIdHex, into: &buf)
+            
+        
+        case let .MemberNotInGroup(groupIdHex,memberIdHex):
+            writeInt(&buf, Int32(23))
             FfiConverterString.write(groupIdHex, into: &buf)
             FfiConverterString.write(memberIdHex, into: &buf)
             
         
         case let .AlreadyAdmin(groupIdHex,memberIdHex):
-            writeInt(&buf, Int32(19))
+            writeInt(&buf, Int32(24))
             FfiConverterString.write(groupIdHex, into: &buf)
             FfiConverterString.write(memberIdHex, into: &buf)
             
         
         case let .NotAdmin(groupIdHex,memberIdHex):
-            writeInt(&buf, Int32(20))
+            writeInt(&buf, Int32(25))
             FfiConverterString.write(groupIdHex, into: &buf)
             FfiConverterString.write(memberIdHex, into: &buf)
             
         
         case let .StorageBusy(details):
-            writeInt(&buf, Int32(21))
-            FfiConverterString.write(details, into: &buf)
-            
-        
-        case let .SecretNotFound(details):
-            writeInt(&buf, Int32(22))
-            FfiConverterString.write(details, into: &buf)
-            
-        
-        case let .KeystoreUnavailable(details):
-            writeInt(&buf, Int32(23))
-            FfiConverterString.write(details, into: &buf)
-            
-        
-        case .EmptyPassphrase:
-            writeInt(&buf, Int32(24))
-        
-        
-        case let .EncryptionFailed(details):
-            writeInt(&buf, Int32(25))
-            FfiConverterString.write(details, into: &buf)
-            
-        
-        case let .Io(details):
             writeInt(&buf, Int32(26))
             FfiConverterString.write(details, into: &buf)
             
         
-        case let .ExternalSignerUnavailable(account):
+        case let .SecretNotFound(details):
             writeInt(&buf, Int32(27))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case let .KeystoreUnavailable(details):
+            writeInt(&buf, Int32(28))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case .EmptyPassphrase:
+            writeInt(&buf, Int32(29))
+        
+        
+        case let .EncryptionFailed(details):
+            writeInt(&buf, Int32(30))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case let .Io(details):
+            writeInt(&buf, Int32(31))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case let .ExternalSignerUnavailable(account):
+            writeInt(&buf, Int32(32))
             FfiConverterString.write(account, into: &buf)
             
         
         case .ExternalSignerMismatch:
-            writeInt(&buf, Int32(28))
+            writeInt(&buf, Int32(33))
         
         
         case .ExternalSignerRejected:
-            writeInt(&buf, Int32(29))
+            writeInt(&buf, Int32(34))
         
         
         case let .Runtime(details):
-            writeInt(&buf, Int32(30))
+            writeInt(&buf, Int32(35))
             FfiConverterString.write(details, into: &buf)
             
         }
@@ -18035,6 +19539,175 @@ extension MarmotKitError: Foundation.LocalizedError {
         String(reflecting: self)
     }
 }
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * How closely the record matched, best first.
+ */
+
+public enum MatchQualityFfi {
+    
+    case exact
+    case prefix
+    case contains
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMatchQualityFfi: FfiConverterRustBuffer {
+    typealias SwiftType = MatchQualityFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchQualityFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .exact
+        
+        case 2: return .prefix
+        
+        case 3: return .contains
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MatchQualityFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .exact:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .prefix:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .contains:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchQualityFfi_lift(_ buf: RustBuffer) throws -> MatchQualityFfi {
+    return try FfiConverterTypeMatchQualityFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchQualityFfi_lower(_ value: MatchQualityFfi) -> RustBuffer {
+    return FfiConverterTypeMatchQualityFfi.lower(value)
+}
+
+
+
+extension MatchQualityFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Which field matched, most identifying first.
+ */
+
+public enum MatchedFieldFfi {
+    
+    case name
+    case nip05
+    case displayName
+    case about
+    case npub
+    case pubkey
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMatchedFieldFfi: FfiConverterRustBuffer {
+    typealias SwiftType = MatchedFieldFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MatchedFieldFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .name
+        
+        case 2: return .nip05
+        
+        case 3: return .displayName
+        
+        case 4: return .about
+        
+        case 5: return .npub
+        
+        case 6: return .pubkey
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MatchedFieldFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .name:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .nip05:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .displayName:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .about:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .npub:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .pubkey:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchedFieldFfi_lift(_ buf: RustBuffer) throws -> MatchedFieldFfi {
+    return try FfiConverterTypeMatchedFieldFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMatchedFieldFfi_lower(_ value: MatchedFieldFfi) -> RustBuffer {
+    return FfiConverterTypeMatchedFieldFfi.lower(value)
+}
+
+
+
+extension MatchedFieldFfi: Equatable, Hashable {}
+
+
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -18666,6 +20339,87 @@ extension PushRegistrationShareStatusFfi: Equatable, Hashable {}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Stable relay-policy result for settings and remediation UI.
+ */
+
+public enum RelayEndpointPolicyFfi {
+    
+    case allowed
+    case retired
+    case invalid
+    case unsafe
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayEndpointPolicyFfi: FfiConverterRustBuffer {
+    typealias SwiftType = RelayEndpointPolicyFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayEndpointPolicyFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .allowed
+        
+        case 2: return .retired
+        
+        case 3: return .invalid
+        
+        case 4: return .unsafe
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RelayEndpointPolicyFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .allowed:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .retired:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .invalid:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .unsafe:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayEndpointPolicyFfi_lift(_ buf: RustBuffer) throws -> RelayEndpointPolicyFfi {
+    return try FfiConverterTypeRelayEndpointPolicyFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayEndpointPolicyFfi_lower(_ value: RelayEndpointPolicyFfi) -> RustBuffer {
+    return FfiConverterTypeRelayEndpointPolicyFfi.lower(value)
+}
+
+
+
+extension RelayEndpointPolicyFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum RetentionSweepStatusFfi {
     
@@ -18753,6 +20507,153 @@ public func FfiConverterTypeRetentionSweepStatusFfi_lower(_ value: RetentionSwee
 
 
 extension RetentionSweepStatusFfi: Equatable, Hashable {}
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Why an update was emitted, so a host can show traversal progress without
+ * tracking the search itself.
+ */
+
+public enum SearchUpdateTriggerFfi {
+    
+    case radiusStarted(radius: UInt8
+    )
+    case resultsFound(radius: UInt8
+    )
+    /**
+     * Results from the optional off-graph discovery tier. Each result still
+     * carries its own graph or discovery provenance.
+     */
+    case discoveryResultsFound
+    case radiusCompleted(radius: UInt8
+    )
+    /**
+     * This radius ran out of time; traversal stops here. Results already
+     * delivered stay valid — present them as partial, not failed.
+     */
+    case radiusTimeout(radius: UInt8
+    )
+    /**
+     * Expanding this radius hit the per-radius candidate cap, so deeper
+     * results are incomplete. Like a timeout, this is partial rather than
+     * failed: everything already delivered is still correct.
+     */
+    case radiusTruncated(radius: UInt8
+    )
+    /**
+     * Terminal: no further updates follow.
+     */
+    case searchCompleted
+    /**
+     * Traversal failed. Always followed by [`Self::SearchCompleted`].
+     */
+    case error(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSearchUpdateTriggerFfi: FfiConverterRustBuffer {
+    typealias SwiftType = SearchUpdateTriggerFfi
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SearchUpdateTriggerFfi {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .radiusStarted(radius: try FfiConverterUInt8.read(from: &buf)
+        )
+        
+        case 2: return .resultsFound(radius: try FfiConverterUInt8.read(from: &buf)
+        )
+        
+        case 3: return .discoveryResultsFound
+        
+        case 4: return .radiusCompleted(radius: try FfiConverterUInt8.read(from: &buf)
+        )
+        
+        case 5: return .radiusTimeout(radius: try FfiConverterUInt8.read(from: &buf)
+        )
+        
+        case 6: return .radiusTruncated(radius: try FfiConverterUInt8.read(from: &buf)
+        )
+        
+        case 7: return .searchCompleted
+        
+        case 8: return .error(message: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: SearchUpdateTriggerFfi, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .radiusStarted(radius):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt8.write(radius, into: &buf)
+            
+        
+        case let .resultsFound(radius):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt8.write(radius, into: &buf)
+            
+        
+        case .discoveryResultsFound:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .radiusCompleted(radius):
+            writeInt(&buf, Int32(4))
+            FfiConverterUInt8.write(radius, into: &buf)
+            
+        
+        case let .radiusTimeout(radius):
+            writeInt(&buf, Int32(5))
+            FfiConverterUInt8.write(radius, into: &buf)
+            
+        
+        case let .radiusTruncated(radius):
+            writeInt(&buf, Int32(6))
+            FfiConverterUInt8.write(radius, into: &buf)
+            
+        
+        case .searchCompleted:
+            writeInt(&buf, Int32(7))
+        
+        
+        case let .error(message):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSearchUpdateTriggerFfi_lift(_ buf: RustBuffer) throws -> SearchUpdateTriggerFfi {
+    return try FfiConverterTypeSearchUpdateTriggerFfi.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSearchUpdateTriggerFfi_lower(_ value: SearchUpdateTriggerFfi) -> RustBuffer {
+    return FfiConverterTypeSearchUpdateTriggerFfi.lower(value)
+}
+
+
+
+extension SearchUpdateTriggerFfi: Equatable, Hashable {}
 
 
 
@@ -19796,6 +21697,30 @@ fileprivate struct FfiConverterOptionTypeUserProfileMetadataFfi: FfiConverterRus
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeUserSearchUpdateFfi: FfiConverterRustBuffer {
+    typealias SwiftType = UserSearchUpdateFfi?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeUserSearchUpdateFfi.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeUserSearchUpdateFfi.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeAgentStreamUpdateFfi: FfiConverterRustBuffer {
     typealias SwiftType = AgentStreamUpdateFfi?
 
@@ -19860,6 +21785,30 @@ fileprivate struct FfiConverterOptionTypeChatListSubscriptionUpdateFfi: FfiConve
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeChatListSubscriptionUpdateFfi.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeDisbandRequestFfi: FfiConverterRustBuffer {
+    typealias SwiftType = DisbandRequestFfi?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeDisbandRequestFfi.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeDisbandRequestFfi.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -20764,6 +22713,31 @@ fileprivate struct FfiConverterSequenceTypeNotificationUpdateFfi: FfiConverterRu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeRelayEndpointClassificationFfi: FfiConverterRustBuffer {
+    typealias SwiftType = [RelayEndpointClassificationFfi]
+
+    public static func write(_ value: [RelayEndpointClassificationFfi], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRelayEndpointClassificationFfi.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RelayEndpointClassificationFfi] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RelayEndpointClassificationFfi]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRelayEndpointClassificationFfi.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeRelayFailureFfi: FfiConverterRustBuffer {
     typealias SwiftType = [RelayFailureFfi]
 
@@ -20906,6 +22880,31 @@ fileprivate struct FfiConverterSequenceTypeTransportFanoutStatusFfi: FfiConverte
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTransportFanoutStatusFfi.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeUserDirectorySearchResultFfi: FfiConverterRustBuffer {
+    typealias SwiftType = [UserDirectorySearchResultFfi]
+
+    public static func write(_ value: [UserDirectorySearchResultFfi], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeUserDirectorySearchResultFfi.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UserDirectorySearchResultFfi] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UserDirectorySearchResultFfi]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeUserDirectorySearchResultFfi.read(from: &buf))
         }
         return seq
     }
@@ -21146,10 +23145,10 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_agentstreamsubscription_stream_id_hex() != 57056) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_marmot_uniffi_checksum_method_chatlistsubscription_next() != 4327) {
+    if (uniffi_marmot_uniffi_checksum_method_chatlistsubscription_next() != 41564) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_marmot_uniffi_checksum_method_chatlistsubscription_next_update() != 33027) {
+    if (uniffi_marmot_uniffi_checksum_method_chatlistsubscription_next_update() != 32887) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_chatlistsubscription_snapshot() != 64263) {
@@ -21191,6 +23190,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_accept_group_invite() != 61156) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_account_follows() != 12625) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_account_id_hex() != 53507) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21207,6 +23209,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_account_unread_summary() != 15239) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_acknowledge_disband_failure() != 63327) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_audit_log_files() != 25846) {
@@ -21227,6 +23232,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_chat_notification_settings() != 6301) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_classify_relay_endpoints() != 44316) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_clear_chat_muted() != 45980) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21245,7 +23253,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_create_group_with_initial_image() != 19722) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_marmot_uniffi_checksum_method_marmot_create_identity() != 64408) {
+    if (uniffi_marmot_uniffi_checksum_method_marmot_create_identity() != 49801) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_decline_group_invite() != 24239) {
@@ -21272,6 +23280,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_demote_admin_detailed() != 49488) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_disband_group() != 1732) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_display_name() != 65469) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21284,7 +23295,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_edit_message() != 43927) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_enable_group_disbanding() != 25467) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_export_encrypted_secret_key() != 16556) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_follow_user() != 26050) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_group_details() != 55062) {
@@ -21312,6 +23329,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_invite_members_detailed() != 32257) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_is_following() != 21250) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_is_stopping() != 60094) {
@@ -21431,6 +23451,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_resume_maintenance() != 1654) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_retired_relay_hosts() != 13548) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_retry_group_convergence() != 64264) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21447,6 +23470,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_schedule_group_self_update() != 23804) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_search_users() != 58582) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_secure_delete_expired() != 16091) {
@@ -21485,6 +23511,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_chat_muted() != 63462) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_set_chat_pinned() != 60031) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_group_archived() != 17316) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21495,6 +23524,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_periodic_maintenance_policy() != 1720) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_set_pinned_chat_order() != 64195) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_set_relay_telemetry_runtime_config() != 6820) {
@@ -21549,6 +23581,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_timeline_messages() != 49184) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_marmot_unfollow_user() != 7605) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_marmot_unreact_from_message() != 11846) {
@@ -21606,6 +23641,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_method_timelinemessagessubscription_snapshot() != 33790) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_marmot_uniffi_checksum_method_usersearchsubscription_next_update() != 9602) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_marmot_uniffi_checksum_constructor_marmot_new() != 56105) {

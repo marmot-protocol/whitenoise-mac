@@ -257,9 +257,19 @@
             else { return fallback }
             return png
         }
+        private static func markdownDocument(
+            blocks: [MarkdownBlockFfi],
+            truncated: Bool
+        ) -> MarkdownDocumentFfi {
+            MarkdownDocumentFfi(
+                blocks: blocks,
+                truncated: truncated,
+                blankLinesBefore: Data(repeating: 0, count: blocks.count)
+            )
+        }
 
         private static func richMarkdownDocument(index: Int) -> MarkdownDocumentFfi {
-            MarkdownDocumentFfi(
+            markdownDocument(
                 blocks: [
                     .heading(
                         level: 3,
@@ -288,13 +298,15 @@
                                 blocks: [
                                     .paragraph(inlines: [.text(content: "No jump when older history prepends")])
                                 ],
-                                checked: nil
+                                checked: nil,
+                                blankLinesBefore: Data([0])
                             ),
                             MarkdownListItemFfi(
                                 blocks: [
                                     .paragraph(inlines: [.text(content: "No full transcript diff for one update")])
                                 ],
-                                checked: true
+                                checked: true,
+                                blankLinesBefore: Data([0])
                             ),
                         ]
                     ),

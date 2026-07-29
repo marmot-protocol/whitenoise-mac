@@ -32,3 +32,5 @@ Vendored/MarmotKit/MARMOT_VERSION
 *.swp
 .idea/
 reviews/
+
+trees/
