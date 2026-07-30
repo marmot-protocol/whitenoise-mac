@@ -450,6 +450,10 @@ struct GlassCapsuleBackground: View {
 }
 
 extension View {
+    func menuLabelIcons() -> some View {
+        labelStyle(.titleAndIcon)
+    }
+
     func glassCard(
         cornerRadius: CGFloat = 8,
         material: Material = .ultraThinMaterial,
