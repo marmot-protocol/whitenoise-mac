@@ -2047,28 +2047,31 @@ struct MessageContextMenuItems: View {
     let message: MessageItem
 
     var body: some View {
-        if message.canReact {
-            Menu {
-                QuickReactionButtons(
-                    emojis: workspace.quickReactions,
-                    onPick: { emoji in
-                        Task { await workspace.react(to: message, emoji: emoji) }
+        Group {
+            if message.canReact {
+                Menu {
+                    QuickReactionButtons(
+                        emojis: workspace.quickReactions,
+                        onPick: { emoji in
+                            Task { await workspace.react(to: message, emoji: emoji) }
+                        }
+                    ) { emoji in
+                        Text(emoji)
                     }
-                ) { emoji in
-                    Text(emoji)
+                } label: {
+                    Label(L10n.string("React"), systemImage: "face.smiling")
                 }
-            } label: {
-                Label(L10n.string("React"), systemImage: "face.smiling")
+
+                Divider()
             }
 
-            Divider()
-        }
-
-        ForEach(MessageRowAction.all(for: message, workspace: workspace)) { action in
-            Button(role: action.role, action: action.run) {
-                Label(action.title, systemImage: action.systemImage)
+            ForEach(MessageRowAction.all(for: message, workspace: workspace)) { action in
+                Button(role: action.role, action: action.run) {
+                    Label(action.title, systemImage: action.systemImage)
+                }
             }
         }
+        .menuLabelIcons()
     }
 }
 

@@ -782,23 +782,35 @@ struct GroupMemberRow: View {
 
             if hasActions {
                 Menu {
-                    if member.canPromote {
-                        Button(L10n.string("Make Admin")) {
-                            Task { await workspace.promoteGroupMember(member) }
+                    Group {
+                        if member.canPromote {
+                            Button {
+                                Task { await workspace.promoteGroupMember(member) }
+                            } label: {
+                                Label(L10n.string("Make Admin"), systemImage: "star")
+                            }
                         }
-                    }
 
-                    if member.canDemote {
-                        Button(member.isSelf ? L10n.string("Demote Myself") : L10n.string("Remove Admin")) {
-                            Task { await workspace.demoteGroupMember(member) }
+                        if member.canDemote {
+                            Button {
+                                Task { await workspace.demoteGroupMember(member) }
+                            } label: {
+                                Label(
+                                    member.isSelf ? L10n.string("Demote Myself") : L10n.string("Remove Admin"),
+                                    systemImage: "star.slash"
+                                )
+                            }
                         }
-                    }
 
-                    if member.canRemove {
-                        Button(L10n.string("Remove Member"), role: .destructive) {
-                            showRemoveConfirmation = true
+                        if member.canRemove {
+                            Button(role: .destructive) {
+                                showRemoveConfirmation = true
+                            } label: {
+                                Label(L10n.string("Remove Member"), systemImage: "person.badge.minus")
+                            }
                         }
                     }
+                    .menuLabelIcons()
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .frame(width: 28, height: 28)
