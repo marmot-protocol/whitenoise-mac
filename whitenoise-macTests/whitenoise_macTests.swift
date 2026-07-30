@@ -5288,6 +5288,38 @@ struct whitenoise_macTests {
         #expect(!structured.supportsInlineMetadata)
     }
 
+    /// A mention chip has to contrast with the bubble fill behind it, and the row's attributed
+    /// string is built once here — off-main, never rewritten during a body pass — so the fill is
+    /// chosen at mapping time from the direction the row already knows.
+    @Test func mentionChipFollowsTheBubbleDirectionOfTheMessage() {
+        let npub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
+        let tokens = MarkdownDocumentFfi(
+            blocks: [
+                .paragraph(inlines: [
+                    .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub))
+                ])
+            ],
+            truncated: false
+        )
+        func chip(isOutgoing: Bool) -> Color? {
+            MessageItem(
+                id: "mention-\(isOutgoing)",
+                senderName: "Alice",
+                body: "@Alex",
+                contentMarkdown: tokens,
+                mentionNames: [npub: "Alex"],
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: isOutgoing
+            )
+            .contentMarkdown?.inlineParagraph?.runs.first?.backgroundColor
+        }
+
+        // Asserted against the palette constants rather than just "these two differ", so a
+        // reversed mapping fails here instead of passing with the chips swapped.
+        #expect(chip(isOutgoing: true) == MentionChipPalette.onSentBubble)
+        #expect(chip(isOutgoing: false) == MentionChipPalette.onNeutralFill)
+    }
+
     @Test func singleEmojiMessagesAreClassifiedForStickerPresentation() {
         let singleEmoji = [
             "😀",
