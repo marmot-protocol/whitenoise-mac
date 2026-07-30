@@ -2910,8 +2910,8 @@ extension MissingRelayListKindFfi {
     var displayLabel: String {
         switch self {
         case .nip65: return "NIP-65"
-        case .inbox: return "Inbox"
-        @unknown default: return "Unknown"
+        case .inbox: return L10n.string("Inbox")
+        @unknown default: return L10n.string("Unknown")
         }
     }
 }
