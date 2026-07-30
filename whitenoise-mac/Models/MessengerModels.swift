@@ -107,7 +107,8 @@ nonisolated enum ChatSelfMembership: Hashable {
 
 nonisolated struct ChatItem: Identifiable, Hashable {
     let id: String
-    let title: String
+    var title: String
+    var publishedTitle: String?
     let subtitle: String
     let preview: String
     let updatedAt: Date?
@@ -149,6 +150,35 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// True when the local account can use the outbound composer for this chat.
     var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember }
 
+    /// The other party's account hex, for a direct chat whose peer has actually resolved.
+    ///
+    /// `avatarSeed` carries that hex, but falls back to the group id whenever no peer resolved —
+    /// before roster enrichment lands, and permanently for a note-to-self chat, which has no other
+    /// member. Contact affordances must key off this rather than the seed, so they never offer to
+    /// act on a group id as though it were a person.
+    var directPeerAccountIdHex: String? {
+        guard isDirect, avatarSeed != id else { return nil }
+        return avatarSeed
+    }
+
+    /// A copy whose title reflects `nickname`, leaving every other field identical.
+    ///
+    /// Applying a private nickname must not re-run chat-list enrichment, so a nickname write
+    /// patches the affected rows through here instead. `publishedTitle` records the title being
+    /// overridden, which is also what restores it when the nickname is cleared.
+    nonisolated func applyingNickname(_ nickname: String?) -> ChatItem {
+        let published = publishedTitle ?? title
+        var copy = self
+        if let nickname {
+            copy.title = nickname
+            copy.publishedTitle = nickname == published ? nil : published
+        } else {
+            copy.title = published
+            copy.publishedTitle = nil
+        }
+        return copy
+    }
+
     /// Re-derives the relative spelling against a wall-clock reference date. Views use
     /// this when the calendar day changes; `timestampLabel` remains the cheap mapping-time
     /// value used during ordinary renders.
@@ -163,6 +193,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     init(
         id: String,
         title: String,
+        publishedTitle: String? = nil,
         subtitle: String,
         preview: String,
         updatedAt: Date?,
@@ -186,6 +217,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     ) {
         self.id = id
         self.title = title
+        self.publishedTitle = publishedTitle
         self.subtitle = subtitle
         self.preview = preview
         self.updatedAt = updatedAt
@@ -230,12 +262,28 @@ nonisolated enum ChatMessageDeliveryState: Hashable, Sendable {
 nonisolated struct ChatPeerProfile: Hashable, Sendable {
     let accountIdHex: String
     let displayName: String?
+    let publishedDisplayName: String?
     let pictureURL: String?
+
+    init(
+        accountIdHex: String,
+        displayName: String?,
+        publishedDisplayName: String? = nil,
+        pictureURL: String?
+    ) {
+        self.accountIdHex = accountIdHex
+        self.displayName = displayName
+        self.publishedDisplayName = publishedDisplayName
+        self.pictureURL = pictureURL
+    }
 }
 
 struct GroupMemberItem: Identifiable, Hashable {
     let id: String
+    /// The viewer's private nickname for this member when one is set, else the published name.
     let displayName: String
+    /// The published name `displayName` overrides; nil when no nickname applies.
+    let publishedDisplayName: String?
     let npub: String
     let accountLabel: String?
     let isLocal: Bool
@@ -392,7 +440,9 @@ nonisolated struct MessageReaction: Identifiable, Hashable {
 
 nonisolated struct MessageReplyContext: Hashable {
     let targetMessageId: String
-    let senderName: String
+    /// `var` so a private-nickname write can relabel a quote already on screen without
+    /// re-projecting the timeline. See `MessageItem.applyingSenderNickname(_:)`.
+    var senderName: String
     let body: String
 }
 
@@ -1734,7 +1784,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let retentionExpiresAt: UInt64?
     let replyTargetIdHex: String?
     let senderAccountIdHex: String
-    let senderName: String
+    /// The viewer's private nickname for the sender when one is set, else the resolved
+    /// published name. `var` so a nickname write can relabel rows already materialized in a
+    /// timeline window — see `applyingSenderNickname(_:)`.
+    var senderName: String
+    /// The published sender name `senderName` overrides; nil when no nickname applies. Carried on
+    /// the row so clearing a nickname restores the real name without consulting a profile cache.
+    var publishedSenderName: String?
     let senderPictureURL: String?
     let body: String
     /// Canonical plaintext used when editing or forwarding. For edited messages, `body` is the
@@ -1754,7 +1810,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     let isEdited: Bool
     let isOutgoing: Bool
     let reactions: [MessageReaction]
-    let replyContext: MessageReplyContext?
+    var replyContext: MessageReplyContext?
     let mediaAttachments: [MessageMediaAttachment]
     let visualMediaAttachments: [MessageMediaAttachment]
     let nonvisualMediaAttachments: [MessageMediaAttachment]
@@ -1766,6 +1822,29 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     /// Whether the bubble should render the parsed Markdown AST instead of plain text.
     var rendersMarkdown: Bool { contentMarkdown != nil }
+    nonisolated func applyingSenderNickname(_ nickname: String?) -> MessageItem? {
+        let published = publishedSenderName ?? senderName
+        var copy = self
+        if let nickname {
+            copy.senderName = nickname
+            copy.publishedSenderName = nickname == published ? nil : published
+        } else {
+            copy.senderName = published
+            copy.publishedSenderName = nil
+        }
+        return copy == self ? nil : copy
+    }
+
+    /// Relabels the sender of the message this row quotes. A quote stores a resolved name rather
+    /// than an account id, so the timeline store resolves the quoted row and hands over its
+    /// post-relabel `senderName`. Returns nil when nothing changes.
+    nonisolated func applyingReplyContextSenderName(_ senderName: String) -> MessageItem? {
+        guard var context = replyContext, context.senderName != senderName else { return nil }
+        context.senderName = senderName
+        var copy = self
+        copy.replyContext = context
+        return copy
+    }
 
     /// A single rendered emoji, including multi-scalar flags, skin tones, keycaps, and
     /// joined families. Used by the chat row to opt into the large, bubble-free treatment.
@@ -1825,6 +1904,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         replyTargetIdHex: String? = nil,
         senderAccountIdHex: String? = nil,
         senderName: String,
+        publishedSenderName: String? = nil,
         senderPictureURL: String? = nil,
         body: String,
         wireBody: String? = nil,
@@ -1854,6 +1934,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.replyTargetIdHex = Self.nonBlank(replyTargetIdHex)
         self.senderAccountIdHex = senderAccountIdHex ?? senderName
         self.senderName = senderName
+        self.publishedSenderName = publishedSenderName
         self.senderPictureURL = senderPictureURL
         self.body = body
         self.wireBody = wireBody ?? body
@@ -1938,6 +2019,7 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             replyTargetIdHex: replyTargetIdHex,
             senderAccountIdHex: senderAccountIdHex,
             senderName: senderName,
+            publishedSenderName: publishedSenderName,
             senderPictureURL: senderPictureURL,
             body: body,
             wireBody: wireBody,
@@ -2568,6 +2650,7 @@ struct NewChatRecipient: Equatable {
     let accountIdHex: String
     let npub: String
     let displayName: String?
+    let publishedDisplayName: String?
     let pictureURL: String?
     /// Pre-sanitized once from the peer-controlled raw URL so recipient rows only read it.
     let sanitizedPictureURL: URL?
@@ -2578,6 +2661,7 @@ struct NewChatRecipient: Equatable {
         accountIdHex: String,
         npub: String,
         displayName: String?,
+        publishedDisplayName: String? = nil,
         pictureURL: String?
     ) {
         self.sourceQuery = sourceQuery
@@ -2585,6 +2669,7 @@ struct NewChatRecipient: Equatable {
         self.accountIdHex = accountIdHex
         self.npub = npub
         self.displayName = PeerDisplayText.sanitize(displayName)
+        self.publishedDisplayName = PeerDisplayText.sanitize(publishedDisplayName)
         self.pictureURL = pictureURL
         self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
     }
@@ -2615,6 +2700,7 @@ struct ComposeContact: Identifiable, Equatable {
     let accountIdHex: String
     let npub: String
     let displayName: String?
+    let publishedDisplayName: String?
     let pictureURL: String?
     let sanitizedPictureURL: URL?
     let lastActivity: Date?
@@ -2625,12 +2711,14 @@ struct ComposeContact: Identifiable, Equatable {
         accountIdHex: String,
         npub: String,
         displayName: String?,
+        publishedDisplayName: String? = nil,
         pictureURL: String?,
         lastActivity: Date?
     ) {
         self.accountIdHex = accountIdHex
         self.npub = npub
         self.displayName = PeerDisplayText.sanitize(displayName)
+        self.publishedDisplayName = PeerDisplayText.sanitize(publishedDisplayName)
         self.pictureURL = pictureURL
         self.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
         self.lastActivity = lastActivity
@@ -2638,6 +2726,10 @@ struct ComposeContact: Identifiable, Equatable {
 
     var title: String {
         displayName ?? DisplayText.short(npub.isEmpty ? accountIdHex : npub)
+    }
+
+    var searchableNames: [String] {
+        [title, publishedDisplayName].compactMap { $0 }
     }
 
     var subtitle: String {
@@ -2655,6 +2747,7 @@ struct ComposeContact: Identifiable, Equatable {
             accountIdHex: accountIdHex,
             npub: npub,
             displayName: displayName,
+            publishedDisplayName: publishedDisplayName,
             pictureURL: pictureURL
         )
     }
@@ -2666,6 +2759,7 @@ enum ChatFilter {
         guard !needle.isEmpty else { return chats }
         return chats.filter { chat in
             chat.title.localizedCaseInsensitiveContains(needle)
+                || chat.publishedTitle?.localizedCaseInsensitiveContains(needle) == true
                 || chat.subtitle.localizedCaseInsensitiveContains(needle)
                 || chat.preview.localizedCaseInsensitiveContains(needle)
         }
