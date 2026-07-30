@@ -50,6 +50,9 @@ jobs:
             whitenoise-macTests \
             whitenoise-macUITests
 
+      - name: Localization coverage
+        run: scripts/ci/check-localizations.sh
+
       - name: macOS project sanity checks
         run: scripts/ci/macos-sanity-checks.sh
 
