@@ -117,21 +117,24 @@ private struct AccountRailAvatar: View {
         .disabled(account.signedOut && workspace.isAccountMutationInProgress)
         .help(account.signedOut ? "\(account.displayName) — \(L10n.string("Signed out"))" : account.displayName)
         .contextMenu {
-            if account.signedOut {
-                Button {
-                    Task { await workspace.signInAccount(account) }
-                } label: {
-                    Label(L10n.string("Sign In"), systemImage: "person.crop.circle.badge.checkmark")
+            Group {
+                if account.signedOut {
+                    Button {
+                        Task { await workspace.signInAccount(account) }
+                    } label: {
+                        Label(L10n.string("Sign In"), systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                    .disabled(workspace.isAccountMutationInProgress)
+                } else {
+                    Button {
+                        Task { await workspace.signOutAccount(account) }
+                    } label: {
+                        Label(L10n.string("Sign Out"), systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .disabled(workspace.isAccountMutationInProgress)
                 }
-                .disabled(workspace.isAccountMutationInProgress)
-            } else {
-                Button {
-                    Task { await workspace.signOutAccount(account) }
-                } label: {
-                    Label(L10n.string("Sign Out"), systemImage: "rectangle.portrait.and.arrow.right")
-                }
-                .disabled(workspace.isAccountMutationInProgress)
             }
+            .menuLabelIcons()
         }
     }
 
@@ -338,6 +341,11 @@ private struct ChatListFilterMenu: View {
                         .frame(width: 14, height: 1)
                 }
 
+                // Fixed width keeps the titles aligned across icons of differing widths.
+                Image(systemName: filter.systemImage)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+
                 Text(filter.title)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -376,10 +384,6 @@ private struct ChatSidebarRow: View {
     let isArchived: Bool
     let searchResult: GlobalMessageSearchResult?
 
-    private var isArchiving: Bool {
-        workspace.archivingChatId == chat.id
-    }
-
     var body: some View {
         Button {
             workspace.selectChat(chat)
@@ -394,6 +398,22 @@ private struct ChatSidebarRow: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
         .contextMenu {
+            ChatSidebarRowMenuItems(chat: chat, isArchived: isArchived)
+        }
+    }
+}
+
+private struct ChatSidebarRowMenuItems: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let chat: ChatItem
+    let isArchived: Bool
+
+    private var isArchiving: Bool {
+        workspace.archivingChatId == chat.id
+    }
+
+    var body: some View {
+        Group {
             Button {
                 Task {
                     await workspace.setChatManuallyUnread(
@@ -420,17 +440,25 @@ private struct ChatSidebarRow: View {
                 .disabled(workspace.isMutatingChatPreferences(chat))
             } else {
                 Menu {
-                    Button(L10n.string("For 1 Hour")) {
+                    Button {
                         Task { await workspace.setChatMuted(chat, duration: 60 * 60) }
+                    } label: {
+                        Label(L10n.string("For 1 Hour"), systemImage: "clock")
                     }
-                    Button(L10n.string("For 8 Hours")) {
+                    Button {
                         Task { await workspace.setChatMuted(chat, duration: 8 * 60 * 60) }
+                    } label: {
+                        Label(L10n.string("For 8 Hours"), systemImage: "clock")
                     }
-                    Button(L10n.string("For 1 Week")) {
+                    Button {
                         Task { await workspace.setChatMuted(chat, duration: 7 * 24 * 60 * 60) }
+                    } label: {
+                        Label(L10n.string("For 1 Week"), systemImage: "calendar")
                     }
-                    Button(L10n.string("Until I Turn It Back On")) {
+                    Button {
                         Task { await workspace.setChatMuted(chat, duration: nil) }
+                    } label: {
+                        Label(L10n.string("Until I Turn It Back On"), systemImage: "infinity")
                     }
                 } label: {
                     Label(L10n.string("Mute"), systemImage: "bell.slash")
@@ -468,6 +496,7 @@ private struct ChatSidebarRow: View {
                 .disabled(isArchiving)
             }
         }
+        .menuLabelIcons()
     }
 }
 
