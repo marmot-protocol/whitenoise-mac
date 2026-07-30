@@ -13907,12 +13907,15 @@ struct whitenoise_macTests {
         #expect(state.replyDraftContext == nil)
         #expect(state.pendingMediaAttachments.count == 1)
 
+        await Self.settleComposerMediaUploads(state)
         await state.sendDraft()
 
+        // Staging uploaded the blob; sending only published the reference it produced.
         #expect(runtime.uploadMediaCallCount == 1)
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
         #expect(runtime.replyToMessageCallCount == 0)
         #expect(runtime.repliedMessage == nil)
-        #expect(runtime.uploadedMedia?.request.caption == "Photo caption")
+        #expect(runtime.sentMediaAttachments.last?.caption == "Photo caption")
         #expect(state.pendingMediaAttachments.isEmpty)
 
         state.appendPendingMediaAttachment(attachment, for: draftKey)
@@ -13926,7 +13929,9 @@ struct whitenoise_macTests {
 
         await state.sendDraft()
 
-        #expect(runtime.uploadMediaCallCount == 1)
+        // The second staging kicked off its own upload, but starting a reply dropped the
+        // attachment, so nothing new was published as media.
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
         #expect(runtime.replyToMessageCallCount == 1)
         #expect(
             runtime.repliedMessage
@@ -14028,24 +14033,38 @@ struct whitenoise_macTests {
         state.draftText = "Project notes"
 
         #expect(state.pendingMediaAttachments.count == 1)
+
+        // Staging uploads the plaintext without publishing anything, and Send stays off until
+        // that upload lands — the whole point of the stage-time upload.
+        #expect(!state.canSend)
+
+        await Self.yieldUntil { runtime.uploadMediaCallCount == 1 }
+        #expect(runtime.uploadMediaCallCount == 1)
+        #expect(runtime.uploadedMedia?.groupIdHex == "direct-group")
+        #expect(runtime.uploadedMedia?.request.send == false)
+        #expect(runtime.uploadedMedia?.request.caption == nil)
+        #expect(runtime.uploadedMedia?.request.attachments.first?.fileName == "notes.txt")
+        #expect(runtime.uploadedMedia?.request.attachments.first?.mediaType == "text/plain")
+        #expect(runtime.uploadedMedia?.request.attachments.first?.plaintext == Data("hello media".utf8))
+
+        await Self.settleComposerMediaUploads(state)
         #expect(state.canSend)
 
         await state.sendDraft()
 
+        // The send publishes the staged reference; it does not upload again.
         #expect(runtime.uploadMediaCallCount == 1)
         #expect(runtime.sendTextCallCount == 0)
-        #expect(runtime.uploadedMedia?.groupIdHex == "direct-group")
-        #expect(runtime.uploadedMedia?.request.caption == "Project notes")
-        #expect(runtime.uploadedMedia?.request.send == true)
-        #expect(runtime.uploadedMedia?.request.attachments.first?.fileName == "notes.txt")
-        #expect(runtime.uploadedMedia?.request.attachments.first?.mediaType == "text/plain")
-        #expect(runtime.uploadedMedia?.request.attachments.first?.plaintext == Data("hello media".utf8))
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
+        #expect(runtime.sentMediaAttachments.last?.groupIdHex == "direct-group")
+        #expect(runtime.sentMediaAttachments.last?.caption == "Project notes")
+        #expect(runtime.sentMediaAttachments.last?.fileNames == ["notes.txt"])
         #expect(state.pendingMediaAttachments.isEmpty)
         #expect(state.draftText.isEmpty)
     }
 
     @MainActor
-    @Test func imageSendTracksUploadStateUntilComposerClears() async throws {
+    @Test func stagedImageTracksUploadStateUntilComposerClears() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -14078,27 +14097,543 @@ struct whitenoise_macTests {
         try Self.testPNGData(width: 40, height: 28).write(to: imageURL)
 
         await state.bootstrap()
+        // Hold the upload so the in-flight state is observable rather than a race.
+        await runtime.uploadReleaseGate.hold("screenshot.png")
         await state.addMediaAttachments(from: [imageURL])
         let attachment = try #require(state.pendingMediaAttachments.first)
         #expect(attachment.kind == .image)
 
+        #expect(state.pendingMediaUploadStates[attachment.id] == .uploading)
+        #expect(state.composerMediaUploadStatus == .uploading)
+        #expect(!state.canSend)
+
+        await runtime.uploadReleaseGate.release("screenshot.png")
+        await Self.settleComposerMediaUploads(state)
+
+        #expect(state.pendingMediaUploadStates[attachment.id]?.isUploaded == true)
+        #expect(state.canSend)
+
+        await state.sendDraft()
+        #expect(state.pendingMediaUploadStates.isEmpty)
+        #expect(state.pendingMediaAttachments.isEmpty)
+    }
+
+    @MainActor
+    @Test func stagedAttachmentsUploadIndependentlyAndPublishInComposerOrder() async throws {
+        // Uploads finish in whatever order Blossom returns them, but the published `imeta` order is
+        // the message's reading order — it must come from the composer, never from completion
+        // order. Release the second attachment first to prove the two are decoupled.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        await runtime.uploadReleaseGate.hold("first.txt", "second.txt")
+        for fileName in ["first.txt", "second.txt"] {
+            state.appendPendingMediaAttachment(
+                PendingMediaAttachment(
+                    fileName: fileName,
+                    mediaType: "text/plain",
+                    data: Data(fileName.utf8),
+                    dim: nil
+                ),
+                for: draftKey
+            )
+        }
+
+        // One upload call per attachment, each carrying exactly its own file.
+        await Self.yieldUntil { runtime.uploadMediaCallCount == 2 }
+        #expect(runtime.uploadMediaCallCount == 2)
+        #expect(runtime.uploadedMediaRequests.allSatisfy { $0.request.attachments.count == 1 })
+        #expect(runtime.uploadedMediaRequests.allSatisfy { $0.request.send == false })
+        #expect(state.composerMediaUploadStatus == .uploading)
+
+        // Let the *second* attachment land first. One of the two is now uploaded, and Send is
+        // still refused because the other is not.
+        await runtime.uploadReleaseGate.release("second.txt")
+        await Self.yieldUntil { state.pendingMediaUploadStates.values.contains(where: \.isUploaded) }
+        #expect(state.pendingMediaUploadStates.values.count(where: \.isUploaded) == 1)
+        #expect(state.composerMediaUploadStatus == .uploading)
+        #expect(!state.canSend)
+
+        await runtime.uploadReleaseGate.release("first.txt")
+        await Self.settleComposerMediaUploads(state)
+        #expect(state.canSend)
+
+        await state.sendDraft()
+
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
+        #expect(runtime.sentMediaAttachments.last?.fileNames == ["first.txt", "second.txt"])
+        #expect(runtime.sentMediaAttachments.last?.caption == nil)
+    }
+
+    @MainActor
+    @Test func stagedVoiceNoteUploadsAndGatesSendLikeAnyOtherAttachment() async throws {
+        // Upload feedback used to be image-only, so a voice note or a document showed no progress
+        // at all. Gating Send on uploads only works if every attachment kind reports one.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let voiceNote = PendingMediaAttachment(
+            fileName: "voice.m4a",
+            mediaType: "audio/mp4",
+            data: Data("voice".utf8),
+            dim: nil,
+            durationSeconds: 3
+        )
+        #expect(voiceNote.kind == .audio)
+
+        await runtime.uploadReleaseGate.hold("voice.m4a")
+        state.appendPendingMediaAttachment(voiceNote, for: draftKey)
+
+        #expect(state.pendingMediaUploadStates[voiceNote.id] == .uploading)
+        #expect(!state.canSend)
+
+        await runtime.uploadReleaseGate.release("voice.m4a")
+        await Self.settleComposerMediaUploads(state)
+
+        #expect(state.pendingMediaUploadStates[voiceNote.id]?.isUploaded == true)
+        #expect(state.canSend)
+    }
+
+    @MainActor
+    @Test func failedStagedUploadIsRetryableWithoutLosingTheDraft() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        runtime.uploadMediaFailingFileNames = ["notes.txt"]
+        let attachment = PendingMediaAttachment(
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("hello media".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(attachment, for: draftKey)
+        state.draftText = "Project notes"
+
+        for _ in 0..<1_000 where state.pendingMediaUploadStates[attachment.id] != .failed {
+            await Task.yield()
+        }
+
+        // A failed upload keeps the attachment and the text: the user retries, they do not retype.
+        #expect(state.pendingMediaUploadStates[attachment.id] == .failed)
+        #expect(state.pendingMediaAttachments.count == 1)
+        #expect(state.draftText == "Project notes")
+        #expect(state.composerMediaUploadStatus == .failed)
+        #expect(!state.canSend)
+
+        // Sending is refused outright rather than publishing a partial message.
+        await state.sendDraft()
+        #expect(runtime.sendMediaAttachmentsCallCount == 0)
+
+        state.retryPendingMediaUpload(attachment.id)
+        await Self.settleComposerMediaUploads(state)
+
+        #expect(runtime.uploadMediaCallCount == 2)
+        #expect(state.canSend)
+
+        await state.sendDraft()
+        #expect(runtime.sentMediaAttachments.last?.fileNames == ["notes.txt"])
+        #expect(state.pendingMediaAttachments.isEmpty)
+    }
+
+    @MainActor
+    @Test func stagedUploadWithoutAReferenceFailsInsteadOfSpinningForever() async throws {
+        // A result that reports success but carries no attachment used to hit the same silent
+        // `return` as cancellation, so the tile stayed `.uploading` with no retry and `canSend`
+        // never recovered — the draft was stuck for good.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        runtime.uploadMediaEmptyResultFileNames = ["notes.txt"]
+        let attachment = PendingMediaAttachment(
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("hello media".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(attachment, for: draftKey)
+        state.draftText = "Project notes"
+
+        await Self.yieldUntil { state.pendingMediaUploadStates[attachment.id] == .failed }
+
+        #expect(state.pendingMediaUploadStates[attachment.id] == .failed)
+        #expect(state.composerMediaUploadStatus == .failed)
+        #expect(!state.canSend)
+        // The attachment and the text survive, so the failure is recoverable by retrying.
+        #expect(state.pendingMediaAttachments.count == 1)
+        #expect(state.draftText == "Project notes")
+
+        runtime.uploadMediaEmptyResultFileNames = []
+        state.retryPendingMediaUpload(attachment.id)
+        await Self.settleComposerMediaUploads(state)
+
+        #expect(state.pendingMediaUploadStates[attachment.id]?.isUploaded == true)
+        #expect(state.canSend)
+    }
+
+    @MainActor
+    @Test func uploadFinishingAfterRemovalDoesNotResurrectTheAttachment() async throws {
+        // Issue #245 discipline applied to the upload result: the user can remove a tile (or leave
+        // the conversation) while its upload is in flight, and the late result must not write back.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroups([messageGroup(), directGroup()])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        // Pin the staging chat explicitly: the default selection is the other one, and switching
+        // to a chat that is already selected would prove nothing.
+        state.selectChat(try #require(state.activeChats.first { $0.id == "group" }))
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        #expect(draftKey.chatId == "group")
+
+        await runtime.uploadReleaseGate.hold("removed.txt", "abandoned.txt")
+        let removed = PendingMediaAttachment(
+            fileName: "removed.txt",
+            mediaType: "text/plain",
+            data: Data("removed".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(removed, for: draftKey)
+        state.removePendingMediaAttachment(removed.id)
+
+        let abandoned = PendingMediaAttachment(
+            fileName: "abandoned.txt",
+            mediaType: "text/plain",
+            data: Data("abandoned".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(abandoned, for: draftKey)
+        let otherChat = try #require(state.activeChats.first { $0.id == "direct-group" })
+        state.selectChat(otherChat)
+
+        await runtime.uploadReleaseGate.release("removed.txt")
+        await runtime.uploadReleaseGate.release("abandoned.txt")
+        for _ in 0..<1_000 {
+            await Task.yield()
+        }
+
+        #expect(state.pendingMediaUploadStatesByConversation[draftKey]?[removed.id] == nil)
+        #expect(state.pendingMediaAttachmentsByConversation[draftKey]?.contains(removed) != true)
+        // The abandoned attachment is still staged in the chat it was staged in — switching away
+        // does not discard a draft — but nothing leaked into the newly selected conversation.
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(state.pendingMediaUploadStates.isEmpty)
+    }
+
+    @MainActor
+    @Test func failedPublishKeepsAttachmentsUploadedAndResendable() async throws {
+        // The blobs are already on Blossom and the references are still valid, so a failed publish
+        // must not force a full re-upload — pressing Send again is enough.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let attachment = PendingMediaAttachment(
+            fileName: "notes.txt",
+            mediaType: "text/plain",
+            data: Data("hello media".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(attachment, for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+
+        state.draftText = "Project notes"
+        runtime.sendMediaAttachmentsError = FakeMarmotRuntimeError.mediaUploadFailed
+        await state.sendDraft()
+
+        // The composer clears optimistically, so a failed publish has to put everything back —
+        // attachments, their uploaded state, and the caption the user typed.
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
+        #expect(state.pendingMediaAttachments == [attachment])
+        #expect(state.pendingMediaUploadStates[attachment.id]?.isUploaded == true)
+        #expect(state.draftText == "Project notes")
+        #expect(state.canSend)
+
+        runtime.sendMediaAttachmentsError = nil
+        await state.sendDraft()
+
+        #expect(runtime.uploadMediaCallCount == 1)
+        #expect(runtime.sendMediaAttachmentsCallCount == 2)
+        #expect(state.pendingMediaAttachments.isEmpty)
+    }
+
+    @MainActor
+    @Test func composerEmptiesBeforeThePublishReturns() async throws {
+        // The upload is already done by the time Send is pressable, so the thumbnails must not sit
+        // in the composer for the length of the relay round-trip looking like nothing happened.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(
+            PendingMediaAttachment(
+                fileName: "notes.txt",
+                mediaType: "text/plain",
+                data: Data("hello media".utf8),
+                dim: nil
+            ),
+            for: draftKey
+        )
+        state.draftText = "Project notes"
+        await Self.settleComposerMediaUploads(state)
+
+        // Arm the gate only now: staging would otherwise block on it too.
         runtime.messageActionGateEnabled = true
         async let send: Void = state.sendDraft()
         while !(state.isSending && runtime.didReachMessageActionGate) {
             await Task.yield()
         }
 
-        #expect(state.pendingMediaUploadStates[attachment.id] == .uploading)
+        // Still mid-publish, and the composer is already empty.
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(state.pendingMediaUploadStates.isEmpty)
+        #expect(state.draftText.isEmpty)
 
         runtime.releaseMessageActionGate()
-        for _ in 0..<1_000 where state.pendingMediaUploadStates[attachment.id] != .uploaded {
+        await send
+
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(state.draftText.isEmpty)
+    }
+
+    @MainActor
+    @Test func clearingComposerDraftsCancelsStagedUploads() async throws {
+        // Chat deletion, account removal and logout all drop drafts wholesale. The stage-time
+        // uploads used to keep running against a composer that no longer exists, and their entries
+        // were never reclaimed from `pendingMediaUploadTasks`.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        func stageHeldAttachment(_ fileName: String) async -> PendingMediaAttachment {
+            await runtime.uploadReleaseGate.hold(fileName)
+            let attachment = PendingMediaAttachment(
+                fileName: fileName,
+                mediaType: "text/plain",
+                data: Data(fileName.utf8),
+                dim: nil
+            )
+            state.appendPendingMediaAttachment(attachment, for: draftKey)
+            return attachment
+        }
+
+        let perChat = await stageHeldAttachment("per-chat.txt")
+        #expect(state.pendingMediaUploadTasks[perChat.id] != nil)
+        state.clearComposerDrafts(for: [draftKey.chatId], accountId: draftKey.accountId)
+        #expect(state.pendingMediaUploadTasks.isEmpty)
+
+        let perAccount = await stageHeldAttachment("per-account.txt")
+        #expect(state.pendingMediaUploadTasks[perAccount.id] != nil)
+        state.clearComposerDrafts(forAccountId: draftKey.accountId)
+        #expect(state.pendingMediaUploadTasks.isEmpty)
+
+        let all = await stageHeldAttachment("all.txt")
+        #expect(state.pendingMediaUploadTasks[all.id] != nil)
+        state.clearAllComposerDrafts()
+        #expect(state.pendingMediaUploadTasks.isEmpty)
+
+        for fileName in ["per-chat.txt", "per-account.txt", "all.txt"] {
+            await runtime.uploadReleaseGate.release(fileName)
+        }
+    }
+
+    @MainActor
+    @Test func attachmentStagedDuringSendSurvivesTheComposerClear() async throws {
+        // The remove button is hidden while `isSending`, but *adding* is only gated on the draft key
+        // and the free slot count — paste, drop and the importer all still work mid-publish. Clearing
+        // the whole draft entry after the send therefore used to discard an attachment the user
+        // staged while the publish was in flight, with no trace that it had ever been added.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(
+            PendingMediaAttachment(
+                fileName: "sent.txt",
+                mediaType: "text/plain",
+                data: Data("sent".utf8),
+                dim: nil
+            ),
+            for: draftKey
+        )
+        await Self.settleComposerMediaUploads(state)
+
+        // Arm the gate only now: staging would otherwise block on it too.
+        runtime.messageActionGateEnabled = true
+        async let send: Void = state.sendDraft()
+        while !(state.isSending && runtime.didReachMessageActionGate) {
+            await Task.yield()
+        }
+        #expect(state.pendingMediaAttachments.isEmpty)
+
+        let staged = PendingMediaAttachment(
+            fileName: "staged.txt",
+            mediaType: "text/plain",
+            data: Data("staged".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(staged, for: draftKey)
+        #expect(state.pendingMediaAttachments.map(\.fileName) == ["staged.txt"])
+
+        runtime.releaseMessageActionGate()
+        await send
+
+        // The publish carried only what Send snapshotted, and the late arrival is still staged.
+        #expect(runtime.sentMediaAttachments.last?.fileNames == ["sent.txt"])
+        #expect(state.pendingMediaAttachments.map(\.fileName) == ["staged.txt"])
+        #expect(state.pendingMediaUploadStates[staged.id] != nil)
+    }
+
+    @MainActor
+    @Test func failedSendRestoresItsAttachmentsWithoutDiscardingOnesStagedMeanwhile() async throws {
+        // The other half of the optimistic clear: the restore path put the pre-send snapshot back
+        // wholesale, so a publish that failed took a meanwhile-pasted attachment down with it.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let sent = PendingMediaAttachment(
+            fileName: "sent.txt",
+            mediaType: "text/plain",
+            data: Data("sent".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(sent, for: draftKey)
+        state.draftText = "Project notes"
+        await Self.settleComposerMediaUploads(state)
+
+        runtime.sendMediaAttachmentsError = FakeMarmotRuntimeError.mediaUploadFailed
+        runtime.messageActionGateEnabled = true
+        async let send: Void = state.sendDraft()
+        while !(state.isSending && runtime.didReachMessageActionGate) {
             await Task.yield()
         }
 
-        #expect(state.pendingMediaUploadStates[attachment.id] == .uploaded)
+        let staged = PendingMediaAttachment(
+            fileName: "staged.txt",
+            mediaType: "text/plain",
+            data: Data("staged".utf8),
+            dim: nil
+        )
+        state.appendPendingMediaAttachment(staged, for: draftKey)
+
+        runtime.releaseMessageActionGate()
         await send
-        #expect(state.pendingMediaUploadStates.isEmpty)
-        #expect(state.pendingMediaAttachments.isEmpty)
+
+        // The failed send is fully recoverable, and the late arrival is still staged behind it.
+        #expect(state.pendingMediaAttachments.map(\.fileName) == ["sent.txt", "staged.txt"])
+        #expect(state.pendingMediaUploadStates[sent.id]?.isUploaded == true)
+        #expect(state.pendingMediaUploadStates[staged.id] != nil)
+        #expect(state.draftText == "Project notes")
+    }
+
+    @MainActor
+    @Test func outgoingMediaRendersFromCacheWithoutDownloadingItBack() async throws {
+        // The sender is holding the plaintext it just published, so its own bubble has no reason to
+        // fetch the blob back from Blossom and decrypt it. Before this was cached at send time the
+        // bubble sat in `.loading` and needed a manual retry once the media index caught up.
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-media-cache-tests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // The projected message carries whichever reference was actually published, so the bubble
+        // looks the attachment up by the same key the send path cached it under.
+        runtime.timelineMessagesHandler = { [weak runtime] _ in
+            guard let reference = runtime?.sentMediaAttachments.last?.attachments.first else {
+                return TimelinePageFfi(messages: [], hasMoreBefore: false, hasMoreAfter: false)
+            }
+            return TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: "media",
+                        direction: "outbound",
+                        groupIdHex: "direct-group",
+                        sender: account.accountIdHex,
+                        plaintext: "Project notes",
+                        recordedAt: 1_700_000_010,
+                        mediaJson: mediaJson(for: reference)
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            )
+        }
+
+        let plaintext = Data("hello media".utf8)
+        let state = WorkspaceState(
+            mediaDiskCache: messageMediaDiskCache(root: root),
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        state.appendPendingMediaAttachment(
+            PendingMediaAttachment(fileName: "notes.txt", mediaType: "text/plain", data: plaintext, dim: nil),
+            for: draftKey
+        )
+        state.draftText = "Project notes"
+        await Self.settleComposerMediaUploads(state)
+        await state.sendDraft()
+
+        let message = try #require(state.messagesByChat["direct-group"]?.first)
+        let attachment = try #require(message.mediaAttachments.first)
+
+        await state.loadMediaAttachment(attachment, for: message)
+
+        guard case .loaded(let download) = state.mediaDownloadState(for: message, attachment: attachment) else {
+            Issue.record("Expected the outgoing attachment to load straight from the cache")
+            return
+        }
+        #expect(download.data == plaintext)
+        #expect(download.fileName == "notes.txt")
+        #expect(runtime.downloadMediaCallCount == 0)
     }
 
     @MainActor
@@ -14144,6 +14679,10 @@ struct whitenoise_macTests {
         #expect(attachment.dim == "36x24")
         #expect(attachment.fileName.hasPrefix("pasted-image-"))
         #expect(attachment.fileName.hasSuffix(".jpg"))
+
+        // Send only opens once the pasted image has finished uploading.
+        #expect(!state.canSend)
+        await Self.settleComposerMediaUploads(state)
         #expect(state.canSend)
     }
 
@@ -14372,9 +14911,11 @@ struct whitenoise_macTests {
         await state.bootstrap()
         await state.addMediaAttachments(from: [attachmentURL])
         state.draftText = "Project notes"
+        await Self.settleComposerMediaUploads(state)
         await state.sendDraft()
 
         #expect(runtime.uploadMediaCallCount == 1)
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
         #expect(runtime.timelineMessageQueries.last?.groupIdHex == "direct-group")
         #expect(state.messagesByChat["direct-group"]?.map(\.id) == ["media"])
         #expect(state.messagesByChat["direct-group"]?.first?.mediaAttachments.count == 1)
@@ -19867,6 +20408,24 @@ struct whitenoise_macTests {
         return data as Data
     }
 
+    /// Attachments upload in a detached task as soon as they are staged, so tests that want to
+    /// reach a sendable composer have to let those tasks run. Yields until nothing is outstanding
+    /// (`composerMediaUploadStatus == nil`) or the budget runs out, so a hang fails the
+    /// assertion that follows rather than the whole suite.
+    @MainActor
+    private static func settleComposerMediaUploads(_ state: WorkspaceState, yields: Int = 1_000) async {
+        await yieldUntil(yields: yields) { state.composerMediaUploadStatus == nil }
+    }
+
+    /// `beginPendingMediaUpload` marks the attachment `.uploading` synchronously but reaches the
+    /// FFI inside a `Task`, so anything asserting on the runtime has to let that task start.
+    @MainActor
+    private static func yieldUntil(yields: Int = 1_000, _ condition: () -> Bool) async {
+        for _ in 0..<yields where !condition() {
+            await Task.yield()
+        }
+    }
+
     private static func testPNGData(width: Int, height: Int) throws -> Data {
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
@@ -20195,6 +20754,14 @@ struct whitenoise_macTests {
         #expect(restoredState.composerMentionSelections.count == 1)
         #expect(restoredState.composerMentionSelections.first?.npub == "npub1alyce")
         #expect(restoredState.pendingMediaAttachments == [attachment])
+
+        // Drafts persist plaintext, not Blossom references, so restore has to re-upload before the
+        // composer becomes sendable again — one upload for the original staging, one for the
+        // restore.
+        await Self.settleComposerMediaUploads(restoredState)
+        #expect(runtime.uploadMediaCallCount == 2)
+        #expect(restoredState.pendingMediaUploadStates[attachment.id]?.isUploaded == true)
+        #expect(restoredState.canSend)
     }
 
     @MainActor
@@ -24973,7 +25540,44 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
     private(set) var retriedGroupIdHex: String?
-    private(set) var uploadedMedia: UploadedMedia?
+    // Stage-time uploads run one detached task per attachment, and `uploadMedia` is `nonisolated
+    // async`, so those tasks execute it concurrently on the cooperative pool rather than on the
+    // caller's actor. Everything it records therefore lives behind `recordedStateLock`, read back
+    // through the same lock so a test's assertions cannot race an upload still in flight.
+    var uploadedMedia: UploadedMedia? {
+        recordedStateLock.withLock { _uploadedMedia }
+    }
+    private var _uploadedMedia: UploadedMedia?
+    /// Every stage-time upload, in call order — attachments now upload one call each, so the last
+    /// call alone no longer describes what the composer did.
+    var uploadedMediaRequests: [UploadedMedia] {
+        recordedStateLock.withLock { _uploadedMediaRequests }
+    }
+    private var _uploadedMediaRequests: [UploadedMedia] = []
+    var sentMediaAttachments: [SentMediaAttachments] {
+        recordedStateLock.withLock { _sentMediaAttachments }
+    }
+    private var _sentMediaAttachments: [SentMediaAttachments] = []
+    var sendMediaAttachmentsCallCount: Int {
+        recordedStateLock.withLock { _sendMediaAttachmentsCallCount }
+    }
+    private var _sendMediaAttachmentsCallCount = 0
+    var sendMediaAttachmentsError: Error?
+    /// File names whose *next* upload attempt throws, so a test can drive the failed → retry path.
+    var uploadMediaFailingFileNames: Set<String> {
+        get { recordedStateLock.withLock { _uploadMediaFailingFileNames } }
+        set { recordedStateLock.withLock { _uploadMediaFailingFileNames = newValue } }
+    }
+    private var _uploadMediaFailingFileNames: Set<String> = []
+    /// File names whose upload returns success but no attachment, so a test can drive the
+    /// reference-less result the composer has to treat as a failure rather than as still in flight.
+    var uploadMediaEmptyResultFileNames: Set<String> {
+        get { recordedStateLock.withLock { _uploadMediaEmptyResultFileNames } }
+        set { recordedStateLock.withLock { _uploadMediaEmptyResultFileNames = newValue } }
+    }
+    private var _uploadMediaEmptyResultFileNames: Set<String> = []
+    let uploadReleaseGate = UploadReleaseGate()
+    private var _uploadedAttachmentSequence = 0
     private var storedMessageDraftsByAccountRef: [String: [String: MessageDraftFfi]] = [:]
     private var messageDraftTimestamp: Int64 = 1_700_000_000_000
     private let messageDraftReadGate = BlockingFfiGate()
@@ -24993,7 +25597,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var reactToMessageCallCount = 0
     private(set) var deleteMessageCallCount = 0
     private(set) var editMessageCallCount = 0
-    private(set) var uploadMediaCallCount = 0
+    var uploadMediaCallCount: Int {
+        recordedStateLock.withLock { _uploadMediaCallCount }
+    }
+    private var _uploadMediaCallCount = 0
     var listMediaCallCount: Int {
         recordedStateLock.withLock { _listMediaCallCount }
     }
@@ -26486,16 +27093,49 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func uploadMedia(accountRef: String, groupIdHex: String, request: MediaUploadRequestFfi) async throws
         -> MediaUploadResultFfi
     {
-        uploadMediaCallCount += 1
-        uploadedMedia = UploadedMedia(groupIdHex: groupIdHex, request: request)
+        recordedStateLock.withLock {
+            _uploadMediaCallCount += 1
+            _uploadedMedia = UploadedMedia(groupIdHex: groupIdHex, request: request)
+            _uploadedMediaRequests.append(UploadedMedia(groupIdHex: groupIdHex, request: request))
+        }
         await messageActionGate.passIfArmed()
-        let attachments = request.attachments.enumerated().map { index, attachment in
-            MediaUploadAttachmentResultFfi(
+        for attachment in request.attachments {
+            await uploadReleaseGate.waitIfHeld(attachment.fileName)
+        }
+        // Claiming the failure inside the lock keeps two concurrent uploads of the same file name
+        // from both consuming the one-shot entry and both throwing.
+        let shouldFail = recordedStateLock.withLock { () -> Bool in
+            guard
+                let failing = request.attachments.first(where: {
+                    _uploadMediaFailingFileNames.contains($0.fileName)
+                })
+            else { return false }
+            _uploadMediaFailingFileNames.remove(failing.fileName)
+            return true
+        }
+        if shouldFail {
+            throw FakeMarmotRuntimeError.mediaUploadFailed
+        }
+        let returnsEmptyResult = recordedStateLock.withLock {
+            request.attachments.contains { _uploadMediaEmptyResultFileNames.contains($0.fileName) }
+        }
+        if returnsEmptyResult {
+            return MediaUploadResultFfi(attachments: [], sent: nil)
+        }
+        let attachments = request.attachments.map { attachment in
+            let sequence = recordedStateLock.withLock { () -> Int in
+                _uploadedAttachmentSequence += 1
+                return _uploadedAttachmentSequence
+            }
+            return MediaUploadAttachmentResultFfi(
+                // Real digests, like the core produces: the media disk cache verifies
+                // `plaintextSha256` against the bytes it reads back, so a placeholder here would
+                // make every cached outgoing attachment silently unreadable.
                 reference: MediaAttachmentReferenceFfi(
-                    locators: [MediaLocatorFfi(kind: "blossom", value: "https://example.com/media-\(index)")],
-                    ciphertextSha256: "cipher-\(index)",
-                    plaintextSha256: "plain-\(index)",
-                    nonceHex: "nonce-\(index)",
+                    locators: [MediaLocatorFfi(kind: "blossom", value: "https://example.com/media-\(sequence)")],
+                    ciphertextSha256: hexSHA256(Data("ciphertext-\(sequence)".utf8)),
+                    plaintextSha256: hexSHA256(attachment.plaintext),
+                    nonceHex: String(format: "%024x", sequence),
                     fileName: attachment.fileName,
                     mediaType: attachment.mediaType,
                     version: .v1,
@@ -26510,6 +27150,25 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             attachments: attachments,
             sent: request.send ? SendSummaryFfi(published: 1, messageIds: ["media"]) : nil
         )
+    }
+
+    func sendMediaAttachments(
+        accountRef: String,
+        groupIdHex: String,
+        attachments: [MediaAttachmentReferenceFfi],
+        caption: String?
+    ) async throws -> SendSummaryFfi {
+        recordedStateLock.withLock {
+            _sendMediaAttachmentsCallCount += 1
+            _sentMediaAttachments.append(
+                SentMediaAttachments(groupIdHex: groupIdHex, attachments: attachments, caption: caption)
+            )
+        }
+        await messageActionGate.passIfArmed()
+        if let sendMediaAttachmentsError {
+            throw sendMediaAttachmentsError
+        }
+        return SendSummaryFfi(published: 1, messageIds: ["media"])
     }
 
     func sendText(accountRef: String, groupIdHex: String, text: String) async throws -> SendSummaryFfi {
@@ -26791,6 +27450,7 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
     case missingCreatedAccount
     case auditLogDeleteFailed
     case observabilityConfigurationFailed
+    case mediaUploadFailed
     case unused
 
     var errorDescription: String? {
@@ -26801,6 +27461,8 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
             return "Audit log delete failed."
         case .observabilityConfigurationFailed:
             return "Observability configuration failed."
+        case .mediaUploadFailed:
+            return "Media upload failed."
         case .unused:
             return "Unused fake runtime error."
         }
@@ -26821,6 +27483,37 @@ private struct SentText: Equatable {
 private struct UploadedMedia: Equatable {
     let groupIdHex: String
     let request: MediaUploadRequestFfi
+}
+
+private struct SentMediaAttachments: Equatable {
+    let groupIdHex: String
+    let attachments: [MediaAttachmentReferenceFfi]
+    let caption: String?
+
+    var fileNames: [String] { attachments.map(\.fileName) }
+}
+
+/// Non-blocking release gate keyed by attachment file name, so a test can let uploads finish in a
+/// chosen order (the composer must still publish them in composer order). Unlike `BlockingFfiGate`
+/// this suspends rather than parking a cooperative thread, which matters when several stage-time
+/// uploads are in flight at once.
+private actor UploadReleaseGate {
+    private var waiters: [String: CheckedContinuation<Void, Never>] = [:]
+    private var held: Set<String> = []
+
+    func hold(_ fileNames: String...) {
+        held.formUnion(fileNames)
+    }
+
+    func waitIfHeld(_ fileName: String) async {
+        guard held.contains(fileName) else { return }
+        await withCheckedContinuation { waiters[fileName] = $0 }
+    }
+
+    func release(_ fileName: String) {
+        held.remove(fileName)
+        waiters.removeValue(forKey: fileName)?.resume()
+    }
 }
 
 private struct MediaResolutionFixture {

@@ -21,6 +21,44 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct PureValueTests {
+    @Test func pendingMediaUploadStateExposesItsReferenceOnlyWhenUploaded() {
+        let reference = mediaReference(fileName: "photo.png")
+
+        #expect(PendingMediaUploadState.uploaded(reference).reference == reference)
+        #expect(PendingMediaUploadState.uploaded(reference).isUploaded)
+        #expect(PendingMediaUploadState.uploading.reference == nil)
+        #expect(!PendingMediaUploadState.uploading.isUploaded)
+        #expect(PendingMediaUploadState.failed.reference == nil)
+        #expect(!PendingMediaUploadState.failed.isUploaded)
+    }
+
+    @Test func pendingMediaUploadStatesWithDifferentReferencesAreDistinct() {
+        // The composer stores these in a dictionary keyed by attachment, and the send path reads
+        // the reference back out — collapsing two distinct uploads into one value would publish
+        // the same blob twice.
+        let first = PendingMediaUploadState.uploaded(mediaReference(fileName: "first.png"))
+        let second = PendingMediaUploadState.uploaded(mediaReference(fileName: "second.png"))
+
+        #expect(first != second)
+        #expect(Set([first, second]).count == 2)
+        #expect(first == PendingMediaUploadState.uploaded(mediaReference(fileName: "first.png")))
+    }
+
+    private func mediaReference(fileName: String) -> MediaAttachmentReferenceFfi {
+        MediaAttachmentReferenceFfi(
+            locators: [MediaLocatorFfi(kind: "blossom", value: "https://example.com/\(fileName)")],
+            ciphertextSha256: "cipher-\(fileName)",
+            plaintextSha256: "plain-\(fileName)",
+            nonceHex: "nonce-\(fileName)",
+            fileName: fileName,
+            mediaType: "image/png",
+            version: .v1,
+            sourceEpoch: 1,
+            dim: nil,
+            thumbhash: nil
+        )
+    }
+
     @Test func selectedMentionsCanonicalizeByPickedNpubDespiteDisplayNameCollision() {
         let first = mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
         let second = mentionCandidate(id: "second", displayName: "Alex", npub: "npub1pppp")

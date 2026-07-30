@@ -679,9 +679,39 @@ enum MediaDownloadState: Equatable {
     case failed(String)
 }
 
+/// Blossom upload status for one composer attachment. Attachments upload as soon as they are
+/// staged, so the composer can refuse to send until every one of them carries a reference —
+/// rather than uploading at send time and failing the message after the fact.
 nonisolated enum PendingMediaUploadState: Hashable, Sendable {
     case uploading
-    case uploaded
+    case uploaded(MediaAttachmentReferenceFfi)
+    case failed
+
+    /// The published reference, once the blob is on Blossom. `nil` while in flight or after a
+    /// failure, which is exactly the "not sendable yet" condition the composer gates on.
+    var reference: MediaAttachmentReferenceFfi? {
+        guard case .uploaded(let reference) = self else { return nil }
+        return reference
+    }
+
+    var isUploaded: Bool { reference != nil }
+}
+
+/// What a composer held just before an optimistic clear, so a failed publish can put it back
+/// rather than losing the user's text and attachments.
+nonisolated struct ComposerSendRestorePoint: Sendable {
+    let text: String?
+    let mentionSelections: [ComposerMentionSelection]?
+    let replyContext: MessageReplyContext?
+    let mediaAttachments: [PendingMediaAttachment]?
+    let mediaUploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]?
+}
+
+/// Why the composer's staged media is not ready to send yet. Present only while something is
+/// outstanding, so `nil` reads as "ready to send".
+nonisolated enum ComposerMediaUploadStatus: Hashable, Sendable {
+    case uploading
+    case failed
 }
 
 nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
