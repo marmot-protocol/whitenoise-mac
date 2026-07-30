@@ -15913,6 +15913,70 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func mentionRosterWarmUpFiresForDirectChatsWithAColdMemberCache() async throws {
+        let summary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [summary])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: summary.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let account = AccountItem(
+            id: summary.label,
+            accountRef: summary.label,
+            displayName: summary.label,
+            accountIdHex: summary.accountIdHex
+        )
+        // Seed the chat in memory rather than via `bootstrap()`, so the member cache starts cold
+        // and the warm-up is the only thing that can fill it.
+        let direct = ChatItem(
+            id: "direct-group",
+            title: "Alice",
+            subtitle: "Direct message",
+            preview: "",
+            updatedAt: nil,
+            avatarSeed: aliceId,
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: true,
+            hasAuthoritativeConversationKind: true
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [direct]],
+            clientFactory: { runtime }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(direct.id)
+        state.client = runtime
+
+        #expect(state.mentionRoster().isEmpty)
+        state.ensureMentionRosterLoaded()
+        let didWarmRoster = await waitFor { !state.mentionRoster().isEmpty }
+
+        #expect(didWarmRoster)
+        #expect(state.mentionRoster().map(\.displayName) == ["Alice"])
+        #expect((runtime.groupDetailsCallCounts["direct-group"] ?? 0) == 1)
+    }
+
+    @MainActor
     @Test func chatListTriggerEnrichmentGatingMatchesMetadataInvariance() {
         // The enrichment gate must skip exactly the metadata-invariant triggers and enrich the
         // rest, so read-state-only deltas never pay for the per-row FFI fan-out (#251).
