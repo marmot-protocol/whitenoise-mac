@@ -12,10 +12,8 @@ import MarmotKit
 
 @MainActor
 extension WorkspaceState {
-    /// Mentionable members of the selected conversation, excluding the local account. Empty for
-    /// direct chats, where mentioning the sole peer carries no meaning.
     func mentionRoster() -> [ComposerMentionCandidate] {
-        guard let selectedChat, !selectedChat.isDirect,
+        guard let selectedChat,
             let members = groupMemberDetailsCache[selectedChat.id]
         else { return [] }
         if let cached = mentionRosterCache[selectedChat.id] { return cached }
@@ -33,10 +31,8 @@ extension WorkspaceState {
         ComposerMentionQuery.filter(mentionRoster(), matching: query)
     }
 
-    /// Pull the member roster into cache the first time a mention query opens in a group, so the
-    /// picker can populate. No-op for direct chats or once the cache is warm.
     func ensureMentionRosterLoaded() {
-        guard let selectedChat, !selectedChat.isDirect,
+        guard let selectedChat,
             groupMemberDetailsCache[selectedChat.id] == nil,
             let client, let activeAccount
         else { return }
