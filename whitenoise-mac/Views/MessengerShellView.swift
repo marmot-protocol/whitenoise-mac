@@ -390,6 +390,11 @@ private struct ConversationView: View {
         let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
+        // Read the selection set once here and hand each row its own booleans, so a selection
+        // change invalidates this body instead of enrolling all ~200 realized rows in the
+        // observation set for `selectedTimelineMessageIds`.
+        let selectedMessageIds = workspace.selectedTimelineMessageIds
+        let isSelectionMode = !selectedMessageIds.isEmpty
 
         ZStack {
             VStack(spacing: 0) {
@@ -429,6 +434,8 @@ private struct ConversationView: View {
 
                                     ConversationMessageRow(
                                         message: item.message,
+                                        isSelectionMode: isSelectionMode,
+                                        isSelected: selectedMessageIds.contains(item.message.id),
                                         showsDebugMetadata: workspace.streamingDebugEnabled,
                                         timestampReferenceDate: timestampReferenceDate,
                                         timestampLocale: locale

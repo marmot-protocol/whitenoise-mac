@@ -11749,7 +11749,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func selectingChatsKeepsOnlyCurrentTranscriptInMemory() async throws {
+    @Test func selectingChatsRetainsRecentTranscriptsWithoutRenderingThem() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -11792,19 +11792,83 @@ struct whitenoise_macTests {
             return
         }
 
+        // Bootstrap already selected and loaded the most recent chat, so its window is the first
+        // thing the LRU is holding.
+        #expect(Set(state.messagesByChat.keys) == ["direct-group"])
+
         state.selectChat(group)
         let didLoadGroup = await waitFor {
             state.messagesByChat["group"]?.map(\.id) == ["group-message"]
         }
         #expect(didLoadGroup)
-        #expect(Set(state.messagesByChat.keys) == ["group"])
 
         state.selectChat(direct)
         let didLoadDirect = await waitFor {
             state.messagesByChat["direct-group"]?.map(\.id) == ["direct-message"]
         }
         #expect(didLoadDirect)
-        #expect(Set(state.messagesByChat.keys) == ["direct-group"])
+
+        // The previous transcript is retained (bounded by `timelineStoreCacheLimit`) so that
+        // switching back paints from cache instead of flashing the initial-load spinner. It is
+        // never *rendered* for the current conversation: the view reads through `selectedChat`.
+        #expect(Set(state.messagesByChat.keys) == ["group", "direct-group"])
+        #expect(state.selectedMessages.map(\.id) == ["direct-message"])
+        #expect(state.selectedTimelineDisplayItems.map(\.message.id) == ["direct-message"])
+        #expect(state.selectedMessageIDs == ["direct-message"])
+
+        // Switching back is not a cold load: the cached window is already there, so no spinner.
+        state.selectChat(group)
+        #expect(!state.selectedTimelineIsLoadingInitialPage)
+        #expect(state.selectedMessages.map(\.id) == ["group-message"])
+    }
+
+    @MainActor
+    @Test func retainedTranscriptsEvictTheLeastRecentlyRenderedChat() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let chatIds = (0..<(WorkspaceState.timelineStoreCacheLimit + 1)).map { "group-\($0)" }
+        runtime.installGroups(chatIds.map { messageGroup(groupIdHex: $0, name: "Group \($0)") })
+        for (index, chatId) in chatIds.enumerated() {
+            runtime.installMessages(
+                [
+                    appMessage(
+                        id: "\(chatId)-message",
+                        groupIdHex: chatId,
+                        sender: account.accountIdHex,
+                        plaintext: "Message in \(chatId)",
+                        kind: 9,
+                        recordedAt: 1_700_000_000 + UInt64(index)
+                    )
+                ],
+                groupIdHex: chatId
+            )
+        }
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        for chatId in chatIds {
+            guard let chat = state.activeChats.first(where: { $0.id == chatId }) else {
+                Issue.record("Expected chat \(chatId)")
+                return
+            }
+            state.selectChat(chat)
+            let didLoad = await waitFor {
+                state.messagesByChat[chatId]?.map(\.id) == ["\(chatId)-message"]
+            }
+            #expect(didLoad)
+        }
+
+        // The oldest window is gone; the most recent `timelineStoreCacheLimit` survive.
+        #expect(state.messagesByChat.count == WorkspaceState.timelineStoreCacheLimit)
+        #expect(state.messagesByChat[chatIds[0]] == nil)
+        #expect(Set(state.messagesByChat.keys) == Set(chatIds.dropFirst()))
     }
 
     @MainActor
@@ -13220,6 +13284,145 @@ struct whitenoise_macTests {
         #expect(loadedIds.last == "message-249")
         #expect(state.selectedTimelinePaging.hasMoreAfter)
         #expect(runtime.markedReadMessageIds == ["message-449"])
+    }
+
+    @MainActor
+    @Test func sendSkipsTheAuthoritativeRewindowWhenItsProjectionArrives() async throws {
+        // The subscription projects the just-sent row on its own, so the post-send re-window
+        // (which re-resolves senders, re-maps the whole page and replaces the transcript) must
+        // not also run on the hot path.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "existing",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Existing",
+                    kind: 9,
+                    recordedAt: baseTime
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        // `FakeMarmotRuntime.sendText` reports `messageIds: ["text"]`, so this is the projection
+        // the send is waiting for. Held back long enough that the send parks its waiter first.
+        let sentRecord = timelineMessage(
+            id: "text",
+            groupIdHex: "direct-group",
+            sender: account.accountIdHex,
+            plaintext: "Hello",
+            recordedAt: baseTime + 10
+        )
+        runtime.timelineUpdateDelayNanoseconds = 200_000_000
+        runtime.installTimelineUpdates(
+            [
+                .projection(
+                    update: RuntimeProjectionUpdateFfi(
+                        accountIdHex: account.accountIdHex,
+                        accountLabel: account.label,
+                        update: TimelineProjectionUpdateFfi(
+                            groupIdHex: "direct-group",
+                            messages: [sentRecord],
+                            changes: [.upsert(trigger: .newMessage, message: sentRecord)],
+                            chatListRow: nil,
+                            chatListTrigger: .newLastMessage
+                        )
+                    ))
+            ],
+            groupIdHex: "direct-group"
+        )
+
+        let state = WorkspaceState(clientFactory: { runtime })
+        state.timelineSendProjectionDeadline = .seconds(5)
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        #expect(state.activeTimelineSubscription != nil)
+
+        let queriesBeforeSend = runtime.syncCallThreadRecord("timelineMessages").count
+        state.draftText = "Hello"
+        await state.sendDraft()
+
+        #expect(runtime.syncCallThreadRecord("timelineMessages").count == queriesBeforeSend)
+        #expect(state.selectedMessages.map(\.id).contains("text"))
+    }
+
+    @MainActor
+    @Test func sendFallsBackToTheAuthoritativeRewindowWhenNoProjectionArrives() async throws {
+        // The mirror case: a runtime that never projects the send must not leave the sender
+        // staring at a transcript that has not moved, so the re-window still runs.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "existing",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Existing",
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+
+        let state = WorkspaceState(clientFactory: { runtime })
+        state.timelineSendProjectionDeadline = .milliseconds(1)
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        let queriesBeforeSend = runtime.syncCallThreadRecord("timelineMessages").count
+        state.draftText = "Hello"
+        await state.sendDraft()
+
+        #expect(runtime.syncCallThreadRecord("timelineMessages").count > queriesBeforeSend)
     }
 
     @MainActor
@@ -29181,12 +29384,14 @@ private func directGroup() -> AppGroupRecordFfi {
 }
 
 private func messageGroup(
+    groupIdHex: String = "group",
+    name: String = "Test Group",
     selfMembership: SelfMembershipFfi = .member
 ) -> AppGroupRecordFfi {
     AppGroupRecordFfi(
-        groupIdHex: "group",
+        groupIdHex: groupIdHex,
         endpoint: "",
-        name: "Test Group",
+        name: name,
         description: "",
         admins: [],
         relays: MarmotClient.seedRelays,

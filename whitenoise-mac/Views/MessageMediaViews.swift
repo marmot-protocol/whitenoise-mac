@@ -73,6 +73,12 @@ extension EnvironmentValues {
 struct ConversationMessageRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
+    /// Selection state is passed down by value rather than read from `workspace` here. Reading
+    /// `selectedTimelineMessageIds` in a row body enrolls *every* realized row in that
+    /// property's observation set, so selecting one message invalidated the whole transcript.
+    /// The parent already reads it once (whitenoise-mac#397 did the same for hover).
+    var isSelectionMode = false
+    var isSelected = false
     var showsDebugMetadata = false
     var timestampReferenceDate = Date()
     var timestampLocale = AppLanguage.currentLocale
@@ -88,8 +94,7 @@ struct ConversationMessageRow: View {
         let _ = workspace.mediaCacheGeneration
         // Only chat bubbles are selectable; `toggleMessageSelection` ignores system/notice rows,
         // so they must not show a checkbox or carry button semantics in selection mode.
-        if workspace.isTimelineSelectionMode, message.presentation.isChatBubble {
-            let isSelected = workspace.selectedTimelineMessageIds.contains(message.id)
+        if isSelectionMode, message.presentation.isChatBubble {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20, weight: .medium))

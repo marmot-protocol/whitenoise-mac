@@ -2919,15 +2919,34 @@ nonisolated struct TimelineMessageDisplayItem: Identifiable {
         calendar: Calendar = .autoupdatingCurrent,
         locale: Locale = AppLanguage.currentLocale
     ) -> [TimelineMessageDisplayItem] {
+        // Day grouping is re-derived on every window change, so it sits on the timeline's hot
+        // path. Resolving each row against the *current day's* interval turns the common case
+        // (the next row is the same day as the previous one) into a pair of date comparisons
+        // instead of a full `Calendar.isDate(_:inSameDayAs:)` computation. A 200-row window
+        // typically spans a handful of days, so calendar work runs a handful of times per
+        // rebuild rather than once per row.
+        var currentDay: DateInterval?
         var previousDate: Date?
         return messages.map { message in
-            let beginsDay = previousDate.map { !calendar.isDate($0, inSameDayAs: message.sentAt) } ?? true
-            previousDate = message.sentAt
+            let sentAt = message.sentAt
+            let beginsDay: Bool
+            if let currentDay, currentDay.contains(sentAt) {
+                beginsDay = false
+            } else if currentDay == nil, let previousDate {
+                // The calendar could not resolve a day interval for the previous row. Fall back
+                // to the direct comparison rather than emitting a header for every row.
+                beginsDay = !calendar.isDate(previousDate, inSameDayAs: sentAt)
+                currentDay = calendar.dateInterval(of: .day, for: sentAt)
+            } else {
+                beginsDay = true
+                currentDay = calendar.dateInterval(of: .day, for: sentAt)
+            }
+            previousDate = sentAt
             return TimelineMessageDisplayItem(
                 message: message,
                 dayLabel: beginsDay
                     ? DisplayText.timelineDayLabel(
-                        for: message.sentAt,
+                        for: sentAt,
                         now: now,
                         calendar: calendar,
                         locale: locale

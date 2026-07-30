@@ -837,15 +837,50 @@ extension WorkspaceState {
     }
 
     func pruneMediaDownloadCache(keeping groupIdHex: String?) {
-        guard let activeAccountId, let groupIdHex else {
+        guard let groupIdHex else {
+            resetMediaDownloadStateStores()
+            return
+        }
+        pruneMediaDownloadCache(keepingAny: [groupIdHex])
+    }
+
+    /// Drops every cached download state belonging to one conversation, whether or not it is
+    /// still in a rendered window.
+    ///
+    /// `pruneMediaDownloadCache` is keyed off the *retained transcripts*, so it only evicts a
+    /// removed chat's entries the next time some other timeline mutation happens to run. A
+    /// conversation that disappears in the background has no such mutation, and these entries
+    /// hold decrypted attachment bytes (`MediaDownloadState.loaded`), which must not outlive the
+    /// conversation they belong to. Takes the account explicitly because a chat list can be
+    /// reconciled for an account that is not the active one.
+    func evictMediaDownloadCache(accountId: String, groupIdHex: String) {
+        let groupPrefix = [accountId, groupIdHex, ""].joined(separator: "\u{1F}")
+        // Collect first: mutating `mediaDownloads` while iterating its keys view is not valid.
+        let removedKeys = mediaDownloads.keys.filter { $0.hasPrefix(groupPrefix) }
+        for key in removedKeys {
+            guard let store = mediaDownloads[key] else { continue }
+            // Notify any lingering per-attachment observers before dropping the store.
+            store.update(.idle)
+            mediaDownloads[key] = nil
+        }
+    }
+
+    /// Drops every cached download state that is not still referenced by one of the retained
+    /// transcript windows. Set-based because more than one window is retained at a time
+    /// (`timelineStoreCacheLimit`); evicting a retained chat's download states would make
+    /// switching back re-download attachments it still renders.
+    func pruneMediaDownloadCache(keepingAny groupIdHexes: Set<String>) {
+        guard let activeAccountId, !groupIdHexes.isEmpty else {
             resetMediaDownloadStateStores()
             return
         }
 
-        let groupPrefix = [activeAccountId, groupIdHex, ""].joined(separator: "\u{1F}")
-        let retainedKeys = retainedMediaDownloadKeys(groupIdHex: groupIdHex, accountId: activeAccountId)
+        let groupPrefixes = groupIdHexes.map { [activeAccountId, $0, ""].joined(separator: "\u{1F}") }
+        let retainedKeys = groupIdHexes.reduce(into: Set<String>()) { keys, groupIdHex in
+            keys.formUnion(retainedMediaDownloadKeys(groupIdHex: groupIdHex, accountId: activeAccountId))
+        }
         let removedKeys = mediaDownloads.keys.filter { key in
-            guard key.hasPrefix(groupPrefix) else { return true }
+            guard groupPrefixes.contains(where: { key.hasPrefix($0) }) else { return true }
             return !retainedKeys.contains(key)
         }
         for key in removedKeys {

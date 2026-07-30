@@ -437,6 +437,7 @@ extension WorkspaceState {
             store.clear()
         }
         messageTimelineStores.removeAll()
+        timelineStoreRecency.removeAll()
         mediaDownloads.removeAll()
         clearMediaReferenceResolutionCache()
         peerProfileFFICache.removeAll()
@@ -776,6 +777,7 @@ extension WorkspaceState {
             store.clear()
         }
         messageTimelineStores = [:]
+        timelineStoreRecency = []
         resetMediaDownloadStateStores()
         mediaCacheFootprintRefreshGeneration &+= 1
         mediaCacheFootprint = .zero

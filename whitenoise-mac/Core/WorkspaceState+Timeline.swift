@@ -391,6 +391,8 @@ extension WorkspaceState {
         if didChangeMediaAttachments {
             clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: groupIdHex)
         }
+        // A `.page` re-window satisfies a parked send just as a projection does.
+        resolveTimelineSendAcknowledgements(for: visibleMessages)
         await markLatestVisibleMessageRead(groupIdHex: groupIdHex, account: account, client: client)
     }
 
@@ -584,6 +586,10 @@ extension WorkspaceState {
                 windowLimit: Self.timelineWindowLimit
             )
         }
+        // Release any send parked on one of these rows only now that the store actually holds
+        // them — a waiter's question is "is my message on screen?", so resolving before the
+        // mutation would let the send return ahead of its own row.
+        resolveTimelineSendAcknowledgements(for: visibleUpserts)
         guard result.didChange else { return }
 
         if result.didChangeMediaAttachments {
@@ -1001,7 +1007,7 @@ extension WorkspaceState {
         defer { isSending = false }
 
         do {
-            _ = try await client.editMessage(
+            let summary = try await client.editMessage(
                 accountRef: activeAccount.accountRef,
                 groupIdHex: selectedChat.id,
                 targetMessageId: editContext.targetMessageId,
@@ -1016,7 +1022,12 @@ extension WorkspaceState {
                 editContext.preservedMediaAttachments.isEmpty ? nil : editContext.preservedMediaAttachments
             pendingMediaUploadStatesByConversation[draftKey] =
                 editContext.preservedMediaUploadStates.isEmpty ? nil : editContext.preservedMediaUploadStates
-            await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
+            await refreshSelectedTimelineAfterSend(
+                groupIdHex: selectedChat.id,
+                account: activeAccount,
+                client: client,
+                awaitingMessageIds: Set(summary.messageIds)
+            )
         } catch {
             lastError = error.localizedDescription
         }
@@ -1035,6 +1046,7 @@ extension WorkspaceState {
         isSending = true
         defer { isSending = false }
 
+        var sentMessageIds: Set<String> = []
         do {
             if !mediaAttachments.isEmpty {
                 // Blossom already has every blob — staging uploaded them. Order comes from the
@@ -1059,30 +1071,33 @@ extension WorkspaceState {
                 // there looking unsent; the catch below puts them back if the publish fails.
                 let restorePoint = clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
                 do {
-                    _ = try await client.sendMediaAttachments(
+                    let summary = try await client.sendMediaAttachments(
                         accountRef: activeAccount.accountRef,
                         groupIdHex: selectedChat.id,
                         attachments: references,
                         caption: text.isEmpty ? nil : text
                     )
+                    sentMessageIds = Set(summary.messageIds)
                 } catch {
                     restoreComposer(restorePoint, for: draftKey)
                     throw error
                 }
                 clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: selectedChat.id)
             } else if let replyDraftContext {
-                _ = try await client.replyToMessage(
+                let summary = try await client.replyToMessage(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: selectedChat.id,
                     targetMessageId: replyDraftContext.targetMessageId,
                     text: text
                 )
+                sentMessageIds = Set(summary.messageIds)
             } else {
-                _ = try await client.sendText(
+                let summary = try await client.sendText(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: selectedChat.id,
                     text: text
                 )
+                sentMessageIds = Set(summary.messageIds)
             }
             // Idempotent: the media branch already cleared optimistically before publishing.
             _ = clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
@@ -1091,12 +1106,16 @@ extension WorkspaceState {
                 accountRef: activeAccount.accountRef,
                 client: client
             )
-            // One authoritative re-window so the user sees their just-sent message
-            // immediately, even if the live projection for it is momentarily in flight.
-            // The follow-on delivery-state transitions then arrive as projection deltas
-            // and are applied incrementally by `applyTimelineProjection` — no longer a
-            // full re-map per delivery.
-            await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
+            // Normally the subscription's own projection paints the just-sent message and this
+            // returns without touching the runtime. The authoritative re-window is the fallback
+            // for when that delta is slow, so the sender never watches a transcript that has not
+            // moved. Follow-on delivery-state transitions arrive as projection deltas either way.
+            await refreshSelectedTimelineAfterSend(
+                groupIdHex: selectedChat.id,
+                account: activeAccount,
+                client: client,
+                awaitingMessageIds: sentMessageIds
+            )
         } catch {
             // A failed *publish* leaves the blobs on Blossom and the references valid, so the
             // restored attachments stay `.uploaded` and the user can simply press Send again.
@@ -1316,29 +1335,21 @@ extension WorkspaceState {
     ) -> Bool {
         // The window is already ordered, deduped, and capped by the runtime subscription,
         // so render it as-is. The per-chat id/lookup caches live on the store
-        // (`MessageTimelineStore.replace` rebuilds them); we only mark this chat as the one
-        // cached window.
+        // (`MessageTimelineStore.replace` rebuilds them); this marks the chat as the most
+        // recently rendered window and lets the LRU drop anything past the retention limit.
         let nextPaging = paging ?? timelinePagingByChat[groupIdHex] ?? .empty
         let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
+        let retained = retainTimelineStore(for: groupIdHex)
 
-        for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
-            store.clear()
-        }
-
-        cachedMessageChatIds = [groupIdHex]
-        messageTimelineStores = [groupIdHex: timelineStore]
+        cachedMessageChatIds.insert(groupIdHex)
         let didChangeMediaAttachments = timelineStore.replace(
             with: messages,
             editMutations: editMutations,
             windowLimit: Self.timelineWindowLimit
         )
-        if timelinePagingByChat.count == 1, timelinePagingByChat[groupIdHex] != nil {
-            timelinePagingByChat[groupIdHex] = nextPaging
-        } else {
-            timelinePagingByChat = [groupIdHex: nextPaging]
-        }
+        timelinePagingByChat[groupIdHex] = nextPaging
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
-        pruneMediaDownloadCache(keeping: groupIdHex)
+        pruneMediaDownloadCache(keepingAny: retained)
         return didChangeMediaAttachments
     }
 
@@ -1347,25 +1358,97 @@ extension WorkspaceState {
         paging: TimelinePagingState,
         pruneMediaDownloads: Bool
     ) {
-        let timelineStore = ensureMessageTimelineStore(for: groupIdHex)
-        for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
-            store.clear()
-        }
-        cachedMessageChatIds = [groupIdHex]
-        messageTimelineStores = [groupIdHex: timelineStore]
-        timelinePagingByChat = [groupIdHex: paging]
+        _ = ensureMessageTimelineStore(for: groupIdHex)
+        let retained = retainTimelineStore(for: groupIdHex)
+        cachedMessageChatIds.insert(groupIdHex)
+        timelinePagingByChat[groupIdHex] = paging
         finishTimelineInitialLoad(groupIdHex: groupIdHex)
         if pruneMediaDownloads {
-            pruneMediaDownloadCache(keeping: groupIdHex)
+            pruneMediaDownloadCache(keepingAny: retained)
         }
+    }
+
+    /// Marks `groupIdHex` as the most recently rendered transcript and drops every window
+    /// outside the `timelineStoreCacheLimit` most recent ones. Returns the retained ids.
+    ///
+    /// Only the selected chat ever has a live subscription (`stopTimelineListener` runs on every
+    /// switch), so a retained store is an inert snapshot. It is never rendered for another
+    /// conversation either — the view reads through `selectedChat.id` — it only lets a switch
+    /// back paint immediately while the fresh snapshot lands and replaces it.
+    @discardableResult
+    func retainTimelineStore(for groupIdHex: String) -> Set<String> {
+        timelineStoreRecency.removeAll { $0 == groupIdHex || messageTimelineStores[$0] == nil }
+        timelineStoreRecency.append(groupIdHex)
+
+        var retained = Set(timelineStoreRecency.suffix(Self.timelineStoreCacheLimit))
+        retained.insert(groupIdHex)
+        for (storeGroupId, store) in messageTimelineStores where !retained.contains(storeGroupId) {
+            store.clear()
+            messageTimelineStores[storeGroupId] = nil
+            cachedMessageChatIds.remove(storeGroupId)
+            timelinePagingByChat[storeGroupId] = nil
+        }
+        timelineStoreRecency.removeAll { !retained.contains($0) }
+        return retained
+    }
+
+    /// Resolves every parked send whose row is now materialized in the rendered window.
+    func resolveTimelineSendAcknowledgements(for messages: [MessageItem]) {
+        guard !timelineSendAcknowledgements.isEmpty, !messages.isEmpty else { return }
+        for acknowledgement in timelineSendAcknowledgements {
+            guard
+                messages.contains(where: {
+                    acknowledgement.matches(
+                        messageIdHex: $0.id,
+                        sourceMessageIdHex: $0.sourceMessageIdHex
+                    )
+                })
+            else { continue }
+            acknowledgement.resolve(landed: true)
+        }
+    }
+
+    /// Suspends until the live subscription projects one of `messageIds`, or the deadline
+    /// elapses. Returns whether the projection landed.
+    func awaitTimelineSendProjection(messageIds: Set<String>) async -> Bool {
+        let acknowledgement = TimelineSendAcknowledgement(messageIds: messageIds)
+        timelineSendAcknowledgements.append(acknowledgement)
+        defer { timelineSendAcknowledgements.removeAll { $0 === acknowledgement } }
+
+        // Unstructured on purpose: it must still fire (and release the continuation) if the
+        // caller's task is cancelled while suspended in `wait()`.
+        let deadline = Task { [interval = timelineSendProjectionDeadline] in
+            try? await Task.sleep(for: interval)
+            acknowledgement.resolve(landed: false)
+        }
+        defer { deadline.cancel() }
+        return await acknowledgement.wait()
     }
 
     func refreshSelectedTimelineAfterSend(
         groupIdHex: String,
         account: AccountItem,
-        client: any MarmotRuntime
+        client: any MarmotRuntime,
+        awaitingMessageIds: Set<String> = []
     ) async {
         guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+
+        // The live subscription projects the just-sent row on its own, so wait briefly for that
+        // delta before falling back to a full re-window. The fallback re-resolves senders,
+        // re-maps every record in the page (rebuilding each bubble's Markdown model) and
+        // replaces the whole transcript — the heaviest render in the app, sitting on its most
+        // latency-sensitive interaction. The delta costs one row.
+        if !awaitingMessageIds.isEmpty,
+            activeTimelineGroupId == groupIdHex,
+            activeTimelineSubscription != nil,
+            await awaitTimelineSendProjection(messageIds: awaitingMessageIds)
+        {
+            return
+        }
+        // The wait above suspends: the user may have switched conversations meanwhile, and the
+        // fallback must not re-window a transcript that is no longer on screen.
+        guard activeAccountId == account.id, selectedChat?.id == groupIdHex else { return }
+
         timelinePostSendRefreshGeneration &+= 1
         let refreshGeneration = timelinePostSendRefreshGeneration
         let subscription = activeTimelineGroupId == groupIdHex ? activeTimelineSubscription : nil
@@ -1405,10 +1488,6 @@ extension WorkspaceState {
     }
 
     func pruneMessageCache(keeping groupIdHex: String?) {
-        defer {
-            pruneMediaDownloadCache(keeping: groupIdHex)
-        }
-
         guard let groupIdHex else {
             for store in messageTimelineStores.values {
                 store.clear()
@@ -1416,37 +1495,21 @@ extension WorkspaceState {
             cachedMessageChatIds = []
             messageTimelineStores = [:]
             timelinePagingByChat = [:]
+            timelineStoreRecency = []
             timelineInitialLoadGroupId = nil
+            pruneMediaDownloadCache(keeping: nil)
             return
         }
 
-        // Keep only the surviving chat's store and drop the rest. Whether the survivor stays
-        // "cached" mirrors the old behaviour: it was cached iff its window had been recorded
-        // (now tracked by `cachedMessageChatIds`) rather than merely having an empty store.
-        let survivorWasCached = cachedMessageChatIds.contains(groupIdHex)
-        if let timelineStore = messageTimelineStores[groupIdHex] {
-            for (storeGroupId, store) in messageTimelineStores where storeGroupId != groupIdHex {
-                store.clear()
-            }
-            messageTimelineStores = [groupIdHex: timelineStore]
-            cachedMessageChatIds = survivorWasCached ? [groupIdHex] : []
-        } else {
-            for store in messageTimelineStores.values {
-                store.clear()
-            }
-            messageTimelineStores = [:]
-            cachedMessageChatIds = []
-        }
-        if let paging = timelinePagingByChat[groupIdHex] {
-            timelinePagingByChat = [groupIdHex: paging]
-        } else {
-            timelinePagingByChat = [:]
-        }
+        // Promote the survivor and let the LRU drop anything past the retention limit. A
+        // survivor with no store stays uncached — `retainTimelineStore` never creates one.
+        let retained = retainTimelineStore(for: groupIdHex)
         if timelineInitialLoadGroupId != groupIdHex {
             timelineInitialLoadGroupId = nil
         } else if messageTimelineStores[groupIdHex]?.isLoaded == true {
             timelineInitialLoadGroupId = nil
         }
+        pruneMediaDownloadCache(keepingAny: retained)
     }
 
     func beginTimelineInitialLoadIfNeeded(groupIdHex: String) {
@@ -1540,10 +1603,35 @@ extension WorkspaceState {
     func handleConversationVisibilityChange() async {
         guard selectedConversationIsVisible() else { return }
         guard let client, let activeAccount, let selectedChat else { return }
+        await reconcileSelectedTimelineWindow()
         await markLatestVisibleMessageRead(
             groupIdHex: selectedChat.id,
             account: activeAccount,
             client: client
+        )
+    }
+
+    /// Re-materializes the open conversation's window from the live subscription's own snapshot.
+    ///
+    /// A long-lived subscription can miss updates across a system sleep: the listener only
+    /// notices once `nextUpdate()` actually ends and the reconnect backoff runs, so until then
+    /// the transcript can silently sit behind the runtime. Re-taking the snapshot on activation
+    /// closes that window without disturbing the listener loop — it is the same authoritative
+    /// shape a `.page` update carries, applied through the same path.
+    func reconcileSelectedTimelineWindow() async {
+        guard let client, let activeAccount, let selectedChat else { return }
+        let groupIdHex = selectedChat.id
+        guard activeTimelineGroupId == groupIdHex,
+            let subscription = activeTimelineSubscription
+        else { return }
+
+        guard let page = try? await runOffMain({ subscription.snapshot() }) else { return }
+        await applyTimelineWindow(
+            page,
+            groupIdHex: groupIdHex,
+            account: activeAccount,
+            client: client,
+            owner: .subscription(subscription)
         )
     }
 }

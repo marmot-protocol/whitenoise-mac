@@ -469,6 +469,12 @@ extension WorkspaceState {
         cachedMessageChatIds.remove(groupIdHex)
         messageTimelineStores[groupIdHex]?.clear()
         messageTimelineStores[groupIdHex] = nil
+        timelineStoreRecency.removeAll { $0 == groupIdHex }
+        // The retained-window prune cannot reach these: a background removal runs without any
+        // following timeline mutation, so the conversation's decrypted attachment payloads and
+        // resolved media references would sit in memory after it is gone.
+        evictMediaDownloadCache(accountId: accountId, groupIdHex: groupIdHex)
+        clearMediaReferenceResolutionCache(forAccountId: accountId, groupIdHex: groupIdHex)
         invalidateGroupMembers(for: groupIdHex)
         timelinePagingByChat[groupIdHex] = nil
         clearComposerDrafts(for: [groupIdHex], accountId: accountId)

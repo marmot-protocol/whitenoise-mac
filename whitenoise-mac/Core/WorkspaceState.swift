@@ -383,9 +383,11 @@ final class MessageTimelineStore {
         self.messages = bases
         baseMessagesById = Dictionary(bases.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         rebuildIndexes()
-        applyEditMutations(editMutations)
-        pruneInvalidSenderCandidatesForMaterializedTargets()
-        pruneEditCandidates(windowLimit: windowLimit ?? max(bases.count, 1))
+        // An authoritative replace swaps every base at once, so every row is dirty by
+        // definition — unlike `applyProjection`, the full pass is the correct one here.
+        _ = applyEditMutations(editMutations)
+        _ = pruneInvalidSenderCandidatesForMaterializedTargets()
+        _ = pruneEditCandidates(windowLimit: windowLimit ?? max(bases.count, 1))
         _ = recomputeAllRenderedMessages()
         rebuildDisplayItems()
         self.isLoaded = true
@@ -428,6 +430,15 @@ final class MessageTimelineStore {
             mediaAttachmentsBeforeUpserts[item.id] = previous
         }
 
+        // Rows whose rendered value may have changed. A rendered row is a pure function of its
+        // base in `baseMessagesById` plus the edit candidates targeting its id, so the set is
+        // closed over exactly those inputs: the upserted ids, plus every target whose candidate
+        // set was mutated (by an explicit mutation or by one of the prunes below). Recomputing
+        // only these keeps a delta O(changed rows) instead of O(window) — a send emits a burst of
+        // delivery-state projections, and re-rendering all 200 rows per tick was the dominant
+        // steady-state cost.
+        var dirtyMessageIds = Set(upserts.map(\.id))
+
         if !removalIds.isEmpty {
             let originalCount = messages.count
             let removedMessageIds = Set(messages.filter { removalIds.contains($0.id) }.map(\.id))
@@ -436,7 +447,7 @@ final class MessageTimelineStore {
             for removedId in removedMessageIds {
                 baseMessagesById.removeValue(forKey: removedId)
             }
-            purgeEditCandidates(forRemovalIds: removalIds)
+            dirtyMessageIds.formUnion(purgeEditCandidates(forRemovalIds: removalIds))
             if didRemoveMessages {
                 didChange = true
                 rebuildIndexes()
@@ -471,7 +482,7 @@ final class MessageTimelineStore {
             didChange = true
         }
 
-        applyEditMutations(editMutations)
+        dirtyMessageIds.formUnion(applyEditMutations(editMutations))
 
         var didTrimOlderMessages = false
         if messages.count > windowLimit {
@@ -480,9 +491,9 @@ final class MessageTimelineStore {
             didChange = true
         }
 
-        pruneInvalidSenderCandidatesForMaterializedTargets()
-        pruneEditCandidates(windowLimit: windowLimit)
-        if recomputeAllRenderedMessages() {
+        dirtyMessageIds.formUnion(pruneInvalidSenderCandidatesForMaterializedTargets())
+        dirtyMessageIds.formUnion(pruneEditCandidates(windowLimit: windowLimit))
+        if recomputeRenderedMessages(ids: dirtyMessageIds) {
             didChange = true
         }
 
@@ -594,24 +605,46 @@ final class MessageTimelineStore {
         @ObservationIgnored private(set) var displayItemsBuildCount = 0
     #endif
 
-    private func applyEditMutations(_ mutations: [MessageEditMutation]) {
-        guard !mutations.isEmpty else { return }
+    /// Applies edit-candidate mutations and returns every target id whose candidate set changed.
+    /// A `.retract` must resolve its target *before* the candidate is dropped, otherwise the
+    /// affected row would never be re-rendered when its id is not also in the delta's upserts.
+    private func applyEditMutations(_ mutations: [MessageEditMutation]) -> Set<String> {
+        guard !mutations.isEmpty else { return [] }
+        var touchedTargetIds: Set<String> = []
         for mutation in mutations {
             switch mutation {
             case .upsert(let overlay):
                 editCandidatesById[overlay.editMessageIdHex] = overlay
+                touchedTargetIds.insert(overlay.targetMessageIdHex)
             case .retract(let editMessageIdHex):
-                editCandidatesById.removeValue(forKey: editMessageIdHex)
+                guard let removed = editCandidatesById.removeValue(forKey: editMessageIdHex) else { continue }
+                touchedTargetIds.insert(removed.targetMessageIdHex)
             }
         }
         rebuildEditCandidateTargetIndex()
+        return touchedTargetIds
     }
 
     @discardableResult
     private func recomputeAllRenderedMessages() -> Bool {
+        recomputeRenderedMessages(indices: messages.indices)
+    }
+
+    /// Re-renders only the materialized rows named by `ids`. Ids that are not in the window
+    /// (suppressed upserts, edits whose target has not been paged in) are skipped.
+    @discardableResult
+    private func recomputeRenderedMessages(ids: Set<String>) -> Bool {
+        guard !ids.isEmpty else {
+            lastRenderEditCandidateVisitCount = 0
+            return false
+        }
+        return recomputeRenderedMessages(indices: ids.compactMap { indexById[$0] })
+    }
+
+    private func recomputeRenderedMessages(indices: some Sequence<Int>) -> Bool {
         var didChange = false
         var candidateVisitCount = 0
-        for index in messages.indices {
+        for index in indices {
             let messageId = messages[index].id
             guard let base = baseMessagesById[messageId] else { continue }
             let renderResult = renderedMessage(from: base)
@@ -680,9 +713,9 @@ final class MessageTimelineStore {
         return versions
     }
 
-    private func purgeEditCandidates(forRemovalIds removalIds: Set<String>) {
-        guard !removalIds.isEmpty, !editCandidatesById.isEmpty else { return }
-        replaceEditCandidates(
+    private func purgeEditCandidates(forRemovalIds removalIds: Set<String>) -> Set<String> {
+        guard !removalIds.isEmpty, !editCandidatesById.isEmpty else { return [] }
+        return replaceEditCandidates(
             with: editCandidatesById.filter { _, candidate in
                 !removalIds.contains(candidate.editMessageIdHex)
                     && !removalIds.contains(candidate.targetMessageIdHex)
@@ -690,9 +723,9 @@ final class MessageTimelineStore {
         )
     }
 
-    private func pruneInvalidSenderCandidatesForMaterializedTargets() {
-        guard !editCandidatesById.isEmpty else { return }
-        replaceEditCandidates(
+    private func pruneInvalidSenderCandidatesForMaterializedTargets() -> Set<String> {
+        guard !editCandidatesById.isEmpty else { return [] }
+        return replaceEditCandidates(
             with: editCandidatesById.filter { _, candidate in
                 guard let base = baseMessagesById[candidate.targetMessageIdHex] else { return true }
                 return candidate.sender == base.senderAccountIdHex
@@ -700,8 +733,8 @@ final class MessageTimelineStore {
         )
     }
 
-    private func pruneEditCandidates(windowLimit limit: Int) {
-        guard limit > 0, editCandidatesById.count > limit else { return }
+    private func pruneEditCandidates(windowLimit limit: Int) -> Set<String> {
+        guard limit > 0, editCandidatesById.count > limit else { return [] }
 
         typealias CandidateEntry = (key: String, value: MessageEditOverlay)
 
@@ -768,12 +801,23 @@ final class MessageTimelineStore {
                 kept[candidate.key] = candidate.value
             }
         }
-        replaceEditCandidates(with: kept)
+        return replaceEditCandidates(with: kept)
     }
 
-    private func replaceEditCandidates(with candidates: [String: MessageEditOverlay]) {
+    /// Swaps the retained candidate set and returns every target id that gained or lost a
+    /// candidate, so callers can widen the re-render set to rows the delta never mentioned.
+    @discardableResult
+    private func replaceEditCandidates(with candidates: [String: MessageEditOverlay]) -> Set<String> {
+        var touchedTargetIds: Set<String> = []
+        for (editMessageIdHex, candidate) in editCandidatesById where candidates[editMessageIdHex] == nil {
+            touchedTargetIds.insert(candidate.targetMessageIdHex)
+        }
+        for (editMessageIdHex, candidate) in candidates where editCandidatesById[editMessageIdHex] == nil {
+            touchedTargetIds.insert(candidate.targetMessageIdHex)
+        }
         editCandidatesById = candidates
         rebuildEditCandidateTargetIndex()
+        return touchedTargetIds
     }
 
     private func rebuildEditCandidateTargetIndex() {
@@ -966,6 +1010,11 @@ final class WorkspaceState {
     /// prune and reseed paths rely on.
     @ObservationIgnored var cachedMessageChatIds: Set<String> = []
     @ObservationIgnored var messageTimelineStores: [String: MessageTimelineStore] = [:]
+    /// Group ids in least-recently-rendered order (most recent last), bounding
+    /// `messageTimelineStores` to `timelineStoreCacheLimit`. Retaining the last few rendered
+    /// windows means returning to a recent conversation paints from cache instead of showing
+    /// the initial-load spinner while the fresh subscription snapshot is fetched and re-mapped.
+    @ObservationIgnored var timelineStoreRecency: [String] = []
 
     /// Backing timeline snapshot for tests and non-UI lookups, derived from the per-chat stores.
     /// Swift Observation tracks an observed dictionary as one property, so UI reads must still go
@@ -1445,6 +1494,13 @@ final class WorkspaceState {
     /// conversation is torn down.
     var activeTimelineSubscription: TimelineMessagesSubscription?
     var activeTimelineGroupId: String?
+    /// Sends waiting for the live subscription to project their row. Resolved by the listener
+    /// (`applyTimelineProjection`) or by their own deadline, whichever comes first.
+    @ObservationIgnored var timelineSendAcknowledgements: [TimelineSendAcknowledgement] = []
+    /// Overridable so tests can drive both the "delta landed" and "deadline elapsed" branches
+    /// deterministically instead of waiting out the production deadline on every send.
+    @ObservationIgnored var timelineSendProjectionDeadline: Duration = WorkspaceState
+        .timelineSendProjectionDeadline
     var lastMarkedReadMarkers: [String: ReadMarker] = [:]
     var lastConfirmedReadMarkers: [String: ReadMarker] = [:]
     var deliveredNotificationKeys = Set<String>()
@@ -1587,12 +1643,21 @@ final class WorkspaceState {
     static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
     static let deliveredNotificationKeyLimit = 256
     static let timelinePageLimit: UInt32 = 100
+    /// How long a completed send waits for the live subscription to project its row before
+    /// falling back to an authoritative re-window. Long enough that a healthy runtime always
+    /// wins the race, short enough that a lagging one does not leave the sender staring at a
+    /// transcript that has not moved.
+    static let timelineSendProjectionDeadline: Duration = .milliseconds(250)
     /// Upper bound on the materialized live window, matching the runtime's
     /// `TIMELINE_WINDOW_LIMIT`. Live projection deltas grow the window up to this cap
     /// before the oldest rows are trimmed (and `hasMoreBefore` is re-flagged), mirroring
     /// `apply_projection_to_window` in the core so client-side delta application stays in
     /// lockstep with the runtime's windowing.
     static let timelineWindowLimit = 200
+    /// How many rendered transcript windows are retained at once. Only the selected chat has a
+    /// live subscription; the others are inert snapshots kept so switching back is instant.
+    /// Each costs at most `timelineWindowLimit` mapped rows.
+    static let timelineStoreCacheLimit = 3
     /// Reconnect immediately once when a subscription stream ends, then use a capped
     /// backoff if a broken stream keeps ending during startup. This avoids silent
     /// listener death without tight-looping on an already-closed runtime channel.

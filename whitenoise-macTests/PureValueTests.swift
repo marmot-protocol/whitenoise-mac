@@ -1116,6 +1116,85 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func removedChatTeardownEvictsItsMediaStateWithoutATimelineMutation() async throws {
+        // A chat that disappears in the background is torn down with no following timeline
+        // mutation, so the retained-window prune never runs. Its decrypted attachment payloads
+        // must be released by the teardown itself rather than outliving the conversation.
+        let account = AccountItem.samples[0]
+        let removedChat = ChatItem.samples[0]
+        let survivingChat = ChatItem.samples[1]
+        let removedAttachment = MessageMediaAttachment(
+            id: "removed-attachment",
+            reference: mediaReference(fileName: "removed.png", mediaType: "image/png")
+        )
+        let survivingAttachment = MessageMediaAttachment(
+            id: "surviving-attachment",
+            reference: mediaReference(fileName: "surviving.png", mediaType: "image/png")
+        )
+        let removedMessage = MessageItem(
+            id: "removed-message",
+            groupIdHex: removedChat.id,
+            senderName: "Alice",
+            body: "In the removed chat",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [removedAttachment]
+        )
+        let survivingMessage = MessageItem(
+            id: "surviving-message",
+            groupIdHex: survivingChat.id,
+            senderName: "Bob",
+            body: "In a chat that stays",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            isOutgoing: false,
+            mediaAttachments: [survivingAttachment]
+        )
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [removedChat, survivingChat]],
+            messagesByChat: [
+                removedChat.id: [removedMessage],
+                survivingChat.id: [survivingMessage],
+            ],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        state.activeAccountId = account.id
+        // Selection deliberately stays on the surviving chat: this is the background-removal
+        // path, where nothing re-windows the transcript afterwards.
+        state.selection = .chat(survivingChat.id)
+
+        let removedKey = state.mediaDownloadKey(message: removedMessage, attachment: removedAttachment)
+        let survivingKey = state.mediaDownloadKey(message: survivingMessage, attachment: survivingAttachment)
+        let removedStore = mediaDownloadStore(
+            plaintext: Data("removed decrypted plaintext".utf8),
+            fileName: "removed.png",
+            payloadId: "removed-payload"
+        )
+        let survivingStore = mediaDownloadStore(
+            plaintext: Data("surviving decrypted plaintext".utf8),
+            fileName: "surviving.png",
+            payloadId: "surviving-payload"
+        )
+        state.mediaDownloads[removedKey] = removedStore
+        state.mediaDownloads[survivingKey] = survivingStore
+
+        state.teardownRemovedChatPerChatState(groupIdHex: removedChat.id, accountId: account.id)
+
+        #expect(state.mediaDownloads[removedKey] == nil)
+        #expect(removedStore.state == .idle)
+        // The untouched conversation keeps its payload — teardown is scoped to one chat.
+        let surviving = try #require(state.mediaDownloads[survivingKey])
+        #expect(surviving === survivingStore)
+        if case .loaded(let download) = surviving.state {
+            #expect(download.data == Data("surviving decrypted plaintext".utf8))
+        } else {
+            Issue.record("Expected the surviving attachment to stay loaded")
+        }
+    }
+
+    @MainActor
     @Test func detachedWindowSuppressesUpsertNewerThanPostRemovalHead() async throws {
         // Regression for whitenoise-mac#331: applyProjection must recompute the window head
         // *after* removals. In a detached (scrolled-back) window, a delta that removes the
@@ -1311,6 +1390,152 @@ struct PureValueTests {
         let replaced = try #require(replacedStore.lookup["target"])
         #expect(replaced.body == "Edited body")
         #expect(replaced.isEdited)
+    }
+
+    @MainActor
+    @Test func messageTimelineStoreProjectionRerendersOnlyTheChangedRows() async throws {
+        // A delta must cost O(changed rows), not O(window): a send emits a burst of
+        // delivery-state projections, and re-rendering all 200 rows per tick was the dominant
+        // steady-state cost. Every row here carries an edit candidate, so the number of
+        // candidates visited is a direct proxy for how many rows were re-rendered.
+        let window = (0..<50).map { index in
+            chatMessage(id: "message-\(index)", body: "Body \(index)", timelineAt: 1_800_000_000 + UInt64(index))
+        }
+        let store = MessageTimelineStore.loaded(with: window)
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: window.map { message in
+                editUpsert(
+                    makeEditOverlay(
+                        target: message.id,
+                        editId: "edit-\(message.id)",
+                        plaintext: "Edited \(message.id)",
+                        timelineAt: message.timelineAt + 1_000
+                    )
+                )
+            },
+            anchoredToNewest: true,
+            windowLimit: 200
+        )
+        #expect(store.lastRenderEditCandidateVisitCount == 50)
+
+        // One row changes; the other 49 must not be re-rendered.
+        let touched = chatMessage(id: "message-7", body: "Body 7 updated", timelineAt: 1_800_000_007)
+        _ = store.applyProjection(
+            upserts: [touched],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 200
+        )
+        #expect(store.lastRenderEditCandidateVisitCount == 1)
+        // The untouched rows keep their edited bodies — a narrower recompute must not drop the
+        // overlay from rows it skipped.
+        #expect(store.lookup["message-8"]?.body == "Edited message-8")
+        #expect(store.lookup["message-7"]?.body == "Edited message-7")
+    }
+
+    @MainActor
+    @Test func messageTimelineStoreProjectionRerendersRetractedEditTargets() async throws {
+        // The trap in a delta-scoped recompute: a `.retract` names an *edit event* id, and its
+        // target is usually not in the delta's upserts. Resolving the target before dropping the
+        // candidate is what keeps the row from staying stuck on the retracted text.
+        let store = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "target", body: "Original", timelineAt: 1_800_000_000),
+            chatMessage(id: "other", body: "Other", timelineAt: 1_800_000_001),
+        ])
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(makeEditOverlay(editId: "target-edit", plaintext: "Edited", timelineAt: 1_800_000_100))
+            ],
+            anchoredToNewest: true,
+            windowLimit: 200
+        )
+        #expect(store.lookup["target"]?.body == "Edited")
+
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [editRetract("target-edit")],
+            anchoredToNewest: true,
+            windowLimit: 200
+        )
+        #expect(store.lookup["target"]?.body == "Original")
+        #expect(store.lookup["target"]?.isEdited == false)
+    }
+
+    @MainActor
+    @Test func messageTimelineStoreProjectionRerendersTargetsInvalidatedByCandidatePruning() async throws {
+        // `pruneInvalidSenderCandidatesForMaterializedTargets` can invalidate a candidate for a
+        // target the delta never mentions — here, by materializing the real base for a target
+        // whose pending candidate came from a different sender. That row must still re-render.
+        let store = MessageTimelineStore.loaded(with: [
+            chatMessage(id: "anchor", body: "Anchor", timelineAt: 1_800_000_000)
+        ])
+        _ = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(
+                        target: "late",
+                        editId: "forged-edit",
+                        sender: "mallory",
+                        plaintext: "Forged",
+                        timelineAt: 1_800_000_100
+                    )
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 200
+        )
+
+        // The real row arrives, authored by alice — the retained mallory candidate is invalid.
+        _ = store.applyProjection(
+            upserts: [chatMessage(id: "late", body: "Genuine", timelineAt: 1_800_000_002)],
+            removals: [],
+            editMutations: [],
+            anchoredToNewest: true,
+            windowLimit: 200
+        )
+        #expect(store.lookup["late"]?.body == "Genuine")
+        #expect(store.lookup["late"]?.isEdited == false)
+    }
+
+    @MainActor
+    @Test func timelineDisplayItemsLabelEachDayBoundaryOnce() async throws {
+        // The day-interval fast path replaced a per-row `Calendar.isDate(_:inSameDayAs:)`; day
+        // headers must still land on exactly the first row of each day, in order.
+        let calendar = Calendar(identifier: .gregorian)
+        let dayOne: UInt64 = 1_800_000_000
+        let dayTwo = dayOne + 86_400
+        let dayThree = dayTwo + 86_400
+        let messages = [
+            chatMessage(id: "a", timelineAt: dayOne),
+            chatMessage(id: "b", timelineAt: dayOne + 60),
+            chatMessage(id: "c", timelineAt: dayTwo),
+            chatMessage(id: "d", timelineAt: dayTwo + 60),
+            chatMessage(id: "e", timelineAt: dayTwo + 120),
+            chatMessage(id: "f", timelineAt: dayThree),
+        ]
+        let items = TimelineMessageDisplayItem.make(
+            from: messages,
+            now: Date(timeIntervalSince1970: TimeInterval(dayThree)),
+            calendar: calendar,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(items.map { $0.dayLabel != nil } == [true, false, true, false, false, true])
+        // And it agrees with the direct per-row comparison it replaced.
+        var previous: Date?
+        let expected = messages.map { message -> Bool in
+            defer { previous = message.sentAt }
+            return previous.map { !calendar.isDate($0, inSameDayAs: message.sentAt) } ?? true
+        }
+        #expect(items.map { $0.dayLabel != nil } == expected)
     }
 
     @MainActor
