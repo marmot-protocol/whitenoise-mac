@@ -6971,17 +6971,70 @@ struct whitenoise_macTests {
         #expect(message.mediaAttachments.first?.reference.fileName == reference.fileName)
     }
 
-    @Test func mediaGridPresentationUsesSquareFourTileLayout() {
-        #expect(MessageMediaGridPresentation.visibleCount(totalCount: 6) == 4)
-        #expect(MessageMediaGridPresentation.hiddenCount(totalCount: 6) == 2)
-        #expect(MessageMediaGridPresentation.columnCount(totalCount: 1) == 1)
-        #expect(MessageMediaGridPresentation.rowCount(totalCount: 1) == 1)
-        #expect(MessageMediaGridPresentation.tileSide(totalCount: 1, maxWidth: 360, spacing: 3) == 360)
+    @Test func mediaGridRowCountsMatchFlutterLayout() {
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 0) == [])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 1) == [1])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 2) == [2])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 3) == [3])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 4) == [2, 2])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 5) == [3, 2])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 6) == [3, 3])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: 20) == [3, 3])
+        #expect(MessageMediaGridPresentation.rowCounts(totalCount: -1) == [])
+    }
+
+    @Test func mediaGridOverflowBadgeStartsAtSeven() {
+        #expect(MessageMediaGridPresentation.visibleCount(totalCount: 6) == 6)
+        #expect(MessageMediaGridPresentation.hiddenCount(totalCount: 6) == 0)
+        #expect(MessageMediaGridPresentation.visibleCount(totalCount: 7) == 6)
+        #expect(MessageMediaGridPresentation.hiddenCount(totalCount: 7) == 1)
+        #expect(MessageMediaGridPresentation.hiddenCount(totalCount: 0) == 0)
+        // rowCounts always sums to visibleCount — no short rows, ever.
+        for total in 0...12 {
+            #expect(
+                MessageMediaGridPresentation.rowCounts(totalCount: total).reduce(0, +)
+                    == MessageMediaGridPresentation.visibleCount(totalCount: total)
+            )
+        }
+    }
+
+    @Test func mediaGridRowRangesPartitionTheVisibleAttachments() {
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 0) == [])
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 1) == [0..<1])
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 2) == [0..<2])
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 3) == [0..<3])
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 4) == [0..<2, 2..<4])
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 5) == [0..<3, 3..<5])
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 6) == [0..<3, 3..<6])
+        #expect(MessageMediaGridPresentation.rowRanges(totalCount: 9) == [0..<3, 3..<6])
+
+        // Contiguous from 0 and covering exactly the visible prefix: every visible tile is
+        // placed once, and no range can ever run past `visibleAttachments`.
+        for total in 0...12 {
+            let ranges = MessageMediaGridPresentation.rowRanges(totalCount: total)
+            let visible = MessageMediaGridPresentation.visibleCount(totalCount: total)
+            #expect((ranges.first?.lowerBound ?? 0) == 0)
+            #expect((ranges.last?.upperBound ?? 0) == visible)
+            #expect(ranges.allSatisfy { !$0.isEmpty })
+            for (previous, next) in zip(ranges, ranges.dropFirst()) {
+                #expect(previous.upperBound == next.lowerBound)
+            }
+        }
+    }
+
+    @Test func mediaGridTileSidesAreSquareAndFillTheWidth() {
+        #expect(MessageMediaGridPresentation.tileSide(rowCount: 1, maxWidth: 360, spacing: 3) == 360)
+        #expect(MessageMediaGridPresentation.tileSide(rowCount: 2, maxWidth: 360, spacing: 3) == 178.5)
+        #expect(MessageMediaGridPresentation.tileSide(rowCount: 3, maxWidth: 360, spacing: 3) == 118)
+        #expect(MessageMediaGridPresentation.tileSide(rowCount: 0, maxWidth: 360, spacing: 3) == 1)
+
+        #expect(MessageMediaGridPresentation.gridHeight(totalCount: 0, maxWidth: 360, spacing: 3) == 0)
         #expect(MessageMediaGridPresentation.gridHeight(totalCount: 1, maxWidth: 360, spacing: 3) == 360)
-        #expect(MessageMediaGridPresentation.columnCount(totalCount: 4) == 2)
-        #expect(MessageMediaGridPresentation.rowCount(totalCount: 4) == 2)
-        #expect(MessageMediaGridPresentation.tileSide(totalCount: 4, maxWidth: 360, spacing: 3) == 178.5)
+        #expect(MessageMediaGridPresentation.gridHeight(totalCount: 2, maxWidth: 360, spacing: 3) == 178.5)
+        #expect(MessageMediaGridPresentation.gridHeight(totalCount: 3, maxWidth: 360, spacing: 3) == 118)
         #expect(MessageMediaGridPresentation.gridHeight(totalCount: 4, maxWidth: 360, spacing: 3) == 360)
+        #expect(MessageMediaGridPresentation.gridHeight(totalCount: 5, maxWidth: 360, spacing: 3) == 299.5)
+        #expect(MessageMediaGridPresentation.gridHeight(totalCount: 6, maxWidth: 360, spacing: 3) == 239)
     }
 
     @MainActor

@@ -544,7 +544,7 @@ nonisolated struct MessageMediaDownload: Hashable, Sendable {
 }
 
 nonisolated enum MessageMediaGridPresentation {
-    static let maxVisibleItems = 4
+    static let maxVisibleItems = 6
 
     static func visibleCount(totalCount: Int) -> Int {
         min(max(totalCount, 0), maxVisibleItems)
@@ -554,24 +554,41 @@ nonisolated enum MessageMediaGridPresentation {
         max(0, totalCount - maxVisibleItems)
     }
 
-    static func columnCount(totalCount: Int) -> Int {
-        totalCount <= 1 ? 1 : 2
+    static func rowCounts(totalCount: Int) -> [Int] {
+        switch visibleCount(totalCount: totalCount) {
+        case 1: [1]
+        case 2: [2]
+        case 3: [3]
+        case 4: [2, 2]
+        case 5: [3, 2]
+        case 6...: [3, 3]
+        default: []
+        }
     }
 
-    static func rowCount(totalCount: Int) -> Int {
-        totalCount <= 2 ? 1 : 2
+    static func rowRanges(totalCount: Int) -> [Range<Int>] {
+        var ranges: [Range<Int>] = []
+        var start = 0
+        for count in rowCounts(totalCount: totalCount) {
+            ranges.append(start..<(start + count))
+            start += count
+        }
+        return ranges
     }
 
-    static func tileSide(totalCount: Int, maxWidth: CGFloat, spacing: CGFloat) -> CGFloat {
-        let columns = columnCount(totalCount: totalCount)
-        let totalSpacing = CGFloat(columns - 1) * spacing
-        return max(1, (maxWidth - totalSpacing) / CGFloat(columns))
+    static func tileSide(rowCount: Int, maxWidth: CGFloat, spacing: CGFloat) -> CGFloat {
+        guard rowCount > 0 else { return 1 }
+        let totalSpacing = CGFloat(rowCount - 1) * spacing
+        return max(1, (maxWidth - totalSpacing) / CGFloat(rowCount))
     }
 
     static func gridHeight(totalCount: Int, maxWidth: CGFloat, spacing: CGFloat) -> CGFloat {
-        let rows = rowCount(totalCount: totalCount)
-        let side = tileSide(totalCount: totalCount, maxWidth: maxWidth, spacing: spacing)
-        return CGFloat(rows) * side + CGFloat(rows - 1) * spacing
+        let rows = rowCounts(totalCount: totalCount)
+        guard !rows.isEmpty else { return 0 }
+        let tileHeights = rows.reduce(0) { partial, count in
+            partial + tileSide(rowCount: count, maxWidth: maxWidth, spacing: spacing)
+        }
+        return tileHeights + CGFloat(rows.count - 1) * spacing
     }
 }
 
