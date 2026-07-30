@@ -39,6 +39,22 @@ are isolated in the `UIPerformance` test plan, and launch the app with the
 DEBUG-only `-uiFixture heavy-chat` argument for deterministic chat/search/media
 data.
 
+## Localization
+
+All user-facing strings live in the single String Catalog
+`whitenoise-mac/Localizable.xcstrings` (source language `en`; the target
+languages are whatever `knownRegions` in `project.pbxproj` lists). Edit it
+through Xcode's catalog editor — it is machine-owned, and hand-editing the
+nested `substitutions` of a plural entry corrupts it easily.
+
+`just locales` (CI step "Localization coverage", part of `just precommit`) fails
+when any language is incomplete. It reports a per-language coverage percentage
+and flags entries that are missing, still `state: "new"`, empty, `stale`, or
+have a broken plural `substitutions` set; `needsReview` is a warning unless you
+pass `--strict`. Keys with no words in them (`"%lld / %lld"`, `"99+"`) are
+skipped automatically — `just locales --verbose` lists them — and marking a key
+"Don't Translate" in Xcode (`shouldTranslate: false`) also excludes it.
+
 ## Project structure is filesystem-synchronized
 
 `whitenoise-mac.xcodeproj` uses `PBXFileSystemSynchronizedRootGroup`, so source
