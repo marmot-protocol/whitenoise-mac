@@ -16,7 +16,7 @@ help:
     @just --list
 
 # Run everything CI runs on a PR — both the "PR Checks" and "Static Analysis" jobs
-precommit: lint sanity test build-release analyze
+precommit: lint locales sanity test build-release analyze
     @echo ""
     @echo "✅ precommit passed — mac-ci.yml should be green."
 
@@ -39,6 +39,10 @@ autofix:
         {{SWIFT_PATHS}}
     @echo ""
     @echo "Formatting applied. Re-run 'just lint' to confirm nothing is left."
+
+# CI step: String Catalog translation coverage
+locales *ARGS:
+    scripts/ci/check-localizations.sh {{ARGS}}
 
 # CI step: macOS project sanity checks
 sanity:
