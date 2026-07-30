@@ -373,6 +373,31 @@ struct PureValueTests {
         #expect(state.mentionNamesBuildCount == 2)
     }
 
+    @MainActor
+    @Test func mentionRosterOffersTheSolePeerInADirectChat() {
+        let account = AccountItem.samples[0]
+        let direct = ChatItem.samples[1]
+        #expect(direct.isDirect)
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [direct]],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(direct.id)
+
+        let local = mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true)
+        let peer = mentionMember(id: "nvk", displayName: "NVK", npub: "npub1nvk")
+        state.storeGroupMembers([local, peer], for: direct.id)
+
+        #expect(state.mentionRoster().map(\.id) == ["nvk"])
+        #expect(state.mentionCandidates(matching: "nv").map(\.displayName) == ["NVK"])
+        // A single candidate can never trip the canonicaliser's duplicate-name ambiguity rule.
+        #expect(state.canonicalizeMentions(in: "hey @NVK") == "hey @npub1nvk")
+    }
+
     @Test func editedMessageAndHistoryResolveCanonicalMentionsButRetainWireText() async throws {
         let npub = "npub1qqqq"
         let base = MessageItem(
