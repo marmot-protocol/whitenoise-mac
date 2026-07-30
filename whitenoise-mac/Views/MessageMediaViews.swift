@@ -744,66 +744,64 @@ struct MessageVisualMediaGrid: View {
         MessageMediaGridPresentation.hiddenCount(totalCount: attachments.count)
     }
 
-    private var columnCount: Int {
-        MessageMediaGridPresentation.columnCount(totalCount: attachments.count)
-    }
-
-    private var tileSide: CGFloat {
-        MessageMediaGridPresentation.tileSide(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
-    }
-
     private var gridHeight: CGFloat {
         MessageMediaGridPresentation.gridHeight(totalCount: attachments.count, maxWidth: maxWidth, spacing: spacing)
     }
 
-    /// The visible attachments laid out row-major into `columnCount`-wide rows. Iterating
-    /// this (keyed by `attachment.id`) instead of `ForEach(0..<columnCount)` over grid
-    /// positions ties each tile's SwiftUI identity to its attachment, so a slot that comes
-    /// to hold a different attachment gets a fresh tile/player rather than reusing the
-    /// previous attachment's `@State` (and its decrypted scratch file). See #339.
-    private var rows: [[MessageMediaAttachment]] {
-        guard columnCount > 1 else { return visibleAttachments.map { [$0] } }
-        return stride(from: 0, to: visibleAttachments.count, by: columnCount).map { start in
-            Array(visibleAttachments[start..<min(start + columnCount, visibleAttachments.count)])
-        }
+    private var rows: [MediaGridRow] {
+        let visible = visibleAttachments
+        return MessageMediaGridPresentation.rowRanges(totalCount: attachments.count)
+            .enumerated()
+            .compactMap { index, range in
+                guard !range.isEmpty, range.upperBound <= visible.count else { return nil }
+                return MediaGridRow(
+                    id: index,
+                    side: MessageMediaGridPresentation.tileSide(
+                        rowCount: range.count,
+                        maxWidth: maxWidth,
+                        spacing: spacing
+                    ),
+                    attachments: Array(visible[range])
+                )
+            }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            ForEach(rows) { row in
                 HStack(spacing: spacing) {
-                    ForEach(row) { attachment in
-                        tile(for: attachment)
-                    }
-                    // Pad a short trailing row (e.g. 3 attachments in a 2×2 grid) so tiles
-                    // keep their square width instead of stretching to fill the row.
-                    if row.count < columnCount {
-                        Color.clear
-                            .frame(width: tileSide, height: tileSide)
+                    ForEach(row.attachments) { attachment in
+                        tile(for: attachment, side: row.side)
                     }
                 }
             }
         }
         .frame(width: maxWidth, height: gridHeight, alignment: .topLeading)
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(Color.primary.opacity(isOutgoing ? 0.16 : 0.1), lineWidth: 1)
         }
     }
 
-    private func tile(for attachment: MessageMediaAttachment) -> some View {
+    private func tile(for attachment: MessageMediaAttachment, side: CGFloat) -> some View {
         let isLastVisible = attachment.id == visibleAttachments.last?.id
         return MessageVisualMediaTile(
             downloadState: workspace.mediaDownloadStateStore(for: message, attachment: attachment),
             message: message,
             attachment: attachment,
             isOutgoing: isOutgoing,
-            sideLength: tileSide,
+            sideLength: side,
             hiddenCount: isLastVisible ? hiddenCount : 0,
             onOpenImageGallery: onOpenImageGallery
         )
     }
+}
+
+private struct MediaGridRow: Identifiable {
+    let id: Int
+    let side: CGFloat
+    let attachments: [MessageMediaAttachment]
 }
 
 struct MessageVisualMediaTile: View {
