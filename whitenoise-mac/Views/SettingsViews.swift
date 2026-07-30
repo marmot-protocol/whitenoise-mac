@@ -2083,11 +2083,11 @@ struct KeyPackageRow: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    keyValue("Event", package.eventIdHex)
+                    keyValue(L10n.string("Event"), package.eventIdHex)
 
                     if workspace.developerMode {
                         keyValue("KeyPackageRef", package.keyPackageRefHex)
-                        keyValue("Slot", package.keyPackageId)
+                        keyValue(L10n.string("Slot"), package.keyPackageId)
                         Text(L10n.plural("%llu bytes", package.keyPackageBytes))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
