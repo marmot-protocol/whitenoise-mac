@@ -679,6 +679,7 @@ struct PendingMediaDraftStrip: View {
     let uploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]
     let isSending: Bool
     let onRemove: (PendingMediaAttachment.ID) -> Void
+    let onRetryUpload: (PendingMediaAttachment.ID) -> Void
 
     private let tileSize = CGSize(width: 74, height: 74)
 
@@ -690,7 +691,8 @@ struct PendingMediaDraftStrip: View {
                         PendingMediaDraftTile(
                             attachment: attachment,
                             tileSize: tileSize,
-                            uploadState: uploadStates[attachment.id]
+                            uploadState: uploadStates[attachment.id],
+                            onRetry: { onRetryUpload(attachment.id) }
                         )
 
                         if !isSending {
@@ -721,6 +723,7 @@ struct PendingMediaDraftTile: View {
     let attachment: PendingMediaAttachment
     let tileSize: CGSize
     let uploadState: PendingMediaUploadState?
+    let onRetry: () -> Void
 
     @State private var decodedImagePreview: NSImage?
     @State private var decodedImageTaskID: String?
@@ -749,8 +752,8 @@ struct PendingMediaDraftTile: View {
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
         }
         .overlay(alignment: .bottomTrailing) {
-            if attachment.kind == .image, let uploadState {
-                PendingMediaUploadStatusBadge(state: uploadState)
+            if let uploadState {
+                PendingMediaUploadStatusBadge(state: uploadState, onRetry: onRetry)
                     .padding(5)
             }
         }
@@ -846,30 +849,37 @@ struct PendingMediaDraftTile: View {
     }
 }
 
+/// Only the states that need the user's attention get a badge. A finished upload deliberately
+/// shows nothing: the spinner going away is the confirmation, and a green tick sitting on every
+/// thumbnail for the rest of the draft's life is clutter that says nothing new. What is left to
+/// wait for is reported once, on the send button.
 private struct PendingMediaUploadStatusBadge: View {
     let state: PendingMediaUploadState
+    let onRetry: () -> Void
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(.regularMaterial)
-            Circle()
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-
-            switch state {
-            case .uploading:
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.accentColor)
-                    .scaleEffect(0.62)
-            case .uploaded:
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.green)
-            }
+        switch state {
+        case .uploading:
+            ProgressView()
+                .controlSize(.small)
+                .tint(.accentColor)
+                .scaleEffect(0.62)
+                .frame(width: 24, height: 24)
+                .background(.regularMaterial, in: .circle)
+                .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+        case .uploaded:
+            EmptyView()
+        case .failed:
+            Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetry)
+                .labelStyle(.iconOnly)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .buttonStyle(.plain)
+                .frame(width: 24, height: 24)
+                .background(.red, in: .circle)
+                .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                .help(L10n.string("Retry upload"))
         }
-        .frame(width: 24, height: 24)
-        .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
     }
 }
 

@@ -1320,6 +1320,9 @@ final class WorkspaceState {
     var pendingMediaAttachmentsByConversation: [ComposerDraftKey: [PendingMediaAttachment]] = [:]
     var pendingMediaUploadStatesByConversation:
         [ComposerDraftKey: [PendingMediaAttachment.ID: PendingMediaUploadState]] = [:]
+    /// In-flight stage-time Blossom uploads, so removing an attachment (or tearing the composer
+    /// down) cancels the upload it started instead of letting it land on a tile that is gone.
+    @ObservationIgnored var pendingMediaUploadTasks: [PendingMediaAttachment.ID: Task<Void, Never>] = [:]
     @ObservationIgnored var composerDraftPersistenceTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
     @ObservationIgnored var composerDraftMutationGenerations: [ComposerDraftKey: UInt64] = [:]
     @ObservationIgnored var dirtyComposerDraftKeys: Set<ComposerDraftKey> = []
@@ -2331,7 +2334,21 @@ final class WorkspaceState {
             && selectedChat?.canUseComposer == true
             && (!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !pendingMediaAttachments.isEmpty)
+            // Attachments upload as they are staged, so the composer refuses to send until every
+            // one carries a Blossom reference. Text-only drafts are unaffected.
+            && composerMediaUploadStatus == nil
             && !isSending
+    }
+
+    /// Why the selected composer is not sendable yet, or `nil` once every staged attachment
+    /// carries a reference. Drives both the `canSend` gate and the send button's tooltip, so
+    /// "the button is off" and "here is why" can never disagree.
+    var composerMediaUploadStatus: ComposerMediaUploadStatus? {
+        let attachments = pendingMediaAttachments
+        guard !attachments.isEmpty else { return nil }
+        let states = pendingMediaUploadStates
+        if attachments.contains(where: { states[$0.id] == .failed }) { return .failed }
+        return attachments.allSatisfy { states[$0.id]?.isUploaded == true } ? nil : .uploading
     }
 
     var showsMessengerChrome: Bool {

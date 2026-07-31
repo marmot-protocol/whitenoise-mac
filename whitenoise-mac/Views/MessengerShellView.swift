@@ -725,7 +725,8 @@ private struct ConversationView: View {
                 attachments: workspace.pendingMediaAttachments,
                 uploadStates: workspace.pendingMediaUploadStates,
                 isSending: workspace.isSending,
-                onRemove: workspace.removePendingMediaAttachment
+                onRemove: workspace.removePendingMediaAttachment,
+                onRetryUpload: workspace.retryPendingMediaUpload
             )
         }
 
@@ -881,8 +882,22 @@ private struct ConversationView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!workspace.canSend)
-                .help(workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit"))
+                .help(sendButtonHelp)
             }
+        }
+    }
+
+    /// Explains a Send that is disabled because media is still in flight. The thumbnails carry the
+    /// visible progress — a spinner while uploading, a retry button on failure — so the button
+    /// stays a plain disabled paperplane and only says why on hover.
+    private var sendButtonHelp: String {
+        switch workspace.composerMediaUploadStatus {
+        case .uploading:
+            L10n.string("Waiting for attachments to finish uploading")
+        case .failed:
+            L10n.string("An attachment failed to upload")
+        case nil:
+            workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit")
         }
     }
 
