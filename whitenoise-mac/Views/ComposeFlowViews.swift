@@ -35,6 +35,7 @@ struct NewChatPanelView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
             .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
+            .userDiscovery(for: workspace.newChatQuery)
 
             GlassSeparator(axis: .horizontal)
 
@@ -64,13 +65,22 @@ struct NewChatPanelView: View {
                             Task { await workspace.startDirectChat(with: recipient) }
                         }
                     } else {
-                        let matches = workspace.filteredComposeContacts(matching: trimmedQuery)
-                        if matches.isEmpty {
-                            ComposeNoMatchesView(onPaste: pasteIntoSearch)
-                        } else {
+                        let results = workspace.composeSearchResults(matching: trimmedQuery)
+                        if !results.known.isEmpty {
                             ComposeSectionHeader(title: L10n.string("Contacts"))
-                            contactRows(matches)
+                            contactRows(results.known)
                         }
+                        if !results.discovered.isEmpty {
+                            ComposeSectionHeader(title: L10n.string("People"))
+                            discoveredRows(results.discovered)
+                        }
+                        if UserDiscoveryPresentation.showsNoMatches(
+                            results: results,
+                            isSearching: workspace.isSearchingPeople
+                        ) {
+                            ComposeNoMatchesView(onPaste: pasteIntoSearch)
+                        }
+                        ComposeDiscoveryStatusRow()
                     }
 
                     if let lastError = workspace.lastError {
@@ -108,6 +118,20 @@ struct NewChatPanelView: View {
             }
             .accessibilityIdentifier("compose.contact.\(contact.accountIdHex)")
             .disabled(workspace.isCreatingChat && workspace.creatingDirectChatIdHex != contact.accountIdHex)
+        }
+    }
+
+    @ViewBuilder
+    private func discoveredRows(_ people: [DiscoveredPerson]) -> some View {
+        ForEach(people) { person in
+            DiscoveredPersonRow(
+                person: person,
+                isBusy: workspace.creatingDirectChatIdHex == person.accountIdHex
+            ) {
+                Task { await workspace.startDirectChat(with: person.recipient) }
+            }
+            .accessibilityIdentifier("compose.discovered.\(person.accountIdHex)")
+            .disabled(workspace.isCreatingChat && workspace.creatingDirectChatIdHex != person.accountIdHex)
         }
     }
 
@@ -156,6 +180,7 @@ struct ChooseMembersPanelView: View {
                     autofocus: true
                 )
                 .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
+                .userDiscovery(for: workspace.newChatQuery)
 
                 if !workspace.newChatRecipients.isEmpty {
                     ScrollView {
@@ -190,13 +215,22 @@ struct ChooseMembersPanelView: View {
                             workspace.toggleComposeMember(recipient)
                         }
                     } else {
-                        let matches = workspace.filteredComposeContacts(matching: trimmedQuery)
-                        if matches.isEmpty {
-                            ComposeNoMatchesView()
-                        } else {
+                        let results = workspace.composeSearchResults(matching: trimmedQuery)
+                        if !results.known.isEmpty {
                             ComposeSectionHeader(title: L10n.string("Contacts"))
-                            selectableRows(matches)
+                            selectableRows(results.known)
                         }
+                        if !results.discovered.isEmpty {
+                            ComposeSectionHeader(title: L10n.string("People"))
+                            selectableDiscoveredRows(results.discovered)
+                        }
+                        if UserDiscoveryPresentation.showsNoMatches(
+                            results: results,
+                            isSearching: workspace.isSearchingPeople
+                        ) {
+                            ComposeNoMatchesView()
+                        }
+                        ComposeDiscoveryStatusRow()
                     }
                 }
                 .padding(.horizontal, 8)
@@ -241,6 +275,19 @@ struct ChooseMembersPanelView: View {
                 workspace.toggleComposeMember(contact.recipient)
             }
             .accessibilityIdentifier("compose.member.\(contact.accountIdHex)")
+        }
+    }
+
+    @ViewBuilder
+    private func selectableDiscoveredRows(_ people: [DiscoveredPerson]) -> some View {
+        ForEach(people) { person in
+            DiscoveredPersonRow(
+                person: person,
+                selection: isSelected(accountIdHex: person.accountIdHex)
+            ) {
+                workspace.toggleComposeMember(person.recipient)
+            }
+            .accessibilityIdentifier("compose.member.discovered.\(person.accountIdHex)")
         }
     }
 
@@ -417,8 +464,16 @@ private extension View {
     func debouncedNewChatQueryResolution(for query: String) -> some View {
         modifier(NewChatQueryResolutionModifier(query: query))
     }
+
+    func userDiscovery(for query: String) -> some View {
+        modifier(UserDiscoveryModifier(query: query))
+    }
 }
 
+/// Debounces the *identifier* branch (npub / nprofile / hex / NIP-05 resolution) only. The
+/// people-search branch has its own 300 ms debounce inside `scheduleUserDiscovery()`; the two are
+/// deliberately separate because they gate mutually exclusive query branches and never both fire
+/// for one query. Do not unify them — retuning one would silently retune the other.
 private struct NewChatQueryResolutionModifier: ViewModifier {
     @Environment(WorkspaceState.self) private var workspace
     let query: String
@@ -428,6 +483,20 @@ private struct NewChatQueryResolutionModifier: ViewModifier {
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             await workspace.resolveNewChatQueryIfReady()
+        }
+    }
+}
+
+/// Kicks off the web-of-trust people search on every query change. The 300 ms debounce lives
+/// inside `scheduleUserDiscovery()` (which cancels the previous traversal), not here — see the
+/// note on `NewChatQueryResolutionModifier` about keeping the two debounces separate.
+private struct UserDiscoveryModifier: ViewModifier {
+    @Environment(WorkspaceState.self) private var workspace
+    let query: String
+
+    func body(content: Content) -> some View {
+        content.task(id: query) {
+            workspace.scheduleUserDiscovery()
         }
     }
 }
@@ -539,6 +608,8 @@ private struct ComposeContactRow: View {
     let subtitle: String
     let avatarSeed: String
     let sanitizedPictureURL: URL?
+    /// Third line describing where this person came from. Only discovery rows set it.
+    var provenance: String?
     var isBusy = false
     /// `nil` hides the selection indicator (tap opens a chat instead of toggling).
     var selection: Bool?
@@ -563,6 +634,12 @@ private struct ComposeContactRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if let provenance {
+                        Text(provenance)
+                            .font(MessagesType.meta)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 0)
                 if isBusy {
@@ -579,6 +656,73 @@ private struct ComposeContactRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A stranger found by the web-of-trust search. Same metrics as `ComposeContactRow` plus a
+/// provenance line, because a search result must be visibly distinguishable from a contact.
+private struct DiscoveredPersonRow: View {
+    let person: DiscoveredPerson
+    var isBusy = false
+    var selection: Bool?
+    let action: () -> Void
+
+    var body: some View {
+        ComposeContactRow(
+            title: person.title,
+            subtitle: person.subtitle,
+            avatarSeed: person.accountIdHex,
+            sanitizedPictureURL: person.sanitizedPictureURL,
+            provenance: UserDiscoveryPresentation.provenanceLabel(radius: person.radius),
+            isBusy: isBusy,
+            selection: selection,
+            action: action
+        )
+    }
+}
+
+/// Searching / partial / failed, never two at once — the resolution lives in
+/// `UserDiscoveryPresentation.status` so it is testable without a view.
+private struct ComposeDiscoveryStatusRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    @ViewBuilder
+    var body: some View {
+        switch workspace.userDiscoveryStatus {
+        case .none:
+            EmptyView()
+        case .searching:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(L10n.string("Searching your network..."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+        case .failed:
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+                Text(L10n.string("Search couldn't be completed."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button(L10n.string("Retry")) {
+                    workspace.scheduleUserDiscovery()
+                }
+                .buttonStyle(.link)
+            }
+            .padding(12)
+        case .partial:
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+                Text(L10n.string("Some results may be missing."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+        }
     }
 }
 

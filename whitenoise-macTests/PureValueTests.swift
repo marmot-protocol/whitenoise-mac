@@ -2,9 +2,6 @@
 //  PureValueTests.swift
 //  whitenoise-macTests
 //
-//  Pure, self-contained value-type tests moved out of the serialized
-//  suite so they run in parallel (no shared global state).
-//
 
 import AppKit
 import Combine
@@ -20,6 +17,7 @@ import UserNotifications
 
 @testable import whitenoise_mac
 
+@Suite(.serialized)
 struct PureValueTests {
     @Test func pendingMediaUploadStateExposesItsReferenceOnlyWhenUploaded() {
         let reference = mediaReference(fileName: "photo.png")
@@ -3271,6 +3269,248 @@ struct PureValueTests {
         #expect(firstSelectable)
         #expect(!secondSelectable)
     }
+
+    // MARK: - User discovery ranking
+
+    @Test func discoveryRadiusDecidesOrderWhenEveryHigherTierIsTied() {
+        let near = discoveryResult(hex: "a", radius: 1)
+        let far = discoveryResult(hex: "b", radius: 2)
+
+        #expect(sortedHexes([far, near]) == [hex("a"), hex("b")])
+    }
+
+    @Test func discoveryProviderRankDecidesOrderWithinTheSameRadius() {
+        let strong = discoveryResult(hex: "a", radius: 2, providerRank: 0.9)
+        let weak = discoveryResult(hex: "b", radius: 2, providerRank: 0.1)
+
+        #expect(sortedHexes([weak, strong]) == [hex("a"), hex("b")])
+    }
+
+    @Test func discoveryAbsentProviderRankSortsAfterAPresentOne() {
+        let ranked = discoveryResult(hex: "b", radius: 2, providerRank: 0.01)
+        let unranked = discoveryResult(hex: "a", radius: 2, providerRank: nil)
+
+        #expect(sortedHexes([unranked, ranked]) == [hex("b"), hex("a")])
+    }
+
+    @Test func discoveryRadiusOutranksProviderRank() {
+        let nearUnranked = discoveryResult(hex: "b", radius: 1, providerRank: nil)
+        let farHighlyRanked = discoveryResult(hex: "a", radius: 255, providerRank: 0.99)
+
+        #expect(sortedHexes([farHighlyRanked, nearUnranked]) == [hex("b"), hex("a")])
+    }
+
+    @Test func discoveryMatchQualityDecidesOrderWhenRadiusAndRankAreTied() {
+        let contains = discoveryResult(hex: "a", radius: 1, matchQuality: .contains)
+        let prefix = discoveryResult(hex: "b", radius: 1, matchQuality: .prefix)
+        let exact = discoveryResult(hex: "c", radius: 1, matchQuality: .exact)
+
+        #expect(sortedHexes([contains, prefix, exact]) == [hex("c"), hex("b"), hex("a")])
+    }
+
+    @Test func discoveryMatchedFieldDecidesOrderWhenMatchQualityIsTied() {
+        let fields: [MatchedFieldFfi] = [.pubkey, .npub, .about, .displayName, .nip05, .name]
+        let results = fields.enumerated().map { index, field in
+            discoveryResult(hex: String(index), radius: 1, matchedField: field)
+        }
+
+        // Most identifying first, so the input order reverses exactly.
+        #expect(sortedHexes(results) == (0..<fields.count).reversed().map { hex(String($0)) })
+    }
+
+    @Test func discoveryDedupesByLowercasedHexKeepingTheFirstOccurrence() {
+        let first = discoveryResult(hex: "a", radius: 1, displayName: "First")
+        let duplicate = UserDirectorySearchResultFfi(
+            accountIdHex: hex("a").uppercased(),
+            npub: "npub1a",
+            radius: 2,
+            matchedField: .name,
+            matchQuality: .exact,
+            providerRank: nil,
+            profile: discoveryProfile(displayName: "Second")
+        )
+
+        let people = UserDiscoveryRanking.sortedUnique(
+            [first, duplicate].compactMap(UserDiscoveryRanking.person)
+        )
+
+        #expect(people.count == 1)
+        #expect(people.first?.displayName == "First")
+    }
+
+    @Test func discoveryHexTiebreakMakesOtherwiseIdenticalResultsDeterministic() {
+        let first = discoveryResult(hex: "a", radius: 1)
+        let second = discoveryResult(hex: "b", radius: 1)
+
+        // Sorting is not stable, so without the total-order hex tiebreak the rendered order could
+        // swap between updates for two results that tie on every meaningful key.
+        #expect(sortedHexes([first, second]) == sortedHexes([second, first]))
+        #expect(sortedHexes([second, first]) == [hex("a"), hex("b")])
+    }
+
+    @Test func discoveryStripsBidiControlsAndNewlinesFromStrangerDisplayNames() {
+        let result = discoveryResult(hex: "a", radius: 1, displayName: "Al\u{202E}ice\nBob")
+
+        #expect(UserDiscoveryRanking.person(from: result)?.displayName == "AliceBob")
+    }
+
+    @Test func discoveryRejectsUnsafeStrangerPictureURLs() {
+        let unsafe = [
+            "http://example.com/avatar.png",
+            "file:///etc/passwd",
+            "https://localhost/avatar.png",
+            "https://127.0.0.1/avatar.png",
+            "https://10.0.0.5/avatar.png",
+        ]
+
+        for raw in unsafe {
+            let result = discoveryResult(hex: "a", radius: 1, picture: raw)
+            let person = UserDiscoveryRanking.person(from: result)
+            #expect(person?.sanitizedPictureURL == nil, "\(raw) must not be fetchable")
+        }
+
+        let safe = discoveryResult(hex: "a", radius: 1, picture: "https://example.com/avatar.png")
+        #expect(UserDiscoveryRanking.person(from: safe)?.sanitizedPictureURL != nil)
+    }
+
+    @Test func discoveryMergeKeepsTheKnownContactForAHexPresentInBothSources() {
+        let known = ComposeContact(
+            accountIdHex: hex("a"),
+            npub: "npub1a",
+            displayName: "Real conversation name",
+            pictureURL: nil,
+            lastActivity: nil
+        )
+        let discovered = UserDiscoveryRanking.person(
+            from: discoveryResult(hex: "a", radius: 1, displayName: "Search snapshot name")
+        )
+
+        let merged = UserDiscoveryRanking.merged(
+            known: [known],
+            discovered: [discovered].compactMap { $0 },
+            excluding: []
+        )
+
+        #expect(merged.known.map(\.accountIdHex) == [hex("a")])
+        #expect(merged.known.first?.displayName == "Real conversation name")
+        #expect(merged.discovered.isEmpty)
+    }
+
+    @Test func discoveryMergeRemovesExcludedHexesFromEitherSource() {
+        let known = ComposeContact(
+            accountIdHex: hex("a"),
+            npub: "npub1a",
+            displayName: "Known",
+            pictureURL: nil,
+            lastActivity: nil
+        )
+        let discovered = [
+            discoveryResult(hex: "b", radius: 1),
+            discoveryResult(hex: "c", radius: 1),
+        ].compactMap(UserDiscoveryRanking.person)
+
+        let merged = UserDiscoveryRanking.merged(
+            known: [known],
+            discovered: discovered,
+            // Uppercased on purpose: exclusion is hex-case-insensitive.
+            excluding: [hex("a").uppercased(), hex("b")]
+        )
+
+        #expect(merged.known.isEmpty)
+        #expect(merged.discovered.map(\.accountIdHex) == [hex("c")])
+    }
+
+    // MARK: - User discovery presentation
+
+    @Test func discoveryProvenanceLabelsOnlyClaimAConnectionForRequestedRadii() {
+        #expect(UserDiscoveryPresentation.provenanceLabel(radius: 1) == L10n.string("In your network"))
+        #expect(UserDiscoveryPresentation.provenanceLabel(radius: 2) == L10n.string("Via your network"))
+        #expect(UserDiscoveryPresentation.provenanceLabel(radius: 255) == L10n.string("Discovery"))
+        // 0 is the searcher and 3...254 are outside the 1...2 window, so there is no honest
+        // provenance to show — and 255 must never read as a distance from the user.
+        #expect(UserDiscoveryPresentation.provenanceLabel(radius: 0) == nil)
+        #expect(UserDiscoveryPresentation.provenanceLabel(radius: 3) == nil)
+        #expect(UserDiscoveryPresentation.provenanceLabel(radius: 254) == nil)
+    }
+
+    @Test func discoveryStatusResolvesToExactlyOneRowForEveryFlagCombination() {
+        var seen: [UserDiscoveryStatus] = []
+        for isSearching in [false, true] {
+            for didFail in [false, true] {
+                for isPartial in [false, true] {
+                    seen.append(
+                        UserDiscoveryPresentation.status(
+                            isSearching: isSearching,
+                            didFail: didFail,
+                            isPartial: isPartial
+                        )
+                    )
+                }
+            }
+        }
+
+        #expect(
+            seen == [
+                .none, .partial, .failed, .failed,
+                .searching, .searching, .searching, .searching,
+            ]
+        )
+    }
+
+    @Test func discoveryNoMatchesIsSuppressedWhileSearchingWithNoResultsYet() {
+        let empty = MergedComposeResults(known: [], discovered: [])
+        #expect(!UserDiscoveryPresentation.showsNoMatches(results: empty, isSearching: true))
+        #expect(UserDiscoveryPresentation.showsNoMatches(results: empty, isSearching: false))
+
+        let withResults = MergedComposeResults(
+            known: [],
+            discovered: [discoveryResult(hex: "a", radius: 1)].compactMap(UserDiscoveryRanking.person)
+        )
+        #expect(!UserDiscoveryPresentation.showsNoMatches(results: withResults, isSearching: false))
+    }
+}
+
+/// 64-char hex built from a short seed, so tests read as `hex("a")` rather than a wall of digits.
+private func hex(_ seed: String) -> String {
+    String((seed + String(repeating: "0", count: 64)).prefix(64))
+}
+
+private func discoveryProfile(displayName: String? = nil, picture: String? = nil) -> UserProfileMetadataFfi {
+    UserProfileMetadataFfi(
+        name: nil,
+        displayName: displayName,
+        about: nil,
+        picture: picture,
+        nip05: nil,
+        lud16: nil
+    )
+}
+
+private func discoveryResult(
+    hex seed: String,
+    radius: UInt8,
+    matchedField: MatchedFieldFfi = .name,
+    matchQuality: MatchQualityFfi = .exact,
+    providerRank: Double? = nil,
+    displayName: String? = nil,
+    picture: String? = nil
+) -> UserDirectorySearchResultFfi {
+    UserDirectorySearchResultFfi(
+        accountIdHex: hex(seed),
+        npub: "npub1\(seed)",
+        radius: radius,
+        matchedField: matchedField,
+        matchQuality: matchQuality,
+        providerRank: providerRank,
+        profile: displayName == nil && picture == nil
+            ? nil
+            : discoveryProfile(displayName: displayName, picture: picture)
+    )
+}
+
+private func sortedHexes(_ results: [UserDirectorySearchResultFfi]) -> [String] {
+    UserDiscoveryRanking.sortedUnique(results.compactMap(UserDiscoveryRanking.person))
+        .map(\.accountIdHex)
 }
 
 private func mentionCandidate(id: String, displayName: String, npub: String) -> ComposerMentionCandidate {
