@@ -1204,6 +1204,19 @@ final class WorkspaceState {
     /// parameter, so it is applied right after creation.
     var groupDraftRetentionSecs: UInt64 = 0
     @ObservationIgnored var composeContactsGeneration: UInt64 = 0
+    /// People the web-of-trust search found for the current compose query. Deliberately separate
+    /// from `composeContacts`: a search result is not a relationship, so nothing here is ever
+    /// promoted into the contact directory or the profile cache
+    /// (see WorkspaceState+UserDiscovery.swift).
+    var discoveredPeople: [DiscoveredPerson] = []
+    var isSearchingPeople = false
+    /// A radius timed out or hit its candidate cap. Partial, not failed — results stay on screen.
+    var discoveryIsPartial = false
+    var discoveryDidFail = false
+    @ObservationIgnored var discoveryGeneration: UInt64 = 0
+    @ObservationIgnored var discoveryTask: Task<Void, Never>?
+    /// The query `discoveredPeople` belongs to, so results are never rendered under a newer query.
+    @ObservationIgnored var discoveryResultsQuery = ""
     var newChatQuery = ""
     var newChatName = ""
     var newChatDescription = ""
