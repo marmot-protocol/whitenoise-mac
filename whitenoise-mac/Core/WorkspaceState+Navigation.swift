@@ -80,8 +80,13 @@ extension WorkspaceState {
         }
     }
 
+    /// The single funnel for "the compose query went away" (pane hops, staging a member, going
+    /// back). Releasing the people search here rather than waiting for the view's `.task(id:)` to
+    /// notice keeps a relay traversal from outliving the panel that asked for it.
+    /// `closeNewChatComposer()` is covered too, via `resetNewChatComposer()`.
     func clearComposeSearch() {
         invalidateNewChatLookup()
+        invalidateUserDiscovery()
         newChatQuery = ""
         newChatRecipient = nil
         lastError = nil

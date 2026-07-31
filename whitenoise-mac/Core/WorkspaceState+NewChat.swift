@@ -270,6 +270,7 @@ extension WorkspaceState {
 
     func resetNewChatComposer() {
         invalidateNewChatLookup()
+        invalidateUserDiscovery()
         composePane = .newChat
         newChatQuery = ""
         newChatName = ""
@@ -282,10 +283,13 @@ extension WorkspaceState {
 
     /// Drops the active account's compose directory and invalidates any refresh that is
     /// still fetching group rosters, preventing it from restoring contacts after teardown.
+    /// Also releases any in-flight people search: it belongs to the account being torn down,
+    /// and its relay traversal must not outlive it.
     func resetComposeContacts() {
         composeContacts = []
         isLoadingComposeContacts = false
         composeContactsGeneration &+= 1
+        invalidateUserDiscovery()
     }
 
     func beginNewChatLookup() -> UInt64 {

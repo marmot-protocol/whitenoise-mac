@@ -24442,6 +24442,414 @@ struct whitenoise_macTests {
         #expect(state.isInsecureRelay("ws://127.0.0.1:7000"))
     }
 
+    // MARK: - User discovery (web-of-trust people search)
+
+    @MainActor
+    @Test func userDiscoveryAccumulatesAcrossUpdatesThenClearsTheSpinner() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "b", radius: 1)]),
+            userSearchUpdate(.resultsFound(radius: 2), [searchResult(hex: "c", radius: 2)]),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { !state.isSearchingPeople && !state.discoveredPeople.isEmpty }))
+
+        #expect(state.discoveredPeople.map(\.accountIdHex) == [discoveryHex("b"), discoveryHex("c")])
+        #expect(state.discoveredPeople.map(\.accountIdHex) == sortedDiscoveryHexes(state.discoveredPeople))
+        #expect(!state.discoveryIsPartial)
+        #expect(!state.discoveryDidFail)
+        // No unit test can prove the traversal reached a relay, so pin the arguments instead. Note
+        // `searchUsers` takes an `accountIdHex` where almost every neighbouring call takes an
+        // `accountRef`, and the radius window is 1...2 (0 is the searcher, excluded not searched).
+        #expect(
+            runtime.userSearchCalls == [
+                FakeMarmotRuntime.UserSearchCall(
+                    accountIdHex: discoverySearcherAccount.accountIdHex,
+                    query: "al",
+                    radiusStart: 1,
+                    radiusEnd: 2
+                )
+            ]
+        )
+    }
+
+    @MainActor
+    @Test func userDiscoveryRendersProgressivelyWhileTheTraversalIsStillRunning() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "b", radius: 1)]),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        runtime.userSearchUpdateDelayNanoseconds = 150_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { !state.discoveredPeople.isEmpty }))
+
+        // The first batch is on screen while the search is still going: the spinner and results
+        // coexist, and "No matches" must not have flashed in between.
+        #expect(state.isSearchingPeople)
+        #expect(state.discoveredPeople.count == 1)
+        #expect(state.userDiscoveryStatus == .searching)
+    }
+
+    @MainActor
+    @Test func userDiscoveryReSortsTheAggregateWhenALaterUpdateDeliversACloserPerson() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        // The far result arrives first. `newResults` is pre-sorted only *within* a batch, so a host
+        // that sorts once at the end (or appends blindly) renders these in arrival order.
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 2), [searchResult(hex: "z", radius: 2)]),
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "a", radius: 1)]),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { state.discoveredPeople.count == 2 }))
+
+        #expect(state.discoveredPeople.map(\.accountIdHex) == [discoveryHex("a"), discoveryHex("z")])
+    }
+
+    @MainActor
+    @Test func userDiscoveryDebounceCoalescesRapidKeystrokesIntoOneTraversal() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [userSearchUpdate(.searchCompleted, [])]
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        for query in ["a", "al", "ali"] {
+            state.newChatQuery = query
+            state.scheduleUserDiscovery()
+        }
+        #expect(await pollUserDiscovery(until: { !state.isSearchingPeople }))
+
+        #expect(runtime.userSearchCalls.count == 1)
+        #expect(runtime.userSearchCalls.first?.query == "ali")
+    }
+
+    @MainActor
+    @Test func userDiscoveryNeverTraversesForAnIdentifierOrEmptyQuery() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "b", radius: 1)]),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        // A real search first, so the "no traversal" assertions below cannot pass by accident.
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { !state.discoveredPeople.isEmpty }))
+        #expect(runtime.userSearchCalls.count == 1)
+
+        // A pasted identifier already names one person: the resolver owns that branch, and a graph
+        // traversal for it would be pure waste.
+        state.newChatQuery = String(repeating: "f", count: 64)
+        state.scheduleUserDiscovery()
+        #expect(state.discoveredPeople.isEmpty)
+        #expect(!state.isSearchingPeople)
+
+        state.newChatQuery = "   "
+        state.scheduleUserDiscovery()
+        #expect(state.discoveredPeople.isEmpty)
+        #expect(!state.isSearchingPeople)
+
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(runtime.userSearchCalls.count == 1)
+    }
+
+    @MainActor
+    @Test func userDiscoveryDropsSupersededUpdatesWithoutStrandingTheSpinner() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 2), [searchResult(hex: "z", radius: 2)]),
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "a", radius: 1)]),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        runtime.userSearchUpdateDelayNanoseconds = 150_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { state.discoveredPeople.count == 1 }))
+
+        // Edit the query mid-stream *without* resubmitting, exactly as typing another character
+        // does before the view's `.task(id:)` fires.
+        state.newChatQuery = "alx"
+        try await Task.sleep(for: .milliseconds(500))
+
+        #expect(state.discoveredPeople.count == 1, "the superseded search's later update must not land")
+        #expect(state.discoveredPeopleForCurrentQuery.isEmpty, "old results must not render under a new query")
+        // Spinner ownership is keyed on the generation alone, so abandoning mid-stream still clears
+        // it. This is the shape of #110 and #255.
+        #expect(!state.isSearchingPeople)
+    }
+
+    @MainActor
+    @Test func userDiscoveryReleasesAnAbandonedSubscriptionWithoutDrainingIt() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "b", radius: 1)]),
+            userSearchUpdate(.resultsFound(radius: 2), [searchResult(hex: "c", radius: 2)]),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        runtime.userSearchUpdateDelayNanoseconds = 150_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { state.discoveredPeople.count == 1 }))
+
+        state.invalidateUserDiscovery()
+        try await Task.sleep(for: .milliseconds(600))
+
+        // Dropping the subscription is what cancels the relay traversal. Looping on to
+        // `searchCompleted` instead would keep a traversal alive for a query nobody is looking at,
+        // and this counter is the only observable consequence of getting it wrong. Three updates are
+        // scripted; one call fetched the first and one more was in flight when the search was
+        // abandoned, so a host that drained instead of releasing would reach 3 or 4.
+        #expect(
+            runtime.userSearchNextUpdateCount <= 2,
+            "abandoned search must be released, not drained to searchCompleted"
+        )
+        #expect(state.discoveredPeople.isEmpty)
+        #expect(!state.isSearchingPeople)
+    }
+
+    @MainActor
+    @Test func userDiscoveryLandsNoResultsUnderANewlySwitchedAccount() async throws {
+        let secondary = AccountSummaryFfi(
+            label: "Secondary Account",
+            accountIdHex: String(repeating: "7", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount, secondary])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "b", radius: 1)]),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        runtime.userSearchUpdateDelayNanoseconds = 250_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        try await Task.sleep(for: .milliseconds(350))
+        let target = try #require(state.accounts.first { $0.accountIdHex == secondary.accountIdHex })
+        state.selectAccount(target)
+        try await Task.sleep(for: .milliseconds(600))
+
+        #expect(state.activeAccountId == target.id)
+        #expect(state.discoveredPeople.isEmpty)
+        #expect(!state.isSearchingPeople)
+    }
+
+    @MainActor
+    @Test func userDiscoveryRadiusTimeoutKeepsResultsAndReportsPartialNotFailed() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "b", radius: 1)]),
+            userSearchUpdate(.radiusTimeout(radius: 2), []),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { !state.isSearchingPeople }))
+
+        // A timeout (or truncation) is partial, not failed: everything already delivered is correct.
+        #expect(state.discoveredPeople.count == 1)
+        #expect(state.discoveryIsPartial)
+        #expect(!state.discoveryDidFail)
+        #expect(state.userDiscoveryStatus == .partial)
+    }
+
+    @MainActor
+    @Test func userDiscoveryErrorTriggerReportsFailureAndKeepsDeliveredResults() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(.resultsFound(radius: 1), [searchResult(hex: "b", radius: 1)]),
+            userSearchUpdate(.error(message: "relay unreachable"), []),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { !state.isSearchingPeople }))
+
+        // `error` is always followed by `searchCompleted`, so the loop keeps going and the failure
+        // is reported only once the search actually ends — never alongside a live spinner.
+        #expect(state.discoveredPeople.count == 1)
+        #expect(state.discoveryDidFail)
+        #expect(state.userDiscoveryStatus == .failed)
+    }
+
+    @MainActor
+    @Test func userDiscoverySearchUsersThrowReportsFailureAndClearsTheSpinner() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.searchUsersError = FakeMarmotRuntimeError.unused
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { state.discoveryDidFail }))
+
+        #expect(!state.isSearchingPeople)
+        #expect(state.discoveredPeople.isEmpty)
+        #expect(state.userDiscoveryStatus == .failed)
+    }
+
+    @MainActor
+    @Test func userDiscoveryNeverRendersTheSearcherAndNeverPromotesResults() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [discoverySearcherAccount])
+        runtime.userSearchUpdates = [
+            userSearchUpdate(
+                .resultsFound(radius: 1),
+                [
+                    // The searcher matching their own query must never render.
+                    searchResult(hex: discoverySearcherAccount.accountIdHex, radius: 1),
+                    searchResult(hex: "b", radius: 1),
+                ]
+            ),
+            userSearchUpdate(.searchCompleted, []),
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let profileLookups = ProfileLookupLog()
+        runtime.onUserProfileLookup = { profileLookups.record($0) }
+        runtime.clearRefreshedProfileIds()
+        state.newChatQuery = "al"
+        state.scheduleUserDiscovery()
+        #expect(await pollUserDiscovery(until: { !state.isSearchingPeople }))
+
+        let rendered = state.composeSearchResults(matching: "al")
+        #expect(rendered.discovered.map(\.accountIdHex) == [discoveryHex("b")])
+
+        // A search result is not a relationship: `user_profile` must keep answering only for
+        // accounts the user has actually interacted with. The tempting implementation (routing rows
+        // through `resolveNewChatRecipient`) refreshes the profile over the network and invalidates
+        // the cache — i.e. it promotes the stranger — so assert on the runtime's own call log.
+        #expect(state.composeContacts.isEmpty)
+        #expect(rendered.known.isEmpty)
+        #expect(!runtime.refreshedProfileIds.contains(discoveryHex("b")))
+        #expect(!profileLookups.recorded.contains(discoveryHex("b")))
+        #expect(state.peerProfileFFICache[discoveryHex("b")] == nil)
+    }
+
+}
+
+private var discoverySearcherAccount: AccountSummaryFfi {
+    AccountSummaryFfi(
+        label: "Searcher Account",
+        accountIdHex: String(repeating: "5", count: 64),
+        localSigning: true,
+        externalSigning: false,
+        signedOut: false,
+        running: false
+    )
+}
+
+/// Records which account ids `userProfile` was queried for, from whatever thread the runtime's
+/// off-main profile batch happens to run on.
+private final class ProfileLookupLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hexes: [String] = []
+
+    func record(_ accountIdHex: String) {
+        lock.withLock { hexes.append(accountIdHex) }
+    }
+
+    var recorded: [String] {
+        lock.withLock { hexes }
+    }
+}
+
+/// 64-char hex from a short seed, so the discovery fixtures read as `discoveryHex("b")`. A seed
+/// that is already a full hex passes straight through.
+private func discoveryHex(_ seed: String) -> String {
+    String((seed + String(repeating: "0", count: 64)).prefix(64))
+}
+
+private func searchResult(
+    hex seed: String,
+    radius: UInt8,
+    matchedField: MatchedFieldFfi = .name,
+    matchQuality: MatchQualityFfi = .exact,
+    providerRank: Double? = nil,
+    displayName: String? = nil,
+    picture: String? = nil
+) -> UserDirectorySearchResultFfi {
+    UserDirectorySearchResultFfi(
+        accountIdHex: discoveryHex(seed),
+        npub: "npub1\(seed.prefix(8))",
+        radius: radius,
+        matchedField: matchedField,
+        matchQuality: matchQuality,
+        providerRank: providerRank,
+        profile: UserProfileMetadataFfi(
+            name: nil,
+            displayName: displayName,
+            about: nil,
+            picture: picture,
+            nip05: nil,
+            lud16: nil
+        )
+    )
+}
+
+private func userSearchUpdate(
+    _ trigger: SearchUpdateTriggerFfi,
+    _ results: [UserDirectorySearchResultFfi]
+) -> UserSearchUpdateFfi {
+    UserSearchUpdateFfi(
+        trigger: trigger,
+        newResults: results,
+        totalResultCount: UInt32(results.count)
+    )
+}
+
+private func sortedDiscoveryHexes(_ people: [DiscoveredPerson]) -> [String] {
+    UserDiscoveryRanking.sortedUnique(people).map(\.accountIdHex)
+}
+
+/// Polls `condition` on the main actor until it holds or `timeout` elapses. The people search
+/// debounces for 300 ms before it even calls the runtime, so every assertion about its outcome has
+/// to wait rather than yield.
+@MainActor
+private func pollUserDiscovery(
+    timeout: Duration = .seconds(3),
+    until condition: @MainActor () -> Bool
+) async -> Bool {
+    let step = Duration.milliseconds(10)
+    var elapsed = Duration.zero
+    while elapsed < timeout {
+        if condition() { return true }
+        try? await Task.sleep(for: step)
+        elapsed += step
+    }
+    return condition()
 }
 
 @Suite(.serialized)
@@ -24816,6 +25224,30 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var chatListStreamEndsAfterUpdates = false
     /// Simulates async relay/runtime latency before a chat-list subscription is ready.
     var chatListSubscriptionDelayNanoseconds: UInt64 = 0
+    /// Ordered script of web-of-trust search updates every `searchUsers` subscription replays.
+    var userSearchUpdates: [UserSearchUpdateFfi] = []
+    /// Per-update latency, so a test can change the query or switch accounts mid-stream.
+    var userSearchUpdateDelayNanoseconds: UInt64 = 0
+    /// When set, `searchUsers` throws instead of returning a subscription.
+    var searchUsersError: Error?
+    var userSearchCalls: [UserSearchCall] {
+        recordedStateLock.withLock { _userSearchCalls }
+    }
+    private var _userSearchCalls: [UserSearchCall] = []
+    /// Total `nextUpdate()` calls across every subscription this runtime handed out. A host that
+    /// abandons a search must release the subscription rather than draining it, and this counter
+    /// is the only observable consequence of getting that wrong.
+    var userSearchNextUpdateCount: Int {
+        recordedStateLock.withLock { _userSearchNextUpdateCount }
+    }
+    private var _userSearchNextUpdateCount = 0
+
+    struct UserSearchCall: Equatable {
+        let accountIdHex: String
+        let query: String
+        let radiusStart: UInt8
+        let radiusEnd: UInt8
+    }
     var notificationStreamEndsImmediately = false
     var timelineStreamEndsAfterUpdates = false
     private(set) var timelineMessageQueries: [TimelineMessageQueryFfi] = []
@@ -26044,6 +26476,32 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         return FakeNotificationsSubscription(endsImmediately: notificationStreamEndsImmediately)
     }
 
+    func searchUsers(accountIdHex: String, query: String, radiusStart: UInt8, radiusEnd: UInt8) async throws
+        -> UserSearchSubscription
+    {
+        recordedStateLock.withLock {
+            _userSearchCalls.append(
+                UserSearchCall(
+                    accountIdHex: accountIdHex,
+                    query: query,
+                    radiusStart: radiusStart,
+                    radiusEnd: radiusEnd
+                )
+            )
+        }
+        if let searchUsersError {
+            throw searchUsersError
+        }
+        return FakeUserSearchSubscription(
+            updates: userSearchUpdates,
+            updateDelayNanoseconds: userSearchUpdateDelayNanoseconds,
+            recordNextUpdate: { [weak self] in
+                guard let self else { return }
+                self.recordedStateLock.withLock { self._userSearchNextUpdateCount += 1 }
+            }
+        )
+    }
+
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
         recordSyncCall("timelineMessages")
         timelineMessageQueries.append(query)
@@ -26990,6 +27448,51 @@ private final class FakeNotificationsSubscription: NotificationsSubscription {
     override func next() async -> NotificationUpdateFfi? {
         if endsImmediately { return nil }
         return await awaitSubscriptionCancellation()
+    }
+}
+
+/// Replays a scripted web-of-trust search. Unlike the runtime subscriptions there is no
+/// `snapshot()` — a search has no initial state, only results as each radius resolves.
+///
+/// Once the script is exhausted this suspends until cancelled rather than returning `nil`, so a
+/// test can distinguish "the search ended" from "the host stopped asking". `recordNextUpdate`
+/// counts every call, which is how the release-without-draining contract becomes assertable.
+private final class FakeUserSearchSubscription: UserSearchSubscription {
+    private var updates: [UserSearchUpdateFfi]
+    private let updateDelayNanoseconds: UInt64
+    private let recordNextUpdate: () -> Void
+
+    required init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.updates = []
+        self.updateDelayNanoseconds = 0
+        self.recordNextUpdate = {}
+        super.init(unsafeFromRawPointer: pointer)
+    }
+
+    init(
+        updates: [UserSearchUpdateFfi],
+        updateDelayNanoseconds: UInt64 = 0,
+        recordNextUpdate: @escaping () -> Void = {}
+    ) {
+        self.updates = updates
+        self.updateDelayNanoseconds = updateDelayNanoseconds
+        self.recordNextUpdate = recordNextUpdate
+        super.init(noPointer: NoPointer())
+    }
+
+    override func nextUpdate() async -> UserSearchUpdateFfi? {
+        recordNextUpdate()
+        guard !updates.isEmpty else {
+            return await awaitSubscriptionCancellation()
+        }
+        if updateDelayNanoseconds > 0 {
+            do {
+                try await Task.sleep(nanoseconds: updateDelayNanoseconds)
+            } catch {
+                return nil
+            }
+        }
+        return updates.removeFirst()
     }
 }
 

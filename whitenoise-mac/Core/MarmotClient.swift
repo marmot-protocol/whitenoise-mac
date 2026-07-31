@@ -72,6 +72,11 @@ nonisolated protocol MarmotRuntime: Sendable {
         -> SendSummaryFfi
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription
     func subscribeNotifications() async throws -> NotificationsSubscription
+    /// The one MarmotRuntime call that is not a local DB read: it traverses the searcher's web of
+    /// trust over relays and streams matches as each radius resolves. Note the parameter is an
+    /// `accountIdHex`, not the `accountRef` every neighbouring call takes.
+    func searchUsers(accountIdHex: String, query: String, radiusStart: UInt8, radiusEnd: UInt8) async throws
+        -> UserSearchSubscription
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi
     func subscribeTimelineMessages(accountRef: String, groupIdHex: String?, limit: UInt32?) async throws
         -> TimelineMessagesSubscription
@@ -458,6 +463,17 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func subscribeNotifications() async throws -> NotificationsSubscription {
         try await marmot.subscribeNotifications()
+    }
+
+    func searchUsers(accountIdHex: String, query: String, radiusStart: UInt8, radiusEnd: UInt8) async throws
+        -> UserSearchSubscription
+    {
+        try await marmot.searchUsers(
+            accountIdHex: accountIdHex,
+            query: query,
+            radiusStart: radiusStart,
+            radiusEnd: radiusEnd
+        )
     }
 
     func timelineMessages(accountRef: String, query: TimelineMessageQueryFfi) throws -> TimelinePageFfi {
