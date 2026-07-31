@@ -249,6 +249,14 @@ struct GroupDetailsSheet: View {
                             }
                         }
                     }
+                    if let contactAccountIdHex = chat.directPeerAccountIdHex {
+                        Section(L10n.string("Contact")) {
+                            ContactNicknameRow(
+                                accountIdHex: contactAccountIdHex,
+                                publishedName: chat.publishedTitle
+                            )
+                        }
+                    }
 
                     Section(L10n.string("Profile")) {
                         TextField(L10n.string("Group name"), text: $workspace.groupProfileDraftName)
@@ -883,6 +891,11 @@ struct ContactDetailsView: View {
 
             Form {
                 Section(L10n.string("Contact")) {
+                    ContactNicknameRow(
+                        accountIdHex: contact.accountIdHex,
+                        publishedName: contact.publishedDisplayName
+                    )
+
                     LabeledContent(L10n.string("Public key")) {
                         Text(contact.npub.isEmpty ? contact.accountIdHex : contact.npub)
                             .font(.callout.monospaced())

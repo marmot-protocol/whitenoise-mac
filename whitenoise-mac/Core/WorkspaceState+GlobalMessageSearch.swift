@@ -147,6 +147,7 @@ nonisolated enum GlobalMessageSearchEngine {
         accountRef: String,
         localAccountId: String,
         localDisplayName: String,
+        nicknames: ContactNicknames = .none,
         scopes: [GlobalMessageSearchScope],
         query: String,
         checkCancellation: @escaping @Sendable () throws -> Void
@@ -207,6 +208,7 @@ nonisolated enum GlobalMessageSearchEngine {
             client: client,
             localAccountId: localAccountId,
             localDisplayName: localDisplayName,
+            nicknames: nicknames,
             tokens: tokens,
             checkCancellation: checkCancellation
         )
@@ -217,6 +219,7 @@ nonisolated enum GlobalMessageSearchEngine {
         accountRef: String,
         localAccountId: String,
         localDisplayName: String,
+        nicknames: ContactNicknames = .none,
         scopes: [GlobalMessageSearchScope],
         query: String,
         checkCancellation: @escaping @Sendable () throws -> Void
@@ -273,6 +276,7 @@ nonisolated enum GlobalMessageSearchEngine {
             client: client,
             localAccountId: localAccountId,
             localDisplayName: localDisplayName,
+            nicknames: nicknames,
             tokens: tokens,
             checkCancellation: checkCancellation
         )
@@ -283,6 +287,7 @@ nonisolated enum GlobalMessageSearchEngine {
         client: any MarmotRuntime,
         localAccountId: String,
         localDisplayName: String,
+        nicknames: ContactNicknames = .none,
         tokens: [String],
         checkCancellation: @escaping @Sendable () throws -> Void
     ) throws -> [GlobalMessageSearchResult] {
@@ -293,6 +298,13 @@ nonisolated enum GlobalMessageSearchEngine {
         ]
         for senderId in senderIds where senderId != localAccountId {
             try checkCancellation()
+            // The viewer's private nickname outranks the published sources, exactly as it does in
+            // the timeline projection. `chatTitle` needs no equivalent: the scopes it comes from
+            // are the already-nicknamed chat rows.
+            if let nickname = nicknames.nickname(forContactAccountIdHex: senderId) {
+                senderNames[senderId] = nickname
+                continue
+            }
             let profile = try? client.userProfile(accountIdHex: senderId)
             senderNames[senderId] =
                 firstNonBlank([
@@ -380,6 +392,7 @@ extension WorkspaceState {
 
         let scopes = activeChats.map { GlobalMessageSearchScope(groupId: $0.id, title: $0.title) }
         let visibleGroupIds = Set(scopes.map(\.groupId))
+        let nicknames = activeContactNicknames
         isSearchingAllMessages = true
         globalMessageSearchTask = Task { [weak self] in
             do {
@@ -391,6 +404,7 @@ extension WorkspaceState {
                         accountRef: account.accountRef,
                         localAccountId: account.accountIdHex,
                         localDisplayName: account.displayName,
+                        nicknames: nicknames,
                         scopes: scopes,
                         query: query,
                         checkCancellation: checkCancellation
@@ -450,6 +464,7 @@ extension WorkspaceState {
 
         let scopes = sidebarMessageSearchScopes
         let visibleGroupIds = Set(scopes.map(\.groupId))
+        let nicknames = activeContactNicknames
         isSearchingSidebarMessages = true
         sidebarMessageSearchTask = Task { [weak self] in
             do {
@@ -461,6 +476,7 @@ extension WorkspaceState {
                         accountRef: account.accountRef,
                         localAccountId: account.accountIdHex,
                         localDisplayName: account.displayName,
+                        nicknames: nicknames,
                         scopes: scopes,
                         query: query,
                         checkCancellation: checkCancellation
