@@ -14,10 +14,6 @@ import Observation
 import SwiftUI
 import UserNotifications
 
-private enum ComposerMediaUploadPresentation {
-    static let uploadedAcknowledgementDelayNanoseconds: UInt64 = 300_000_000
-}
-
 /// Ownership token for subscription, initial-load, or post-send timeline applies.
 /// Re-checked after every suspension in window and projection paths so a superseded
 /// listener or query cannot overwrite a replacement for the same account/chat.
@@ -614,7 +610,9 @@ extension WorkspaceState {
         // Media uploads cannot carry a reply target yet, so reply and pending media are
         // mutually exclusive — starting a reply drops any staged attachments.
         if let draftKey = selectedComposerDraftKey {
+            pendingMediaAttachmentsByConversation[draftKey]?.forEach { cancelPendingMediaUpload($0.id) }
             pendingMediaAttachmentsByConversation[draftKey] = nil
+            pendingMediaUploadStatesByConversation[draftKey] = nil
         }
         replyDraftContext = MessageReplyContext(
             targetMessageId: message.id,
@@ -1039,22 +1037,37 @@ extension WorkspaceState {
 
         do {
             if !mediaAttachments.isEmpty {
-                markMediaAttachmentsUploading(mediaAttachments, draftKey: draftKey)
-                let uploadResult = try await client.uploadMedia(
-                    accountRef: activeAccount.accountRef,
-                    groupIdHex: selectedChat.id,
-                    request: MediaUploadRequestFfi(
-                        attachments: mediaAttachments.map(\.uploadRequest),
-                        caption: text.isEmpty ? nil : text,
-                        send: true,
-                        blossomServer: nil
-                    )
+                // Blossom already has every blob — staging uploaded them. Order comes from the
+                // composer, never from the order the uploads happened to finish in.
+                let uploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
+                let references = mediaAttachments.compactMap { uploadStates[$0.id]?.reference }
+                guard references.count == mediaAttachments.count else { return }
+
+                // We are holding the plaintext that produced these references, so the sender's own
+                // bubble has no reason to fetch its own image back from Blossom and decrypt it.
+                // Seed before publishing: the optimistic projection can render the bubble as soon
+                // as the send returns, and it must find a warm cache when it does.
+                await cacheOutgoingMediaPlaintext(
+                    mediaAttachments,
+                    references: references,
+                    accountId: activeAccount.id,
+                    groupIdHex: selectedChat.id
                 )
-                markUploadedMediaAttachments(mediaAttachments, uploadResult: uploadResult, draftKey: draftKey)
-                if pendingMediaUploadStatesByConversation[draftKey]?.isEmpty == false {
-                    try? await Task.sleep(
-                        nanoseconds: ComposerMediaUploadPresentation.uploadedAcknowledgementDelayNanoseconds
+
+                // The blobs are already uploaded, so publishing is a short relay round-trip rather
+                // than a transfer. Empty the composer now instead of leaving the thumbnails sitting
+                // there looking unsent; the catch below puts them back if the publish fails.
+                let restorePoint = clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
+                do {
+                    _ = try await client.sendMediaAttachments(
+                        accountRef: activeAccount.accountRef,
+                        groupIdHex: selectedChat.id,
+                        attachments: references,
+                        caption: text.isEmpty ? nil : text
                     )
+                } catch {
+                    restoreComposer(restorePoint, for: draftKey)
+                    throw error
                 }
                 clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: selectedChat.id)
             } else if let replyDraftContext {
@@ -1071,15 +1084,8 @@ extension WorkspaceState {
                     text: text
                 )
             }
-            // Clear via the captured `draftKey`, not the `draftText`/`replyDraftContext`
-            // setters — those resolve their key from the *live* selection, so if the user
-            // switched chats during the `await` above they would wipe the newly selected
-            // conversation's composer state instead of the one we just sent from.
-            draftTextByConversation[draftKey] = nil
-            composerMentionSelectionsByConversation[draftKey] = nil
-            replyDraftContextByConversation[draftKey] = nil
-            pendingMediaAttachmentsByConversation[draftKey] = nil
-            pendingMediaUploadStatesByConversation[draftKey] = nil
+            // Idempotent: the media branch already cleared optimistically before publishing.
+            _ = clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
             await deletePersistedComposerDraft(
                 for: draftKey,
                 accountRef: activeAccount.accountRef,
@@ -1092,33 +1098,85 @@ extension WorkspaceState {
             // full re-map per delivery.
             await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
-            pendingMediaUploadStatesByConversation[draftKey] = nil
+            // A failed *publish* leaves the blobs on Blossom and the references valid, so the
+            // restored attachments stay `.uploaded` and the user can simply press Send again.
             lastError = error.localizedDescription
         }
     }
 
-    private func markMediaAttachmentsUploading(_ attachments: [PendingMediaAttachment], draftKey: ComposerDraftKey) {
-        let imageStates = Dictionary(
-            uniqueKeysWithValues:
-                attachments
-                .filter { $0.kind == .image }
-                .map { ($0.id, PendingMediaUploadState.uploading) }
+    /// Empties one conversation's composer and returns what it held, so an optimistic clear can be
+    /// undone if the publish fails.
+    ///
+    /// Always clears via the captured `draftKey`, never the `draftText`/`replyDraftContext`
+    /// setters — those resolve their key from the *live* selection, so if the user switched chats
+    /// during a send they would wipe the newly selected conversation's composer instead of the one
+    /// we sent from.
+    @discardableResult
+    private func clearComposerAfterSend(
+        for draftKey: ComposerDraftKey,
+        mediaAttachments: [PendingMediaAttachment]
+    ) -> ComposerSendRestorePoint {
+        let restorePoint = ComposerSendRestorePoint(
+            text: draftTextByConversation[draftKey],
+            mentionSelections: composerMentionSelectionsByConversation[draftKey],
+            replyContext: replyDraftContextByConversation[draftKey],
+            mediaAttachments: pendingMediaAttachmentsByConversation[draftKey],
+            mediaUploadStates: pendingMediaUploadStatesByConversation[draftKey]
         )
-        pendingMediaUploadStatesByConversation[draftKey] = imageStates.isEmpty ? nil : imageStates
+        draftTextByConversation[draftKey] = nil
+        composerMentionSelectionsByConversation[draftKey] = nil
+        replyDraftContextByConversation[draftKey] = nil
+        mediaAttachments.forEach { cancelPendingMediaUpload($0.id) }
+        let sentIds = Set(mediaAttachments.map(\.id))
+        let remainingAttachments = (pendingMediaAttachmentsByConversation[draftKey] ?? [])
+            .filter { !sentIds.contains($0.id) }
+        pendingMediaAttachmentsByConversation[draftKey] = remainingAttachments.isEmpty ? nil : remainingAttachments
+        var remainingUploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
+        sentIds.forEach { remainingUploadStates[$0] = nil }
+        pendingMediaUploadStatesByConversation[draftKey] = remainingUploadStates.isEmpty ? nil : remainingUploadStates
+        return restorePoint
     }
 
-    private func markUploadedMediaAttachments(
-        _ attachments: [PendingMediaAttachment],
-        uploadResult: MediaUploadResultFfi,
-        draftKey: ComposerDraftKey
-    ) {
-        var uploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
-        let uploadedCount = min(attachments.count, uploadResult.attachments.count)
-        for index in 0..<uploadedCount {
-            guard attachments[index].kind == .image else { continue }
-            uploadStates[attachments[index].id] = .uploaded
+    private func restoreComposer(_ restorePoint: ComposerSendRestorePoint, for draftKey: ComposerDraftKey) {
+        draftTextByConversation[draftKey] = restorePoint.text
+        composerMentionSelectionsByConversation[draftKey] = restorePoint.mentionSelections
+        replyDraftContextByConversation[draftKey] = restorePoint.replyContext
+        let restoredAttachments = restorePoint.mediaAttachments ?? []
+        let restoredIds = Set(restoredAttachments.map(\.id))
+        let stagedSinceSnapshot = (pendingMediaAttachmentsByConversation[draftKey] ?? [])
+            .filter { !restoredIds.contains($0.id) }
+        let mergedAttachments = restoredAttachments + stagedSinceSnapshot
+        pendingMediaAttachmentsByConversation[draftKey] = mergedAttachments.isEmpty ? nil : mergedAttachments
+        var mergedUploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
+        for (id, state) in restorePoint.mediaUploadStates ?? [:] {
+            mergedUploadStates[id] = state
         }
-        pendingMediaUploadStatesByConversation[draftKey] = uploadStates.isEmpty ? nil : uploadStates
+        pendingMediaUploadStatesByConversation[draftKey] = mergedUploadStates.isEmpty ? nil : mergedUploadStates
+    }
+
+    /// Files the plaintext we just published under the same cache key the bubble will look it up
+    /// by, so an outgoing attachment renders from disk instead of round-tripping through Blossom.
+    private func cacheOutgoingMediaPlaintext(
+        _ attachments: [PendingMediaAttachment],
+        references: [MediaAttachmentReferenceFfi],
+        accountId: String,
+        groupIdHex: String
+    ) async {
+        for (attachment, reference) in zip(attachments, references) {
+            await mediaDiskCache.store(
+                MessageMediaDownload(
+                    data: attachment.data,
+                    fileName: attachment.fileName,
+                    mediaType: attachment.mediaType,
+                    sizeBytes: UInt64(attachment.data.count)
+                ),
+                for: MessageMediaDiskCacheKey(
+                    accountId: accountId,
+                    groupIdHex: groupIdHex,
+                    reference: reference
+                )
+            )
+        }
     }
 
     func startTimelineListener(

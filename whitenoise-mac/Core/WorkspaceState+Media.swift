@@ -26,6 +26,7 @@ private nonisolated struct MediaAttachmentDownloadTaskFailure: Error {
 extension WorkspaceState {
     func clearAllComposerDrafts() {
         discardAllComposerDraftPersistenceState()
+        cancelAllPendingMediaUploads()
         draftTextByConversation.removeAll()
         composerMentionSelectionsByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
@@ -92,6 +93,7 @@ extension WorkspaceState {
         for chatId in chatIds {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             discardComposerDraftPersistenceState(for: key)
+            cancelPendingMediaUploads(for: key)
             draftTextByConversation[key] = nil
             composerMentionSelectionsByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
@@ -103,6 +105,7 @@ extension WorkspaceState {
 
     func clearComposerDrafts(forAccountId accountId: String) {
         discardComposerDraftPersistenceState(forAccountId: accountId)
+        cancelPendingMediaUploads(forAccountId: accountId)
         for key in draftTextByConversation.keys.filter({ $0.accountId == accountId }) {
             draftTextByConversation[key] = nil
         }
@@ -481,6 +484,7 @@ extension WorkspaceState {
 
     func removePendingMediaAttachment(_ id: PendingMediaAttachment.ID) {
         guard let selectedComposerDraftKey else { return }
+        cancelPendingMediaUpload(id)
         var attachments = pendingMediaAttachmentsByConversation[selectedComposerDraftKey] ?? []
         attachments.removeAll { $0.id == id }
         pendingMediaAttachmentsByConversation[selectedComposerDraftKey] = attachments.isEmpty ? nil : attachments
@@ -488,6 +492,94 @@ extension WorkspaceState {
         uploadStates[id] = nil
         pendingMediaUploadStatesByConversation[selectedComposerDraftKey] = uploadStates.isEmpty ? nil : uploadStates
         composerDraftDidChange(for: selectedComposerDraftKey)
+    }
+
+    /// Upload a staged attachment to Blossom without publishing it, so pressing Send later only
+    /// has to hand the resulting reference to `sendMediaAttachments`. The core exposes exactly
+    /// this split: `uploadMedia(send: false)` is the first half of what `send: true` does.
+    func beginPendingMediaUpload(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
+        guard let client, let activeAccount else { return }
+        setPendingMediaUploadState(.uploading, for: attachment.id, in: draftKey)
+        pendingMediaUploadTasks[attachment.id]?.cancel()
+        // The finished task stays in the map until the attachment is removed or sent: clearing it
+        // here would race a retry that has already installed its replacement under the same id.
+        pendingMediaUploadTasks[attachment.id] = Task { [weak self] in
+            do {
+                let result = try await client.uploadMedia(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: draftKey.chatId,
+                    request: MediaUploadRequestFfi(
+                        attachments: [attachment.uploadRequest],
+                        caption: nil,
+                        send: false,
+                        blossomServer: nil
+                    )
+                )
+                guard !Task.isCancelled else { return }
+                // A result that carries no reference is a failed upload, not a cancelled one: leaving
+                // it `.uploading` would pin the tile on a spinner with no retry, and `canSend` gates
+                // on every attachment reporting a reference, so the whole draft would wedge.
+                guard let reference = result.attachments.first?.reference else {
+                    self?.setPendingMediaUploadState(.failed, for: attachment.id, in: draftKey)
+                    return
+                }
+                self?.setPendingMediaUploadState(.uploaded(reference), for: attachment.id, in: draftKey)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.setPendingMediaUploadState(.failed, for: attachment.id, in: draftKey)
+                self?.lastError = error.localizedDescription
+            }
+        }
+    }
+
+    func retryPendingMediaUpload(_ id: PendingMediaAttachment.ID) {
+        guard let draftKey = selectedComposerDraftKey,
+            let attachment = pendingMediaAttachmentsByConversation[draftKey]?.first(where: { $0.id == id })
+        else { return }
+        beginPendingMediaUpload(attachment, for: draftKey)
+    }
+
+    func cancelPendingMediaUpload(_ id: PendingMediaAttachment.ID) {
+        pendingMediaUploadTasks.removeValue(forKey: id)?.cancel()
+    }
+
+    /// Bulk counterparts to `cancelPendingMediaUpload` for the paths that drop whole drafts. The task
+    /// map is keyed by attachment, not by draft, so a scoped cancel has to walk the staged
+    /// attachments — which means cancelling *before* the draft entries are dropped, or the ids are
+    /// already gone. Without this a logout or a chat deletion leaves the uploads running against a
+    /// composer that no longer exists and never reclaims their entries.
+    func cancelAllPendingMediaUploads() {
+        for task in pendingMediaUploadTasks.values {
+            task.cancel()
+        }
+        pendingMediaUploadTasks.removeAll()
+    }
+
+    func cancelPendingMediaUploads(for draftKey: ComposerDraftKey) {
+        for attachment in pendingMediaAttachmentsByConversation[draftKey] ?? [] {
+            cancelPendingMediaUpload(attachment.id)
+        }
+    }
+
+    func cancelPendingMediaUploads(forAccountId accountId: String) {
+        for draftKey in pendingMediaAttachmentsByConversation.keys where draftKey.accountId == accountId {
+            cancelPendingMediaUploads(for: draftKey)
+        }
+    }
+
+    /// Writes an upload outcome only while its attachment is still staged in the conversation it
+    /// was staged in. An upload that resolves after the user removed the tile — or after they
+    /// switched chats — must not resurrect it or leak into another conversation
+    /// (the same discipline as `appendPendingMediaAttachmentIfSelectionUnchanged`, #245).
+    private func setPendingMediaUploadState(
+        _ state: PendingMediaUploadState,
+        for id: PendingMediaAttachment.ID,
+        in draftKey: ComposerDraftKey
+    ) {
+        guard pendingMediaAttachmentsByConversation[draftKey]?.contains(where: { $0.id == id }) == true else { return }
+        pendingMediaUploadStatesByConversation[draftKey, default: [:]][id] = state
     }
 
     func toggleVoiceRecording() async {
@@ -635,6 +727,11 @@ extension WorkspaceState {
     func appendPendingMediaAttachment(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
         var attachments = pendingMediaAttachmentsByConversation[draftKey] ?? []
         if attachment.kind == .audio {
+            // A new recording replaces the old one, so the superseded upload has nowhere to land.
+            for superseded in attachments where superseded.kind == .audio {
+                cancelPendingMediaUpload(superseded.id)
+                pendingMediaUploadStatesByConversation[draftKey]?[superseded.id] = nil
+            }
             attachments.removeAll { $0.kind == .audio }
         }
         guard attachments.count < OutgoingMediaDraftProcessor.maxAttachmentCount else {
@@ -650,6 +747,10 @@ extension WorkspaceState {
             draftTextByConversation[draftKey] = nil
             composerMentionSelectionsByConversation[draftKey] = nil
         }
+        // Upload straight away so Send only has to publish the reference. Every staging path
+        // (importer, drag-drop, paste, voice) funnels through here; restored drafts are the one
+        // bypass and kick their own uploads in `restoreComposerDraftIfNeeded`.
+        beginPendingMediaUpload(attachment, for: draftKey)
         composerDraftDidChange(for: draftKey)
     }
 

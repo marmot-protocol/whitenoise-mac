@@ -165,6 +165,13 @@ extension WorkspaceState {
                 .map(Self.pendingMediaAttachment(from:))
             pendingMediaAttachmentsByConversation[key] = attachments.isEmpty ? nil : attachments
             pendingMediaUploadStatesByConversation[key] = nil
+            // Drafts persist plaintext, not Blossom references — deliberately, so a draft that sat
+            // across an epoch rotation cannot publish a stale `source_epoch`. Re-upload on restore
+            // instead, which is also the only staging path that bypasses
+            // `appendPendingMediaAttachment`.
+            for attachment in attachments {
+                beginPendingMediaUpload(attachment, for: key)
+            }
         } catch {
             restoredComposerDraftKeys.remove(key)
             setBackgroundStatus(
