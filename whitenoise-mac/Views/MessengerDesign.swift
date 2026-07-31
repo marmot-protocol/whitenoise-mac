@@ -90,6 +90,62 @@ enum MessagesPalette {
     static let sentBubble = Color(nsColor: .systemBlue)
 }
 
+/// The background chip drawn behind an `@mention`'s glyphs, Signal's treatment: the mention keeps
+/// the body font, weight, and inherited foreground, and is set off by its fill alone. Each chip is
+/// the bubble's own fill pushed a step further, never a different hue — a mention should look like
+/// part of the bubble, not like something pasted into it.
+///
+/// The chip has to hold up over four different fills — the accent-filled sent bubble, plus the light
+/// and dark neutral fills shared by received bubbles, agent rows, and the composer. No single
+/// translucent wash does that, which is why the previous `primary.opacity(0.14)` read as smudged
+/// text everywhere: `.primary` flips direction between the appearances, so it darkened one neutral
+/// fill and lightened the other, too faintly to register either way.
+///
+/// Direction is per fill, and it is not a free choice. The sent bubble and the light neutral fill
+/// both take a darker chip. The dark neutral fill cannot: it is already close to black, so even a
+/// 45%-black wash only reaches 1.43 contrast against it, while a light step of the same gray reaches
+/// 1.86. There it steps lighter instead — same achromatic family, just the only direction with room.
+///
+/// Measured against the fill behind it (WCAG contrast, chip vs. bubble), every combination lands at
+/// 1.84–1.87 where the old chip managed 1.19–1.55, and the inherited body text keeps 6.1:1 or
+/// better against the chip:
+///
+/// | fill | chip | chip ÷ fill | was | text ÷ chip |
+/// | --- | --- | --- | --- | --- |
+/// | sent, light | `#0053AD` | 1.84 | 1.29 | 7.39 |
+/// | sent, dark | `#075AAD` | 1.87 | 1.19 | 6.83 |
+/// | received, light | `#AEAEAE` | 1.86 | 1.37 | 9.47 |
+/// | received, dark | `#616161` | 1.86 | 1.55 | 6.19 |
+///
+/// `nonisolated` because a message's attributed string is built off-main while mapping a timeline
+/// window (whitenoise-mac#285), so these must be reachable from outside the main actor.
+nonisolated enum MentionChipPalette {
+    /// Over the accent-filled sent bubble: the same blue, pushed distinctly darker. One value for
+    /// both appearances, because that fill is blue in either.
+    static let onSentBubble = Color.black.opacity(0.32)
+
+    /// Over a neutral fill: the same gray, one step away. Which way depends on the appearance — the
+    /// light fill has room to go darker, the dark fill only has room to go lighter — so this is a
+    /// dynamic color resolved at draw time rather than a fixed overlay.
+    static let neutralFillTextBackground = NSColor(name: "mentionChipOnNeutralFill") { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(white: 1.0, alpha: 0.20)
+            : NSColor(white: 0.0, alpha: 0.26)
+    }
+
+    /// SwiftUI twin of `neutralFillTextBackground`. The composer's `NSTextView` draft token takes
+    /// the AppKit one; both are the same chip, because the draft sits on the same neutral surface a
+    /// received bubble does.
+    static let onNeutralFill = Color(nsColor: neutralFillTextBackground)
+
+    static func color(on fill: MarkdownMentionFill) -> Color {
+        switch fill {
+        case .neutral: onNeutralFill
+        case .sentBubble: onSentBubble
+        }
+    }
+}
+
 enum MessagesLayout {
     static let accountRailWidth: CGFloat = 80
     static let accountRailControlSize: CGFloat = 44

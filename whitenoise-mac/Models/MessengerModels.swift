@@ -1938,7 +1938,16 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.senderPictureURL = senderPictureURL
         self.body = body
         self.wireBody = wireBody ?? body
-        self.contentMarkdown = contentMarkdown.map { MarkdownDisplayDocument(document: $0, mentionNames: mentionNames) }
+        // The mention chip has to contrast with the bubble it lands in, and the attributed string
+        // is built here — once, off-main — rather than during a body pass, so the fill is decided
+        // here too, from the direction this row already knows.
+        self.contentMarkdown = contentMarkdown.map {
+            MarkdownDisplayDocument(
+                document: $0,
+                mentionNames: mentionNames,
+                mentionFill: isOutgoing ? .sentBubble : .neutral
+            )
+        }
         self.mentionNames = mentionNames
         self.trimmedBody = trimmedBody
         self.sentAt = sentAt

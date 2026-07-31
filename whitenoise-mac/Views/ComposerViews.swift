@@ -208,6 +208,15 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
+    /// Attributes typed text should carry when it is not part of a mention token. Reapplied after a
+    /// mention is inserted so the token's chip and identity markers cannot bleed into what follows.
+    static var plainTypingAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: NSFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: NSColor.labelColor,
+        ]
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             text: $text,
@@ -238,6 +247,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         textView.font = .preferredFont(forTextStyle: .body)
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
+        // Plain text is the baseline; only a mention marker adds attributes on top of it.
+        textView.typingAttributes = Self.plainTypingAttributes
         textView.textContainerInset = NSSize(width: 0, height: 1)
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
@@ -388,6 +399,13 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
                 ),
                 to: textView
             )
+            // The caret is left just past the token, so pin the attributes the next keystroke
+            // continues with: without this, NSTextView carries on with whatever it derived at the
+            // insertion point and the first character typed after a mention could pick up the
+            // chip and the identity markers with it. (A chip smeared on by clicking into an
+            // existing token instead is undone by the repair pass in
+            // `ComposerMentionMarkerStore.selections(in:)`.)
+            textView.typingAttributes = ComposerMessageTextViewRepresentable.plainTypingAttributes
             text.wrappedValue = textView.string
             publishMentionSelections(for: textView)
             updateMeasuredHeight(for: textView)
@@ -486,19 +504,43 @@ enum ComposerMentionMarkerStore {
         let selection: ComposerMentionSelection
     }
 
+    /// Identity markers plus the visible chip. The chip is never maintained on its own: it is
+    /// written only by `add` and dropped wherever the markers are dropped, so styling cannot drift
+    /// from identity — a marker that later fails validation reverts to plain text with no separate
+    /// cleanup path. Sweeping `.backgroundColor` is safe over any range because the composer text
+    /// view is plain text (`isRichText = false`), so the chip is the only background in play.
+    private static let markerAttributes: [NSAttributedString.Key] = [
+        .composerMentionNpub,
+        .composerMentionDisplayText,
+        .backgroundColor,
+    ]
+
     static func add(_ selection: ComposerMentionSelection, to textView: NSTextView) {
         guard isExact(selection, in: textView.string), let storage = textView.textStorage else { return }
         storage.addAttribute(.composerMentionNpub, value: selection.npub, range: selection.range)
         storage.addAttribute(.composerMentionDisplayText, value: selection.displayText, range: selection.range)
+        // Same chip a received bubble draws: the draft token sits on the same neutral surface, so
+        // it reads as the same kind of object even though the sent bubble's accent fill needs a
+        // darker one.
+        storage.addAttribute(
+            .backgroundColor,
+            value: MentionChipPalette.neutralFillTextBackground,
+            range: selection.range
+        )
     }
 
     static func replaceAll(with selections: [ComposerMentionSelection], in textView: NSTextView) {
         guard let storage = textView.textStorage else { return }
         let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
-        storage.removeAttribute(.composerMentionNpub, range: fullRange)
-        storage.removeAttribute(.composerMentionDisplayText, range: fullRange)
+        removeMarkers(in: fullRange, from: storage)
         for selection in selections {
             add(selection, to: textView)
+        }
+    }
+
+    private static func removeMarkers(in range: NSRange, from storage: NSTextStorage) {
+        for key in markerAttributes {
+            storage.removeAttribute(key, range: range)
         }
     }
 
@@ -541,8 +583,7 @@ enum ComposerMentionMarkerStore {
         }
         storage.beginEditing()
         for range in invalidRanges + repairs.map(\.oldRange) {
-            storage.removeAttribute(.composerMentionNpub, range: range)
-            storage.removeAttribute(.composerMentionDisplayText, range: range)
+            removeMarkers(in: range, from: storage)
         }
         for repair in repairs {
             add(repair.selection, to: textView)
