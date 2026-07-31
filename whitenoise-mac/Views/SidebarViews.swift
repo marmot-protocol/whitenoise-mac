@@ -495,8 +495,41 @@ private struct ChatSidebarRowMenuItems: View {
                 }
                 .disabled(isArchiving)
             }
+
+            destructiveItems
         }
         .menuLabelIcons()
+    }
+
+    /// Leave / Delete, from the same policy the group-details inspector uses. A row knows only its
+    /// membership, so `.leave` here is optimistic: `prepareChatLeave` resolves eligibility and
+    /// reports a blocker if leaving turns out to be impossible.
+    @ViewBuilder
+    private var destructiveItems: some View {
+        if let action = ChatDestructiveActions.action(for: chat) {
+            Divider()
+
+            switch action {
+            case .leave:
+                Button(role: .destructive) {
+                    Task { await workspace.prepareChatLeave(for: chat) }
+                } label: {
+                    Label(
+                        L10n.string("Leave Chat"),
+                        systemImage: "rectangle.portrait.and.arrow.right"
+                    )
+                }
+                .disabled(workspace.leavingChatId != nil || workspace.preparingChatLeaveId != nil)
+
+            case .deleteLocally:
+                Button(role: .destructive) {
+                    workspace.requestChatLocalDelete(for: chat)
+                } label: {
+                    Label(L10n.string("Delete From This Device"), systemImage: "trash.slash")
+                }
+                .disabled(workspace.isDeletingGroupLocally)
+            }
+        }
     }
 }
 

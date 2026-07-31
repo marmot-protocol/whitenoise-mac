@@ -658,36 +658,219 @@ extension WorkspaceState {
         }
     }
 
-    func leaveSelectedGroup() async {
+    // MARK: - Leaving a chat, and deleting its local copy
+    //
+    // Both actions are offered by the sidebar row context menu and by the group-details inspector,
+    // and both surfaces run these exact methods — the policy in `ChatDestructiveActions` decides
+    // *whether* to offer them, and nothing here is snapshot-coupled. This mirrors the invite
+    // convention above (`acceptGroupInvite(for:)` / `acceptSelectedGroupInvite()`): one
+    // `groupIdHex`-keyed implementation plus thin adapters.
+    //
+    // Leaving is two-phase because a chat-list row cannot know whether leaving is legal:
+    // `ChatListRowFfi` carries membership, but `canLeave` / `isLastAdmin` live only on
+    // `GroupManagementStateFfi`, and a `contextMenu` closure cannot await an FFI call. Phase 1
+    // resolves eligibility and either opens the confirmation or reports the blocker; phase 2 runs
+    // after the user confirms, re-reading eligibility because it can move between the two taps.
+
+    func prepareChatLeave(for chat: ChatItem) async {
+        await prepareChatLeave(groupIdHex: chat.id, title: chat.title)
+    }
+
+    func prepareSelectedChatLeave() async {
+        guard let snapshot = groupDetailsSnapshot else { return }
+        await prepareChatLeave(groupIdHex: snapshot.groupIdHex, title: snapshot.name)
+    }
+
+    func prepareChatLeave(groupIdHex: String, title: String) async {
+        // One preparation at a time, so two quick clicks on different rows cannot both resolve and
+        // leave the confirmation naming whichever eligibility fetch happened to finish last.
         guard let client,
             let activeAccount,
-            let snapshot = groupDetailsSnapshot,
-            !hasInFlightGroupCommit
+            leavingChatId == nil,
+            preparingChatLeaveId == nil,
+            chatPendingLeave == nil
         else { return }
-        guard !snapshot.leaveRequestPending else {
-            lastError = L10n.string("Your leave request is already pending.")
-            return
+
+        preparingChatLeaveId = groupIdHex
+        defer {
+            if preparingChatLeaveId == groupIdHex {
+                preparingChatLeaveId = nil
+            }
         }
-        guard snapshot.canLeave, !snapshot.requiresSelfDemoteBeforeLeave else {
-            lastError = L10n.string("Demote yourself from admin before leaving this group.")
+
+        let accountId = activeAccount.id
+        do {
+            let state = try await client.groupManagementState(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            guard activeAccountId == accountId else { return }
+            await presentChatLeaveDecision(
+                groupIdHex: groupIdHex,
+                title: title,
+                eligibility: ChatLeaveEligibility(state)
+            )
+        } catch {
+            guard activeAccountId == accountId else { return }
+            chatActionAlert = .leaveFailed()
+        }
+    }
+
+    /// Turn resolved eligibility into either a confirmation dialog or a blocker report. Shared by
+    /// both phases so the confirm path re-applies exactly the checks the prepare path applied.
+    private func presentChatLeaveDecision(
+        groupIdHex: String,
+        title: String,
+        eligibility: ChatLeaveEligibility
+    ) async {
+        // Both callers only reach here after their surface decided the action was `.leave`, which
+        // already implies an active membership — so `.member` is the right assumption rather than a
+        // re-lookup. If the account was in fact removed in the meantime, the core reports
+        // `canLeave: false` with `isLastAdmin: false`, which lands on `.unavailable`; the next chat
+        // -list reload then flips the row to `.deleteLocally` on its own.
+        guard
+            let blocker = ChatDestructiveActions.leaveBlocker(
+                membership: .member,
+                eligibility: eligibility
+            )
+        else {
+            chatPendingLeave = ChatLeaveTarget(
+                groupIdHex: groupIdHex,
+                title: title,
+                requiresSelfDemote: ChatDestructiveActions.shouldSelfDemoteBeforeLeave(eligibility)
+            )
             return
         }
 
-        lastError = nil
+        await reportLeaveBlocker(blocker)
+    }
+
+    /// Both phases resolve the same blocker and must react to it identically, so they share this.
+    private func reportLeaveBlocker(_ blocker: ChatDestructiveActions.LeaveBlocker) async {
+        switch blocker {
+        case .pending:
+            // Already leaving: no dialog and no error — refresh so the row shows its
+            // `LeavingGroupBadge` instead.
+            await reloadChats(forceFreshSnapshot: true)
+        case .lastAdmin, .unavailable:
+            chatActionAlert = .leaveBlocked(blocker)
+        }
+    }
+
+    func confirmChatLeave(_ target: ChatLeaveTarget) async {
+        guard let client,
+            let activeAccount,
+            leavingChatId == nil
+        else { return }
+
+        chatPendingLeave = nil
+        let accountId = activeAccount.id
+        let groupIdHex = target.groupIdHex
+        leavingChatId = groupIdHex
+        // A leave is a group commit, so it also participates in the inspector's commit exclusion.
+        // The converse does not hold: starting a leave deliberately does *not* consult
+        // `hasInFlightGroupCommit`, so an unrelated in-flight commit on another chat cannot block
+        // it. Cross-chat coupling is exactly what the per-chat `leavingChatId` guard avoids.
         isLeavingGroup = true
-        defer { isLeavingGroup = false }
+        defer {
+            isLeavingGroup = false
+            if leavingChatId == groupIdHex {
+                leavingChatId = nil
+            }
+        }
 
         do {
+            // Eligibility is re-read rather than trusted from `target`: the group can commit a
+            // membership or admin change between the menu tap and the confirmation.
+            let state = try await client.groupManagementState(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            )
+            guard activeAccountId == accountId else { return }
+            let eligibility = ChatLeaveEligibility(state)
+            if let blocker = ChatDestructiveActions.leaveBlocker(
+                membership: .member,
+                eligibility: eligibility
+            ) {
+                await reportLeaveBlocker(blocker)
+                return
+            }
+
+            if ChatDestructiveActions.shouldSelfDemoteBeforeLeave(eligibility) {
+                _ = try await client.selfDemoteAdminDetailed(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex
+                )
+                guard activeAccountId == accountId else { return }
+            }
+
             _ = try await client.leaveGroup(
                 accountRef: activeAccount.accountRef,
-                groupIdHex: snapshot.groupIdHex
+                groupIdHex: groupIdHex
             )
-            clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: snapshot.groupIdHex)
-            closeGroupDetails()
+            guard activeAccountId == accountId else { return }
+            clearMediaReferenceResolutionCache(forAccountId: accountId, groupIdHex: groupIdHex)
+            if groupDetailsSnapshot?.groupIdHex == groupIdHex {
+                closeGroupDetails()
+            }
             await reloadChats(forceFreshSnapshot: true)
         } catch {
-            lastError = error.localizedDescription
+            guard activeAccountId == accountId else { return }
+            // A leave the core already recorded is a success, not a failure: re-requesting inside
+            // the same epoch surfaces as `LeaveAlreadyRequested`, and a retry can report the same
+            // condition under a different error, so fall back to re-reading the durable state.
+            if await leaveIsAlreadyPending(error, groupIdHex: groupIdHex, accountRef: activeAccount.accountRef) {
+                guard activeAccountId == accountId else { return }
+                await reloadChats(forceFreshSnapshot: true)
+                return
+            }
+            guard activeAccountId == accountId else { return }
+            chatActionAlert = .leaveFailed()
         }
+    }
+
+    private func leaveIsAlreadyPending(
+        _ error: Error,
+        groupIdHex: String,
+        accountRef: String
+    ) async -> Bool {
+        if let error = error as? MarmotKitError, case .LeaveAlreadyRequested = error {
+            return true
+        }
+        guard let client else { return false }
+        guard
+            let state = try? await client.groupManagementState(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex
+            )
+        else { return false }
+        return state.leaveRequestPending
+    }
+
+    func requestChatLocalDelete(for chat: ChatItem) {
+        requestChatLocalDelete(groupIdHex: chat.id, title: chat.title)
+    }
+
+    func requestSelectedChatLocalDelete() {
+        guard let snapshot = groupDetailsSnapshot else { return }
+        requestChatLocalDelete(groupIdHex: snapshot.groupIdHex, title: snapshot.name)
+    }
+
+    func requestChatLocalDelete(groupIdHex: String, title: String) {
+        guard !isDeletingGroupLocally, chatPendingLocalDelete == nil else { return }
+        chatPendingLocalDelete = ChatLocalDeleteTarget(groupIdHex: groupIdHex, title: title)
+    }
+
+    func confirmChatLocalDelete(_ target: ChatLocalDeleteTarget) async {
+        chatPendingLocalDelete = nil
+        await deleteGroupLocally(groupIdHex: target.groupIdHex, reportsToChatAlert: true)
+    }
+
+    func clearPendingChatDestructiveActions() {
+        chatPendingLeave = nil
+        chatPendingLocalDelete = nil
+        chatActionAlert = nil
+        preparingChatLeaveId = nil
     }
 
     func showGroupImagePicker(for chat: ChatItem) {
@@ -998,11 +1181,23 @@ extension WorkspaceState {
 
     /// Remove a group from local storage only (no relay/leave traffic). Used to
     /// clear a stale or declined conversation from this device.
-    func deleteGroupLocally(groupIdHex: String) async {
+    ///
+    /// This primitive stays ungated on membership: the *surfaces* decide when to offer a local
+    /// delete (see `ChatDestructiveActions`), and non-user-initiated callers must keep working.
+    /// `reportsToChatAlert` routes failures to the destructive-action alert instead of `lastError`,
+    /// which is not rendered anywhere near the sidebar.
+    func deleteGroupLocally(groupIdHex: String, reportsToChatAlert: Bool = false) async {
         guard let client, let activeAccount, !isDeletingGroupLocally else { return }
         lastError = nil
         isDeletingGroupLocally = true
-        defer { isDeletingGroupLocally = false }
+        // Also recorded per-chat so a surface can say *which* chat is being removed. The re-entrancy
+        // guard above stays global on purpose, so every Delete affordance must remain disabled while
+        // any delete runs — a per-chat `disabled` would let a second click be silently dropped.
+        deletingChatId = groupIdHex
+        defer {
+            isDeletingGroupLocally = false
+            deletingChatId = nil
+        }
 
         do {
             _ = try await client.deleteGroupLocal(
@@ -1021,7 +1216,11 @@ extension WorkspaceState {
             }
             await reloadChats(forceFreshSnapshot: true)
         } catch {
-            lastError = error.localizedDescription
+            if reportsToChatAlert {
+                chatActionAlert = .localDeleteFailed()
+            } else {
+                lastError = error.localizedDescription
+            }
         }
     }
 

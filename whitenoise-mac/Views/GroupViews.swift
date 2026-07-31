@@ -21,9 +21,7 @@ private enum DisappearingChoice: Hashable {
 struct GroupDetailsSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var showArchiveConfirmation = false
-    @State private var showLeaveConfirmation = false
     @State private var showSelfDemoteConfirmation = false
-    @State private var showRemoveLocallyConfirmation = false
     @State private var isAddMembersPresented = false
     @State private var isCustomDisappearingPresented = false
     // Kept as an exactly parsed decimal string: `UInt64.Stride` is `Int`, so any
@@ -454,50 +452,54 @@ struct GroupDetailsSheet: View {
                                 .disabled(workspace.hasInFlightGroupCommit || snapshot.isLastAdmin)
                             }
 
-                            Button(role: .destructive) {
-                                showLeaveConfirmation = true
-                            } label: {
-                                Label(
-                                    workspace.isLeavingGroup || snapshot.leaveRequestPending
-                                        ? L10n.string("Leaving...")
-                                        : L10n.string("Leave Group"),
-                                    systemImage: "rectangle.portrait.and.arrow.right")
-                            }
-                            .disabled(
-                                workspace.hasInFlightGroupCommit
-                                    || snapshot.leaveRequestPending
-                                    || !snapshot.canLeave
-                                    || snapshot.requiresSelfDemoteBeforeLeave
-                            )
+                            // Leave / Delete come from the same policy the sidebar row menu uses, so
+                            // the two surfaces cannot disagree on which is legal. Unlike a row, the
+                            // inspector holds full eligibility, so it can offer the local delete up
+                            // front when leaving is structurally impossible — the sole admin of a
+                            // chat can never leave it, and would otherwise be offered neither.
+                            switch snapshot.destructiveAction {
+                            case .leave:
+                                Button(role: .destructive) {
+                                    Task { await workspace.prepareSelectedChatLeave() }
+                                } label: {
+                                    Label(
+                                        workspace.leavingChatId == snapshot.groupIdHex
+                                            ? L10n.string("Leaving...")
+                                            : L10n.string("Leave Chat"),
+                                        systemImage: "rectangle.portrait.and.arrow.right")
+                                }
+                                .disabled(
+                                    workspace.leavingChatId != nil
+                                        || workspace.preparingChatLeaveId != nil)
 
-                            Button(role: .destructive) {
-                                showRemoveLocallyConfirmation = true
-                            } label: {
-                                Label(
-                                    workspace.isDeletingGroupLocally
-                                        ? L10n.string("Removing...") : L10n.string("Remove From This Device"),
-                                    systemImage: "trash.slash")
+                            case .deleteLocally:
+                                Button(role: .destructive) {
+                                    workspace.requestSelectedChatLocalDelete()
+                                } label: {
+                                    Label(
+                                        workspace.deletingChatId == snapshot.groupIdHex
+                                            ? L10n.string("Removing...")
+                                            : L10n.string("Remove From This Device"),
+                                        systemImage: "trash.slash")
+                                }
+                                // Progress is per-chat, but the guard in `deleteGroupLocally` is
+                                // global, so the affordance stays disabled for any in-flight delete.
+                                .disabled(workspace.isDeletingGroupLocally)
+                                .help(
+                                    L10n.string(
+                                        "Delete this conversation locally without notifying the group"))
+
+                            case nil:
+                                EmptyView()
                             }
-                            .disabled(workspace.isDeletingGroupLocally)
-                            .help(L10n.string("Delete this conversation locally without notifying the group"))
 
                             Spacer()
                         }
 
-                        if snapshot.leaveRequestPending {
-                            Text(
-                                L10n.string(
-                                    "Your leave request is pending. This conversation will update when the group commits it."
-                                )
-                            )
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        } else if snapshot.requiresSelfDemoteBeforeLeave {
-                            Text(L10n.string("Demote yourself from admin before leaving this group."))
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        } else if snapshot.isLastAdmin {
-                            Text(L10n.string("Make another member an admin before stepping down or leaving."))
+                        // Sourced from the shared blocker so the footer and the row menu's alert
+                        // cannot drift apart.
+                        if let blocker = snapshot.leaveBlocker {
+                            Text(blocker.message)
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
@@ -639,36 +641,9 @@ struct GroupDetailsSheet: View {
         } message: {
             Text(L10n.string("You'll stay in the group, but another admin will need to restore your admin status."))
         }
-        .confirmationDialog(
-            L10n.string("Leave this group?"),
-            isPresented: $showLeaveConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(L10n.string("Leave Group"), role: .destructive) {
-                Task { await workspace.leaveSelectedGroup() }
-            }
-            .disabled(
-                workspace.hasInFlightGroupCommit
-                    || workspace.groupDetailsSnapshot?.leaveRequestPending == true
-            )
-            Button(L10n.string("Cancel"), role: .cancel) {}
-        } message: {
-            Text(L10n.string("You will no longer receive messages from this group on this account."))
-        }
-        .confirmationDialog(
-            L10n.string("Remove this conversation from this device?"),
-            isPresented: $showRemoveLocallyConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(L10n.string("Remove From This Device"), role: .destructive) {
-                Task { await workspace.deleteGroupLocally(groupIdHex: chat.id) }
-            }
-            Button(L10n.string("Cancel"), role: .cancel) {}
-        } message: {
-            Text(
-                L10n.string(
-                    "This deletes the local copy only. Other members are not notified, and you can be re-added later."))
-        }
+        // The leave and local-delete confirmations are not declared here: both actions are also
+        // offered from the sidebar row menu, and they share the one dialog installed by
+        // `chatDestructiveActionsConfirmation()` in `ContentView` so each has a single wording.
     }
 
     private var archiveConfirmationTitle: String {

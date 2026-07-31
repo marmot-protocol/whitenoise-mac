@@ -132,6 +132,9 @@ extension WorkspaceState {
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         chatListFilter = .active
         archivingChatId = nil
+        // Destructive-action dialogs name a group id, which is only meaningful for the account that
+        // opened them; a confirmation surviving the switch would act on the wrong account's chat.
+        clearPendingChatDestructiveActions()
         closeNewChatComposer()
         resetComposeContacts()
         pruneMessageCache(keeping: groupIdHex)
@@ -457,6 +460,11 @@ extension WorkspaceState {
         deliveredNotificationKeys.removeAll()
         deliveredNotificationKeyOrder.removeAll()
         resetAccountScopedGroupAndNewChatUIState()
+        // Sign-out and account removal reach onboarding without going through
+        // `prepareForActiveAccountSwitch` when no signed-in account remains, so the destructive
+        // -action dialogs have to be dropped here too — they name a group id belonging to the
+        // account being torn down.
+        clearPendingChatDestructiveActions()
         profileDraft = ProfileDraft()
         keyPackages = []
         auditLogFiles = []
@@ -771,6 +779,7 @@ extension WorkspaceState {
         cancelTimelineLoad()
         accounts = []
         resetChats()
+        clearPendingChatDestructiveActions()
         cachedMessageChatIds = []
         for store in messageTimelineStores.values {
             store.clear()

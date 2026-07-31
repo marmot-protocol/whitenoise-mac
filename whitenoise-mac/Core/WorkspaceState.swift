@@ -1059,6 +1059,24 @@ final class WorkspaceState {
     @ObservationIgnored var globalMessageSearchGeneration: UInt64 = 0
     var chatListFilter: ChatListFilter = .active
     var archivingChatId: String?
+    /// Group currently running a confirmed leave, or `nil`. Per-chat rather than global so a leave
+    /// of one chat never blocks an unrelated action on another (unlike the inspector's
+    /// `hasInFlightGroupCommit`, which is deliberately group-details-wide).
+    var leavingChatId: String?
+    /// Group whose leave eligibility is being resolved before its confirmation opens, or `nil`.
+    /// Serializes the phase-1 fetch so overlapping clicks cannot leave the dialog naming the wrong
+    /// chat.
+    var preparingChatLeaveId: String?
+    /// Chat awaiting the user's leave confirmation, or `nil`. Owned by the workspace rather than by
+    /// a view because a SwiftUI `contextMenu` closure is torn down on selection and so cannot host
+    /// the dialog itself — the same reason `messagePendingDeletion` lives here.
+    var chatPendingLeave: ChatLeaveTarget?
+    /// Chat awaiting the user's local-delete confirmation, or `nil`.
+    var chatPendingLocalDelete: ChatLocalDeleteTarget?
+    /// Outcome of a chat-list-initiated destructive action that needs reporting, or `nil`.
+    /// `lastError` is not rendered anywhere near the sidebar, so these actions carry their own
+    /// alert surface.
+    var chatActionAlert: ChatActionAlert?
     var mutatingChatPreferenceIds: Set<String> = []
     var isChatListVisible = true
     var draftText: String {
@@ -1319,6 +1337,9 @@ final class WorkspaceState {
     var isUpdatingDisappearingMessages = false
     var isSecureDeletingExpired = false
     var isDeletingGroupLocally = false
+    /// Group whose local copy is being deleted, or `nil`. Lets a surface name the affected chat in
+    /// its progress label; `isDeletingGroupLocally` remains the re-entrancy guard.
+    var deletingChatId: String?
     var isExportingGroupTranscript = false
     var groupTranscriptExportTask: Task<Void, Never>?
     var groupTranscriptExportStatus: String?
