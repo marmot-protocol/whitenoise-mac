@@ -79,17 +79,19 @@ extension WorkspaceState {
                 directoryDisplayName: client.displayName(accountIdHex: member.accountIdHex)
             )
         }
-        let displayName = firstNonBlank([
+        let published = firstNonBlank([
             PeerDisplayText.sanitize(resolved?.profileDisplayName),
             PeerDisplayText.sanitize(resolved?.profileName),
             PeerDisplayText.sanitize(resolved?.directoryDisplayName),
         ])
+        let nickname = activeContactNicknames.nickname(forContactAccountIdHex: member.accountIdHex)
         return NewChatRecipient(
             sourceQuery: query,
             memberRef: member.memberRef,
             accountIdHex: member.accountIdHex,
             npub: member.npub,
-            displayName: displayName,
+            displayName: nickname ?? published,
+            publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
             pictureURL: resolved?.profilePicture
         )
     }
@@ -377,6 +379,7 @@ extension WorkspaceState {
         let generation = composeContactsGeneration
         let accountId = activeAccount.id
         let selfHex = activeAccount.accountIdHex
+        let nicknames = activeContactNicknames
 
         var byHex: [String: ComposeContact] = [:]
         let chats = (chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? [])
@@ -388,6 +391,7 @@ extension WorkspaceState {
                 accountIdHex: hex,
                 npub: existing?.npub ?? "",
                 displayName: chat.title,
+                publishedDisplayName: chat.publishedTitle,
                 pictureURL: chat.pictureURL ?? existing?.pictureURL,
                 lastActivity: latestDate(existing?.lastActivity, chat.updatedAt)
             )
@@ -427,10 +431,13 @@ extension WorkspaceState {
                 if let existing, !existing.npub.isEmpty {
                     npub = existing.npub
                 }
+                let published = existing?.publishedDisplayName ?? existing?.displayName ?? member.displayName
+                let nickname = nicknames.nickname(forContactAccountIdHex: hex)
                 byHex[hex] = ComposeContact(
                     accountIdHex: hex,
                     npub: npub,
-                    displayName: existing?.displayName ?? member.displayName,
+                    displayName: nickname ?? published,
+                    publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
                     pictureURL: existing?.pictureURL,
                     lastActivity: latestDate(existing?.lastActivity, group.updatedAt)
                 )
@@ -439,19 +446,25 @@ extension WorkspaceState {
         }
     }
 
-    /// Name-filtered contacts, prefix matches ranked before contained matches.
     func filteredComposeContacts(matching query: String) -> [ComposeContact] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return composeContacts }
         var prefixMatches: [ComposeContact] = []
         var containedMatches: [ComposeContact] = []
         for contact in composeContacts {
-            let title = contact.title
-            guard let range = title.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive])
-            else { continue }
-            if range.lowerBound == title.startIndex {
+            let isPrefixMatch = contact.searchableNames.contains { name in
+                guard let range = name.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive])
+                else { return false }
+                return range.lowerBound == name.startIndex
+            }
+            if isPrefixMatch {
                 prefixMatches.append(contact)
-            } else {
+                continue
+            }
+            let isContainedMatch = contact.searchableNames.contains { name in
+                name.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+            if isContainedMatch {
                 containedMatches.append(contact)
             }
         }

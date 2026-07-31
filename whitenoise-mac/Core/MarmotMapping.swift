@@ -44,15 +44,21 @@ extension ChatItem {
         let groupName = PeerDisplayText.sanitize(row.groupName) ?? ""
         let peerName = PeerDisplayText.sanitize(directPeer?.displayName)
         let projectedTitle = PeerDisplayText.sanitize(row.title) ?? ""
-        let title: String
-        if let peerName, !peerName.isEmpty {
-            title = peerName
-        } else if !projectedTitle.isEmpty {
-            title = projectedTitle
-        } else if !groupName.isEmpty {
-            title = groupName
-        } else {
-            title = DisplayText.short(directPeer?.accountIdHex ?? row.groupIdHex)
+        let fallbackId = directPeer?.accountIdHex ?? row.groupIdHex
+        let title = Self.resolvedTitle(
+            peerName: peerName,
+            projectedTitle: projectedTitle,
+            groupName: groupName,
+            fallbackId: fallbackId
+        )
+
+        let publishedTitle = directPeer?.publishedDisplayName?.nilIfBlank.map { peerPublishedName in
+            Self.resolvedTitle(
+                peerName: PeerDisplayText.sanitize(peerPublishedName),
+                projectedTitle: projectedTitle,
+                groupName: groupName,
+                fallbackId: fallbackId
+            )
         }
         let preview = row.lastMessage.map {
             ChatItem.previewText(for: $0, activeAccountIdHex: activeAccountIdHex, mentionNames: mentionNames)
@@ -76,6 +82,7 @@ extension ChatItem {
         self.init(
             id: row.groupIdHex,
             title: title,
+            publishedTitle: publishedTitle,
             subtitle: subtitle,
             preview: preview?.isEmpty == false ? preview! : L10n.string("No messages yet"),
             updatedAt: updatedAt,
@@ -96,6 +103,24 @@ extension ChatItem {
             pendingConfirmation: row.pendingConfirmation,
             selfMembership: ChatSelfMembership(row.selfMembership)
         )
+    }
+
+    private static func resolvedTitle(
+        peerName: String?,
+        projectedTitle: String,
+        groupName: String,
+        fallbackId: String
+    ) -> String {
+        if let peerName, !peerName.isEmpty {
+            return peerName
+        }
+        if !projectedTitle.isEmpty {
+            return projectedTitle
+        }
+        if !groupName.isEmpty {
+            return groupName
+        }
+        return DisplayText.short(fallbackId)
     }
 
     private static func previewText(
@@ -299,6 +324,11 @@ nonisolated extension MessageItem {
             replyTargetIdHex: record.replyToMessageIdHex,
             senderAccountIdHex: record.sender,
             senderName: MessageItem.senderName(
+                for: record.sender,
+                profile: senderProfile,
+                presentation: presentation
+            ),
+            publishedSenderName: MessageItem.publishedSenderName(
                 for: record.sender,
                 profile: senderProfile,
                 presentation: presentation
@@ -944,6 +974,20 @@ nonisolated extension MessageItem {
 
     private static func displayName(for sender: String, profile: ChatPeerProfile?) -> String {
         PeerDisplayText.sanitize(profile?.displayName) ?? DisplayText.short(sender)
+    }
+
+    private static func publishedSenderName(
+        for sender: String,
+        profile: ChatPeerProfile?,
+        presentation: MessagePresentation
+    ) -> String? {
+        switch presentation {
+        case .agentStreamStart, .agentActivity, .agentOperation, .groupSystem:
+            return nil
+        case .chat, .unsupported:
+            guard profile?.publishedDisplayName != nil else { return nil }
+            return PeerDisplayText.sanitize(profile?.publishedDisplayName) ?? DisplayText.short(sender)
+        }
     }
 
     private static func tagValue(_ name: String, in tags: [MessageTagFfi]) -> String? {

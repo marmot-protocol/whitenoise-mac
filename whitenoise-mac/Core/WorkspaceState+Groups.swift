@@ -146,12 +146,14 @@ extension WorkspaceState {
 
         contactDetailsLoadGeneration &+= 1
         let generation = contactDetailsLoadGeneration
+        let nickname = activeContactNicknames.nickname(forContactAccountIdHex: accountIdHex)
         let fallback = NewChatRecipient(
             sourceQuery: accountIdHex,
             memberRef: npub.isEmpty ? accountIdHex : npub,
             accountIdHex: accountIdHex,
             npub: npub,
-            displayName: displayName,
+            displayName: nickname ?? displayName,
+            publishedDisplayName: Self.publishedContactName(displayName, overriddenBy: nickname),
             pictureURL: pictureURL
         )
         contactDetailsTarget = fallback
@@ -169,17 +171,19 @@ extension WorkspaceState {
             contactDetailsTarget?.accountIdHex == accountIdHex
         else { return }
 
+        let published = firstNonBlank([
+            PeerDisplayText.sanitize(resolved?.profileDisplayName),
+            PeerDisplayText.sanitize(resolved?.profileName),
+            displayName,
+            PeerDisplayText.sanitize(resolved?.directoryDisplayName),
+        ])
         contactDetailsTarget = NewChatRecipient(
             sourceQuery: accountIdHex,
             memberRef: npub.isEmpty ? accountIdHex : npub,
             accountIdHex: accountIdHex,
             npub: npub,
-            displayName: firstNonBlank([
-                PeerDisplayText.sanitize(resolved?.profileDisplayName),
-                PeerDisplayText.sanitize(resolved?.profileName),
-                displayName,
-                PeerDisplayText.sanitize(resolved?.directoryDisplayName),
-            ]),
+            displayName: nickname ?? published,
+            publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
             pictureURL: resolved?.profilePicture?.nilIfBlank ?? pictureURL
         )
         await commonGroups
@@ -188,11 +192,16 @@ extension WorkspaceState {
         }
     }
 
+    static func publishedContactName(_ published: String?, overriddenBy nickname: String?) -> String? {
+        guard let nickname, let published = published?.nilIfBlank, published != nickname else { return nil }
+        return published
+    }
+
     func showContactDetails(for member: GroupMemberItem) async {
         await showContactDetails(
             accountIdHex: member.id,
             npub: member.npub,
-            displayName: member.displayName,
+            displayName: member.publishedDisplayName ?? member.displayName,
             pictureURL: nil
         )
     }
@@ -200,7 +209,7 @@ extension WorkspaceState {
     func showContactDetails(for message: MessageItem) async {
         await showContactDetails(
             accountIdHex: message.senderAccountIdHex,
-            displayName: message.senderName,
+            displayName: message.publishedSenderName ?? message.senderName,
             pictureURL: message.senderPictureURL
         )
     }

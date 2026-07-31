@@ -212,8 +212,11 @@ extension WorkspaceState {
     }
 
     func localNotificationRequest(for update: NotificationUpdateFfi) -> LocalNotificationRequest {
+        let nickname = contactNicknames(forOwnerAccountIdHex: update.accountIdHex)
+            .nickname(forContactAccountIdHex: update.sender.accountIdHex)
         let senderName =
-            PeerDisplayText.sanitize(update.sender.displayName)
+            nickname
+            ?? PeerDisplayText.sanitize(update.sender.displayName)
             ?? PeerDisplayText.sanitize(update.sender.accountIdHex)
             ?? L10n.string("Someone")
         let senderTemplateName = PeerDisplayText.templateFragment(senderName)

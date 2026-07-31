@@ -633,6 +633,7 @@ extension WorkspaceState {
         ChatItem(
             id: current.id,
             title: enrichedItem.title,
+            publishedTitle: enrichedItem.publishedTitle,
             subtitle: enrichedItem.subtitle,
             preview: current.preview,
             updatedAt: current.updatedAt,
@@ -772,16 +773,21 @@ extension WorkspaceState {
             activeAccount: activeAccount,
             client: client
         )
-        let displayName = firstNonBlank([
+        let published = firstNonBlank([
             resolved?.profileDisplayName,
             resolved?.profileName,
             otherMember.displayName,
             resolved?.directoryDisplayName,
         ])
+        // A private nickname outranks every published source. Folding it in here is what makes
+        // the override reach the DM's chat-row title, and through that the forward picker,
+        // compose contacts, and the sidebar filter.
+        let nickname = activeContactNicknames.nickname(forContactAccountIdHex: memberId)
 
         return ChatPeerProfile(
             accountIdHex: memberId,
-            displayName: displayName,
+            displayName: nickname ?? published,
+            publishedDisplayName: nickname == nil ? nil : published,
             pictureURL: resolved?.profilePicture?.nilIfBlank
         )
     }
@@ -917,6 +923,9 @@ extension WorkspaceState {
             }
         }
 
+        // One snapshot for the whole batch. The self branch below deliberately skips it: you
+        // cannot nickname your own account, so your own label never changes.
+        let nicknames = activeContactNicknames
         var profiles: [String: ChatPeerProfile] = [:]
         for senderId in senderIds {
             if senderId == activeAccount.accountIdHex {
@@ -929,14 +938,17 @@ extension WorkspaceState {
             }
 
             let resolved = peerProfileFFICache[senderId]?.resolved
+            let published = firstNonBlank([
+                resolved?.profileDisplayName,
+                resolved?.profileName,
+                groupMemberNames[senderId],
+                resolved?.directoryDisplayName,
+            ])
+            let nickname = nicknames.nickname(forContactAccountIdHex: senderId)
             profiles[senderId] = ChatPeerProfile(
                 accountIdHex: senderId,
-                displayName: firstNonBlank([
-                    resolved?.profileDisplayName,
-                    resolved?.profileName,
-                    groupMemberNames[senderId],
-                    resolved?.directoryDisplayName,
-                ]),
+                displayName: nickname ?? published,
+                publishedDisplayName: nickname == nil ? nil : published,
                 pictureURL: resolved?.profilePicture?.nilIfBlank
             )
         }

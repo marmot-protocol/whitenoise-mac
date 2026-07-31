@@ -513,6 +513,54 @@ final class MessageTimelineStore {
         )
     }
 
+    @discardableResult
+    func relabelSender(accountIdHex: String, nickname: String?) -> Bool {
+        var didChange = false
+        for index in messages.indices {
+            guard messages[index].senderAccountIdHex == accountIdHex,
+                let relabeled = messages[index].applyingSenderNickname(nickname)
+            else { continue }
+            messages[index] = relabeled
+            lookup[relabeled.id] = relabeled
+            didChange = true
+        }
+        for (id, base) in baseMessagesById where base.senderAccountIdHex == accountIdHex {
+            guard let relabeled = base.applyingSenderNickname(nickname) else { continue }
+            baseMessagesById[id] = relabeled
+            didChange = true
+        }
+        if relabelReplyQuotes(ofSender: accountIdHex) {
+            didChange = true
+        }
+        guard didChange else { return false }
+        rebuildDisplayItems()
+        return true
+    }
+
+    private func relabelReplyQuotes(ofSender accountIdHex: String) -> Bool {
+        var didChange = false
+        for index in messages.indices {
+            guard let targetId = messages[index].replyContext?.targetMessageId,
+                let target = lookup[targetId],
+                target.senderAccountIdHex == accountIdHex,
+                let relabeled = messages[index].applyingReplyContextSenderName(target.senderName)
+            else { continue }
+            messages[index] = relabeled
+            lookup[relabeled.id] = relabeled
+            didChange = true
+        }
+        for (id, base) in baseMessagesById {
+            guard let targetId = base.replyContext?.targetMessageId,
+                let target = lookup[targetId],
+                target.senderAccountIdHex == accountIdHex,
+                let relabeled = base.applyingReplyContextSenderName(target.senderName)
+            else { continue }
+            baseMessagesById[id] = relabeled
+            didChange = true
+        }
+        return didChange
+    }
+
     /// Refreshes date-sensitive day labels after a calendar rollover or locale change. Calls made
     /// repeatedly within the same calendar day and locale are intentionally O(1).
     func refreshDisplayItems(
@@ -937,6 +985,10 @@ final class WorkspaceState {
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
     @ObservationIgnored var hiddenMessageStore: (any HiddenMessageStoring)?
     @ObservationIgnored var pinnedChatStore: (any PinnedChatStoring)?
+    @ObservationIgnored var contactNicknameStore: (any ContactNicknameStoring)?
+    var contactNicknamesByOwner: [String: [String: String]] = [:]
+    @ObservationIgnored var contactNicknameRevision: UInt64 = 0
+    @ObservationIgnored var cachedContactNicknames: CachedContactNicknames?
     @ObservationIgnored let chatRestorationStore: any ChatRestorationStoring
     @ObservationIgnored var shouldResolveStartupChatSelection = true
     @ObservationIgnored let quickReactionStore: any QuickReactionStoring
@@ -1574,6 +1626,12 @@ final class WorkspaceState {
         }
     }
 
+    struct CachedContactNicknames {
+        let ownerAccountIdHex: String
+        let revision: UInt64
+        let value: ContactNicknames
+    }
+
     /// Cached raw output of the per-sender profile FFI lookups.
     struct ResolvedPeerFFI: Sendable {
         var profileDisplayName: String?
@@ -1766,6 +1824,7 @@ final class WorkspaceState {
         mediaDiskCache: MessageMediaDiskCache = .shared,
         hiddenMessageStore: (any HiddenMessageStoring)? = nil,
         pinnedChatStore: (any PinnedChatStoring)? = nil,
+        contactNicknameStore: (any ContactNicknameStoring)? = nil,
         chatRestorationStore: (any ChatRestorationStoring)? = nil,
         quickReactionStore: (any QuickReactionStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
@@ -1789,6 +1848,7 @@ final class WorkspaceState {
         self.mediaDiskCache = mediaDiskCache
         self.hiddenMessageStore = hiddenMessageStore
         self.pinnedChatStore = pinnedChatStore
+        self.contactNicknameStore = contactNicknameStore
         let resolvedChatRestorationStore =
             chatRestorationStore ?? UserDefaultsChatRestorationStore()
         self.chatRestorationStore = resolvedChatRestorationStore
@@ -2318,17 +2378,24 @@ final class WorkspaceState {
             managementState.memberActions.map { ($0.memberIdHex, $0) },
             uniquingKeysWith: { _, new in new }
         )
+        let nicknames = activeContactNicknames
         let members = details.members
             .map { member in
                 let action = actionByMemberId[member.memberIdHex]
-                let displayName =
+                let published =
                     firstNonBlank([
                         PeerDisplayText.sanitize(member.displayName),
                         PeerDisplayText.sanitize(member.account),
                     ]) ?? DisplayText.short(member.npub, head: 12, tail: 8)
+                // You cannot nickname yourself, so `isSelf` rows always read the published name.
+                let nickname =
+                    member.isSelf
+                    ? nil : nicknames.nickname(forContactAccountIdHex: member.memberIdHex)
+                let displayName = nickname ?? published
                 return GroupMemberItem(
                     id: member.memberIdHex,
                     displayName: displayName,
+                    publishedDisplayName: nickname == nil ? nil : published,
                     npub: member.npub,
                     accountLabel: PeerDisplayText.sanitize(member.account),
                     isLocal: member.local,

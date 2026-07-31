@@ -1695,6 +1695,247 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func contactNicknamesAreOwnerScopedAndSurviveSignOutButNotRemovalOrLocalWipe() async throws {
+        let primary = desktopAccount()
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let contact = String(repeating: "2", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-nickname-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ContactNicknameFileStore(directoryURL: directory)
+        try store.write([contact: "Mum"], forOwnerAccountIdHex: primary.accountIdHex)
+        try store.write([contact: "Landlord"], forOwnerAccountIdHex: secondary.accountIdHex)
+
+        let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
+        defer { restoreDefault(previousActiveAccount, forKey: "whitenoise.mac.activeAccountId") }
+        UserDefaults.standard.set(primary.label, forKey: "whitenoise.mac.activeAccountId")
+
+        let state = WorkspaceState(contactNicknameStore: store, clientFactory: { runtime })
+        await state.bootstrap()
+
+        #expect(state.contactNickname(forContactAccountIdHex: contact) == "Mum")
+        #expect(
+            state.contactNicknames(forOwnerAccountIdHex: secondary.accountIdHex)
+                .nickname(forContactAccountIdHex: contact) == "Landlord"
+        )
+
+        let backupAccount = try #require(state.accounts.first { $0.id == secondary.label })
+        await state.signOutAccount(backupAccount)
+        #expect(try store.loadAll().count == 2)
+
+        let signedOutBackup = try #require(state.accounts.first { $0.id == secondary.label })
+        await state.removeAccount(signedOutBackup)
+        #expect(try store.loadAll() == [primary.accountIdHex: [contact: "Mum"]])
+        #expect(state.contactNickname(forContactAccountIdHex: contact) == "Mum")
+        #expect(
+            state.contactNicknames(forOwnerAccountIdHex: secondary.accountIdHex)
+                .nickname(forContactAccountIdHex: contact) == nil
+        )
+
+        await state.deleteAllData()
+
+        #expect(try store.loadAll().isEmpty)
+        #expect(state.contactNicknamesByOwner.isEmpty)
+    }
+
+    @MainActor
+    @Test func settingANicknameRelabelsChatRowsAndTheLiveTimelineWithoutTouchingOtherRows() async throws {
+        let account = desktopAccount()
+        let contact = String(repeating: "2", count: 64)
+        let other = String(repeating: "3", count: 64)
+        let directMessage = ChatItem(
+            id: "dm",
+            title: "Alice",
+            subtitle: "Direct message",
+            preview: "Hello",
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            avatarSeed: contact,
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: true
+        )
+        let otherDirectMessage = ChatItem(
+            id: "dm-other",
+            title: "Bob",
+            subtitle: "Direct message",
+            preview: "Hi",
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_001),
+            avatarSeed: other,
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: true
+        )
+        let group = ChatItem(
+            id: "group",
+            title: "Book club",
+            subtitle: "Group message",
+            preview: "Hey",
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_002),
+            avatarSeed: "group",
+            pictureURL: nil,
+            unreadCount: 0
+        )
+        let fromContact = MessageItem(
+            id: "m1",
+            groupIdHex: "dm",
+            senderAccountIdHex: contact,
+            senderName: "Alice",
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineAt: 1_700_000_000,
+            isOutgoing: false
+        )
+        let fromOther = MessageItem(
+            id: "m2",
+            groupIdHex: "dm",
+            senderAccountIdHex: other,
+            senderName: "Bob",
+            body: "Hi",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_001),
+            timelineAt: 1_700_000_001,
+            isOutgoing: false,
+            replyContext: MessageReplyContext(targetMessageId: "m1", senderName: "Alice", body: "Hello")
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-nickname-projection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let state = WorkspaceState(
+            accounts: [AccountItem(summary: account)],
+            chatsByAccount: [account.label: [group, otherDirectMessage, directMessage]],
+            messagesByChat: ["dm": [fromContact, fromOther]],
+            contactNicknameStore: ContactNicknameFileStore(directoryURL: directory),
+            clientFactory: { FakeMarmotRuntime(accounts: [account]) }
+        )
+        state.activeAccountId = account.label
+        state.selection = .chat("dm")
+
+        state.setContactNickname("Mum", forContactAccountIdHex: contact)
+
+        let renamed = try #require(state.chatItem(accountId: account.label, chatId: "dm"))
+        #expect(renamed.title == "Mum")
+        #expect(renamed.publishedTitle == "Alice")
+        #expect(state.chatItem(accountId: account.label, chatId: "dm-other") == otherDirectMessage)
+        #expect(state.chatItem(accountId: account.label, chatId: "group") == group)
+        #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m1")?.senderName == "Mum")
+        #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m1")?.publishedSenderName == "Alice")
+        #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m2")?.senderName == "Bob")
+        #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m2")?.publishedSenderName == nil)
+        // The quote of the relabeled sender follows without waiting for a reprojection.
+        #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m2")?.replyContext?.senderName == "Mum")
+        #expect(state.filteredChats(matching: "mum").map(\.id) == ["dm"])
+        #expect(state.filteredChats(matching: "alice").map(\.id) == ["dm"])
+
+        state.setContactNickname("   ", forContactAccountIdHex: contact)
+
+        let restored = try #require(state.chatItem(accountId: account.label, chatId: "dm"))
+        #expect(restored.title == "Alice")
+        #expect(restored.publishedTitle == nil)
+        #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m1")?.senderName == "Alice")
+        #expect(state.timelineMessage(groupIdHex: "dm", messageId: "m2")?.replyContext?.senderName == "Alice")
+        #expect(state.contactNickname(forContactAccountIdHex: contact) == nil)
+    }
+
+    @MainActor
+    @Test func ownAccountsCannotBeNicknamed() async throws {
+        let account = desktopAccount()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-nickname-self-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ContactNicknameFileStore(directoryURL: directory)
+
+        let state = WorkspaceState(
+            accounts: [AccountItem(summary: account)],
+            contactNicknameStore: store,
+            clientFactory: { FakeMarmotRuntime(accounts: [account]) }
+        )
+        state.activeAccountId = account.label
+
+        #expect(!state.canSetContactNickname(forContactAccountIdHex: account.accountIdHex))
+        state.setContactNickname("Me", forContactAccountIdHex: account.accountIdHex)
+
+        #expect(state.contactNickname(forContactAccountIdHex: account.accountIdHex) == nil)
+        #expect(try store.loadAll().isEmpty)
+    }
+
+    @MainActor
+    @Test func notificationTitlesUseTheTargetedAccountsNickname() async throws {
+        let primary = desktopAccount()
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: String(repeating: "1", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let sender = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-nickname-notifications-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = ContactNicknameFileStore(directoryURL: directory)
+        try store.write([sender: "Mum"], forOwnerAccountIdHex: primary.accountIdHex)
+
+        let previousPreviewMode = UserDefaults.standard.object(forKey: WorkspaceState.notificationPreviewModeKey)
+        defer { restoreDefault(previousPreviewMode, forKey: WorkspaceState.notificationPreviewModeKey) }
+        UserDefaults.standard.set(
+            NotificationPreviewMode.full.rawValue,
+            forKey: WorkspaceState.notificationPreviewModeKey
+        )
+
+        let state = WorkspaceState(
+            accounts: [AccountItem(summary: primary), AccountItem(summary: secondary)],
+            contactNicknameStore: store,
+            clientFactory: { FakeMarmotRuntime(accounts: [primary, secondary]) }
+        )
+        state.activeAccountId = primary.label
+        state.loadContactNicknames()
+
+        let toPrimary = state.localNotificationRequest(
+            for: notificationUpdate(
+                account: primary,
+                notificationKey: "primary-dm",
+                senderName: "Alice",
+                previewText: "See you soon"
+            )
+        )
+        #expect(toPrimary.title == "Mum")
+
+        let toSecondary = state.localNotificationRequest(
+            for: notificationUpdate(
+                account: secondary,
+                notificationKey: "secondary-dm",
+                senderName: "Alice",
+                previewText: "See you soon"
+            )
+        )
+        #expect(toSecondary.title == "Alice")
+
+        let groupBody = state.localNotificationRequest(
+            for: notificationUpdate(
+                account: primary,
+                notificationKey: "primary-group",
+                groupIdHex: "group",
+                senderName: "Alice",
+                previewText: "See you soon",
+                isDm: false,
+                groupName: "Book club"
+            )
+        )
+        #expect(groupBody.title == "Book club")
+        #expect(groupBody.body.contains("Mum"))
+        #expect(!groupBody.body.contains("Alice"))
+    }
+
+    @MainActor
     @Test func accountSwitchAndNewInstallResetClearDecryptedSharedMediaCache() async throws {
         let primary = desktopAccount()
         let secondary = AccountSummaryFfi(
