@@ -162,6 +162,48 @@ struct PureValueTests {
         #expect(ComposerMentionMarkerStore.selections(in: editedMentionView).isEmpty)
     }
 
+    /// The composer chip is derived from the identity markers rather than tracked on its own, so
+    /// the styled range must follow a repaired marker and vanish with an invalidated one. Drift
+    /// either way would leave a chip on text that is no longer a mention, or a mention with no
+    /// visible affordance.
+    @MainActor
+    @Test func mentionChipTracksTheIdentityRangeAndDisappearsWithTheMarker() throws {
+        let candidate = mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
+        let selection = ComposerMentionSelection(
+            range: NSRange(location: 0, length: 5),
+            displayText: "@Alex",
+            npub: candidate.npub
+        )
+
+        let textView = NSTextView()
+        textView.isRichText = false
+        textView.string = "@Alex "
+        ComposerMentionMarkerStore.replaceAll(with: [selection], in: textView)
+        #expect(chipRanges(in: textView) == [NSRange(location: 0, length: 5)])
+
+        // Boundary edit: the marker is repaired to the shifted range, and so is the chip.
+        textView.insertText("Hi ", replacementRange: NSRange(location: 0, length: 0))
+        let repaired = ComposerMentionMarkerStore.selections(in: textView)
+        #expect(repaired.map(\.range) == [NSRange(location: 3, length: 5)])
+        #expect(chipRanges(in: textView) == repaired.map(\.range))
+
+        // Internal edit: the marker is dropped, and the chip goes with it.
+        let editedMentionView = NSTextView()
+        editedMentionView.isRichText = false
+        editedMentionView.string = "@Alex "
+        ComposerMentionMarkerStore.replaceAll(with: [selection], in: editedMentionView)
+        editedMentionView.insertText("x", replacementRange: NSRange(location: 3, length: 0))
+        #expect(ComposerMentionMarkerStore.selections(in: editedMentionView).isEmpty)
+        #expect(chipRanges(in: editedMentionView).isEmpty)
+
+        // A draft with no picked mention is never chipped.
+        let plainView = NSTextView()
+        plainView.isRichText = false
+        plainView.string = "@Alex "
+        ComposerMentionMarkerStore.replaceAll(with: [], in: plainView)
+        #expect(chipRanges(in: plainView).isEmpty)
+    }
+
     @MainActor
     @Test func mentionSynchronizationDefersObservableWritesUntilAfterTheViewUpdate() async {
         let firstScope = WorkspaceState.ComposerDraftKey(accountId: "account", chatId: "first")
@@ -2655,6 +2697,18 @@ struct PureValueTests {
         #expect(mention.runs.allSatisfy { $0.backgroundColor != nil })
         #expect(underlineStyles(in: mention) == [nil])
 
+        // The chip has to contrast with the fill it is drawn on, so the sent bubble's accent fill
+        // gets a different one from a neutral surface. Collapsing the two back into a single
+        // translucent wash is the regression this guards.
+        let sentMention = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub))],
+            remainingDepth: 32,
+            mentionFill: .sentBubble
+        )
+        #expect(mention.runs.first?.backgroundColor == MentionChipPalette.onNeutralFill)
+        #expect(sentMention.runs.first?.backgroundColor == MentionChipPalette.onSentBubble)
+        #expect(String(sentMention.characters) == String(mention.characters))
+
         let note = "note1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
         let noteReference = MarkdownDisplayInlineBuilder.attributedString(
             from: [.nostrUri(entity: MarkdownNostrEntityFfi(hrp: .note, bech32: note))],
@@ -3039,6 +3093,24 @@ struct PureValueTests {
 
     private func underlineStyles(in attributed: AttributedString) -> [Text.LineStyle?] {
         attributed.runs.map(\.underlineStyle)
+    }
+
+    /// Ranges carrying the mention chip, read back from a composer text view's storage. The
+    /// identity markers use private attribute keys, so the chip is what a test can observe
+    /// directly; identity is observed through `ComposerMentionMarkerStore.selections(in:)`.
+    @MainActor
+    private func chipRanges(in textView: NSTextView) -> [NSRange] {
+        guard let storage = textView.textStorage else { return [] }
+        var result: [NSRange] = []
+        storage.enumerateAttribute(
+            .backgroundColor,
+            in: NSRange(location: 0, length: (textView.string as NSString).length)
+        ) { value, range, _ in
+            if value != nil {
+                result.append(range)
+            }
+        }
+        return result
     }
 
     private func groupDetailsSnapshot(avatarURL: String?, sanitizedAvatarURL: URL?) -> GroupDetailsSnapshot {
