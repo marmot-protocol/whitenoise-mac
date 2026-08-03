@@ -3468,6 +3468,157 @@ struct PureValueTests {
         )
         #expect(!UserDiscoveryPresentation.showsNoMatches(results: withResults, isSearching: false))
     }
+
+    // MARK: - ChatDestructiveActions
+
+    @Test func destructiveActionOffersLeaveOnlyWhileStillAMember() {
+        #expect(
+            ChatDestructiveActions.action(membership: .member, leaveRequestPending: false) == .leave
+        )
+        #expect(
+            ChatDestructiveActions.action(membership: .left, leaveRequestPending: false)
+                == .deleteLocally
+        )
+        #expect(
+            ChatDestructiveActions.action(membership: .removed, leaveRequestPending: false)
+                == .deleteLocally
+        )
+    }
+
+    /// A leave already in flight suppresses both actions, whatever the membership says — the row
+    /// must show progress, not offer a second destructive action.
+    @Test func pendingLeaveSuppressesBothDestructiveActionsForEveryMembership() {
+        for membership: ChatSelfMembership in [.member, .left, .removed] {
+            #expect(
+                ChatDestructiveActions.action(membership: membership, leaveRequestPending: true)
+                    == nil
+            )
+        }
+    }
+
+    /// The load-bearing invariant: **no leave eligibility, however bad, ever produces a local
+    /// delete for someone the group still counts as a member.** Deleting locally while a member
+    /// would strand every later message the group sends, with nothing on the wire to say so, so
+    /// membership alone decides — across the whole eligibility cross product.
+    @Test func noEligibilityStateOffersLocalDeleteWhileStillAMember() {
+        for pending in [false, true] {
+            for canLeave in [false, true] {
+                for requiresSelfDemote in [false, true] {
+                    for isLastAdmin in [false, true] {
+                        let eligibility = leaveEligibility(
+                            canLeave: canLeave,
+                            requiresSelfDemoteBeforeLeave: requiresSelfDemote,
+                            leaveRequestPending: pending,
+                            isLastAdmin: isLastAdmin
+                        )
+                        let action = ChatDestructiveActions.action(
+                            membership: .member,
+                            leaveRequestPending: pending
+                        )
+                        #expect(action != .deleteLocally)
+                        // Blocked or not, a member is only ever offered the leave.
+                        #expect(action == (pending ? nil : .leave))
+                        // And the blocker only ever explains itself — it carries no delete.
+                        if let blocker = ChatDestructiveActions.leaveBlocker(
+                            membership: .member,
+                            eligibility: eligibility
+                        ) {
+                            #expect(!ChatActionAlert.leaveBlocked(blocker).message.isEmpty)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The last admin is the case the core makes unavoidable: it reports
+    /// `requiresSelfDemoteBeforeLeave` for *any* self-admin, but MIP-03 forbids the self-removal
+    /// that would empty the admin set. Self-demoting first must not be attempted there.
+    @Test func lastAdminCanNeitherLeaveNorSelfDemoteFirst() {
+        let lastAdmin = leaveEligibility(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true
+        )
+        #expect(!ChatDestructiveActions.shouldSelfDemoteBeforeLeave(lastAdmin))
+        #expect(!ChatDestructiveActions.canLeave(lastAdmin))
+        #expect(
+            ChatDestructiveActions.leaveBlocker(membership: .member, eligibility: lastAdmin)
+                == .lastAdmin
+        )
+        // Leaving can never succeed here, and the answer is still Leave — reported as blocked, with
+        // the remedy named. It is deliberately *not* swapped for a local delete: the group has to
+        // learn that this account stopped reading, and only a leave tells them.
+        #expect(
+            ChatDestructiveActions.action(membership: .member, leaveRequestPending: false) == .leave
+        )
+        #expect(
+            ChatActionAlert.leaveBlocked(.lastAdmin).message
+                == L10n.string("You're the only admin. Make another member an admin before you leave.")
+        )
+    }
+
+    @Test func nonLastAdminLeavesBySteppingDownFirst() {
+        let admin = leaveEligibility(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: false
+        )
+        #expect(ChatDestructiveActions.shouldSelfDemoteBeforeLeave(admin))
+        #expect(ChatDestructiveActions.canLeave(admin))
+        #expect(ChatDestructiveActions.leaveBlocker(membership: .member, eligibility: admin) == nil)
+        #expect(
+            ChatDestructiveActions.action(membership: .member, leaveRequestPending: false) == .leave
+        )
+    }
+
+    /// `canLeave == false` without an admin role means ordinary group actions are disabled
+    /// (disbanding, or a terminal lifecycle). Reporting "you're the only admin" there would be a
+    /// plain lie, so it gets its own blocker.
+    @Test func blockedNonAdminReportsUnavailableRatherThanLastAdmin() {
+        let blocked = leaveEligibility(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: false,
+            isLastAdmin: false
+        )
+        #expect(
+            ChatDestructiveActions.leaveBlocker(membership: .member, eligibility: blocked)
+                == .unavailable
+        )
+        #expect(
+            ChatDestructiveActions.leaveBlocker(membership: .left, eligibility: blocked) == nil,
+            "a non-member has nothing left to leave, so nothing to explain"
+        )
+    }
+
+    /// Every blocker explains itself and stops there; none of them carries an alternative action.
+    @Test func everyLeaveBlockerReportsOnlyItsReason() {
+        for blocker: ChatDestructiveActions.LeaveBlocker in [.pending, .lastAdmin, .unavailable] {
+            let alert = ChatActionAlert.leaveBlocked(blocker)
+            #expect(alert.title == L10n.string("Couldn't leave chat"))
+            #expect(alert.message == blocker.message)
+        }
+    }
+
+    /// A direct message is a two-member MLS group here, so it must follow the same rule; the copy
+    /// is chat-neutral precisely so no `isDirect` branch is needed.
+    @Test func directChatsFollowTheSameDestructiveActionRule() {
+        for isDirect in [false, true] {
+            let chat = destructiveActionChat(
+                membership: .member,
+                leaveRequestPending: false,
+                isDirect: isDirect
+            )
+            #expect(ChatDestructiveActions.action(for: chat) == .leave)
+
+            let left = destructiveActionChat(
+                membership: .left,
+                leaveRequestPending: false,
+                isDirect: isDirect
+            )
+            #expect(ChatDestructiveActions.action(for: left) == .deleteLocally)
+        }
+    }
 }
 
 /// 64-char hex built from a short seed, so tests read as `hex("a")` rather than a wall of digits.
@@ -3511,6 +3662,40 @@ private func discoveryResult(
 private func sortedHexes(_ results: [UserDirectorySearchResultFfi]) -> [String] {
     UserDiscoveryRanking.sortedUnique(results.compactMap(UserDiscoveryRanking.person))
         .map(\.accountIdHex)
+}
+
+private func leaveEligibility(
+    canLeave: Bool = true,
+    requiresSelfDemoteBeforeLeave: Bool = false,
+    leaveRequestPending: Bool = false,
+    isLastAdmin: Bool = false
+) -> ChatLeaveEligibility {
+    ChatLeaveEligibility(
+        canLeave: canLeave,
+        requiresSelfDemoteBeforeLeave: requiresSelfDemoteBeforeLeave,
+        leaveRequestPending: leaveRequestPending,
+        isLastAdmin: isLastAdmin
+    )
+}
+
+private func destructiveActionChat(
+    membership: ChatSelfMembership,
+    leaveRequestPending: Bool,
+    isDirect: Bool
+) -> ChatItem {
+    ChatItem(
+        id: "group",
+        title: "Planning",
+        subtitle: "",
+        preview: "",
+        updatedAt: nil,
+        avatarSeed: "seed",
+        pictureURL: nil,
+        unreadCount: 0,
+        isDirect: isDirect,
+        leaveRequestPending: leaveRequestPending,
+        selfMembership: membership
+    )
 }
 
 private func mentionCandidate(id: String, displayName: String, npub: String) -> ComposerMentionCandidate {
