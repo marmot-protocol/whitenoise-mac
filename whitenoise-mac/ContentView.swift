@@ -27,6 +27,9 @@ struct ContentView: View {
         @Bindable var workspace = workspace
 
         MessengerShellView()
+            // Attached here, not on the conversation pane: a chat-list delete is most likely with
+            // no chat selected, and the sidebar row menu cannot host its own dialog.
+            .chatDestructiveActionsConfirmation()
             .frame(minWidth: 940, minHeight: 620)
             .preferredColorScheme(workspace.preferredColorScheme)
             .environment(\.locale, workspace.preferredLocale)

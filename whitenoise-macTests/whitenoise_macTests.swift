@@ -18821,7 +18821,11 @@ struct whitenoise_macTests {
         }
 
         await leaveState.showGroupDetails(for: leaveChat)
-        await leaveState.leaveSelectedGroup()
+        // Leaving is two-phase on every surface now: resolve eligibility, then act on confirmation.
+        await leaveState.prepareSelectedChatLeave()
+        let leaveTarget = try #require(leaveState.chatPendingLeave)
+        #expect(leaveRuntime.leaveGroupCallCount == 0)
+        await leaveState.confirmChatLeave(leaveTarget)
 
         #expect(leaveRuntime.leftGroupIdHex == "group")
         #expect(!leaveState.isGroupDetailsPresented)
@@ -18940,6 +18944,41 @@ struct whitenoise_macTests {
         state.chatListFilter = .active
         #expect(state.filteredChats.isEmpty)
         #expect(state.filteredArchivedChats.count == 1)
+    }
+
+    /// A workspace holding one group whose leave eligibility is exactly as specified, so a test can
+    /// pin the core-side answer (`canLeave` / `requiresSelfDemoteBeforeLeave` / `isLastAdmin`)
+    /// instead of inferring it from the fixture's admin set.
+    @MainActor
+    private func leavableChatState(
+        canLeave: Bool,
+        requiresSelfDemoteBeforeLeave: Bool = false,
+        isLastAdmin: Bool = false,
+        leaveRequestPending: Bool = false,
+        selfIsAdmin: Bool = false,
+        openingInspector: Bool = false
+    ) async throws -> WorkspaceState {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: selfIsAdmin),
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: selfIsAdmin,
+                isLastAdmin: isLastAdmin,
+                canInvite: selfIsAdmin,
+                canLeave: canLeave,
+                requiresSelfDemoteBeforeLeave: requiresSelfDemoteBeforeLeave,
+                leaveRequestPending: leaveRequestPending,
+                memberActions: []
+            )
+        )
+        if openingInspector {
+            return try await openInstalledGroupDetails(runtime: runtime)
+        }
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        return state
     }
 
     @MainActor
@@ -19332,8 +19371,12 @@ struct whitenoise_macTests {
         await firstRetention
     }
 
+    /// Preparing a leave deliberately does **not** consult `hasInFlightGroupCommit`: that token is
+    /// the group-details panel's own mutual exclusion, and gating on it would let an unrelated
+    /// in-flight commit block leaving a different chat from the sidebar. The per-chat
+    /// `leavingChatId` guard is what serializes leaves.
     @MainActor
-    @Test func leaveSelectedGroupDropsWhileProfileSaveIsInFlight() async throws {
+    @Test func chatLeavePreparationSurvivesUnrelatedInFlightGroupCommit() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         let details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: false)
@@ -19366,7 +19409,10 @@ struct whitenoise_macTests {
             return
         }
 
-        await state.leaveSelectedGroup()
+        // The confirmation still opens; nothing has been published yet, because publishing waits on
+        // the user's confirmation rather than on the unrelated save.
+        await state.prepareSelectedChatLeave()
+        #expect(state.chatPendingLeave?.groupIdHex == details.group.groupIdHex)
         #expect(runtime.leaveGroupCallCount == 0)
         #expect(!state.isLeavingGroup)
 
@@ -19439,21 +19485,267 @@ struct whitenoise_macTests {
             )
         )
         let state = try await openInstalledGroupDetails(runtime: runtime)
+        let target = ChatLeaveTarget(
+            groupIdHex: details.group.groupIdHex,
+            title: details.group.name,
+            requiresSelfDemote: false
+        )
 
         runtime.groupMutationGateEnabled = true
-        async let firstLeave: Void = state.leaveSelectedGroup()
-        while !(state.isLeavingGroup && runtime.didReachGroupMutationGate) {
+        async let firstLeave: Void = state.confirmChatLeave(target)
+        while !(state.leavingChatId == target.groupIdHex && runtime.didReachGroupMutationGate) {
             await Task.yield()
         }
 
-        await state.leaveSelectedGroup()
+        await state.confirmChatLeave(target)
         #expect(runtime.leaveGroupCallCount == 1)
 
         runtime.releaseGroupMutationGate()
         await firstLeave
 
         #expect(runtime.leaveGroupCallCount == 1)
+        #expect(state.leavingChatId == nil)
         #expect(!state.isLeavingGroup)
+    }
+
+    // MARK: - Chat-list leave / local delete
+
+    /// Preparing a leave resolves eligibility and opens the confirmation — it must not publish
+    /// anything, or a context-menu click would leave the chat without asking.
+    @MainActor
+    @Test func chatListLeavePreparationOnlyOpensTheConfirmation() async throws {
+        let state = try await leavableChatState(canLeave: true)
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+
+        #expect(state.chatPendingLeave?.groupIdHex == chat.id)
+        #expect(state.chatPendingLeave?.requiresSelfDemote == false)
+        #expect(state.chatActionAlert == nil)
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+    }
+
+    /// The two surfaces must resolve to the same thing. The sidebar row and the inspector reach the
+    /// same shared entry point, so the same group produces the same pending confirmation.
+    @MainActor
+    @Test func chatListAndInspectorLeavePreparationAgree() async throws {
+        let rowState = try await leavableChatState(canLeave: true)
+        let rowChat = try #require(rowState.activeChats.first)
+        await rowState.prepareChatLeave(for: rowChat)
+
+        let inspectorState = try await leavableChatState(canLeave: true, openingInspector: true)
+        await inspectorState.prepareSelectedChatLeave()
+
+        #expect(rowState.chatPendingLeave?.groupIdHex == inspectorState.chatPendingLeave?.groupIdHex)
+        #expect(
+            rowState.chatPendingLeave?.requiresSelfDemote
+                == inspectorState.chatPendingLeave?.requiresSelfDemote
+        )
+    }
+
+    /// Two quick clicks must not race: whichever eligibility fetch finishes last would otherwise own
+    /// the confirmation, so the dialog could name a chat the user did not click.
+    @MainActor
+    @Test func overlappingLeavePreparationsCannotRetargetTheConfirmation() async throws {
+        let state = try await leavableChatState(canLeave: true)
+        let chat = try #require(state.activeChats.first)
+
+        async let first: Void = state.prepareChatLeave(groupIdHex: chat.id, title: "First")
+        async let second: Void = state.prepareChatLeave(groupIdHex: "other-group", title: "Second")
+        _ = await (first, second)
+
+        #expect(state.chatPendingLeave?.groupIdHex == chat.id)
+        #expect(state.chatPendingLeave?.title == "First")
+        #expect(state.preparingChatLeaveId == nil)
+    }
+
+    /// The core makes the creator of a chat its sole admin and MIP-03 forbids the self-removal that
+    /// would empty the admin set, so leaving is blocked until another member is promoted. The report
+    /// says exactly that and offers no local delete: dropping the local copy while the group still
+    /// counts this account as a member would strand every message they send afterwards.
+    @MainActor
+    @Test func lastAdminLeaveIsReportedWithoutOfferingALocalDelete() async throws {
+        let state = try await leavableChatState(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true,
+            selfIsAdmin: true
+        )
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+
+        #expect(state.chatPendingLeave == nil)
+        #expect(state.chatPendingLocalDelete == nil)
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.locallyDeletedGroupIds.isEmpty)
+        let alert = try #require(state.chatActionAlert)
+        #expect(alert.message == ChatDestructiveActions.LeaveBlocker.lastAdmin.message)
+        // The chat is still listed and still a member's chat — nothing was silently dropped.
+        #expect(state.activeChats.contains { $0.id == chat.id })
+        #expect(ChatDestructiveActions.action(for: chat) == .leave)
+    }
+
+    @MainActor
+    @Test func nonLastAdminLeaveStepsDownBeforeLeaving() async throws {
+        let state = try await leavableChatState(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: false,
+            selfIsAdmin: true
+        )
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+        let target = try #require(state.chatPendingLeave)
+        #expect(target.requiresSelfDemote)
+        await state.confirmChatLeave(target)
+
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 1)
+        #expect(runtime.leaveGroupCallCount == 1)
+        #expect(runtime.groupMutationOrder == ["selfDemote", "leave"])
+        #expect(state.leavingChatId == nil)
+    }
+
+    @MainActor
+    @Test func ordinaryMemberLeaveDoesNotSelfDemote() async throws {
+        let state = try await leavableChatState(canLeave: true)
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+        await state.confirmChatLeave(try #require(state.chatPendingLeave))
+
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.groupMutationOrder == ["leave"])
+        #expect(runtime.leftGroupIdHex == chat.id)
+        #expect(state.chatActionAlert == nil)
+    }
+
+    /// A leave the core already recorded is a success. Re-requesting inside the same epoch raises
+    /// `LeaveAlreadyRequested`, and surfacing that as a failure would tell the user the leave did
+    /// not happen when in fact it did.
+    @MainActor
+    @Test func alreadyRequestedLeaveIsTreatedAsSuccess() async throws {
+        let state = try await leavableChatState(canLeave: true)
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+        runtime.leaveGroupError = MarmotKitError.LeaveAlreadyRequested(groupIdHex: chat.id)
+
+        await state.prepareChatLeave(for: chat)
+        await state.confirmChatLeave(try #require(state.chatPendingLeave))
+
+        #expect(runtime.leaveGroupCallCount == 1)
+        #expect(state.chatActionAlert == nil)
+        #expect(state.leavingChatId == nil)
+    }
+
+    @MainActor
+    @Test func genuineLeaveFailureIsReportedInTheChatActionAlert() async throws {
+        let state = try await leavableChatState(canLeave: true)
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+        runtime.leaveGroupError = FakeMarmotRuntimeError.unused
+
+        await state.prepareChatLeave(for: chat)
+        await state.confirmChatLeave(try #require(state.chatPendingLeave))
+
+        #expect(runtime.leaveGroupCallCount == 1)
+        #expect(state.chatActionAlert?.title == L10n.string("Couldn't leave chat"))
+        #expect(state.chatPendingLocalDelete == nil)
+        #expect(state.leavingChatId == nil)
+    }
+
+    /// Deleting the chat you are looking at has to tear the conversation down too. The primitive
+    /// already does this; this asserts the confirmation path still routes through it.
+    @MainActor
+    @Test func confirmedLocalDeleteOfSelectedChatClearsTheConversation() async throws {
+        let state = try await leavableChatState(canLeave: true)
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.selectedChat)
+
+        state.requestChatLocalDelete(for: chat)
+        let target = try #require(state.chatPendingLocalDelete)
+        await state.confirmChatLocalDelete(target)
+
+        #expect(runtime.locallyDeletedGroupIds == [chat.id])
+        #expect(state.chatPendingLocalDelete == nil)
+        #expect(state.selection != .chat(chat.id))
+        #expect(state.chatActionAlert == nil)
+    }
+
+    /// Group ids only mean something within the account that produced them, so a confirmation must
+    /// never outlive the account switch — otherwise confirming would act on a different identity's
+    /// chat, or on nothing at all.
+    @MainActor
+    @Test func accountSwitchDiscardsPendingDestructiveConfirmations() async throws {
+        let second = AccountSummaryFfi(
+            label: "Second Account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), second])
+        runtime.installGroups([messageGroup()])
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+
+        state.requestChatLocalDelete(for: chat)
+        state.chatPendingLeave = ChatLeaveTarget(
+            groupIdHex: chat.id,
+            title: chat.title,
+            requiresSelfDemote: false
+        )
+        state.chatActionAlert = .leaveFailed()
+        #expect(state.chatPendingLocalDelete != nil)
+
+        let target = try #require(state.accounts.first { $0.id == "Second Account" })
+        state.switchActiveAccount(target, finalSelection: nil)
+
+        #expect(state.chatPendingLeave == nil)
+        #expect(state.chatPendingLocalDelete == nil)
+        #expect(state.chatActionAlert == nil)
+    }
+
+    /// Signing out the last account reaches onboarding without going through
+    /// `prepareForActiveAccountSwitch`, so the switch-time clear does not run — the teardown itself
+    /// has to drop the dialogs, or one survives into onboarding still naming the old account's group.
+    @MainActor
+    @Test func signingOutTheLastAccountDiscardsPendingDestructiveConfirmations() async throws {
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.installGroups([messageGroup()])
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        UserDefaults.standard.set("Desktop Account", forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first)
+        let account = try #require(state.accounts.first)
+
+        state.requestChatLocalDelete(for: chat)
+        state.chatPendingLeave = ChatLeaveTarget(
+            groupIdHex: chat.id,
+            title: chat.title,
+            requiresSelfDemote: false
+        )
+        state.chatActionAlert = .leaveFailed()
+
+        await state.signOutAccount(account)
+
+        #expect(state.chatPendingLeave == nil)
+        #expect(state.chatPendingLocalDelete == nil)
+        #expect(state.chatActionAlert == nil)
     }
 
     @MainActor
@@ -25808,6 +26100,8 @@ struct MarmotKit098IntegrationTests {
         #expect(runtime.recordedHostPerformance.last?.2 == .success)
     }
 
+    /// A leave already recorded by the core is neither an error nor an invitation to publish a
+    /// second one: the affordance resolves to "already leaving", with no dialog and no alert.
     @MainActor
     @Test func pendingLeaveIntentBlocksDuplicatePublish() async throws {
         let account = desktopAccount()
@@ -25831,11 +26125,13 @@ struct MarmotKit098IntegrationTests {
         let chat = try #require(state.activeChats.first)
         await state.showGroupDetails(for: chat)
 
-        await state.leaveSelectedGroup()
+        await state.prepareSelectedChatLeave()
 
         #expect(state.groupDetailsSnapshot?.leaveRequestPending == true)
         #expect(runtime.leaveGroupCallCount == 0)
-        #expect(state.lastError == L10n.string("Your leave request is already pending."))
+        #expect(state.chatPendingLeave == nil)
+        #expect(state.chatActionAlert == nil)
+        #expect(state.lastError == nil)
     }
 }
 
@@ -26036,6 +26332,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var setGroupArchivedError: Error?
     private(set) var leftGroupIdHex: String?
     private(set) var leaveGroupCallCount = 0
+    var leaveGroupError: Error?
+    /// Ordered log of the group mutations a leave can issue, so tests can assert that a
+    /// self-demote precedes the leave it unblocks rather than merely accompanying it.
+    private(set) var groupMutationOrder: [String] = []
     private(set) var acceptedInviteGroupIds: [String] = []
     private(set) var acceptGroupInviteCallCount = 0
     private(set) var declinedInviteGroupIds: [String] = []
@@ -27075,7 +27375,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func leaveGroup(accountRef: String, groupIdHex: String) async throws -> SendSummaryFfi {
         leaveGroupCallCount += 1
+        groupMutationOrder.append("leave")
         await groupMutationGate.passIfArmed()
+        if let leaveGroupError { throw leaveGroupError }
         leftGroupIdHex = groupIdHex
         groups.removeAll { $0.groupIdHex == groupIdHex }
         groupDetailsById[groupIdHex] = nil
@@ -27126,6 +27428,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func selfDemoteAdminDetailed(accountRef: String, groupIdHex: String) async throws -> GroupMutationResultFfi {
         selfDemoteAdminDetailedCallCount += 1
+        groupMutationOrder.append("selfDemote")
         await groupMutationGate.passIfArmed()
         selfDemotedGroupIdHex = groupIdHex
         guard var details = groupDetailsById[groupIdHex] else {
