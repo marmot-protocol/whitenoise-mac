@@ -24,6 +24,10 @@ nonisolated protocol MarmotRuntime: Sendable {
         -> String
     func accountRelayLists(accountRef: String) throws -> AccountRelayListsFfi
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi]
+    func accountFollows(accountRef: String) throws -> [String]
+    func isFollowing(accountRef: String, userRef: String) throws -> Bool
+    func followUser(accountRef: String, userRef: String) async throws -> [String]
+    func unfollowUser(accountRef: String, userRef: String) async throws -> [String]
     func auditLogFiles() throws -> [AuditLogFileFfi]
     func auditLogSettings() throws -> AuditLogSettingsFfi
     func deleteAuditLogFile(path: String) async throws -> AuditLogDeleteResultFfi
@@ -224,6 +228,22 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func accountKeyPackages(accountRef: String, bootstrapRelays: [String]) async throws -> [AccountKeyPackageFfi] {
         try await marmot.accountKeyPackages(accountRef: accountRef, bootstrapRelays: bootstrapRelays)
+    }
+
+    func accountFollows(accountRef: String) throws -> [String] {
+        try marmot.accountFollows(accountRef: accountRef)
+    }
+
+    func isFollowing(accountRef: String, userRef: String) throws -> Bool {
+        try marmot.isFollowing(accountRef: accountRef, userRef: userRef)
+    }
+
+    func followUser(accountRef: String, userRef: String) async throws -> [String] {
+        try await marmot.followUser(accountRef: accountRef, userRef: userRef)
+    }
+
+    func unfollowUser(accountRef: String, userRef: String) async throws -> [String] {
+        try await marmot.unfollowUser(accountRef: accountRef, userRef: userRef)
     }
 
     func auditLogFiles() throws -> [AuditLogFileFfi] {

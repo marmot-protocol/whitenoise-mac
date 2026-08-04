@@ -1284,6 +1284,34 @@ final class WorkspaceState {
     var isLoadingCommonGroups = false
     var commonGroupsLoadHadFailures = false
     @ObservationIgnored var commonGroupsLoadGeneration: UInt64 = 0
+    /// Kind-3 follow relationships for the *active* account, keyed by lowercased account-id
+    /// hex. A key that is absent means the relationship is still unknown — not "not
+    /// followed" — unless `hasCompleteFollowList` is set. Read it through
+    /// `isFollowingContact(accountIdHex:)` rather than subscripting.
+    var followStateByAccountIdHex: [String: Bool] = [:]
+    /// True once a whole-list read (`accountFollows`, or the list a follow/unfollow returns)
+    /// has landed, which is what makes an absent key a definite "not followed".
+    var hasCompleteFollowList = false
+    /// Follow/unfollow publishes to relays, so it gets its own spinner. Deliberately not
+    /// `isLoadingContactDetails`, which means "resolving this contact".
+    var isTogglingFollow = false
+    /// The contact whose follow status the most recent per-contact read was for, so the
+    /// loading and unavailable states below can be attributed to the sheet that is open.
+    var followStatusContactIdHex: String?
+    var isLoadingFollowStatus = false
+    /// True when every attempt at that read failed and the relationship is still unknown.
+    /// The control offers a retry rather than disappearing.
+    var followStatusReadFailed = false
+    /// Request ordering for the per-contact read. Deliberately separate from the whole-list
+    /// generation below: the two answer different questions, so neither may invalidate the
+    /// other just by starting.
+    @ObservationIgnored var followStatusGeneration: UInt64 = 0
+    @ObservationIgnored var followListGeneration: UInt64 = 0
+    @ObservationIgnored var followMutationGeneration: UInt64 = 0
+    /// Advanced every time a complete list replaces the cache — a whole-list read, or the list
+    /// a follow/unfollow publishes. A read that resolved against an older epoch is stale by
+    /// definition, however recent its own request generation is, and must not be written back.
+    @ObservationIgnored var followCacheEpoch: UInt64 = 0
     /// Shared-media browser state for the group-details sheet.
     var sharedMediaProjection = GroupSharedMediaProjection.empty
     var sharedMediaGroupId: String?

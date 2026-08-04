@@ -402,6 +402,12 @@ extension WorkspaceState {
         }
         composeContacts = sortedComposeContacts(byHex)
 
+        // Follows are the third source. The list is read up front but merged last, so that
+        // a chat or roster entry — which carries a display name, a picture and a real
+        // `lastActivity` — always wins over the bare hex a follow contributes.
+        await refreshFollowedAccounts()
+        guard composeContactsGeneration == generation, activeAccountId == accountId else { return }
+
         let groups = chats.filter { !$0.isDirect && !$0.pendingConfirmation }
             .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
             .prefix(40)
@@ -409,6 +415,14 @@ extension WorkspaceState {
             // A superseded refresh may no longer clear the spinner it set (the generation
             // bump above orphaned its defer), so this early return must clear it.
             isLoadingComposeContacts = false
+            await mergeFollowedComposeContacts(
+                into: byHex,
+                generation: generation,
+                accountId: accountId,
+                selfHex: selfHex,
+                nicknames: nicknames,
+                client: client
+            )
             return
         }
         isLoadingComposeContacts = true
@@ -448,6 +462,64 @@ extension WorkspaceState {
             }
             composeContacts = sortedComposeContacts(byHex)
         }
+        await mergeFollowedComposeContacts(
+            into: byHex,
+            generation: generation,
+            accountId: accountId,
+            selfHex: selfHex,
+            nicknames: nicknames,
+            client: client
+        )
+    }
+
+    /// Fold the accounts this identity follows into a compose refresh, keeping only the keys
+    /// no chat or group roster already supplied. Someone you follow but have never messaged
+    /// is otherwise absent from this list entirely, which makes a first DM a paste-an-npub
+    /// exercise. They carry no `lastActivity`, so `sortedComposeContacts` files them below
+    /// every real conversation.
+    private func mergeFollowedComposeContacts(
+        into byHex: [String: ComposeContact],
+        generation: UInt64,
+        accountId: String,
+        selfHex: String,
+        nicknames: ContactNicknames,
+        client: any MarmotRuntime
+    ) async {
+        let selfKey = selfHex.lowercased()
+        let missing =
+            followedAccountIdsHex
+            .filter { $0.count == 64 && $0 != selfKey && byHex[$0] == nil && !isLocalAccount(accountIdHex: $0) }
+            .sorted()
+        guard !missing.isEmpty else { return }
+
+        // `displayName` and `npub` are cached, network-free lookups, so the whole batch
+        // fits in one hop off the main thread.
+        let resolved =
+            (try? await runOffMain {
+                missing.map { hex in
+                    ResolvedFollowContact(
+                        accountIdHex: hex,
+                        displayName: client.displayName(accountIdHex: hex),
+                        npub: client.npub(accountIdHex: hex)
+                    )
+                }
+            }) ?? missing.map { ResolvedFollowContact(accountIdHex: $0, displayName: nil, npub: nil) }
+        guard composeContactsGeneration == generation, activeAccountId == accountId else { return }
+
+        var byHex = byHex
+        for contact in resolved where byHex[contact.accountIdHex] == nil {
+            let published = PeerDisplayText.sanitize(contact.displayName)
+            let nickname = nicknames.nickname(forContactAccountIdHex: contact.accountIdHex)
+            byHex[contact.accountIdHex] = ComposeContact(
+                accountIdHex: contact.accountIdHex,
+                npub: contact.npub ?? "",
+                displayName: nickname ?? published,
+                publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
+                pictureURL: nil,
+                lastActivity: nil
+            )
+        }
+        composeContacts = sortedComposeContacts(byHex)
     }
 
     func filteredComposeContacts(matching query: String) -> [ComposeContact] {
@@ -603,6 +675,14 @@ extension WorkspaceState {
             }
         }
     }
+}
+
+/// One followed account with whatever the local directory already knows about it. Carried
+/// back across the off-main hop that batches those cached lookups.
+private struct ResolvedFollowContact: Sendable {
+    let accountIdHex: String
+    let displayName: String?
+    let npub: String?
 }
 
 private func latestDate(_ first: Date?, _ second: Date?) -> Date? {

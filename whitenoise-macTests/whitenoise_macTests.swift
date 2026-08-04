@@ -18301,6 +18301,492 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func followToggleTracksTheReturnedListRatherThanTheRequestedMutation() async throws {
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let bobHex = String(repeating: "b", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        await state.showContactDetails(accountIdHex: aliceHex, displayName: "Alice", pictureURL: nil)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == false)
+
+        await state.toggleFollow(accountIdHex: aliceHex)
+
+        #expect(
+            runtime.followMutationCalls == [
+                FollowMutationCall(accountRef: account.label, userRef: aliceHex, isFollow: true)
+            ]
+        )
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == true)
+        #expect(state.followedAccountIdsHex == [aliceHex])
+        #expect(!state.isTogglingFollow)
+        #expect(state.lastError == nil)
+
+        await state.toggleFollow(accountIdHex: aliceHex)
+        #expect(runtime.followMutationCalls.last?.isFollow == false)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == false)
+
+        // The mutations return the complete list the core actually published. When that list
+        // contradicts the requested mutation, the list is what the UI must report.
+        runtime.followMutationResultOverride = [bobHex]
+        await state.toggleFollow(accountIdHex: aliceHex)
+        #expect(runtime.followMutationCalls.last?.isFollow == true)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == false)
+        #expect(state.isFollowingContact(accountIdHex: bobHex) == true)
+    }
+
+    @MainActor
+    @Test func followListUnavailableLeavesTheCachedFollowStateUntouched() async throws {
+        // `FollowListUnavailable` is the core refusing to publish a replacement it could not
+        // base on the current contact-list event: nothing changed, and a retry is safe. It
+        // must not read as a lost follow, and must not move the cached state either way.
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installFollows(accountRef: account.label, follows: [aliceHex])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        await state.showContactDetails(accountIdHex: aliceHex, displayName: "Alice", pictureURL: nil)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == true)
+
+        runtime.followMutationError = MarmotKitError.FollowListUnavailable
+        await state.toggleFollow(accountIdHex: aliceHex)
+
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == true)
+        #expect(!state.isTogglingFollow)
+        #expect(
+            state.lastError
+                == L10n.string(
+                    "Couldn't reach your relays to update your follow list. Nothing changed — try again."
+                )
+        )
+    }
+
+    @MainActor
+    @Test func failedFollowStatusRefreshKeepsTheKnownRelationship() async throws {
+        // A failed refresh must not fail closed: showing "Follow" for someone this account
+        // already follows invites a duplicate publish and misreports the relationship.
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installFollows(accountRef: account.label, follows: [aliceHex])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        await state.showContactDetails(accountIdHex: aliceHex, displayName: "Alice", pictureURL: nil)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == true)
+        state.closeContactDetails()
+
+        runtime.followReadError = FakeMarmotRuntimeError.followListReadFailed
+        await state.showContactDetails(accountIdHex: aliceHex, displayName: "Alice", pictureURL: nil)
+
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == true)
+        // A known relationship survives the failure, so there is nothing to retry.
+        #expect(state.contactFollowStatus(accountIdHex: aliceHex) == .known(true))
+        #expect(!state.followStatusReadFailed)
+        #expect(!state.isLoadingContactDetails)
+    }
+
+    @MainActor
+    @Test func unreadableFollowStatusOffersARetryInsteadOfHidingTheControl() async throws {
+        // An unknown relationship must never be a resting state: the control stays put and
+        // asks to be retried, so a failed read cannot look like a missing feature.
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installFollows(accountRef: account.label, follows: [aliceHex])
+        runtime.followReadError = FakeMarmotRuntimeError.followListReadFailed
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        await state.showContactDetails(accountIdHex: aliceHex, displayName: "Alice", pictureURL: nil)
+
+        #expect(state.contactFollowStatus(accountIdHex: aliceHex) == .unavailable)
+        #expect(state.followStatusReadFailed)
+        #expect(!state.isLoadingFollowStatus)
+        // The read is retried once on its own before the control gives up and asks.
+        #expect(runtime.isFollowingCallCount == WorkspaceState.followStatusAttemptLimit)
+
+        runtime.followReadError = nil
+        await state.refreshFollowStatus(forContactIdHex: aliceHex)
+
+        #expect(state.contactFollowStatus(accountIdHex: aliceHex) == .known(true))
+        #expect(!state.followStatusReadFailed)
+    }
+
+    @MainActor
+    @Test func directChatInfoResolvesThePeerFollowState() async throws {
+        // Chat info is the profile a 1:1 conversation opens, so it carries the follow control
+        // and has to resolve the relationship on its own — reaching it must not require
+        // opening the peer's contact details first.
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installGroupDetailsRecord(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        runtime.installFollows(accountRef: account.label, follows: [aliceIdHex])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let directChat = try #require(state.activeChats.first { $0.id == "direct-group" })
+        state.selectChat(directChat)
+        await state.showGroupDetails(for: directChat)
+
+        #expect(state.contactFollowStatus(accountIdHex: aliceIdHex) == .known(true))
+        #expect(state.canOfferFollow(accountIdHex: aliceIdHex))
+    }
+
+    @MainActor
+    @Test func followIsNeverOfferedForAnIdentitySignedInOnThisDevice() async throws {
+        // Not just the active account: a second identity signed in here is still you, and a
+        // blank key has nobody to act on at all.
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        #expect(!state.canOfferFollow(accountIdHex: account.accountIdHex))
+        #expect(!state.canOfferFollow(accountIdHex: account.accountIdHex.uppercased()))
+        #expect(!state.canOfferFollow(accountIdHex: "   "))
+        #expect(state.canOfferFollow(accountIdHex: aliceHex))
+    }
+
+    @MainActor
+    @Test func noteToSelfChatInfoReadsNoFollowState() async throws {
+        // A note-to-self chat seeds its avatar from the group id, so keying the read off the
+        // seed would ask the core whether the account follows a group.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let noteToSelf = ChatItem(
+            id: "self-group",
+            title: "Note to self",
+            subtitle: "Direct message",
+            preview: "",
+            updatedAt: nil,
+            avatarSeed: "self-group",
+            pictureURL: nil,
+            unreadCount: 0,
+            isDirect: true
+        )
+        #expect(noteToSelf.directPeerAccountIdHex == nil)
+
+        await state.refreshDirectPeerFollowStatus(for: noteToSelf)
+        #expect(runtime.isFollowingCallCount == 0)
+    }
+
+    @Test func contactProfileLeadsWithTheFollowAction() throws {
+        // These are private SwiftUI views, so this source-shape regression guards the
+        // user-facing wiring directly. Follow used to sit inside the same form row as "Copy
+        // Public Key", which is why it could not be found; it now leads the profile's action
+        // row above the form, and chat info carries the same control for a direct chat.
+        let groupViewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("GroupViews.swift")
+        let source = try String(contentsOf: groupViewsURL, encoding: .utf8)
+
+        // The profile's action row is above the form, and carries Follow before Message.
+        let detailsStart = try #require(source.range(of: "struct ContactDetailsView: View {"))
+        let detailsBody = source[detailsStart.upperBound...]
+        let actionsRowIndex = try #require(
+            detailsBody.range(of: "ContactProfileActionsRow(contact: contact)")?.lowerBound
+        )
+        let formIndex = try #require(detailsBody.range(of: "\n            Form {")?.lowerBound)
+        #expect(actionsRowIndex < formIndex)
+
+        let rowStart = try #require(source.range(of: "private struct ContactProfileActionsRow: View {"))
+        let rowBody = source[rowStart.upperBound...]
+        let followIndex = try #require(
+            rowBody.range(of: "ContactFollowControl(accountIdHex: contact.accountIdHex)")?.lowerBound
+        )
+        let messageIndex = try #require(
+            rowBody.range(of: "workspace.messageContact(contact)")?.lowerBound
+        )
+        #expect(followIndex < messageIndex)
+
+        // Chat info for a direct chat offers the same control, next to the nickname row.
+        #expect(source.contains("ContactFollowControl(accountIdHex: contactAccountIdHex)"))
+    }
+
+    @MainActor
+    @Test func followStatusReportsLoadingWhileTheReadIsInFlight() async throws {
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installFollows(accountRef: account.label, follows: [aliceHex])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        runtime.followReadGateEnabled = true
+        async let details: Void = state.showContactDetails(
+            accountIdHex: aliceHex,
+            displayName: "Alice",
+            pictureURL: nil
+        )
+        while !runtime.didReachFollowReadGate {
+            await Task.yield()
+        }
+
+        #expect(state.contactFollowStatus(accountIdHex: aliceHex) == .loading)
+        #expect(state.isLoadingFollowStatus)
+
+        runtime.releaseFollowReadGate()
+        await details
+
+        #expect(state.contactFollowStatus(accountIdHex: aliceHex) == .known(true))
+        #expect(!state.isLoadingFollowStatus)
+
+        // Closing the sheet must not strand the loading or retry state for the next contact.
+        state.closeContactDetails()
+        #expect(!state.isLoadingFollowStatus)
+        #expect(!state.followStatusReadFailed)
+        #expect(state.followStatusContactIdHex == nil)
+    }
+
+    @MainActor
+    @Test func openingAProfileDoesNotDiscardAnInFlightFollowListRefresh() async throws {
+        // The two reads answer different questions — "who does this account follow" and "does it
+        // follow this one contact" — so they must not share a request generation. They did, and a
+        // profile opening mid-refresh silently discarded the whole-list read: `hasCompleteFollowList`
+        // stayed false, which leaves every unresolved contact reading as "Checking…" forever and
+        // drops followed-only people out of the compose list.
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let bobHex = String(repeating: "b", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installFollows(accountRef: account.label, follows: [aliceHex])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        runtime.followListReadGateEnabled = true
+        async let listRefresh: Bool = state.refreshFollowedAccounts()
+        while !runtime.didReachFollowListReadGate {
+            await Task.yield()
+        }
+
+        // A profile opens while the list refresh is parked mid-flight.
+        await state.refreshFollowStatus(forContactIdHex: bobHex)
+        #expect(state.contactFollowStatus(accountIdHex: bobHex) == .known(false))
+
+        runtime.releaseFollowListReadGate()
+        let applied = await listRefresh
+
+        #expect(applied)
+        #expect(state.hasCompleteFollowList)
+        #expect(state.followedAccountIdsHex == [aliceHex])
+        // The whole list settles the contacts it does not name, rather than stranding them.
+        #expect(state.isFollowingContact(accountIdHex: bobHex) == false)
+    }
+
+    @MainActor
+    @Test func aFollowReadResolvedBeforeAMutationCannotClobberThePublishedList() async throws {
+        // The relationship is already known, so the button is live while a refresh is still in
+        // flight. That read resolved "not following" before the mutation ran; letting it land
+        // afterwards flips the control back to "Follow" for someone just followed, and the next
+        // tap would try to follow them a second time.
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        // A complete list settles the relationship, so the control renders `.known` — not
+        // `.loading` — and stays tappable while the per-contact read below is parked.
+        #expect(await state.refreshFollowedAccounts())
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == false)
+
+        runtime.followReadGateEnabled = true
+        async let staleRead: Void = state.refreshFollowStatus(forContactIdHex: aliceHex)
+        while !runtime.didReachFollowReadGate {
+            await Task.yield()
+        }
+
+        await state.toggleFollow(accountIdHex: aliceHex)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == true)
+
+        runtime.releaseFollowReadGate()
+        await staleRead
+
+        // The mutation published the newer truth; the older answer is dropped, not written back.
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == true)
+        #expect(state.contactFollowStatus(accountIdHex: aliceHex) == .known(true))
+        #expect(state.followedAccountIdsHex == [aliceHex])
+    }
+
+    @MainActor
+    @Test func followMutationCompletingAfterTheContactSheetClosesIsDropped() async throws {
+        // The #135 shape: a late completion must not resurrect the spinner or post an error
+        // against a screen the user already left.
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        await state.showContactDetails(accountIdHex: aliceHex, displayName: "Alice", pictureURL: nil)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == false)
+
+        runtime.followMutationGateEnabled = true
+        async let toggle: Void = state.toggleFollow(accountIdHex: aliceHex)
+        while !runtime.didReachFollowMutationGate {
+            await Task.yield()
+        }
+        #expect(state.isTogglingFollow)
+
+        state.closeContactDetails()
+        #expect(!state.isTogglingFollow)
+
+        runtime.releaseFollowMutationGate()
+        await toggle
+
+        #expect(!state.isTogglingFollow)
+        #expect(state.contactDetailsTarget == nil)
+        #expect(state.lastError == nil)
+        // Dropped, not applied — the next read of the list picks the published follow up.
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == false)
+    }
+
+    @MainActor
+    @Test func switchingAccountsClearsTheFollowList() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = desktopAccount()
+        let secondary = AccountSummaryFfi(
+            label: "Second Identity",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceHex = String(repeating: "a", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.installFollows(accountRef: primary.label, follows: [aliceHex])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        #expect(await state.refreshFollowedAccounts())
+        #expect(state.followedAccountIdsHex == [aliceHex])
+        #expect(state.hasCompleteFollowList)
+
+        let other = try #require(state.accounts.first { $0.accountIdHex == secondary.accountIdHex })
+        state.selectAccount(other)
+
+        #expect(state.followedAccountIdsHex.isEmpty)
+        #expect(!state.hasCompleteFollowList)
+        #expect(state.isFollowingContact(accountIdHex: aliceHex) == nil)
+    }
+
+    @MainActor
+    @Test func followIsBlockedForEveryLocalAccountNotJustTheActiveOne() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = desktopAccount()
+        let secondary = AccountSummaryFfi(
+            label: "Second Identity",
+            accountIdHex: String(repeating: "2", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        // A whole-list read settles every contact, so nothing but the self-check can be
+        // what stops these two mutations.
+        #expect(await state.refreshFollowedAccounts())
+        #expect(state.isFollowingContact(accountIdHex: secondary.accountIdHex) == false)
+
+        await state.toggleFollow(accountIdHex: secondary.accountIdHex)
+        await state.toggleFollow(accountIdHex: primary.accountIdHex)
+
+        #expect(runtime.followMutationCalls.isEmpty)
+        #expect(state.followedAccountIdsHex.isEmpty)
+        #expect(!state.isTogglingFollow)
+    }
+
+    @MainActor
+    @Test func composeContactsIncludeFollowedAccountsWithNoChatOrSharedGroup() async throws {
+        let account = desktopAccount()
+        let aliceHex = String(repeating: "a", count: 64)
+        let carolHex = String(repeating: "c", count: 64)
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installProfile(
+            accountIdHex: carolHex,
+            profile: UserProfileMetadataFfi(
+                name: "carol",
+                displayName: "Carol",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // Alice is both a follow and an existing DM; Carol has only ever been followed.
+        runtime.installFollows(accountRef: account.label, follows: [aliceHex, carolHex])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        await state.refreshComposeContacts()
+
+        #expect(state.composeContacts.map(\.accountIdHex).sorted() == [aliceHex, carolHex].sorted())
+
+        let alice = try #require(state.composeContacts.first { $0.accountIdHex == aliceHex })
+        #expect(alice.displayName == "Alice")
+        #expect(alice.pictureURL == "https://example.com/alice.png")
+
+        let carol = try #require(state.composeContacts.first { $0.accountIdHex == carolHex })
+        #expect(carol.displayName == "Carol")
+        #expect(carol.lastActivity == nil)
+        // No `lastActivity` files a followed stranger below every real conversation.
+        #expect(state.composeContacts.last?.accountIdHex == carolHex)
+    }
+
+    @MainActor
     @Test func staleGroupDetailsLoadDoesNotClobberNewerSnapshotOrDropSpinner() async throws {
         // Issue #135: `loadGroupDetails` is reachable concurrently for the same group, and the FFI
         // pair it awaits is completion-ordered, not request-ordered. An older, slower load must not
@@ -26292,6 +26778,21 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             relay: true
         ),
     ]
+    /// Kind-3 follow lists keyed by `accountRef`, lowercased hex.
+    private var followsByAccountRef: [String: Set<String>] = [:]
+    private(set) var followMutationCalls: [FollowMutationCall] = []
+    /// Injected failure for `followUser` / `unfollowUser` — notably
+    /// `MarmotKitError.FollowListUnavailable`, which is a refusal to publish, not a partial write.
+    var followMutationError: Error?
+    /// Injected failure for the network-free cached reads.
+    var followReadError: Error?
+    /// Forces the list a mutation returns, so a test can drive the case where the core
+    /// published something other than what was requested.
+    var followMutationResultOverride: [String]?
+    private(set) var isFollowingCallCount = 0
+    private let followMutationGate = AsyncFfiGate()
+    private let followReadGate = BlockingFfiGate()
+    private let followListReadGate = BlockingFfiGate()
     private var groups: [AppGroupRecordFfi] = []
     private var messagesByGroupId: [String: [AppMessageRecordFfi]] = [:]
     private var timelinePagesByGroupId: [String: TimelinePageFfi] = [:]
@@ -27113,6 +27614,96 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         let result = keyPackagesByAccountRef[accountRef] ?? keyPackages
         await accountKeyPackagesGate.passIfArmed()
         return result
+    }
+
+    func accountFollows(accountRef: String) throws -> [String] {
+        recordSyncCall("accountFollows")
+        let resolved = followsByAccountRef[accountRef]?.sorted() ?? []
+        followListReadGate.passIfArmed()
+        if let followReadError { throw followReadError }
+        return resolved
+    }
+
+    func isFollowing(accountRef: String, userRef: String) throws -> Bool {
+        recordSyncCall("isFollowing")
+        isFollowingCallCount += 1
+        // Resolved before the gate on purpose: a gated read models the core answering from its
+        // cache and the app receiving that answer later, which is exactly what makes a late
+        // read *stale*. Resolving after the gate would let the fake see writes the real read
+        // never could, and no test could reproduce a stale answer landing on fresh state.
+        let resolved = followsByAccountRef[accountRef]?.contains(userRef.lowercased()) ?? false
+        followReadGate.passIfArmed()
+        if let followReadError { throw followReadError }
+        return resolved
+    }
+
+    var followReadGateEnabled: Bool {
+        get { followReadGate.isEnabled }
+        set { followReadGate.isEnabled = newValue }
+    }
+
+    var didReachFollowReadGate: Bool {
+        followReadGate.didReach
+    }
+
+    func releaseFollowReadGate() {
+        followReadGate.release()
+    }
+
+    var followListReadGateEnabled: Bool {
+        get { followListReadGate.isEnabled }
+        set { followListReadGate.isEnabled = newValue }
+    }
+
+    var didReachFollowListReadGate: Bool {
+        followListReadGate.didReach
+    }
+
+    func releaseFollowListReadGate() {
+        followListReadGate.release()
+    }
+
+    func followUser(accountRef: String, userRef: String) async throws -> [String] {
+        try await mutateFollow(accountRef: accountRef, userRef: userRef, isFollow: true)
+    }
+
+    func unfollowUser(accountRef: String, userRef: String) async throws -> [String] {
+        try await mutateFollow(accountRef: accountRef, userRef: userRef, isFollow: false)
+    }
+
+    private func mutateFollow(accountRef: String, userRef: String, isFollow: Bool) async throws -> [String] {
+        followMutationCalls.append(
+            FollowMutationCall(accountRef: accountRef, userRef: userRef, isFollow: isFollow)
+        )
+        await followMutationGate.passIfArmed()
+        if let followMutationError { throw followMutationError }
+        var follows = followsByAccountRef[accountRef] ?? []
+        if isFollow {
+            follows.insert(userRef.lowercased())
+        } else {
+            follows.remove(userRef.lowercased())
+        }
+        followsByAccountRef[accountRef] = follows
+        // The real core returns the complete list it actually published, which is not
+        // necessarily the one the caller asked for.
+        return followMutationResultOverride ?? follows.sorted()
+    }
+
+    func installFollows(accountRef: String, follows: [String]) {
+        followsByAccountRef[accountRef] = Set(follows.map { $0.lowercased() })
+    }
+
+    var followMutationGateEnabled: Bool {
+        get { followMutationGate.isEnabled }
+        set { followMutationGate.isEnabled = newValue }
+    }
+
+    var didReachFollowMutationGate: Bool {
+        followMutationGate.didReach
+    }
+
+    func releaseFollowMutationGate() {
+        followMutationGate.release()
     }
 
     func installKeyPackages(accountRef: String, packages: [AccountKeyPackageFfi]) {
@@ -28276,6 +28867,7 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
     case auditLogDeleteFailed
     case observabilityConfigurationFailed
     case mediaUploadFailed
+    case followListReadFailed
     case unused
 
     var errorDescription: String? {
@@ -28288,6 +28880,8 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
             return "Observability configuration failed."
         case .mediaUploadFailed:
             return "Media upload failed."
+        case .followListReadFailed:
+            return "Follow list read failed."
         case .unused:
             return "Unused fake runtime error."
         }
@@ -28298,6 +28892,12 @@ private struct SentReply: Equatable {
     let groupIdHex: String
     let targetMessageId: String
     let text: String
+}
+
+private struct FollowMutationCall: Equatable {
+    let accountRef: String
+    let userRef: String
+    let isFollow: Bool
 }
 
 private struct SentText: Equatable {
