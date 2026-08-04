@@ -5553,6 +5553,135 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func inFlightSendReadsAsSendingBeforeItReadsAsFailed() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let pending = MessageItem(
+            id: "pending",
+            groupIdHex: "group",
+            sourceMessageIdHex: nil,
+            senderName: "Jeff",
+            body: "Photo",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+
+        // The publish round-trip is the whole point: a send that has only just left must not be
+        // painted as a failure.
+        #expect(pending.deliveryIndicator(at: sentAt) == .sending)
+        #expect(pending.statusLabel(for: pending.deliveryIndicator(at: sentAt)) == "Sending")
+        #expect(
+            pending.deliveryIndicator(at: sentAt.addingTimeInterval(MessageItem.pendingDeliveryGrace - 1))
+                == .sending)
+
+        // Once the window closes the bubble escalates, keeping the retry affordance meaningful.
+        let afterGrace = sentAt.addingTimeInterval(MessageItem.pendingDeliveryGrace + 1)
+        #expect(pending.deliveryIndicator(at: afterGrace) == .failed)
+        #expect(pending.statusLabel(for: pending.deliveryIndicator(at: afterGrace)) == "Not delivered")
+        #expect(pending.metadataLabel(at: afterGrace).contains("Not delivered"))
+    }
+
+    @MainActor
+    @Test func deliveryIndicatorDistinguishesDeliveredIncomingAndInvalidatedRows() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let delivered = MessageItem(
+            id: "delivered",
+            sourceMessageIdHex: "source-event",
+            senderName: "Jeff",
+            body: "Online message",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let incoming = MessageItem(
+            id: "incoming",
+            sourceMessageIdHex: "source-event",
+            senderName: "NVK",
+            body: "Hello",
+            sentAt: sentAt,
+            isOutgoing: false
+        )
+        let invalidated = MessageItem(
+            id: "invalidated",
+            sourceMessageIdHex: nil,
+            senderName: "Jeff",
+            body: "Lost the branch",
+            sentAt: sentAt,
+            invalidationStatus: "forked",
+            isOutgoing: true
+        )
+
+        #expect(delivered.deliveryIndicator(at: sentAt) == .delivered)
+        #expect(incoming.deliveryIndicator(at: sentAt) == .none)
+        // Convergence already decided this one lost, so it fails on sight rather than waiting.
+        #expect(invalidated.deliveryIndicator(at: sentAt) == .failed)
+        #expect(invalidated.statusLabel(for: .failed) == "Did not reach group")
+    }
+
+    @MainActor
+    @Test func pendingDeliveryGraceCountsFromSendTimeNotFromDisplay() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let pending = MessageItem(
+            id: "pending",
+            sourceMessageIdHex: nil,
+            senderName: "Jeff",
+            body: "Offline message",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let delivered = MessageItem(
+            id: "delivered",
+            sourceMessageIdHex: "source-event",
+            senderName: "Jeff",
+            body: "Online message",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+
+        let remaining = try #require(pending.pendingDeliveryGraceRemaining(at: sentAt))
+        #expect(remaining == MessageItem.pendingDeliveryGrace)
+        // A second-granular `sentAt` can round ahead of the wall clock; the wait never exceeds
+        // the window.
+        let skewed = try #require(pending.pendingDeliveryGraceRemaining(at: sentAt.addingTimeInterval(-5)))
+        #expect(skewed == MessageItem.pendingDeliveryGrace)
+        // A message left pending across a relaunch has already had its grace.
+        #expect(pending.pendingDeliveryGraceRemaining(at: sentAt.addingTimeInterval(3_600)) == nil)
+        #expect(delivered.pendingDeliveryGraceRemaining(at: sentAt) == nil)
+    }
+
+    @MainActor
+    @Test func deliverySignatureIgnoresChangesThatCannotMoveDelivery() async throws {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let pending = MessageItem(
+            id: "pending",
+            sourceMessageIdHex: nil,
+            senderName: "Jeff",
+            body: "Photo",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let reacted = MessageItem(
+            id: "pending",
+            sourceMessageIdHex: nil,
+            senderName: "Jeff",
+            body: "Photo",
+            sentAt: sentAt,
+            isOutgoing: true,
+            reactions: [MessageReaction(emoji: "🔥", count: 1, isOwn: true)]
+        )
+        let confirmed = MessageItem(
+            id: "pending",
+            sourceMessageIdHex: "source-event",
+            senderName: "Jeff",
+            body: "Photo",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+
+        // A reaction landing mid-flight must not restart the grace window.
+        #expect(pending.deliverySignature == reacted.deliverySignature)
+        #expect(pending.deliverySignature != confirmed.deliverySignature)
+    }
+
+    @MainActor
     @Test func messageMetadataCanShareTheFinalLineOfSimpleText() async throws {
         let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
         let plain = MessageItem(
