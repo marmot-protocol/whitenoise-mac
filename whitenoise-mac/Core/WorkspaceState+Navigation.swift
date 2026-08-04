@@ -97,6 +97,11 @@ extension WorkspaceState {
         stopTimelineListener()
         cancelTimelineLoad()
         clearEnteredLoginIdentity()
+        // `lastError` is scoped to the user action on the current screen, but every settings
+        // pane renders it through the shared `SettingsScaffold`. Without clearing it here a
+        // failure raised in one pane (notification permission, relay save, …) follows the user
+        // into every other pane and stays there until some unrelated action overwrites it.
+        lastError = nil
         selection = .settings(page)
         closeNewChatComposer()
         pruneMessageCache(keeping: nil)

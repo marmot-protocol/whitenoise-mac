@@ -1671,6 +1671,19 @@ struct NotificationsSettingsView: View {
             }
 
         }
+        .task {
+            await workspace.refreshNotificationPermissionState()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in
+            // Notification permission can be changed outside White Noise. Treat the system as
+            // the source of truth whenever the app returns from System Settings, so the pane
+            // stops asking for a permission the user has already granted.
+            Task { await workspace.refreshNotificationPermissionState() }
+        }
     }
 }
 
