@@ -84,14 +84,47 @@ extension WorkspaceState {
 
     func selectAccount(_ account: AccountItem) {
         guard !account.signedOut else { return }
+        guard account.id != activeAccountId else {
+            reselectActiveAccount()
+            return
+        }
         switchActiveAccount(
             account,
             finalSelection: chatsByAccount[account.id]?.first.map { WorkspaceSelection.chat($0.id) }
         )
     }
 
+    /// Handles a rail tap on the avatar that is *already* active. Running the real switch here
+    /// would drop every cached timeline (`pruneMessageCache(keeping: nil)`), stop the chat-list
+    /// listener, reset the filter/search, and re-subscribe through `reloadChats()` — so the open
+    /// conversation blanks and every row re-enriches, reading as a full window reload for a tap
+    /// that changes nothing.
+    ///
+    /// Doing literally nothing is not enough, though: this avatar is also the only way back to the
+    /// chats from Settings. So a same-account tap still leaves a non-chat surface, it just gets
+    /// there through the ordinary chat-selection path rather than an account switch.
+    private func reselectActiveAccount() {
+        // The composer covers the chat list, so a rail tap still dismisses it.
+        if isNewChatComposerVisible {
+            closeNewChatComposer()
+        }
+        // Already looking at a conversation: leave every cache, listener, and selection alone.
+        guard isShowingSettings || selection == nil else { return }
+        guard let chat = mostRecentChat(in: activeChats) else {
+            if isShowingSettings {
+                selection = nil
+            }
+            return
+        }
+        selectChat(chat)
+    }
+
     func selectAccountFromSettings(_ account: AccountItem) {
         guard !account.signedOut else { return }
+        // The row for the already-active account is a no-op: it is rendered on the Accounts page
+        // the user is already reading, so switching would tear the session down and rebuild it
+        // only to land back on the same screen.
+        guard account.id != activeAccountId else { return }
         switchActiveAccount(account, finalSelection: .settings(.accounts))
     }
 
