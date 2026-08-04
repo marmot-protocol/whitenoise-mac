@@ -138,6 +138,13 @@ struct GroupDetailsSheet: View {
 
         VStack(spacing: 0) {
             HStack(spacing: 12) {
+                // Leading, like the compose pane and the settings header: this pane slides
+                // in over the transcript, so the chevron is a back control and reads as one
+                // only on the side you came from.
+                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat") {
+                    workspace.closeGroupDetails()
+                }
+
                 ProfileImageAvatarView(
                     seed: chat.avatarSeed,
                     initials: chat.title,
@@ -175,10 +182,6 @@ struct GroupDetailsSheet: View {
                     .buttonStyle(.plain)
                     .disabled(workspace.hasInFlightGroupCommit)
                     .help(L10n.string("Add members"))
-                }
-
-                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat") {
-                    workspace.closeGroupDetails()
                 }
             }
             .padding(20)
@@ -832,6 +835,12 @@ struct ContactDetailsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
+                // Leading back control, matching GroupDetailsSheet: both panes slide in
+                // over the transcript and return to it.
+                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back") {
+                    workspace.closeContactDetails()
+                }
+
                 ProfileImageAvatarView(
                     seed: contact.accountIdHex,
                     initials: contact.title,
@@ -854,10 +863,6 @@ struct ContactDetailsView: View {
                 if workspace.isLoadingContactDetails {
                     ProgressView()
                         .controlSize(.small)
-                }
-
-                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back") {
-                    workspace.closeContactDetails()
                 }
             }
             .padding(20)
