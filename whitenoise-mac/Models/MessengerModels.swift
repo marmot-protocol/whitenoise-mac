@@ -2309,61 +2309,74 @@ enum SettingsPage: Equatable {
         .developerMode,
     ]
 
-    var title: String {
+    /// Localized against an explicit locale rather than the stored language preference, so
+    /// the settings sidebar can localize with the `\.locale` environment value and be
+    /// re-rendered on a language switch instead of showing the previous language until the
+    /// row is rebuilt (see `L10n.string(_:locale:)`).
+    func title(in locale: Locale) -> String {
+        L10n.string(titleKey, locale: locale)
+    }
+
+    /// See `title(in:)` for why the locale is passed in.
+    func sidebarSubtitle(in locale: Locale) -> String {
+        L10n.string(sidebarSubtitleKey, locale: locale)
+    }
+
+    private var titleKey: String {
         switch self {
         case .overview:
-            L10n.string("Settings")
+            "Settings"
         case .general:
-            L10n.string("General")
+            "General"
         case .accounts:
-            L10n.string("Accounts")
+            "Accounts"
         case .profile:
-            L10n.string("Profile")
+            "Profile"
         case .identityKeys:
-            L10n.string("Identity & Keys")
+            "Identity & Keys"
         case .relays:
-            L10n.string("Relays")
+            "Relays"
         case .keyPackages:
-            L10n.string("Key Packages")
+            "Key Packages"
         case .appearance:
-            L10n.string("Appearance")
+            "Appearance"
         case .privacySecurity:
-            L10n.string("Privacy & Security")
+            "Privacy & Security"
         case .notifications:
-            L10n.string("Notifications")
+            "Notifications"
         case .storage:
-            L10n.string("Storage")
+            "Storage"
         case .developerMode:
-            L10n.string("Developer mode")
+            "Developer mode"
         }
     }
 
-    var sidebarSubtitle: String {
+    private var sidebarSubtitleKey: String {
         switch self {
         case .overview:
-            L10n.string("Settings home")
+            "Settings home"
         case .general:
-            L10n.string("Startup preferences")
+            "Startup preferences"
         case .accounts:
-            L10n.string("Switch identities")
+            "Switch identities"
         case .profile:
-            L10n.string("Public display info")
+            "Public display info"
         case .identityKeys:
-            L10n.string("Public and private keys")
+            "Public and private keys"
         case .relays:
-            L10n.string("Relay lists")
+            "Relay lists"
         case .keyPackages:
-            L10n.string("Invite packages")
+            "Invite packages"
         case .appearance:
-            L10n.string("Theme")
+            "Theme"
         case .privacySecurity:
-            L10n.string("Telemetry and audit logs")
+            "Telemetry and audit logs"
         case .notifications:
-            L10n.string("Local alerts")
+            "Local alerts"
         case .storage:
-            L10n.string("Media cache")
+            "Media cache"
         case .developerMode:
-            L10n.string("Storage and diagnostics")
+            "Storage and diagnostics"
         }
     }
 

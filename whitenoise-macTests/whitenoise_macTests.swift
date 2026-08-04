@@ -5236,6 +5236,70 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func localizedStringWithExplicitLocaleIgnoresCachedPreference() async throws {
+        // `L10n.string(_:locale:)` is what SwiftUI views localize through so the language is
+        // a tracked dependency of their body. It must resolve the locale it is handed, not
+        // the cached preference, and must still be correct when the two agree.
+        let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
+        defer { restoreDefault(previousLanguage, forKey: AppLanguage.storageKey) }
+
+        UserDefaults.standard.set(AppLanguage.spanish.rawValue, forKey: AppLanguage.storageKey)
+        AppLanguage.refreshCachedLocale()
+
+        let spanish = Locale(identifier: AppLanguage.spanish.rawValue)
+        let german = Locale(identifier: AppLanguage.german.rawValue)
+        #expect(L10n.string("Save", locale: spanish) == "Guardar")
+        #expect(L10n.string("Save", locale: german) == "Speichern")
+        // An unknown key falls back to itself, like `string(_:)` does.
+        #expect(L10n.string("whitenoise.not.a.key", locale: german) == "whitenoise.not.a.key")
+    }
+
+    @Test func settingsPageSidebarLabelsFollowRequestedLocale() {
+        // Regression: the settings sidebar rows kept the previous language after a switch on
+        // the Appearance page because their labels resolved the preference through a cache
+        // SwiftUI cannot observe. The labels are locale-parameterized so the rows re-render
+        // from the `\.locale` environment value instead of needing a navigation round trip.
+        let spanish = Locale(identifier: AppLanguage.spanish.rawValue)
+        let german = Locale(identifier: AppLanguage.german.rawValue)
+
+        #expect(SettingsPage.general.title(in: german) == "Allgemein")
+        #expect(SettingsPage.appearance.title(in: spanish) == "Apariencia")
+        #expect(SettingsPage.overview.title(in: spanish) == "Configuración")
+        #expect(SettingsPage.general.sidebarSubtitle(in: spanish) == "Preferencias de inicio")
+        #expect(SettingsPage.general.sidebarSubtitle(in: german) == "Starteinstellungen")
+        #expect(SettingsPage.appearance.sidebarSubtitle(in: german) == "Design")
+    }
+
+    @Test func settingsDrawerLocalizesThroughEnvironmentLocale() throws {
+        // The re-render on a language switch comes from a SwiftUI dependency, which only a
+        // source contract can guard: both the drawer and its rows must read `\.locale` and
+        // localize through it. Dropping either read reintroduces the stale-label bug.
+        let sidebarViewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("SidebarViews.swift")
+        let source = try String(contentsOf: sidebarViewsURL, encoding: .utf8)
+
+        let drawerStart = try #require(source.range(of: "struct SettingsListDrawerView: View {"))
+        let rowStart = try #require(source.range(of: "struct SettingsSidebarRow: View {"))
+        let drawerSource = String(source[drawerStart.lowerBound..<rowStart.lowerBound])
+        let rowRest = source[rowStart.upperBound...]
+        let rowEnd = try #require(rowRest.range(of: "\nstruct ")?.lowerBound)
+        let rowSource = String(source[rowStart.lowerBound..<rowEnd])
+
+        for viewSource in [drawerSource, rowSource] {
+            let normalized = viewSource.components(separatedBy: .whitespacesAndNewlines).joined()
+            #expect(normalized.contains("@Environment(\\.locale)privatevarlocale"))
+        }
+        #expect(drawerSource.contains("L10n.string(\"Settings\", locale: locale)"))
+        #expect(rowSource.contains("Text(page.title(in: locale))"))
+        #expect(rowSource.contains("Text(page.sidebarSubtitle(in: locale))"))
+    }
+
+    @MainActor
     @Test func systemLocaleChangeInvalidatesLocalizedStringCacheWhenPreferenceIsSystem() async throws {
         let previousLanguage = UserDefaults.standard.object(forKey: AppLanguage.storageKey)
         defer {
