@@ -35,6 +35,32 @@ nonisolated enum L10n {
         return Bundle.main.localizedString(forKey: key, value: key, table: nil)
     }
 
+    /// Resolve `key` against an explicit locale instead of the stored language preference.
+    ///
+    /// SwiftUI cannot see `string(_:)` as a dependency: it reads the preference through a
+    /// cache, so a view whose only language-dependent input is an `L10n` lookup is never
+    /// invalidated by a language switch and keeps rendering the previous language until
+    /// something else re-renders it. Views localize through this overload with the
+    /// `\.locale` environment value — injected at the root from
+    /// `WorkspaceState.preferredLocale` — which makes the language a tracked dependency of
+    /// the body that renders it.
+    static func string(_ key: String, locale: Locale) -> String {
+        // The environment locale is the resolved preference in the common case, so reuse
+        // the cached-bundle fast path rather than re-resolving an `.lproj` bundle per call.
+        guard locale.identifier != AppLanguage.currentLocale.identifier else {
+            return string(key)
+        }
+
+        if let localizedBundle = localizedBundle(for: locale) {
+            let localized = localizedBundle.localizedString(forKey: key, value: nil, table: nil)
+            if localized != key {
+                return localized
+            }
+        }
+
+        return Bundle.main.localizedString(forKey: key, value: key, table: nil)
+    }
+
     static func plural(_ key: String, _ count: Int64) -> String {
         let locale = AppLanguage.currentLocale
         return formatPlural(string(key), count: count, locale: locale)
