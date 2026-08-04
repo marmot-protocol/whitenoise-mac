@@ -535,11 +535,14 @@ private struct ChatSidebarRowMenuItems: View {
 
 struct SettingsListDrawerView: View {
     @Environment(WorkspaceState.self) private var workspace
+    // Localizing through `\.locale` (not the stored preference) is what re-renders this
+    // drawer when the language changes while settings are open — see `L10n.string(_:locale:)`.
+    @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
-                Text(L10n.string("Settings"))
+                Text(L10n.string("Settings", locale: locale))
                     .font(.title2.weight(.semibold))
 
                 activeAccountSummary
@@ -589,8 +592,11 @@ struct SettingsListDrawerView: View {
                     CopyableKeyLabel(accountIdHex: account.accountIdHex, head: 8, tail: 6, showsCopyButton: false)
                 }
             } else {
-                Label(L10n.string("No account"), systemImage: "person.crop.circle.badge.exclamationmark")
-                    .font(.callout.weight(.semibold))
+                Label(
+                    L10n.string("No account", locale: locale),
+                    systemImage: "person.crop.circle.badge.exclamationmark"
+                )
+                .font(.callout.weight(.semibold))
             }
 
             Spacer(minLength: 0)
@@ -609,6 +615,9 @@ struct SettingsListDrawerView: View {
 
 struct SettingsSidebarRow: View {
     @Environment(WorkspaceState.self) private var workspace
+    // The row's labels are the only language-dependent thing in its body, so reading the
+    // locale here is what makes SwiftUI re-render it on a language switch.
+    @Environment(\.locale) private var locale
     let page: SettingsPage
 
     private var isSelected: Bool {
@@ -623,10 +632,10 @@ struct SettingsSidebarRow: View {
                 .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(page.title)
+                Text(page.title(in: locale))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text(page.sidebarSubtitle)
+                Text(page.sidebarSubtitle(in: locale))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
