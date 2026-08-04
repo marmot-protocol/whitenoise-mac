@@ -130,6 +130,47 @@ nonisolated struct ChatActionAlert: Equatable, Identifiable {
     }
 }
 
+/// The one status badge a chat row shows, or `nil` for an ordinary active chat.
+///
+/// Lives beside `ChatDestructiveActions` because the two must agree: the only state that reads as
+/// `.leaving` is the only state that offers no destructive action, so a row can never both claim a
+/// leave is in progress and offer to leave again — nor, as it used to, show a `.leaving` badge
+/// forever while hiding the delete that would clear it.
+nonisolated enum ChatRowStatus: Equatable {
+    /// A leave the group has not seen yet. Genuinely transient.
+    case leaving
+    /// The account left or was removed. Terminal.
+    case membershipEnded(ChatSelfMembership)
+    case pendingInvite
+
+    /// Membership outranks both flags.
+    ///
+    /// `leaveRequestPending` stays true from the moment the SelfRemove publishes until some
+    /// remaining member commits it — possibly never. Reading it first pinned departed chats to a
+    /// progress badge they could never leave; reading membership first reports the settled fact and
+    /// leaves the outstanding commit as the protocol detail it is (the inspector still lists it).
+    ///
+    /// An ended membership also supersedes a pending invite, so the row shows a single badge rather
+    /// than a contradictory "Invite" + "Removed" pair if the FFI ever delivers both flags together.
+    static func status(
+        membership: ChatSelfMembership,
+        leaveRequestPending: Bool,
+        pendingConfirmation: Bool
+    ) -> ChatRowStatus? {
+        if membership != .member { return .membershipEnded(membership) }
+        if leaveRequestPending { return .leaving }
+        return pendingConfirmation ? .pendingInvite : nil
+    }
+
+    static func status(for chat: ChatItem) -> ChatRowStatus? {
+        status(
+            membership: chat.selfMembership,
+            leaveRequestPending: chat.leaveRequestPending,
+            pendingConfirmation: chat.pendingConfirmation
+        )
+    }
+}
+
 nonisolated enum ChatDestructiveActions {
     /// The destructive action a surface may offer for one chat. The two are mutually exclusive:
     /// a chat you can still leave is not one you may silently drop from this device.
@@ -182,9 +223,20 @@ nonisolated enum ChatDestructiveActions {
     /// `.leave` for a member and report a `leaveBlocker` if leaving turns out to be unavailable. The
     /// inspector, which holds eligibility up front, pre-disables the button and shows the blocker as
     /// a footer instead.
+    ///
+    /// `leaveRequestPending` only ever suppresses a *second* leave; it never withholds the local
+    /// delete. The flag is orthogonal to membership, not a precursor to it: the core sets it when
+    /// the SelfRemove is requested and clears it only once a remaining member commits that removal,
+    /// which for a group whose others never come back online is never. Gating the delete on it too
+    /// stranded every departed chat in a permanent "Leaving" state with no way out — the bug this
+    /// split fixes. Once membership has actually ended, the departure is already on the wire and the
+    /// local copy is the user's to drop.
     static func action(membership: ChatSelfMembership, leaveRequestPending: Bool) -> Action? {
-        guard !leaveRequestPending else { return nil }
-        return membership == .member ? .leave : .deleteLocally
+        guard membership == .member else { return .deleteLocally }
+        // Still a member with a request outstanding: the SelfRemove has not reached the group, so
+        // neither action is honest yet — the core rejects a repeat leave, and dropping the local
+        // copy here is the exact stranding the rule above forbids.
+        return leaveRequestPending ? nil : .leave
     }
 
     static func action(for chat: ChatItem) -> Action? {

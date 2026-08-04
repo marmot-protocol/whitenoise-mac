@@ -3485,15 +3485,93 @@ struct PureValueTests {
         )
     }
 
-    /// A leave already in flight suppresses both actions, whatever the membership says — the row
-    /// must show progress, not offer a second destructive action.
-    @Test func pendingLeaveSuppressesBothDestructiveActionsForEveryMembership() {
-        for membership: ChatSelfMembership in [.member, .left, .removed] {
-            #expect(
-                ChatDestructiveActions.action(membership: membership, leaveRequestPending: true)
-                    == nil
-            )
+    /// A leave already in flight suppresses a *second* leave, and only while the group still counts
+    /// this account as a member — that is the one state where neither action is honest.
+    @Test func pendingLeaveSuppressesTheLeaveOnlyWhileStillAMember() {
+        #expect(
+            ChatDestructiveActions.action(membership: .member, leaveRequestPending: true) == nil
+        )
+    }
+
+    /// The regression this file exists to pin: `leaveRequestPending` stays true from the SelfRemove
+    /// publish until a remaining member commits it, which for a group whose others never return is
+    /// never. Withholding the local delete there left every departed chat stuck on a "Leaving" badge
+    /// with no action that could clear it, so a departed chat must always offer the delete.
+    @Test func departedChatOffersLocalDeleteEvenWithAnUnresolvedLeaveRequest() {
+        for membership: ChatSelfMembership in [.left, .removed] {
+            for pending in [false, true] {
+                #expect(
+                    ChatDestructiveActions.action(
+                        membership: membership,
+                        leaveRequestPending: pending
+                    ) == .deleteLocally,
+                    "\(membership) with pending=\(pending) must still offer the local delete"
+                )
+            }
         }
+    }
+
+    /// The badge and the menu are two readings of one state, so no chat may show a leave in progress
+    /// while its menu offers a destructive action, and none may sit on `.leaving` with no way out.
+    @Test func onlyTheBadgelessLeavingStateWithholdsEveryDestructiveAction() {
+        for membership: ChatSelfMembership in [.member, .left, .removed] {
+            for pending in [false, true] {
+                for invited in [false, true] {
+                    let status = ChatRowStatus.status(
+                        membership: membership,
+                        leaveRequestPending: pending,
+                        pendingConfirmation: invited
+                    )
+                    let action = ChatDestructiveActions.action(
+                        membership: membership,
+                        leaveRequestPending: pending
+                    )
+                    #expect(
+                        (status == .leaving) == (action == nil),
+                        "\(membership)/pending=\(pending): a stuck badge needs an action, and vice versa"
+                    )
+                }
+            }
+        }
+    }
+
+    @Test func rowStatusReportsTheSettledMembershipRatherThanAnUnresolvedLeave() {
+        #expect(
+            ChatRowStatus.status(
+                membership: .left,
+                leaveRequestPending: true,
+                pendingConfirmation: false
+            ) == .membershipEnded(.left)
+        )
+        #expect(
+            ChatRowStatus.status(
+                membership: .member,
+                leaveRequestPending: true,
+                pendingConfirmation: false
+            ) == .leaving
+        )
+        #expect(
+            ChatRowStatus.status(
+                membership: .member,
+                leaveRequestPending: false,
+                pendingConfirmation: true
+            ) == .pendingInvite
+        )
+        #expect(
+            ChatRowStatus.status(
+                membership: .member,
+                leaveRequestPending: false,
+                pendingConfirmation: false
+            ) == nil
+        )
+        // An ended membership outranks both flags, so the row never shows two contradictory badges.
+        #expect(
+            ChatRowStatus.status(
+                membership: .removed,
+                leaveRequestPending: true,
+                pendingConfirmation: true
+            ) == .membershipEnded(.removed)
+        )
     }
 
     /// The load-bearing invariant: **no leave eligibility, however bad, ever produces a local
@@ -3618,6 +3696,26 @@ struct PureValueTests {
             )
             #expect(ChatDestructiveActions.action(for: left) == .deleteLocally)
         }
+    }
+
+    /// The `ChatItem` adapters the sidebar row actually calls, so it cannot read a different rule
+    /// than the one the cases above pin.
+    @Test func departedChatItemShowsTheEndedBadgeAndStillOffersTheDelete() {
+        let left = destructiveActionChat(
+            membership: .left,
+            leaveRequestPending: true,
+            isDirect: false
+        )
+        #expect(ChatRowStatus.status(for: left) == .membershipEnded(.left))
+        #expect(ChatDestructiveActions.action(for: left) == .deleteLocally)
+
+        let leaving = destructiveActionChat(
+            membership: .member,
+            leaveRequestPending: true,
+            isDirect: false
+        )
+        #expect(ChatRowStatus.status(for: leaving) == .leaving)
+        #expect(ChatDestructiveActions.action(for: leaving) == nil)
     }
 }
 

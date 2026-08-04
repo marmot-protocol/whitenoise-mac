@@ -18893,7 +18893,14 @@ struct whitenoise_macTests {
 
         #expect(leaveRuntime.leftGroupIdHex == "group")
         #expect(!leaveState.isGroupDetailsPresented)
-        #expect(leaveState.activeChats.isEmpty)
+        // The row survives the leave — the core keeps the conversation with `Left` membership and
+        // an uncommitted leave request — so the list must show the departure as settled and offer
+        // the local delete, not park it on a "Leaving" badge it can never leave.
+        let departed = try #require(leaveState.activeChats.first { $0.id == "group" })
+        #expect(departed.selfMembership == .left)
+        #expect(departed.leaveRequestPending)
+        #expect(ChatRowStatus.status(for: departed) == .membershipEnded(.left))
+        #expect(ChatDestructiveActions.action(for: departed) == .deleteLocally)
     }
 
     @MainActor
@@ -26489,6 +26496,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         ),
     ]
     private var groups: [AppGroupRecordFfi] = []
+    /// Groups whose SelfRemove has published but not yet been committed by a remaining member —
+    /// the durable, possibly permanent `leaveRequestPending` the chat list has to render.
+    private var pendingLeaveGroupIds: Set<String> = []
     private var messagesByGroupId: [String: [AppMessageRecordFfi]] = [:]
     private var timelinePagesByGroupId: [String: TimelinePageFfi] = [:]
     private var timelineUpdatesByGroupId: [String: [TimelineSubscriptionUpdateFfi]] = [:]
@@ -27639,9 +27649,25 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         await groupMutationGate.passIfArmed()
         if let leaveGroupError { throw leaveGroupError }
         leftGroupIdHex = groupIdHex
-        groups.removeAll { $0.groupIdHex == groupIdHex }
-        groupDetailsById[groupIdHex] = nil
-        groupManagementStateById[groupIdHex] = nil
+        // The core records a *departure*; it does not drop the conversation. `selfMembership`
+        // becomes `Left` as soon as the SelfRemove publishes, and `leaveRequestPending` stays true
+        // until a remaining member commits it — which for a group whose others never come back is
+        // never. Deleting the row here modelled a state the core does not produce, and hid the fact
+        // that a departed chat has to stay actionable so its local copy can be deleted.
+        pendingLeaveGroupIds.insert(groupIdHex)
+        if let index = groups.firstIndex(where: { $0.groupIdHex == groupIdHex }) {
+            groups[index].selfMembership = .left
+        }
+        if var details = groupDetailsById[groupIdHex] {
+            details.group.selfMembership = .left
+            groupDetailsById[groupIdHex] = details
+        }
+        if var managementState = groupManagementStateById[groupIdHex] {
+            managementState.canLeave = false
+            managementState.leaveRequestPending = true
+            managementState.leaveRequestedAtMs = 1_700_000_000_000
+            groupManagementStateById[groupIdHex] = managementState
+        }
         return SendSummaryFfi(published: 1, messageIds: ["group-leave"])
     }
 
@@ -28462,7 +28488,8 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             lastReadMessageIdHex: nil,
             lastReadTimelineAt: latest?.timelineAt,
             updatedAt: latest?.timelineAt ?? 0,
-            selfMembership: group.selfMembership
+            selfMembership: group.selfMembership,
+            leaveRequestPending: pendingLeaveGroupIds.contains(group.groupIdHex)
         )
     }
 }
