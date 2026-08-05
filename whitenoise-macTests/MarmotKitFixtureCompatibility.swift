@@ -158,7 +158,8 @@ nonisolated extension ChatListRowFfi {
         lastReadMessageIdHex: String?,
         lastReadTimelineAt: UInt64?,
         updatedAt: UInt64,
-        selfMembership: SelfMembershipFfi
+        selfMembership: SelfMembershipFfi,
+        leaveRequestPending: Bool = false
     ) {
         let previewTimelineAt = lastMessage?.timelineAt ?? 0
         let activitySortAt = previewTimelineAt > 0 ? previewTimelineAt : updatedAt
@@ -191,8 +192,8 @@ nonisolated extension ChatListRowFfi {
             conversationKind: .unknown,
             muted: false,
             mutedUntilMs: nil,
-            leaveRequestPending: false,
-            leaveRequestedAtMs: nil
+            leaveRequestPending: leaveRequestPending,
+            leaveRequestedAtMs: leaveRequestPending ? 1_700_000_000_000 : nil
         )
     }
 }

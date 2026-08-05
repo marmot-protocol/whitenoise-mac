@@ -675,15 +675,17 @@ struct ChatRowContent: View {
                     Text(chat.title)
                         .font(MessagesType.rowTitle)
                         .lineLimit(1)
-                    // An ended membership supersedes a pending invite: show a single
-                    // badge rather than a contradictory "Invite" + "Removed" pair if
-                    // the FFI ever delivers both flags together.
-                    if chat.leaveRequestPending {
+                    // Precedence lives in `ChatRowStatus` so the badge and the row's
+                    // destructive menu item are decided by one rule.
+                    switch ChatRowStatus.status(for: chat) {
+                    case .leaving:
                         LeavingGroupBadge()
-                    } else if chat.isNoLongerMember {
-                        MembershipEndedBadge(membership: chat.selfMembership)
-                    } else if chat.pendingConfirmation {
+                    case .membershipEnded(let membership):
+                        MembershipEndedBadge(membership: membership)
+                    case .pendingInvite:
                         PendingInviteBadge()
+                    case nil:
+                        EmptyView()
                     }
                     if isPinned {
                         Image(systemName: "pin.fill")
