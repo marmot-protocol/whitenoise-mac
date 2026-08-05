@@ -5754,6 +5754,47 @@ struct whitenoise_macTests {
         #expect(chip(isOutgoing: false) == MentionChipPalette.onNeutralFill)
     }
 
+    /// The audio player, the download/failed status rows, and the document row draw white content
+    /// keyed off `isOutgoing`, but they sit *beside* the bubble rather than inside it, so they never
+    /// inherit `BubbleBackground`'s fill. The outgoing fill was `white.opacity(0.12)`, which
+    /// composited against the window background instead of covering it — white-on-white in light
+    /// appearance, so sent voice notes and documents took up their space and rendered nothing.
+    /// Dark appearance hid it, because there the wash happened to land on a dark backdrop.
+    ///
+    /// Opacity in *both* appearances is the property that matters: an alpha < 1 here means the row
+    /// is at the mercy of whatever is behind it, which is exactly the bug.
+    @Test func outgoingAttachmentRowFillCoversTheWindowBackgroundInBothAppearances() throws {
+        #expect(AttachmentRowPalette.fill(isOutgoing: true) == AttachmentRowPalette.outgoingFill)
+        #expect(AttachmentRowPalette.fill(isOutgoing: false) == AttachmentRowPalette.incomingFill)
+
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try #require(NSAppearance(named: appearanceName))
+            var outgoing: NSColor?
+            var windowBackground: NSColor?
+            appearance.performAsCurrentDrawingAppearance {
+                outgoing = NSColor(AttachmentRowPalette.outgoingFill).usingColorSpace(.sRGB)
+                windowBackground = NSColor.windowBackgroundColor.usingColorSpace(.sRGB)
+            }
+            let fill = try #require(outgoing)
+            let backdrop = try #require(windowBackground)
+
+            #expect(
+                fill.alphaComponent == 1,
+                "Outgoing attachment row fill must be opaque in \(appearanceName.rawValue), got alpha \(fill.alphaComponent)"
+            )
+            // And it must actually read as a different surface than the backdrop it covers — an
+            // opaque fill that matches the window background would be just as invisible.
+            let distance =
+                abs(fill.redComponent - backdrop.redComponent)
+                + abs(fill.greenComponent - backdrop.greenComponent)
+                + abs(fill.blueComponent - backdrop.blueComponent)
+            #expect(
+                distance > 0.2,
+                "Outgoing attachment row fill matches the window background in \(appearanceName.rawValue) (channel distance \(distance))"
+            )
+        }
+    }
+
     @Test func singleEmojiMessagesAreClassifiedForStickerPresentation() {
         let singleEmoji = [
             "😀",

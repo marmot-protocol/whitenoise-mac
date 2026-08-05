@@ -584,6 +584,9 @@ private extension View {
         }
     }
 
+    /// Chrome shared by every non-visual attachment presentation: the audio player, the
+    /// download/failed status rows, and the document row. See `AttachmentRowPalette` for why the
+    /// outgoing fill is the opaque accent rather than a wash over whatever sits behind the row.
     func attachmentRowChrome(isOutgoing: Bool) -> some View {
         foregroundStyle(isOutgoing ? Color.white : Color.primary)
             .padding(.horizontal, 10)
@@ -591,7 +594,7 @@ private extension View {
             .frame(width: 260, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isOutgoing ? Color.white.opacity(0.12) : Color.primary.opacity(0.06))
+                    .fill(AttachmentRowPalette.fill(isOutgoing: isOutgoing))
             }
     }
 
