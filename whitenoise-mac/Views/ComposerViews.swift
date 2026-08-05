@@ -1354,7 +1354,15 @@ struct ProfileImageAvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .modifier(AvatarChromeModifier(isSelected: isSelected))
+        .modifier(AvatarChromeModifier(isSelected: isSelected, ringColor: ringColor))
+    }
+
+    /// A picture keeps the neutral hairline; the initials fallback wears its accent border, whose
+    /// pale fill needs the ring to read as an object. Keyed on whether an image will be *attempted*
+    /// rather than on whether one has decoded, so the ring does not change color mid-load.
+    private var ringColor: Color {
+        let showsPicture = localImagePayload != nil || (workspace.loadRemoteImages && sanitizedPictureURL != nil)
+        return showsPicture ? AvatarChromeModifier.neutralRing : AvatarPalette.colors(for: seed).border
     }
 }
 

@@ -20,15 +20,18 @@ struct AvatarView: View {
     var drawsChrome = true
 
     var body: some View {
-        Text(DisplayText.initials(for: initials, fallback: seed))
+        let colors = AvatarPalette.colors(for: seed)
+
+        return Text(DisplayText.initials(for: initials, fallback: seed))
             .font(.system(size: size * 0.34, weight: .bold))
-            .foregroundStyle(.white)
+            .foregroundStyle(colors.content)
             .frame(width: size, height: size)
             .background {
                 Circle()
-                    .fill(AvatarPalette.gradient(for: seed))
+                    .fill(colors.fill)
             }
-            .modifier(AvatarChromeModifier(isSelected: isSelected, isEnabled: drawsChrome))
+            .modifier(
+                AvatarChromeModifier(isSelected: isSelected, isEnabled: drawsChrome, ringColor: colors.border))
     }
 }
 
@@ -37,6 +40,14 @@ struct AvatarView: View {
 struct AvatarChromeModifier: ViewModifier {
     let isSelected: Bool
     var isEnabled = true
+    /// The unselected ring. Initials avatars pass their accent's border token, which is what makes
+    /// a pale fill read as an object against a light window; photo avatars keep
+    /// `neutralRing`, the same split the Flutter client draws between its image and initials
+    /// avatars. Selection still wins over both — the ring is a focus affordance first.
+    var ringColor: Color = neutralRing
+
+    /// Hairline for avatars that are showing a picture rather than initials.
+    static let neutralRing = Color.white.opacity(0.2)
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -45,7 +56,7 @@ struct AvatarChromeModifier: ViewModifier {
                 .overlay {
                     Circle()
                         .strokeBorder(
-                            isSelected ? MessagesPalette.sentBubble : Color.white.opacity(0.2),
+                            isSelected ? MessagesPalette.sentBubble : ringColor,
                             lineWidth: isSelected ? 3 : 1)
                 }
                 .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
@@ -55,34 +66,129 @@ struct AvatarChromeModifier: ViewModifier {
     }
 }
 
+/// The avatar fills, ported from the Flutter client's design system (`lib/utils/avatar_color.dart`
+/// + `lib/theme/semantic_colors.dart`): twelve Tailwind accent ramps, selected by the same
+/// arithmetic on the same seed, so a person or group wears one color across both apps. The seeds
+/// already agree — a DM keys on the peer's account id hex, a group on its group id hex, on both
+/// sides.
+///
+/// Each accent contributes three tokens rather than a single hue, and the assignment inverts
+/// between appearances, which is the whole character of the treatment: a **pale fill with deep
+/// tinted initials** in Aqua, a **deep fill with pale tinted initials** in Dark Aqua, ringed in
+/// both by the ramp's `200` step.
+///
+/// | token | Aqua | Dark Aqua |
+/// | --- | --- | --- |
+/// | fill | `50` | `950` |
+/// | content (initials) | `900` | `50` |
+/// | border | `200` | `200` |
+///
+/// Three things worth knowing before touching this, all measured:
+///
+/// 1. **The initials are the most legible part, and that is where identity lives.** Ink over fill
+///    runs 8.4:1 to 14.7:1 across all twelve accents in both appearances, because the two tokens
+///    swap ends of the ramp together. But the *fills alone barely differ* — the `50` steps of
+///    twelve Tailwind ramps are all near-white, with blue and sky only 0.016 apart in summed
+///    channel distance. What tells two people apart is the ink and the ring, not the disc.
+/// 2. **This appearance-dependence is designed, unlike an opacity flip.** Two full token sets are
+///    specified per ramp, so contrast is preserved by construction rather than by luck. That is the
+///    opposite of resolving one translucent color against two different backdrops, the trap
+///    documented on `MentionChipPalette` below.
+/// 3. **The disc is deliberately soft in Aqua, and softer here than in Flutter.** The Flutter
+///    client draws these on pure white/black; `windowBackgroundColor` is `#ECECEC`/`#323232`. In
+///    Dark Aqua the `200` ring sits 8.6:1–11:1 against the window, a crisp outline. In Aqua both
+///    fill and ring land within 1.01–1.26 of the window, so the edge is carried by hue plus the
+///    drop shadow in `AvatarChromeModifier` rather than by luminance. That shadow, which Flutter
+///    has no equivalent of, is doing real work on the gray macOS window — do not drop it.
+///
+/// `AvatarChromeModifier` therefore takes the `200` step as its `ringColor` for initials avatars,
+/// keeping the neutral hairline for the ones showing a picture.
 enum AvatarPalette {
-    private static let palettes: [[Color]] = [
-        [Color(white: 0.24), Color(white: 0.46)],
-        [Color(white: 0.30), Color(white: 0.58)],
-        [Color(white: 0.18), Color(white: 0.42)],
-        [Color(white: 0.36), Color(white: 0.64)],
-        [Color(white: 0.22), Color(white: 0.54)],
+    /// The twelve accents in the Flutter client's `AvatarColor` declaration order. `accentIndex(for:)`
+    /// indexes into this array with that client's arithmetic, so reordering these silently recolors
+    /// every avatar on one platform.
+    private static let accents: [AvatarColorSet] = [
+        accent("blue", step50: 0xEFF6FF, step200: 0xBFDBFE, step900: 0x1E3A8A, step950: 0x172554),
+        accent("cyan", step50: 0xECFEFF, step200: 0xA5F3FC, step900: 0x164E63, step950: 0x083344),
+        accent("emerald", step50: 0xECFDF5, step200: 0xA7F3D0, step900: 0x064E3B, step950: 0x022C22),
+        accent("fuchsia", step50: 0xFDF4FF, step200: 0xF5D0FE, step900: 0x701A75, step950: 0x4A044E),
+        accent("indigo", step50: 0xEEF2FF, step200: 0xC7D2FE, step900: 0x312E81, step950: 0x1E1B4B),
+        accent("lime", step50: 0xF7FEE7, step200: 0xD9F99D, step900: 0x365314, step950: 0x1A2E05),
+        accent("orange", step50: 0xFFF7ED, step200: 0xFED7AA, step900: 0x7C2D12, step950: 0x431407),
+        accent("rose", step50: 0xFFF1F2, step200: 0xFECDD3, step900: 0x881337, step950: 0x4C0519),
+        accent("sky", step50: 0xF0F9FF, step200: 0xBAE6FD, step900: 0x0C4A6E, step950: 0x082F49),
+        accent("teal", step50: 0xF0FDFA, step200: 0x99F6E4, step900: 0x134E4A, step950: 0x042F2E),
+        accent("violet", step50: 0xF5F3FF, step200: 0xDDD6FE, step900: 0x4C1D95, step950: 0x2E1065),
+        accent("amber", step50: 0xFFFBEB, step200: 0xFDE68A, step900: 0x78350F, step950: 0x451A03),
     ]
 
-    static func gradient(for seed: String) -> LinearGradient {
-        // Use a deterministic hash so a given seed always maps to the same
-        // palette across launches. `String.hashValue` is seeded with
-        // per-process randomness (unstable colors) and `abs(_:)` traps on
-        // `Int.min`; an unsigned FNV-1a over the UTF-8 bytes avoids both.
-        let index = Int(stableHash(seed) % UInt64(palettes.count))
-        return LinearGradient(colors: palettes[index], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// For seeds that do not start with a hex digit. The Flutter client logs and falls back here
+    /// too; the only such seed in this app is the still-unnamed group in the compose flow, which is
+    /// keyed on its typed title because it has no group id yet.
+    static let neutral = AvatarColorSet(
+        // neutral100 / neutral800, neutral500 / neutral400, neutral950 / white.
+        fill: dynamic("avatarFill.neutral", light: 0xF5F5F5, dark: 0x262626),
+        border: dynamic("avatarBorder.neutral", light: 0x737373, dark: 0xA3A3A3),
+        content: dynamic("avatarContent.neutral", light: 0x0A0A0A, dark: 0xFFFFFF))
+
+    static var accentCount: Int { accents.count }
+
+    static func colors(for seed: String) -> AvatarColorSet {
+        guard let index = accentIndex(for: seed) else { return neutral }
+        return accents[index]
     }
 
-    /// FNV-1a (64-bit) over the seed's UTF-8 bytes. Deterministic across
-    /// launches and overflow-safe via wrapping arithmetic.
-    private static func stableHash(_ seed: String) -> UInt64 {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325  // FNV offset basis
-        let prime: UInt64 = 0x0000_0100_0000_01b3  // FNV prime
-        for byte in seed.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* prime
-        }
-        return hash
+    /// The Flutter client's mapping: the value of the seed's **first hex digit**, modulo the accent
+    /// count, or `nil` when that character is not one. Only the first character participates — two
+    /// pubkeys sharing a leading nibble share a color, by design on both platforms.
+    ///
+    /// Note the inherited skew: a nibble spans 0...15 but there are twelve accents, so `c`-`f` wrap
+    /// onto blue, cyan, emerald, and fuchsia, leaving those four twice as likely as the other
+    /// eight. Kept as-is deliberately — matching the other client's assignment is the point, and
+    /// `% accents.count` is exactly what it computes.
+    static func accentIndex(for seed: String) -> Int? {
+        guard let first = seed.first, first.isASCII, let nibble = first.hexDigitValue else { return nil }
+        return nibble % accents.count
+    }
+
+    private static func accent(
+        _ name: String, step50: UInt32, step200: UInt32, step900: UInt32, step950: UInt32
+    ) -> AvatarColorSet {
+        AvatarColorSet(
+            fill: dynamic("avatarFill.\(name)", light: step50, dark: step950),
+            // The one token the design system holds constant across appearances.
+            border: Color(nsColor: NSColor(rgb: step200)),
+            content: dynamic("avatarContent.\(name)", light: step900, dark: step50))
+    }
+
+    /// A single token that resolves per appearance at draw time. `NSColor(name:)` rather than an
+    /// `@Environment(\.colorScheme)` read so that `AvatarPalette` stays a plain static API that
+    /// non-`View` callers and tests can ask for colors without building a view hierarchy.
+    private static func dynamic(_ name: String, light: UInt32, dark: UInt32) -> Color {
+        Color(
+            nsColor: NSColor(name: name) { appearance in
+                appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                    ? NSColor(rgb: dark) : NSColor(rgb: light)
+            })
+    }
+}
+
+/// The three tokens an avatar needs from its accent ramp. Mirrors the Flutter client's
+/// `AvatarColorSet` minus `contentSecondary`, which only feeds widgets this app does not have.
+struct AvatarColorSet {
+    let fill: Color
+    let border: Color
+    let content: Color
+}
+
+extension NSColor {
+    /// `0xRRGGBB` in sRGB, so the ramp tables above read as the hex the design system publishes.
+    fileprivate convenience init(rgb: UInt32) {
+        self.init(
+            srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255,
+            alpha: 1)
     }
 }
 
