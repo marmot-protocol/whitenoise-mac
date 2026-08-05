@@ -193,6 +193,10 @@ struct MessageBubble: View {
     @State private var isSelectable = false
     @State private var isReactionViewerPresented = false
     @State private var reactionViewerEmoji: String?
+    /// Clock the delivery marker is resolved against, advanced once this row's send has been
+    /// unconfirmed long enough to stop reading as "Sending". Separate from the shared
+    /// `timestampReferenceDate`, which only moves on calendar-day changes.
+    @State private var deliveryClock = Date.now
     let message: MessageItem
     let showsDebugMetadata: Bool
     let timestampReferenceDate: Date
@@ -323,6 +327,15 @@ struct MessageBubble: View {
             if hovering {
                 hoverSelectionCoordinator.activate(messageID: message.id)
             }
+        }
+        // Keyed on the delivery-relevant fields only: a new reaction or a resolved sender name
+        // must not restart a grace window that is already counting down.
+        .task(id: message.deliverySignature) {
+            deliveryClock = .now
+            guard let remaining = message.pendingDeliveryGraceRemaining(at: deliveryClock) else { return }
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            deliveryClock = .now
         }
     }
 
@@ -495,18 +508,32 @@ struct MessageBubble: View {
             result
             + Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
             .font(.system(size: 10.5, weight: .medium).monospacedDigit())
-        if message.invalidationStatus != nil || message.isPendingDelivery {
+        if let systemImage = Self.deliveryMarkerSystemImage(for: deliveryIndicator) {
             result =
                 result + Text(verbatim: " ")
-                + Text(Image(systemName: "exclamationmark.circle.fill"))
-                .font(.system(size: 10.5, weight: .medium))
-        } else if message.isOutgoing {
-            result =
-                result + Text(verbatim: " ")
-                + Text(Image(systemName: "checkmark"))
+                + Text(Image(systemName: systemImage))
                 .font(.system(size: 10.5, weight: .medium))
         }
         return result.foregroundColor(.clear)
+    }
+
+    /// The footer glyph for each delivery marker, or nil for the rows that carry none. Shared with
+    /// `inlineMetadataSpacer` so the transparent replica reserves exactly the visible width.
+    private static func deliveryMarkerSystemImage(for indicator: MessageDeliveryIndicator) -> String? {
+        switch indicator {
+        case .none:
+            return nil
+        case .sending:
+            return "clock"
+        case .delivered:
+            return "checkmark"
+        case .failed:
+            return "exclamationmark.circle.fill"
+        }
+    }
+
+    private var deliveryIndicator: MessageDeliveryIndicator {
+        message.deliveryIndicator(at: deliveryClock)
     }
 
     private var metadataColor: Color {
@@ -523,16 +550,22 @@ struct MessageBubble: View {
             }
             Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
                 .monospacedDigit()
-            if message.invalidationStatus != nil || message.isPendingDelivery {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.red)
-            } else if message.isOutgoing {
-                Image(systemName: "checkmark")
+            if let systemImage = Self.deliveryMarkerSystemImage(for: deliveryIndicator) {
+                Image(systemName: systemImage)
+                    // Only a real failure earns the alarm color; an in-flight send stays in the
+                    // metadata's own tint next to the timestamp.
+                    .foregroundStyle(deliveryIndicator == .failed ? Color.red : metadataColor)
             }
         }
         .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(metadataColor)
-        .accessibilityLabel(message.metadataLabel(at: timestampReferenceDate, locale: timestampLocale))
+        .accessibilityLabel(
+            message.metadataLabel(
+                at: timestampReferenceDate,
+                indicator: deliveryIndicator,
+                locale: timestampLocale
+            )
+        )
     }
 }
 

@@ -254,6 +254,31 @@ nonisolated enum ChatMessageDeliveryState: Hashable, Sendable {
     case failed
 }
 
+/// What one bubble's delivery footer should read right now — the timeline counterpart of the
+/// sidebar's `ChatMessageDeliveryState`.
+///
+/// The core commits an own send locally *before* it publishes, and the only per-message signal it
+/// exposes is `sourceMessageIdHex`, which stays nil for both "still going out" and "never made
+/// it". Collapsing those two into one red error made every ordinary send flash "not delivered"
+/// before settling — most visibly for media, whose larger event spends longer in the publish
+/// round-trip. `.sending` covers the in-flight window; the bubble only escalates to `.failed`
+/// once the send has been outstanding past `MessageItem.pendingDeliveryGrace`.
+nonisolated enum MessageDeliveryIndicator: Hashable, Sendable {
+    case none
+    case sending
+    case delivered
+    case failed
+}
+
+/// The parts of a `MessageItem` that decide its delivery footer.
+nonisolated struct MessageDeliverySignature: Hashable, Sendable {
+    let messageId: String
+    let sentAt: Date
+    let isPendingDelivery: Bool
+    let isInvalidated: Bool
+    let isOutgoing: Bool
+}
+
 // `Sendable` so the timeline window/projection mapping can capture the resolved
 // sender-profile map in the off-main `MessageItem.timeline(...)` closure
 // (whitenoise-mac#285). All stored properties are value types, so the conformance is
@@ -1905,17 +1930,44 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         DisplayText.messageTimestamp(for: sentAt, now: now, locale: locale)
     }
 
-    /// Rebuilds the rendered metadata while preserving the message's static edited and
-    /// delivery-state suffixes.
+    /// Spoken counterpart of the delivery marker, so VoiceOver says "Sending" while the icon is a
+    /// clock instead of announcing a failure the send has not had yet.
+    nonisolated func statusLabel(for indicator: MessageDeliveryIndicator) -> String? {
+        switch indicator {
+        case .none:
+            return nil
+        case .sending:
+            return L10n.string("Sending")
+        case .delivered:
+            return L10n.string("Sent")
+        case .failed:
+            return invalidationStatus != nil
+                ? L10n.string("Did not reach group") : L10n.string("Not delivered")
+        }
+    }
+
+    /// Rebuilds the rendered metadata while preserving the message's edited suffix and re-reading
+    /// the delivery state, which is time-sensitive while a send is still in flight.
     nonisolated func metadataLabel(
         at now: Date,
+        locale: Locale = AppLanguage.currentLocale
+    ) -> String {
+        metadataLabel(at: now, indicator: deliveryIndicator(at: now), locale: locale)
+    }
+
+    /// Variant for the bubble, which resolves the marker on its own schedule: the timestamp is
+    /// only re-derived on calendar-day changes, while the delivery marker flips on a much shorter
+    /// timer, so the two cannot share one reference date.
+    nonisolated func metadataLabel(
+        at now: Date,
+        indicator: MessageDeliveryIndicator,
         locale: Locale = AppLanguage.currentLocale
     ) -> String {
         var parts = [timeLabel(at: now, locale: locale)]
         if isEdited {
             parts.append(L10n.string("Edited"))
         }
-        if let statusLabel {
+        if let statusLabel = statusLabel(for: indicator) {
             parts.append(statusLabel)
         }
         return parts.joined(separator: "  ")
@@ -2152,6 +2204,51 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     var canRetryDelivery: Bool {
         isPendingDelivery
+    }
+
+    /// How long an own send may stay unconfirmed before its bubble stops reading as "Sending" and
+    /// starts reading as an error. Publishing is a relay round-trip whose payload the composer has
+    /// already uploaded, so this only has to outlast a slow network — not a transfer.
+    static let pendingDeliveryGrace: TimeInterval = 15
+
+    /// What the bubble's delivery footer should show at `now`.
+    ///
+    /// `.none` for the rows that never carried a marker (incoming, uninvalidated). Invalidation is
+    /// terminal — convergence already decided the message lost — so it fails immediately rather
+    /// than waiting out the grace window.
+    func deliveryIndicator(at now: Date) -> MessageDeliveryIndicator {
+        guard presentation.isChatBubble else { return .none }
+        if invalidationStatus != nil { return .failed }
+        guard isOutgoing else { return .none }
+        guard isPendingDelivery else { return .delivered }
+        return pendingDeliveryGraceRemaining(at: now) == nil ? .failed : .sending
+    }
+
+    /// Time left before `deliveryIndicator(at:)` escalates this send to `.failed`, or nil once the
+    /// window has passed (or never applied).
+    ///
+    /// Measured from `sentAt`, not from when the bubble appeared: a message left pending across a
+    /// relaunch has already had its grace and should read as failed on sight rather than restart
+    /// the countdown. `sentAt` is second-granular and can round slightly ahead of the wall clock,
+    /// so the remainder is clamped to the full window.
+    func pendingDeliveryGraceRemaining(at now: Date) -> TimeInterval? {
+        guard isPendingDelivery else { return nil }
+        let remaining = Self.pendingDeliveryGrace - now.timeIntervalSince(sentAt)
+        guard remaining > 0 else { return nil }
+        return min(remaining, Self.pendingDeliveryGrace)
+    }
+
+    /// The parts of a row that decide its delivery footer. Used as the identity of the view's
+    /// grace-window timer so it restarts when delivery actually moves, not on every unrelated
+    /// re-render (a new reaction, a resolved sender name).
+    var deliverySignature: MessageDeliverySignature {
+        MessageDeliverySignature(
+            messageId: id,
+            sentAt: sentAt,
+            isPendingDelivery: isPendingDelivery,
+            isInvalidated: invalidationStatus != nil,
+            isOutgoing: isOutgoing
+        )
     }
 
     var canCopyText: Bool {
