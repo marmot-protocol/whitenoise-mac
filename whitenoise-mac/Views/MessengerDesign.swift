@@ -90,6 +90,30 @@ enum MessagesPalette {
     static let sentBubble = Color(nsColor: .systemBlue)
 }
 
+/// Surface for the non-visual attachment rows: the audio player, the download/failed status rows,
+/// and the document row.
+///
+/// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
+/// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
+nonisolated enum AttachmentRowPalette {
+    /// The accent itself — the same fill the sent bubble uses, which is what the row's white content
+    /// (play button, waveform, detail text) is drawn for.
+    ///
+    /// It has to stay **opaque**. A translucent white wash composites against whatever is behind the
+    /// row, and what is behind it is the window background: dark in dark appearance, light in light
+    /// appearance. That is how sent voice notes and documents came to render white-on-white and
+    /// vanish in light mode while looking correct in dark.
+    static let outgoingFill = MessagesPalette.sentBubble
+
+    /// Received rows stay on a wash, which is safe here because `.primary` flips with the
+    /// appearance — it darkens the light backdrop and lightens the dark one.
+    static let incomingFill = Color.primary.opacity(0.06)
+
+    static func fill(isOutgoing: Bool) -> Color {
+        isOutgoing ? outgoingFill : incomingFill
+    }
+}
+
 /// The background chip drawn behind an `@mention`'s glyphs, Signal's treatment: the mention keeps
 /// the body font, weight, and inherited foreground, and is set off by its fill alone. Each chip is
 /// the bubble's own fill pushed a step further, never a different hue — a mention should look like
