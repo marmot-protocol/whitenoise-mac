@@ -749,7 +749,14 @@ struct ChatRowContent: View {
     }
 
     private var previewText: Text {
-        guard let searchResult else { return Text(chat.preview) }
+        // A search hit shows the matched message rather than the chat's last one, so the
+        // last-message glyph would describe the wrong message.
+        guard let searchResult else {
+            guard let kind = chat.previewAttachmentKind else { return Text(chat.preview) }
+            // Inline in the same `Text` so the glyph wraps, truncates and picks up the row's
+            // preview font and secondary style along with the words.
+            return Text(Image(systemName: kind.systemImageName)) + Text(verbatim: " ") + Text(chat.preview)
+        }
         return Text(verbatim: "\(searchResult.senderName): ").bold()
             + Text(searchResult.snippet.leading)
             + Text(searchResult.snippet.match).bold().foregroundColor(.primary)

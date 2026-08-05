@@ -111,6 +111,9 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     var publishedTitle: String?
     let subtitle: String
     let preview: String
+    /// Set when the last message carries attachments, so the row can mark the preview with a
+    /// media glyph. Travels with `preview` — anything that carries one forward carries both.
+    let previewAttachmentKind: ChatPreviewAttachmentKind?
     let updatedAt: Date?
     let avatarSeed: String
     let pictureURL: String?
@@ -196,6 +199,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         publishedTitle: String? = nil,
         subtitle: String,
         preview: String,
+        previewAttachmentKind: ChatPreviewAttachmentKind? = nil,
         updatedAt: Date?,
         avatarSeed: String,
         pictureURL: String?,
@@ -220,6 +224,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.publishedTitle = publishedTitle
         self.subtitle = subtitle
         self.preview = preview
+        self.previewAttachmentKind = previewAttachmentKind
         self.updatedAt = updatedAt
         self.avatarSeed = avatarSeed
         self.pictureURL = pictureURL
@@ -252,6 +257,34 @@ nonisolated enum ChatMessageDeliveryState: Hashable, Sendable {
     case pending
     case delivered
     case failed
+}
+
+/// Which attachment glyph a chat row draws ahead of its last-message preview.
+///
+/// Mirrors MDK's `ChatListAttachmentKindFfi`. `mixed` covers both a message carrying more than
+/// one kind at once and one whose kind the core did not report, so an attachment always reads as
+/// an attachment even when its media type is unknown.
+nonisolated enum ChatPreviewAttachmentKind: Hashable, Sendable {
+    case photo
+    case video
+    case audio
+    case file
+    case mixed
+
+    var systemImageName: String {
+        switch self {
+        case .photo:
+            "photo"
+        case .video:
+            "video"
+        case .audio:
+            "waveform"
+        case .file:
+            "doc"
+        case .mixed:
+            "paperclip"
+        }
+    }
 }
 
 /// What one bubble's delivery footer should read right now — the timeline counterpart of the
