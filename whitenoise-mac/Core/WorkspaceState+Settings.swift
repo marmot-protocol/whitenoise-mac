@@ -212,6 +212,20 @@ extension WorkspaceState {
         notificationAuthorizationStatus = await localNotificationCenter.authorizationStatus()
     }
 
+    /// Re-reads the system permission, which lives in System Settings and can change while
+    /// White Noise is in the background, and retires the "allow notifications, then try again"
+    /// guidance once the user has actually granted it. The guidance is the one error the user
+    /// resolves outside the app, so nothing else in the settings pane would ever clear it —
+    /// it stayed on screen even after permission was granted.
+    /// Only that exact message is cleared, so an unrelated failure on the pane survives.
+    func refreshNotificationPermissionState() async {
+        await refreshNotificationAuthorizationStatus()
+        guard notificationAuthorizationStatus.canPostNotifications,
+            lastError == Self.notificationPermissionGuidance
+        else { return }
+        lastError = nil
+    }
+
     func beginNotificationSettingsOperation() -> UInt64 {
         notificationSettingsGeneration &+= 1
         return notificationSettingsGeneration

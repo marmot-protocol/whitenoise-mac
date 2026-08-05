@@ -24631,6 +24631,96 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func refreshingNotificationPermissionRetiresGuidanceAfterSystemSettingsGrant() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
+        let notificationCenter = FakeLocalNotificationCenter(
+            status: .notDetermined,
+            requestError: NSError(
+                domain: UNErrorDomain,
+                code: UNError.Code.notificationsNotAllowed.rawValue
+            )
+        )
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.setLocalNotificationsEnabled(true)
+        #expect(state.lastError == WorkspaceState.notificationPermissionGuidance)
+
+        // The user grants the permission in System Settings and returns to White Noise.
+        notificationCenter.simulateSystemAuthorizationChange(.authorized)
+        await state.refreshNotificationPermissionState()
+
+        #expect(state.notificationAuthorizationStatus == .authorized)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func refreshingNotificationPermissionKeepsUnrelatedErrorAndStaleGuidance() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: false)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        state.lastError = "Could not reach relay."
+        await state.refreshNotificationPermissionState()
+        #expect(state.lastError == "Could not reach relay.")
+
+        // Still denied: the guidance is exactly what the user needs to keep seeing.
+        notificationCenter.simulateSystemAuthorizationChange(.denied)
+        state.lastError = WorkspaceState.notificationPermissionGuidance
+        await state.refreshNotificationPermissionState()
+        #expect(state.notificationAuthorizationStatus == .denied)
+        #expect(state.lastError == WorkspaceState.notificationPermissionGuidance)
+    }
+
+    @MainActor
+    @Test func openingASettingsPageClearsThePreviousPanesError() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showSettingsPage(.notifications)
+        state.lastError = WorkspaceState.notificationPermissionGuidance
+
+        state.showSettingsPage(.accounts)
+
+        #expect(state.selection == .settings(.accounts))
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
     @Test func incomingNotificationPostsLocalAlertWhenEnabledAndInactive() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -28810,6 +28900,12 @@ private final class FakeLocalNotificationCenter: LocalNotificationCenter {
         }
         status = requestedStatus
         return status
+    }
+
+    /// Mimics the user flipping the permission in System Settings while White Noise is in the
+    /// background — the app learns about it only on the next `authorizationStatus()` read.
+    func simulateSystemAuthorizationChange(_ newStatus: LocalNotificationAuthorizationStatus) {
+        status = newStatus
     }
 
     func releaseRequestAuthorizationGate() {
