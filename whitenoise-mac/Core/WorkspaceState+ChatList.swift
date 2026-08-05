@@ -636,6 +636,7 @@ extension WorkspaceState {
             publishedTitle: enrichedItem.publishedTitle,
             subtitle: enrichedItem.subtitle,
             preview: current.preview,
+            previewAttachmentKind: current.previewAttachmentKind,
             updatedAt: current.updatedAt,
             avatarSeed: enrichedItem.avatarSeed,
             pictureURL: enrichedItem.pictureURL ?? current.pictureURL,

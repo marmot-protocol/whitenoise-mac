@@ -190,6 +190,7 @@ nonisolated struct ChatListOrdering {
             title: current.title,
             subtitle: current.subtitle,
             preview: chat.preview,
+            previewAttachmentKind: chat.previewAttachmentKind,
             updatedAt: chat.updatedAt,
             avatarSeed: current.avatarSeed,
             pictureURL: current.pictureURL,
