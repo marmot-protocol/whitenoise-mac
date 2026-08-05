@@ -444,10 +444,9 @@ struct MessageBubble: View {
                 compactMetadata.hidden()
             }
         }
-        // One hover-gated selection gate for the whole bubble: `.textSelection(.enabled)`
-        // propagates through the environment to the body + reply-quote Text, so only the
-        // active bubble (`isSelectable`) is backed by a selection NSView. Non-active bubbles
-        // get no modifier (Text is non-selectable by default). See whitenoise-mac#205.
+        // One hover-gated selection gate for the whole bubble: `.textSelection` propagates
+        // through the environment to the body + reply-quote Text, so only the active bubble
+        // (`isSelectable`) is backed by a selection NSView. See whitenoise-mac#205.
         .textSelectable(isSelectable)
         // Metadata is pinned to the bubble's bottom-trailing corner no matter how the text
         // wraps. The inline spacer (flowing text) or hidden row (structured Markdown, empty
@@ -539,14 +538,16 @@ struct MessageBubble: View {
 
 private extension View {
     /// Enable text selection only when `enabled`. `.textSelection(.enabled)` and `.disabled`
-    /// are distinct types (so a ternary won't type-check); a plain `Text` is non-selectable
-    /// by default, so the inactive case simply applies no modifier.
+    /// are distinct types, so a ternary won't type-check. The inactive case states `.disabled`
+    /// rather than leaving the bubble to inherit: the app enables selection globally
+    /// (ContentView), so a bubble that applied nothing would pick up a selection NSView from
+    /// the environment — exactly what whitenoise-mac#205 forbids across the transcript.
     @ViewBuilder
     func textSelectable(_ enabled: Bool) -> some View {
         if enabled {
             textSelection(.enabled)
         } else {
-            self
+            textSelection(.disabled)
         }
     }
 
