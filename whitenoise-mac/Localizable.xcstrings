@@ -496,7 +496,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ aún no ha publicado un paquete de claves compatible."
+            "value": "%@ aún no ha publicado un paquete de llaves compatible."
           }
         },
         "fr": {
@@ -555,7 +555,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ no ha publicado un paquete de claves compatibles, por lo que no se pueden agregar todavía."
+            "value": "%@ no ha publicado un paquete de llaves compatible, por lo que no se le puede agregar todavía "
           }
         },
         "fr": {
@@ -614,7 +614,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ no ha publicado un paquete de claves compatible, por lo que aún no se les puede enviar mensajes."
+            "value": "%@ no ha publicado un paquete de llaves compatible, por lo que aún no se le pueden enviar mensajes."
           }
         },
         "fr": {
@@ -675,7 +675,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ información"
+            "value": "Información de %@"
           }
         },
         "fr": {
@@ -1029,7 +1029,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ hizo a %@ administrador"
+            "value": "%@ nombró administrador a %@"
           }
         },
         "fr": {
@@ -2905,7 +2905,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grupo de personas %lld"
+            "value": "Grupo de %lld personas"
           }
         },
         "fr": {
@@ -6654,7 +6654,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Administración"
+            "value": "Administrador"
           }
         },
         "fr": {
@@ -8011,7 +8011,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grupo de archivo"
+            "value": "Archivar grupo"
           }
         },
         "fr": {
@@ -9250,7 +9250,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Respaldar clave privada"
+            "value": "Respaldar llave privada"
           }
         },
         "fr": {
@@ -9309,7 +9309,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Respaldar clave privada…"
+            "value": "Respaldar llave privada…"
           }
         },
         "fr": {
@@ -9726,7 +9726,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Acceso a la cámara denegado. Habilítelo en Configuración para escanear códigos QR."
+            "value": "Acceso a la cámara denegado. Habilite en los Ajustes del Sistema para escanear códigos QR."
           }
         },
         "fr": {
@@ -10198,7 +10198,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancelar carga del vídeo"
+            "value": "Cancelar la carga del video"
           }
         },
         "fr": {
@@ -11386,7 +11386,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Borrar la caché de medios?"
+            "value": "¿Borrar el almacenamiento multimedia?"
           }
         },
         "fr": {
@@ -11980,7 +11980,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copias %@"
+            "value": "Copia %@"
           }
         },
         "fr": {
@@ -12157,7 +12157,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiar clave privada"
+            "value": "Copiar llave privada"
           }
         },
         "fr": {
@@ -12216,7 +12216,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copiar clave pública"
+            "value": "Copiar llave pública"
           }
         },
         "fr": {
@@ -12572,7 +12572,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo cambiar de administrador"
+            "value": "No se pudo cambiar el administrador"
           }
         },
         "fr": {
@@ -12690,7 +12690,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pude eliminar el chat"
+            "value": "No se pudo eliminar el chat"
           }
         },
         "fr": {
@@ -12926,7 +12926,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pude salir del chat"
+            "value": "No se pudo salir del chat"
           }
         },
         "fr": {
@@ -12985,7 +12985,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pude abandonar el grupo"
+            "value": "No se pudo salir del grupo"
           }
         },
         "fr": {
@@ -13457,7 +13457,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo renderizar QR"
+            "value": "No se pudo generar el código QR"
           }
         },
         "fr": {
@@ -13575,7 +13575,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pude renunciar"
+            "value": "No se pudo renunciar"
           }
         },
         "fr": {
@@ -15227,7 +15227,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eliminar paquete de claves"
+            "value": "Eliminar paquete de llaves"
           }
         },
         "fr": {
@@ -17056,7 +17056,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adjuntos descargados almacenados en este Mac."
+            "value": "Adjuntos descargados almacenados en este dispositivo."
           }
         },
         "fr": {
@@ -18067,7 +18067,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introduce un NIP-05, npub, enlace de perfil o clave pública."
+            "value": "Introduce un NIP-05, npub, enlace de perfil o llave pública."
           }
         },
         "fr": {
@@ -18126,7 +18126,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Introduce un NIP-05, npub, enlace de perfil o clave pública hex válidos."
+            "value": "Introduce un NIP-05, npub, enlace de perfil o llave pública hexadecimal válidos."
           }
         },
         "fr": {
@@ -18185,7 +18185,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingrese un URI npub, nprofile, Nostr válido, un enlace de perfil o una clave pública hexadecimal."
+            "value": "Introduce un npub, nprofile, URI de Nostr, enlace de perfil o llave pública hexadecimal válidos."
           }
         },
         "fr": {
@@ -18244,7 +18244,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingresa un npub, enlace de perfil o clave pública hexadecimal válidos."
+            "value": "Introduce un npub, enlace de perfil o llave pública hexadecimal válidos."
           }
         },
         "fr": {
@@ -18303,7 +18303,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingresa un npub, enlace de perfil o clave pública."
+            "value": "Introduce un npub, enlace de perfil o llave pública."
           }
         },
         "fr": {
@@ -19542,7 +19542,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finaliza o descarta el borrador de chat nuevo actual antes de abrir este enlace."
+            "value": "Finaliza o descarta el borrador de Nuevo chat antes de abrir este enlace."
           }
         },
         "fr": {
@@ -20370,7 +20370,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genera una identidad Nostr nueva y guarda la clave secreta de forma segura en el llavero de tu dispositivo."
+            "value": "Genera una identidad Nostr nueva y guarda la llave secreta de forma segura en el llavero de tu dispositivo."
           }
         },
         "fr": {
@@ -20488,7 +20488,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ID del Grupo"
+            "value": "Identificador del grupo"
           }
         },
         "fr": {
@@ -20903,7 +20903,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "invitación grupal"
+            "value": "Invitación de grupo"
           }
         },
         "fr": {
@@ -21139,7 +21139,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nombre del Grupo"
+            "value": "Nombre del grupo"
           }
         },
         "fr": {
@@ -21906,7 +21906,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Identidad y claves"
+            "value": "Identidad y llaves"
           }
         },
         "fr": {
@@ -23265,7 +23265,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Miembros invitados de %lld"
+            "value": "Se invitó a %lld miembros"
           }
         },
         "fr": {
@@ -23324,7 +23324,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invitado 1 miembro"
+            "value": "Se invitó a 1 miembro"
           }
         },
         "fr": {
@@ -23383,7 +23383,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invitando a miembros..."
+            "value": "Invitando a miembros…"
           }
         },
         "fr": {
@@ -23442,7 +23442,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atractivo…"
+            "value": "Invitando…"
           }
         },
         "fr": {
@@ -23560,7 +23560,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "solo tu"
+            "value": "Solo tú"
           }
         },
         "fr": {
@@ -23678,7 +23678,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paquete clave"
+            "value": "Paquete de llaves"
           }
         },
         "fr": {
@@ -23737,7 +23737,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paquetes de claves"
+            "value": "Paquetes de llaves"
           }
         },
         "fr": {
@@ -23796,7 +23796,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paquete de claves eliminado"
+            "value": "Paquete de llaves eliminado"
           }
         },
         "fr": {
@@ -23855,7 +23855,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al paquete de claves le falta un ID de evento."
+            "value": "Al paquete de llaves le falta un ID de evento."
           }
         },
         "fr": {
@@ -24270,7 +24270,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dejar grupo"
+            "value": "Salir del grupo"
           }
         },
         "fr": {
@@ -24565,7 +24565,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Dejar este grupo?"
+            "value": "¿Salir de este grupo?"
           }
         },
         "fr": {
@@ -24744,7 +24744,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saliendo del grupo..."
+            "value": "Saliendo del grupo…"
           }
         },
         "fr": {
@@ -25098,7 +25098,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rayo (lud16)"
+            "value": "Lightning (lud16)"
           }
         },
         "fr": {
@@ -25393,7 +25393,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cargando paquetes de claves"
+            "value": "Cargando paquetes de llaves"
           }
         },
         "fr": {
@@ -25572,7 +25572,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cargando estado de notificación push..."
+            "value": "Cargando el estado de las notificaciones push…"
           }
         },
         "fr": {
@@ -25987,7 +25987,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "hoja local"
+            "value": "Hoja local"
           }
         },
         "fr": {
@@ -26105,7 +26105,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sólo locales"
+            "value": "Solo local"
           }
         },
         "fr": {
@@ -26461,7 +26461,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar sesión con clave"
+            "value": "Iniciar sesión con llave"
           }
         },
         "fr": {
@@ -26520,7 +26520,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar sesión con clave"
+            "value": "Iniciar sesión con llave"
           }
         },
         "fr": {
@@ -26756,7 +26756,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Administrador hecho"
+            "value": "Nombrado administrador"
           }
         },
         "fr": {
@@ -26815,7 +26815,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hacer administrador"
+            "value": "Nombrar administrador"
           }
         },
         "fr": {
@@ -26874,7 +26874,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Convierta a otro miembro en administrador antes de eliminar al último administrador."
+            "value": "Nombra administrador a otro miembro antes de eliminar al último administrador."
           }
         },
         "fr": {
@@ -27051,7 +27051,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Haciendo administrador…"
+            "value": "Nombrando administrador…"
           }
         },
         "fr": {
@@ -27169,7 +27169,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestiona las identidades disponibles en este Mac."
+            "value": "Gestiona las identidades disponibles en este dispositivo."
           }
         },
         "fr": {
@@ -27643,7 +27643,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Caché de medios"
+            "value": "Almacenamiento multimedia"
           }
         },
         "fr": {
@@ -27702,7 +27702,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Caché de medios"
+            "value": "Almacenamiento multimedia"
           }
         },
         "fr": {
@@ -29594,7 +29594,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "NIP-05, npub, enlace de perfil o clave pública hex"
+            "value": "NIP-05, npub, enlace de perfil o llave pública hexadecimal"
           }
         },
         "fr": {
@@ -30066,7 +30066,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nueva Identidad"
+            "value": "Nueva identidad"
           }
         },
         "fr": {
@@ -30361,7 +30361,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuevo paquete de claves publicado"
+            "value": "Nuevo paquete de llaves publicado"
           }
         },
         "fr": {
@@ -31545,7 +31545,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sin paquetes de claves"
+            "value": "Sin paquetes de llaves"
           }
         },
         "fr": {
@@ -31604,7 +31604,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontraron paquetes clave."
+            "value": "No se encontraron paquetes de llaves."
           }
         },
         "fr": {
@@ -32786,7 +32786,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No guardada en este Mac"
+            "value": "No guardada en este dispositivo"
           }
         },
         "fr": {
@@ -32963,7 +32963,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las notificaciones están deshabilitadas en la configuración del sistema."
+            "value": "Las notificaciones están desactivadas en los Ajustes del Sistema."
           }
         },
         "fr": {
@@ -33258,7 +33258,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "DE ACUERDO"
+            "value": "OK"
           }
         },
         "fr": {
@@ -33317,7 +33317,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "SO"
+            "value": "Sistema operativo"
           }
         },
         "fr": {
@@ -33730,7 +33730,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sólo los administradores pueden agregar o administrar miembros."
+            "value": "Solo los administradores pueden agregar o gestionar miembros."
           }
         },
         "fr": {
@@ -33789,7 +33789,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sólo los administradores pueden gestionar los miembros del grupo."
+            "value": "Solo los administradores pueden gestionar los miembros del grupo."
           }
         },
         "fr": {
@@ -34025,7 +34025,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnóstico abierto"
+            "value": "Abrir Diagnóstico"
           }
         },
         "fr": {
@@ -34851,7 +34851,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pega tu nsec (clave secreta bech32). Los valores npub públicos son para compartir y no permiten iniciar sesión."
+            "value": "Pega tu nsec (llave secreta bech32). Los valores npub públicos son para compartir y no permiten iniciar sesión."
           }
         },
         "fr": {
@@ -35441,7 +35441,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reproducir vídeo"
+            "value": "Reproducir video"
           }
         },
         "fr": {
@@ -35856,7 +35856,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clave privada"
+            "value": "Llave privada"
           }
         },
         "fr": {
@@ -35915,7 +35915,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clave privada"
+            "value": "Llave privada"
           }
         },
         "fr": {
@@ -35974,7 +35974,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La exportación de claves privadas no está expuesta por MarmotKit en esta compilación"
+            "value": "MarmotKit no permite exportar la llave privada en esta compilación"
           }
         },
         "fr": {
@@ -36332,7 +36332,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protege tu clave con una frase de contraseña. La necesitarás para restaurar el respaldo."
+            "value": "Protege tu llave con una frase de contraseña. La necesitarás para restaurar el respaldo."
           }
         },
         "fr": {
@@ -36509,7 +36509,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claves públicas y privadas"
+            "value": "Llaves pública y privada"
           }
         },
         "fr": {
@@ -36745,7 +36745,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clave pública"
+            "value": "Llave pública"
           }
         },
         "fr": {
@@ -36804,7 +36804,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Publicar nuevo paquete de claves"
+            "value": "Publicar nuevo paquete de llaves"
           }
         },
         "fr": {
@@ -37099,7 +37099,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualizaciones publicadas de %lld."
+            "value": "Se publicaron %lld actualizaciones."
           }
         },
         "fr": {
@@ -37160,7 +37160,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualizaciones publicadas de %u."
+            "value": "Se publicaron %u actualizaciones."
           }
         },
         "fr": {
@@ -37219,7 +37219,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Publicada 1 actualización."
+            "value": "Se publicó 1 actualización."
           }
         },
         "fr": {
@@ -37278,7 +37278,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "KeyPackages publicados"
+            "value": "Paquetes de llaves publicados"
           }
         },
         "fr": {
@@ -37455,7 +37455,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actualización del grupo editorial."
+            "value": "Publicando la actualización del grupo."
           }
         },
         "fr": {
@@ -39288,7 +39288,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eliminar administrador"
+            "value": "Quitar administrador"
           }
         },
         "fr": {
@@ -39880,7 +39880,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elimina esta identidad de este Mac. Los mensajes y claves que Marmot gestiona para esta cuenta ya no estarán disponibles localmente."
+            "value": "Elimina esta identidad de este dispositivo. Los mensajes y llaves que Marmot gestiona para esta cuenta ya no estarán disponibles localmente."
           }
         },
         "fr": {
@@ -40175,7 +40175,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eliminando administrador…"
+            "value": "Quitando administrador…"
           }
         },
         "fr": {
@@ -40234,7 +40234,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al eliminar una cuenta se borran su clave privada y el historial de mensajes local de este Mac. La identidad en sí no se elimina de la red."
+            "value": "Al eliminar una cuenta se borran su llave privada y el historial de mensajes local de este Mac. La identidad en sí no se elimina de la red."
           }
         },
         "fr": {
@@ -40293,7 +40293,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eliminando miembro..."
+            "value": "Eliminando miembro…"
           }
         },
         "fr": {
@@ -40883,7 +40883,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restablece White Noise en este Mac al estado de una instalación nueva."
+            "value": "Restablece White Noise en este dispositivo al estado de una instalación nueva."
           }
         },
         "fr": {
@@ -41355,7 +41355,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reintentar vídeo"
+            "value": "Reintentar video"
           }
         },
         "fr": {
@@ -42183,7 +42183,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desplácese hasta el último mensaje"
+            "value": "Ir al último mensaje"
           }
         },
         "fr": {
@@ -44018,7 +44018,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envío…"
+            "value": "Enviando…"
           }
         },
         "fr": {
@@ -44968,7 +44968,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar perfil QR código"
+            "value": "Mostrar el código QR del perfil"
           }
         },
         "fr": {
@@ -45208,7 +45208,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicia sesión para continuar con una cuenta guardada en este Mac."
+            "value": "Inicia sesión para continuar con una cuenta guardada en este dispositivo."
           }
         },
         "fr": {
@@ -45564,7 +45564,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al cerrar sesión solo se olvida qué cuenta está activa. Las identidades y su material de claves permanecen en el llavero del dispositivo para que puedas volver a iniciar sesión."
+            "value": "Al cerrar sesión solo se olvida qué cuenta está activa. Las identidades y su material de llaves permanecen en el llavero del dispositivo para que puedas volver a iniciar sesión."
           }
         },
         "fr": {
@@ -46390,7 +46390,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bajar"
+            "value": "Renunciar"
           }
         },
         "fr": {
@@ -46508,7 +46508,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deja de ser administrador antes de abandonar el grupo."
+            "value": "Deja de ser administrador antes de salir del grupo."
           }
         },
         "fr": {
@@ -46626,7 +46626,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renunciar antes de irse..."
+            "value": "Renunciando antes de salir…"
           }
         },
         "fr": {
@@ -46685,7 +46685,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bajando…"
+            "value": "Renunciando…"
           }
         },
         "fr": {
@@ -46862,7 +46862,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Almacenamiento y diagnósticos"
+            "value": "Almacenamiento y diagnóstico"
           }
         },
         "fr": {
@@ -46980,7 +46980,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guardada en Llaveros"
+            "value": "Guardada en el Llavero"
           }
         },
         "fr": {
@@ -47098,7 +47098,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transmisión…"
+            "value": "Transmitiendo…"
           }
         },
         "fr": {
@@ -47157,7 +47157,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desliza un chat para archivarlo; los chats archivados permanecen activos y aún así le notifican."
+            "value": "Desliza un chat para archivarlo; los chats archivados permanecen activos y siguen notificándote."
           }
         },
         "fr": {
@@ -47511,7 +47511,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistema sigue el idioma de tu Mac. Otras opciones actualizan White Noise de inmediato."
+            "value": "«Sistema» sigue el idioma de tu Mac. Las demás opciones actualizan White Noise de inmediato."
           }
         },
         "fr": {
@@ -47570,7 +47570,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toca para quitar"
+            "value": "Haz clic para quitar"
           }
         },
         "fr": {
@@ -47865,7 +47865,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inquilino"
+            "value": "Tenant"
           }
         },
         "fr": {
@@ -48396,7 +48396,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ese miembro no es un administrador."
+            "value": "Ese miembro no es administrador."
           }
         },
         "fr": {
@@ -48516,7 +48516,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La cuenta y sus datos locales permanecerán en este Mac para que puedas volver a iniciar sesión más tarde."
+            "value": "La cuenta y sus datos locales permanecerán en este dispositivo para que puedas volver a iniciar sesión más tarde."
           }
         },
         "fr": {
@@ -48575,7 +48575,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El contenido de medios en caché no es un registro cifrado válido."
+            "value": "El contenido multimedia alamacenado no es un registro cifrado válido."
           }
         },
         "fr": {
@@ -48931,7 +48931,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La clave de cifrado de la caché de medios guardada en el Llavero no es válida."
+            "value": "La llave de cifrado del alamacenamiento multimedia guardada en el llavero no es válida."
           }
         },
         "fr": {
@@ -49344,7 +49344,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta cuenta no tiene una clave privada guardada en este Mac"
+            "value": "Esta cuenta no tiene una llave privada guardada en este dispositivo"
           }
         },
         "fr": {
@@ -49521,7 +49521,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto borra la clave privada y el historial de mensajes local de esta identidad de este Mac. Esta acción no se puede deshacer."
+            "value": "Esto borra la llave privada y el historial de mensajes local de esta identidad de este Mac. Esta acción no se puede deshacer."
           }
         },
         "fr": {
@@ -50052,7 +50052,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Huella digital simbólica"
+            "value": "Huella del token"
           }
         },
         "fr": {
@@ -50113,7 +50113,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Huellas dactilares simbólicas"
+            "value": "Huellas dactilares de los tokens"
           }
         },
         "fr": {
@@ -50174,7 +50174,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fichas"
+            "value": "Tokens"
           }
         },
         "fr": {
@@ -50764,7 +50764,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudieron eliminar las claves de la cuenta de Marmot del Llavero (%@)."
+            "value": "No se pudieron eliminar las llaves de la cuenta de Marmot del Llavero (%@)."
           }
         },
         "fr": {
@@ -50823,7 +50823,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo generar una clave de cifrado para la caché de medios (%@)."
+            "value": "No se pudo generar una llave de cifrado para el almacenamiento multimedia (%@)."
           }
         },
         "fr": {
@@ -50882,7 +50882,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo leer la clave de cifrado de la caché de medios desde el Llavero (%@)."
+            "value": "No se pudo leer la llave de cifrado del almacenamiento multimedia desde el Llavero (%@)."
           }
         },
         "fr": {
@@ -51000,7 +51000,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo guardar la clave de cifrado de la caché de medios en el Llavero (%@)."
+            "value": "No se pudo guardar la llave de cifrado del almacenamiento  multimedia en el llavero (%@)."
           }
         },
         "fr": {
@@ -52892,7 +52892,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise cifra los datos de adjuntos en caché en este Mac. Borrarlos no elimina cuentas, mensajes, borradores ni ajustes."
+            "value": "White Noise cifra los datos de adjuntos en caché en este dispositivo. Borrarlos no elimina cuentas, mensajes, borradores ni ajustes."
           }
         },
         "fr": {
@@ -53423,7 +53423,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "enviaste un mensaje"
+            "value": "Enviaste un mensaje"
           }
         },
         "fr": {
@@ -53895,7 +53895,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permanecerás en el grupo, pero otro administrador deberá restaurar tu estado de administrador."
+            "value": "Permanecerás en el grupo, pero otro administrador deberá devolverte el rol de administrador."
           }
         },
         "fr": {
@@ -54072,7 +54072,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eres el único administrador. Convierte a otro miembro en administrador antes de irte."
+            "value": "Eres el único administrador. Nombra administrador a otro miembro antes de salir."
           }
         },
         "fr": {
@@ -54664,7 +54664,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "npub o clave pública hex"
+            "value": "npub o llave pública hexadecimal"
           }
         },
         "fr": {
@@ -54723,7 +54723,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "npub1…, nprofile1… o clave pública hexadecimal"
+            "value": "npub1…, nprofile1… o llave pública hexadecimal"
           }
         },
         "fr": {
@@ -55083,7 +55083,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "duro"
+            "value": "desactualizado"
           }
         },
         "fr": {
@@ -55203,7 +55203,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "wss://rele.ejemplo.com"
+            "value": "wss://relay.example.com"
           }
         },
         "fr": {
@@ -55384,7 +55384,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "«En línea» significa que el proceso en ejecución de esta cuenta está activo en la app ahora mismo (suscrito a sus relés). No indica nada sobre el acceso a las claves."
+            "value": "«En línea» significa que el proceso en ejecución de esta cuenta está activo en la app ahora mismo (suscrito a sus relés). No indica nada sobre el acceso a las llaves."
           }
         },
         "fr": {
