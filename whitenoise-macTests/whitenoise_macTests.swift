@@ -18212,6 +18212,45 @@ struct whitenoise_macTests {
         #expect(shellSource.contains(".move(edge: .trailing)"))
     }
 
+    @Test func detailsPaneHeadersPlaceBackButtonAtLeadingEdge() throws {
+        // The group-info and contact-info panes slide in over the transcript, so their
+        // chevron is a *back* control and belongs on the leading edge — where the
+        // compose pane and the settings header already put theirs — not trailing next
+        // to the add-members button, which reads as an unrelated right-hand action.
+        let viewsDirURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+        let groupViewsSource = try String(
+            contentsOf: viewsDirURL.appendingPathComponent("GroupViews.swift"),
+            encoding: .utf8
+        )
+
+        for declaration in ["struct GroupDetailsSheet: View {", "struct ContactDetailsView: View {"] {
+            let start = try #require(groupViewsSource.range(of: declaration)?.upperBound)
+            let rest = groupViewsSource[start...]
+            let end =
+                [
+                    rest.range(of: "\nprivate struct ")?.lowerBound,
+                    rest.range(of: "\nstruct ")?.lowerBound,
+                ]
+                .compactMap { $0 }.min() ?? groupViewsSource.endIndex
+            let declarationBody = groupViewsSource[start..<end]
+            // Scope to `body` so helper views declared above it (the custom-duration
+            // popover has its own trailing `Spacer()`) can't stand in for the header's.
+            let bodyStart = try #require(declarationBody.range(of: "var body: some View {")?.upperBound)
+            let header = String(declarationBody[bodyStart...])
+
+            let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
+            let avatarIndex = try #require(header.range(of: "ProfileImageAvatarView(")?.lowerBound)
+            let spacerIndex = try #require(header.range(of: "Spacer()")?.lowerBound)
+            #expect(backIndex < avatarIndex, "\(declaration) back button must precede the avatar")
+            #expect(backIndex < spacerIndex, "\(declaration) back button must sit before the spacer")
+        }
+    }
+
     @MainActor
     @Test func directContactDetailsShowsAndNavigatesToGroupsInCommon() async throws {
         let account = desktopAccount()
