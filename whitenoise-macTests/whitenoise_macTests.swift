@@ -21022,6 +21022,112 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func tappingTheActiveAccountAvatarWhileReadingChatsChangesNothing() async throws {
+        // Tapping the rail avatar that is already selected used to run the full account switch:
+        // every cached timeline was dropped, the chat-list listener was torn down and re-subscribed,
+        // and the filter/search were reset — so the window blanked and reloaded for a tap that
+        // could not change anything. It must now be inert.
+        let state = WorkspaceState.preview()
+        let active = try #require(state.activeAccount)
+        let openChat = try #require(state.selectedChat)
+        state.chatListFilter = .archived
+        state.searchText = "invoice"
+        let cachedChatIdsBefore = state.cachedMessageChatIds
+        let reloadGenerationBefore = state.reloadChatsGeneration
+        #expect(!cachedChatIdsBefore.isEmpty)
+
+        state.selectAccount(active)
+
+        #expect(state.activeAccountId == active.id)
+        #expect(state.selection == .chat(openChat.id))
+        #expect(state.cachedMessageChatIds == cachedChatIdsBefore)
+        #expect(state.chatListFilter == .archived)
+        #expect(state.searchText == "invoice")
+        // The teardown cancels any in-flight chat-list reload and starts a new one; the generation
+        // counter is the synchronous witness that neither happened.
+        #expect(state.reloadChatsGeneration == reloadGenerationBefore)
+    }
+
+    @MainActor
+    @Test func tappingTheActiveAccountAvatarStillLeavesSettings() async throws {
+        // The rail avatar is the only way back to the chats from Settings, so the same-account tap
+        // cannot be a plain no-op: it still has to leave a non-chat surface, just without the
+        // account-switch teardown.
+        let state = WorkspaceState.preview()
+        let active = try #require(state.activeAccount)
+        state.showSettings(.accounts)
+        #expect(state.isShowingSettings)
+
+        state.selectAccount(active)
+
+        #expect(!state.isShowingSettings)
+        #expect(state.activeAccountId == active.id)
+        let landedOn = try #require(state.selectedChat)
+        #expect(state.activeChats.contains { $0.id == landedOn.id })
+    }
+
+    @MainActor
+    @Test func tappingTheActiveAccountAvatarClosesTheNewChatComposer() async throws {
+        // The composer covers the chat list, so the rail avatar still dismisses it — but the
+        // conversation behind it stays selected.
+        let state = WorkspaceState.preview()
+        let active = try #require(state.activeAccount)
+        let openChat = try #require(state.selectedChat)
+        state.showNewChat()
+        #expect(state.isNewChatComposerVisible)
+
+        state.selectAccount(active)
+
+        #expect(!state.isNewChatComposerVisible)
+        #expect(state.selection == .chat(openChat.id))
+    }
+
+    @MainActor
+    @Test func reselectingTheActiveAccountRowInSettingsKeepsTheSessionLoaded() async throws {
+        // Settings ▸ Accounts marks the active row "Active"; tapping it would otherwise tear the
+        // session down and rebuild it only to land back on the page already on screen.
+        let state = WorkspaceState.preview()
+        let active = try #require(state.activeAccount)
+        state.showSettings(.accounts)
+        let cachedChatIdsBefore = state.cachedMessageChatIds
+        let reloadGenerationBefore = state.reloadChatsGeneration
+
+        state.selectAccountFromSettings(active)
+
+        #expect(state.selection == .settings(.accounts))
+        #expect(state.activeAccountId == active.id)
+        #expect(state.cachedMessageChatIds == cachedChatIdsBefore)
+        #expect(state.reloadChatsGeneration == reloadGenerationBefore)
+    }
+
+    @MainActor
+    @Test func tappingTheActiveAccountAvatarKeepsTheLoadedSessionAndItsListener() async throws {
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(chat)
+        #expect(await waitFor { state.cachedMessageChatIds.contains("group") })
+        #expect(await waitFor { state.chatListTask != nil })
+
+        let reloadGenerationBefore = state.reloadChatsGeneration
+        let active = try #require(state.activeAccount)
+
+        state.selectAccount(active)
+
+        // The account-switch teardown stops the chat-list listener and cancels the in-flight
+        // reload (bumping the generation) before re-subscribing both; on a same-account tap the
+        // loaded session has to survive untouched.
+        #expect(state.chatListTask != nil)
+        #expect(state.reloadChatsGeneration == reloadGenerationBefore)
+        #expect(state.selection == .chat("group"))
+        #expect(state.cachedMessageChatIds.contains("group"))
+    }
+
+    @MainActor
     @Test func sharedConversationDraftsAreIsolatedPerAccount() async throws {
         let state = WorkspaceState.preview()
         let sharedChat = ChatItem.samples[1]
