@@ -256,6 +256,12 @@ struct GroupDetailsSheet: View {
                                 accountIdHex: contactAccountIdHex,
                                 publishedName: chat.publishedTitle
                             )
+
+                            // Chat info is the profile a 1:1 conversation actually opens, and the
+                            // Flutter client puts follow on that same screen. Without it here,
+                            // following someone you already message means hunting for their
+                            // avatar in the transcript first.
+                            ContactFollowControl(accountIdHex: contactAccountIdHex)
                         }
                     }
 
@@ -869,6 +875,15 @@ struct ContactDetailsView: View {
 
             GlassSeparator(axis: .horizontal)
 
+            // Follow and Message lead the profile, above every detail row, so neither can be
+            // missed. `isSelf` only covers the active account; the follow control hides itself
+            // for any other identity signed in on this device.
+            if !isSelf {
+                ContactProfileActionsRow(contact: contact)
+
+                GlassSeparator(axis: .horizontal)
+            }
+
             Form {
                 Section(L10n.string("Contact")) {
                     ContactNicknameRow(
@@ -884,28 +899,17 @@ struct ContactDetailsView: View {
                             .textSelection(.enabled)
                     }
 
-                    HStack(spacing: 10) {
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(
-                                contact.npub.isEmpty ? contact.accountIdHex : contact.npub,
-                                forType: .string
-                            )
-                        } label: {
-                            Label(L10n.string("Copy Public Key"), systemImage: "doc.on.doc")
-                        }
-
-                        if !isSelf {
-                            Spacer()
-                            Button {
-                                Task { await workspace.messageContact(contact) }
-                            } label: {
-                                Label(L10n.string("Message"), systemImage: "message")
-                            }
-                            .nativeGlassProminentButtonStyle()
-                            .disabled(workspace.isCreatingChat)
-                        }
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(
+                            contact.npub.isEmpty ? contact.accountIdHex : contact.npub,
+                            forType: .string
+                        )
+                    } label: {
+                        Label(L10n.string("Copy Public Key"), systemImage: "doc.on.doc")
                     }
+
+                    SettingsErrorView(error: workspace.lastError)
                 }
 
                 Section(L10n.string("Groups in Common")) {
@@ -965,6 +969,97 @@ struct ContactDetailsView: View {
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
+        }
+    }
+}
+
+/// Follow and Message, side by side directly under the profile header.
+///
+/// Both sibling clients lead a profile with these two: iOS puts them in equal-width buttons
+/// above the detail rows, and the Flutter app stacks Follow first in its action column. This
+/// app used to keep Follow inside a form row beside "Copy Public Key", where a small bordered
+/// button next to a clipboard action read as another utility rather than as the way to follow
+/// someone — the feature was there and still could not be found.
+private struct ContactProfileActionsRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let contact: NewChatRecipient
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ContactFollowControl(accountIdHex: contact.accountIdHex)
+
+            Button {
+                Task { await workspace.messageContact(contact) }
+            } label: {
+                Label(L10n.string("Message"), systemImage: "message")
+                    .frame(maxWidth: .infinity)
+            }
+            .nativeGlassProminentButtonStyle()
+            .disabled(workspace.isCreatingChat)
+        }
+        .controlSize(.large)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .accessibilityIdentifier("contact.details.actions")
+    }
+}
+
+/// Follow/unfollow for one contact. The control keeps its place in the row through all three
+/// states — reading, known, and failed — so a relationship that cannot be read reads as a
+/// problem to retry rather than as a feature that isn't there.
+///
+/// Every state fills the width it is given, so it reads as a primary action in the profile's
+/// action row and as a full-width row in chat info, rather than as a chip trailing a label.
+private struct ContactFollowControl: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let accountIdHex: String
+
+    var body: some View {
+        // Never offer to follow another identity on this device, not just the active one.
+        if !workspace.canOfferFollow(accountIdHex: accountIdHex) {
+            EmptyView()
+        } else {
+            switch workspace.contactFollowStatus(accountIdHex: accountIdHex) {
+            case .loading:
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(L10n.string("Checking…"))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("contact.details.follow.loading")
+
+            case .known(let isFollowing):
+                Button {
+                    Task { await workspace.toggleFollow(accountIdHex: accountIdHex) }
+                } label: {
+                    if workspace.isTogglingFollow {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label(
+                            isFollowing ? L10n.string("Unfollow") : L10n.string("Follow"),
+                            systemImage: isFollowing ? "person.badge.minus" : "person.badge.plus"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .disabled(workspace.isTogglingFollow)
+                .accessibilityLabel(isFollowing ? L10n.string("Unfollow") : L10n.string("Follow"))
+                .accessibilityIdentifier("contact.details.follow")
+
+            case .unavailable:
+                Button {
+                    Task { await workspace.refreshFollowStatus(forContactIdHex: accountIdHex) }
+                } label: {
+                    Label(L10n.string("Retry"), systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .help(L10n.string("Couldn't check whether you follow this person."))
+                .accessibilityIdentifier("contact.details.follow.retry")
+            }
         }
     }
 }

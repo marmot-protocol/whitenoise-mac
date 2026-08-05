@@ -111,7 +111,10 @@ extension WorkspaceState {
         if chat.isDirect {
             async let details: Void = loadGroupDetails(groupIdHex: chat.id)
             async let commonGroups: Void = loadCommonGroups(forContactIdHex: chat.avatarSeed)
-            _ = await (details, commonGroups)
+            // Chat info doubles as the peer's profile for a 1:1 conversation, so it carries the
+            // follow control and needs the relationship resolved alongside everything else.
+            async let followStatus: Void = refreshDirectPeerFollowStatus(for: chat)
+            _ = await (details, commonGroups, followStatus)
         } else {
             clearCommonGroups()
             await loadGroupDetails(groupIdHex: chat.id)
@@ -158,7 +161,9 @@ extension WorkspaceState {
         )
         contactDetailsTarget = fallback
         isLoadingContactDetails = true
+        lastError = nil
 
+        async let followStatus: Void = refreshFollowStatus(forContactIdHex: accountIdHex)
         async let commonGroups: Void = loadCommonGroups(forContactIdHex: accountIdHex)
         let resolved = await resolvedPeerFFI(
             accountIdHex: accountIdHex,
@@ -186,6 +191,7 @@ extension WorkspaceState {
             publishedDisplayName: Self.publishedContactName(published, overriddenBy: nickname),
             pictureURL: resolved?.profilePicture?.nilIfBlank ?? pictureURL
         )
+        await followStatus
         await commonGroups
         if contactDetailsLoadGeneration == generation {
             isLoadingContactDetails = false
@@ -218,6 +224,8 @@ extension WorkspaceState {
         contactDetailsLoadGeneration &+= 1
         contactDetailsTarget = nil
         isLoadingContactDetails = false
+        invalidateFollowStatusRead()
+        invalidateFollowMutation()
         clearCommonGroups()
     }
 

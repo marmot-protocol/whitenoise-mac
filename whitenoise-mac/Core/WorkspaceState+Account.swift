@@ -170,6 +170,7 @@ extension WorkspaceState {
         clearPendingChatDestructiveActions()
         closeNewChatComposer()
         resetComposeContacts()
+        clearFollows()
         pruneMessageCache(keeping: groupIdHex)
         clearConversationMetadata()
         clearMediaReferenceResolutionCache()
@@ -508,6 +509,7 @@ extension WorkspaceState {
         isNewChatComposerVisible = false
         resetNewChatComposer()
         resetComposeContacts()
+        clearFollows()
         isResolvingNewChat = false
         isCreatingChat = false
 
@@ -787,6 +789,7 @@ extension WorkspaceState {
 
         accounts = refreshed
         resetComposeContacts()
+        clearFollows()
         activeAccountId = preferredAccount.id
         invalidateNotificationSettingsOperations()
         UserDefaults.standard.set(preferredAccount.id, forKey: Self.activeAccountKey)
