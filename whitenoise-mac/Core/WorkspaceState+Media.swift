@@ -593,6 +593,10 @@ extension WorkspaceState {
     func startVoiceRecording() async {
         guard !isRecordingVoiceMessage, !isPreparingVoiceRecording else { return }
         guard let draftKey = selectedComposerDraftKey else { return }
+        guard canRecordVoiceMessage else {
+            presentVoiceMessageIsSentAloneWarning()
+            return
+        }
         guard canBeginMediaAttachmentSelection() else { return }
 
         isPreparingVoiceRecording = true
@@ -665,8 +669,19 @@ extension WorkspaceState {
                     waveformSamples: samples
                 )
             )
-            // `preparedVoiceAttachment` already removes the recording temp file in a defer, so
-            // nothing leaks when the stale-selection guard discards the prepared attachment.
+            // The ordinary composer is back on screen for the whole of this await —
+            // `resetVoiceRecording` above cleared `isRecordingVoiceMessage` — so the user can type,
+            // paste, or attach while the recording is still being decoded. A recording is a message
+            // of its own, so it yields to whatever arrived instead of wiping it: appending here
+            // would delete those attachments (and cancel their uploads) and hide the typed text
+            // behind the voice bar. `preparedVoiceAttachment` already removes the recording temp
+            // file in a defer, so nothing leaks when the prepared attachment is discarded here or
+            // by the stale-selection guard.
+            guard selectedComposerDraftKey == draftKey else { return }
+            guard canRecordVoiceMessage else {
+                presentVoiceMessageIsSentAloneWarning()
+                return
+            }
             appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey)
         } catch is CancellationError {
             return
@@ -680,6 +695,14 @@ extension WorkspaceState {
         resetVoiceRecording(deleteFile: true)
     }
 
+    /// Throws the finished recording away — the trash can next to the voice-draft bar. The staged
+    /// blob may already be uploading, so this goes through `removePendingMediaAttachment`, which
+    /// cancels that upload rather than letting it land on a draft the user just discarded.
+    func discardStagedVoiceMessage() {
+        guard let staged = stagedVoiceMessage else { return }
+        removePendingMediaAttachment(staged.id)
+    }
+
     func canBeginMediaAttachmentSelection() -> Bool {
         // Hidden composers must also refuse new attachments/recordings: drops,
         // importers, paste, and recording shortcuts can still fire while the visible
@@ -687,6 +710,12 @@ extension WorkspaceState {
         // invisibly (the pending-media strip is hidden) and never be sent.
         guard let draftKey = selectedComposerDraftKey else { return false }
         guard composerSupportsMediaAttachmentSelection(for: draftKey) else { return false }
+        // A staged recording owns the composer on its own, so every staging path — importer,
+        // drop, paste, a second recording — is refused until it is sent or discarded.
+        guard stagedVoiceMessage == nil else {
+            presentVoiceMessageIsSentAloneWarning()
+            return false
+        }
         guard remainingMediaAttachmentSlots > 0 else {
             presentMaxMediaAttachmentWarning()
             return false
@@ -699,6 +728,9 @@ extension WorkspaceState {
     /// stale captured context (#441).
     private func canResumeVoiceRecording(for draftKey: ComposerDraftKey) -> Bool {
         guard composerSupportsMediaAttachmentSelection(for: draftKey) else { return false }
+        // The user can type or attach while the permission prompt is up; a recording that
+        // resumed into that composer would no longer be a message of its own.
+        guard canRecordVoiceMessage else { return false }
         return remainingMediaAttachmentSlots > 0
     }
 
@@ -726,8 +758,17 @@ extension WorkspaceState {
 
     func appendPendingMediaAttachment(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
         var attachments = pendingMediaAttachmentsByConversation[draftKey] ?? []
-        if attachment.kind == .audio {
-            // A new recording replaces the old one, so the superseded upload has nowhere to land.
+        if attachment.isVoiceMessage {
+            // A recording is a whole message rather than an attachment, so it lands alone: the
+            // composer refuses to stage anything alongside it, and anything already there is
+            // dropped here — with its upload cancelled, since it has nowhere left to land.
+            for superseded in attachments {
+                cancelPendingMediaUpload(superseded.id)
+                pendingMediaUploadStatesByConversation[draftKey]?[superseded.id] = nil
+            }
+            attachments.removeAll()
+        } else if attachment.kind == .audio {
+            // A new audio file replaces the old one, so the superseded upload has nowhere to land.
             for superseded in attachments where superseded.kind == .audio {
                 cancelPendingMediaUpload(superseded.id)
                 pendingMediaUploadStatesByConversation[draftKey]?[superseded.id] = nil
@@ -752,6 +793,10 @@ extension WorkspaceState {
         // bypass and kick their own uploads in `restoreComposerDraftIfNeeded`.
         beginPendingMediaUpload(attachment, for: draftKey)
         composerDraftDidChange(for: draftKey)
+    }
+
+    func presentVoiceMessageIsSentAloneWarning() {
+        lastError = L10n.string("A voice message is sent on its own")
     }
 
     func presentMaxMediaAttachmentWarning() {

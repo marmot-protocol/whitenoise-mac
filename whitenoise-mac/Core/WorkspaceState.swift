@@ -1115,6 +1115,20 @@ final class WorkspaceState {
         guard let selectedComposerDraftKey else { return [:] }
         return pendingMediaUploadStatesByConversation[selectedComposerDraftKey] ?? [:]
     }
+    /// The recording the user just finished, waiting to be sent or discarded. While one is staged
+    /// the composer shows the voice-draft bar instead of the text field and the media strip: a
+    /// recording is a whole message, not an attachment you decorate with text or more files.
+    var stagedVoiceMessage: PendingMediaAttachment? {
+        pendingMediaAttachments.first { $0.isVoiceMessage }
+    }
+    /// A recording can only start from an empty composer, because it will be sent on its own.
+    /// Refusing here is what keeps "one audio per message" true without ever discarding text or
+    /// attachments the user already staged.
+    var canRecordVoiceMessage: Bool {
+        pendingMediaAttachments.isEmpty
+            && draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && editingMessageContext == nil
+    }
     var isRefreshing = false
     var isSending = false
     var isRecordingVoiceMessage = false

@@ -9,6 +9,7 @@
 //  MessengerShellView.swift (no behavior change).
 //
 
+import AVFoundation
 import AppKit
 import ImageIO
 import SwiftUI
@@ -903,23 +904,16 @@ nonisolated enum PendingMediaDraftThumbnailDecoder {
     }
 }
 
+/// The composer while the mic is hot: a live waveform, the elapsed time, and Stop. There is no
+/// cancel here — stopping hands the recording to the voice-draft bar, whose trash can throws it
+/// away, so the one path out is the one the user was going to take anyway.
 struct VoiceRecordingComposerView: View {
     let samples: [CGFloat]
     let durationSeconds: Double
-    let onCancel: () -> Void
     let onStop: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: onCancel) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.red)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .help(L10n.string("Cancel recording"))
-
             ComposerAudioWaveformView(
                 samples: samples,
                 progress: 0,
@@ -956,6 +950,235 @@ struct VoiceRecordingComposerView: View {
 
     private static func durationLabel(_ duration: Double) -> String {
         MediaDurationLabel.string(for: duration)
+    }
+}
+
+/// The composer once a recording has been stopped: trash it, listen back, or send it. It stands
+/// in for the whole composer row — no text field, no emoji, no paperclip — because a recording is
+/// sent as a message of its own rather than staged as one more attachment.
+struct VoiceMessageDraftComposerView: View {
+    let attachment: PendingMediaAttachment
+    let uploadState: PendingMediaUploadState?
+    let isSending: Bool
+    let canSend: Bool
+    /// Why Send is off, worded by the shell exactly as it words it for the text composer — the
+    /// recording uploads like any other attachment, so "still uploading" and "upload failed" are
+    /// both reachable here.
+    let sendHelp: String
+    let onDiscard: () -> Void
+    let onRetryUpload: () -> Void
+    let onSend: () -> Void
+
+    @State private var player: AVAudioPlayer?
+    @State private var isPlaying = false
+    /// Identifies the preparation currently allowed to install a player. A bare `Bool` cannot
+    /// tell two overlapping preparations apart, so a take that finished late could pass the
+    /// guard opened by a newer take and play the wrong recording. Matches the transcript row's
+    /// player in `MessageMediaViews`.
+    @State private var playbackPreparationID: UUID?
+    @State private var playbackProgress: CGFloat = 0
+    @State private var elapsedSeconds: Double = 0
+    @State private var playbackMonitor: Task<Void, Never>?
+    @State private var playbackDelegate = MessageAudioPlayerDelegate()
+
+    private var isPreparingPlayback: Bool {
+        playbackPreparationID != nil
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await togglePlayback() }
+            } label: {
+                Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .frame(width: 30, height: 30)
+                    .background {
+                        MessagesCircleControlBackground()
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(playbackActionLabel)
+            // `help` becomes the tooltip, not the label: an icon-only button needs the action
+            // spelled out or VoiceOver is left announcing the SF Symbol.
+            .accessibilityLabel(playbackActionLabel)
+            .accessibilityIdentifier("composer.voiceDraft.playback")
+
+            // Unplayed bars are neutral, played bars accent — the same reading the transcript's
+            // audio rows use, so progress is legible rather than two shades of the same blue.
+            ComposerAudioWaveformView(
+                samples: attachment.waveformSamples,
+                progress: playbackProgress,
+                barColor: Color.secondary.opacity(0.55),
+                playedColor: Color.accentColor
+            )
+            .frame(height: 30)
+
+            Text(MediaDurationLabel.string(for: isPlaying ? elapsedSeconds : (attachment.durationSeconds ?? 0)))
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 44, alignment: .trailing)
+
+            // Discard sits with Send rather than at the far left: the two decisions the bar asks
+            // for — throw it away or send it — belong next to each other, past the recording.
+            Button(action: discard) {
+                Image(systemName: "trash")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.red)
+                    .frame(width: 30, height: 30)
+                    .background {
+                        MessagesCircleControlBackground()
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(isSending)
+            .help(L10n.string("Delete recording"))
+            .accessibilityIdentifier("composer.voiceDraft.delete")
+
+            if uploadState == .failed {
+                Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetryUpload)
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .buttonStyle(.plain)
+                    .frame(width: 30, height: 30)
+                    .background(.red, in: .circle)
+                    .help(L10n.string("Retry upload"))
+            }
+
+            Button(action: send) {
+                Group {
+                    if isSending {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                            .scaleEffect(0.72)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                .frame(width: 32, height: 32)
+                .background {
+                    MessagesSendButtonBackground(isEnabled: canSend || isSending)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .help(sendHelp)
+            .accessibilityIdentifier("composer.voiceDraft.send")
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+        }
+        // The player is built from one recording's bytes: if this view's identity outlives a
+        // re-recording, drop it so playback cannot replay the discarded take.
+        .onChange(of: attachment.id) { _, _ in
+            stopPlayback()
+            player = nil
+        }
+        .onDisappear {
+            stopPlayback()
+        }
+    }
+
+    /// Tracks the icon: preparing counts as playing, because the tap that starts playback is
+    /// already cancellable by a second tap.
+    private var playbackActionLabel: String {
+        isPlaying || isPreparingPlayback ? L10n.string("Stop") : L10n.string("Play")
+    }
+
+    private func discard() {
+        stopPlayback()
+        onDiscard()
+    }
+
+    private func send() {
+        stopPlayback()
+        onSend()
+    }
+
+    private func togglePlayback() async {
+        if isPlaying || isPreparingPlayback {
+            stopPlayback()
+        } else {
+            await startPlayback()
+        }
+    }
+
+    private func startPlayback() async {
+        var preparationID: UUID?
+        do {
+            if player == nil {
+                let data = attachment.data
+                let nextPreparationID = UUID()
+                preparationID = nextPreparationID
+                playbackPreparationID = nextPreparationID
+                let prepared = try await Task.detached(priority: .userInitiated) {
+                    let audioPlayer = try AVAudioPlayer(data: data)
+                    audioPlayer.prepareToPlay()
+                    return PreparedMessageAudioPlayer(player: audioPlayer)
+                }.value.player
+                // A newer take, a Stop, or a discard has moved the token on: this player is for a
+                // recording the bar is no longer showing, so drop it rather than install it.
+                guard playbackPreparationID == nextPreparationID else { return }
+                playbackPreparationID = nil
+                player = prepared
+                prepared.delegate = playbackDelegate
+            }
+            playbackDelegate.onDidFinishPlaying = finishPlayback
+            player?.play()
+            isPlaying = true
+            updatePlaybackProgress()
+            monitorPlaybackProgress()
+        } catch {
+            // Only the still-current preparation may reset playback state; a stale failure must
+            // not clear the token a live preparation is waiting on.
+            if preparationID == nil || playbackPreparationID == preparationID {
+                playbackPreparationID = nil
+                isPlaying = false
+            }
+        }
+    }
+
+    private func stopPlayback() {
+        playbackPreparationID = nil
+        playbackDelegate.onDidFinishPlaying = nil
+        player?.stop()
+        finishPlayback()
+    }
+
+    /// The one rewind path, reached both by `stopPlayback()` and by the delegate when the recording
+    /// plays out. Winding `currentTime` back here is what the natural end needs: `stop()` leaves the
+    /// playhead where it was, so a player left at the end would make the next Play finish instantly.
+    private func finishPlayback() {
+        playbackMonitor?.cancel()
+        playbackMonitor = nil
+        player?.currentTime = 0
+        isPlaying = false
+        playbackProgress = 0
+        elapsedSeconds = 0
+    }
+
+    private func monitorPlaybackProgress() {
+        playbackMonitor?.cancel()
+        playbackMonitor = Task { @MainActor in
+            while !Task.isCancelled, isPlaying {
+                updatePlaybackProgress()
+                try? await Task.sleep(for: .milliseconds(120))
+            }
+        }
+    }
+
+    private func updatePlaybackProgress() {
+        guard let player, player.duration > 0 else { return }
+        elapsedSeconds = player.currentTime
+        playbackProgress = CGFloat(min(1, max(0, player.currentTime / player.duration)))
     }
 }
 

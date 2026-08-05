@@ -160,9 +160,23 @@ extension WorkspaceState {
                     body: DisplayText.short(targetMessageId, head: 12, tail: 8)
                 )
             }
-            let attachments = storedDraft.mediaAttachments
+            // A restored recording only keeps its voice-draft identity when it *is* the whole
+            // draft. If the stored draft also holds text or other files — a draft written before
+            // recordings took the composer over on their own — it comes back as ordinary media,
+            // so nothing the user typed ends up hidden behind the voice bar.
+            let storedAttachments = storedDraft.mediaAttachments
                 .prefix(OutgoingMediaDraftProcessor.maxAttachmentCount)
-                .map(Self.pendingMediaAttachment(from:))
+            let restoresAsVoiceMessage = presentation.text.isEmpty && storedAttachments.count == 1
+            let attachments = storedAttachments.map { attachment in
+                Self.pendingMediaAttachment(
+                    from: attachment,
+                    isVoiceMessage: restoresAsVoiceMessage
+                        && OutgoingMediaAttachmentPolicy.isVoiceRecordingFileName(
+                            attachment.fileName,
+                            mediaType: attachment.mediaType
+                        )
+                )
+            }
             pendingMediaAttachmentsByConversation[key] = attachments.isEmpty ? nil : attachments
             pendingMediaUploadStatesByConversation[key] = nil
             // Drafts persist plaintext, not Blossom references — deliberately, so a draft that sat
@@ -341,7 +355,8 @@ extension WorkspaceState {
     }
 
     private nonisolated static func pendingMediaAttachment(
-        from attachment: MessageDraftAttachmentFfi
+        from attachment: MessageDraftAttachmentFfi,
+        isVoiceMessage: Bool
     ) -> PendingMediaAttachment {
         PendingMediaAttachment(
             id: UUID(uuidString: attachment.id) ?? UUID(),
@@ -351,7 +366,8 @@ extension WorkspaceState {
             dim: attachment.dim,
             thumbhash: attachment.thumbhash,
             durationSeconds: attachment.durationSeconds,
-            waveformSamples: attachment.waveformSamples.map { CGFloat($0) }
+            waveformSamples: attachment.waveformSamples.map { CGFloat($0) },
+            isVoiceMessage: isVoiceMessage
         )
     }
 }

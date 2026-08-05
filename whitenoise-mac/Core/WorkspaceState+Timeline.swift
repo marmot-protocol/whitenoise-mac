@@ -1054,6 +1054,12 @@ extension WorkspaceState {
                     groupIdHex: selectedChat.id
                 )
 
+                // A recording goes out as audio and nothing else. Staging one already empties the
+                // composer and blocks every other staging path, so this is the last line of that
+                // invariant rather than a case the UI can reach.
+                let carriesVoiceMessage = mediaAttachments.contains { $0.isVoiceMessage }
+                let caption = text.isEmpty || carriesVoiceMessage ? nil : text
+
                 // The blobs are already uploaded, so publishing is a short relay round-trip rather
                 // than a transfer. Empty the composer now instead of leaving the thumbnails sitting
                 // there looking unsent; the catch below puts them back if the publish fails.
@@ -1063,7 +1069,7 @@ extension WorkspaceState {
                         accountRef: activeAccount.accountRef,
                         groupIdHex: selectedChat.id,
                         attachments: references,
-                        caption: text.isEmpty ? nil : text
+                        caption: caption
                     )
                 } catch {
                     restoreComposer(restorePoint, for: draftKey)
