@@ -30,6 +30,14 @@ struct ContentView: View {
             // Attached here, not on the conversation pane: a chat-list delete is most likely with
             // no chat selected, and the sidebar row menu cannot host its own dialog.
             .chatDestructiveActionsConfirmation()
+            // App-wide default: static text is selectable, so anything on screen — a startup
+            // failure message, a relay URL, an npub, a profile field — can be selected and
+            // copied without the view having to opt in. `.textSelection` propagates through the
+            // environment, so this single application covers every descendant.
+            //
+            // The one deliberate exception is the chat transcript, which re-disables it and
+            // re-enables per bubble on hover; see ConversationView (whitenoise-mac#205).
+            .textSelection(.enabled)
             .frame(minWidth: 940, minHeight: 620)
             .preferredColorScheme(workspace.preferredColorScheme)
             .environment(\.locale, workspace.preferredLocale)

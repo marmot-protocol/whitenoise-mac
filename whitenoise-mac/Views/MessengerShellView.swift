@@ -459,6 +459,14 @@ private struct ConversationView: View {
                         .padding(.horizontal, 28)
                         .padding(.top, 18)
                         .padding(.bottom, 8)
+                        // The app enables text selection globally (ContentView); the transcript
+                        // is the one place that must not inherit it. Backing every Text in the
+                        // scrolling window with a selection NSView destabilises scroll-anchor
+                        // resolution into a multi-second main-thread layout loop
+                        // (whitenoise-mac#205). Bubbles re-enable selection individually on hover
+                        // via `.textSelectable(isSelectable)`, which — being closer to the leaf —
+                        // overrides this for the single active bubble.
+                        .textSelection(.disabled)
                         // While actively scrolling, make the transcript content transparent to
                         // hit-testing so SwiftUI skips per-frame hover/responder/tracking-area work
                         // for the moving rows (Instruments: HoverEventDispatcher /
