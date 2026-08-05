@@ -26434,6 +26434,110 @@ struct MarmotKit098IntegrationTests {
         let chat = ChatItem(row: row, activeAccountIdHex: "self")
 
         #expect(chat.preview == L10n.string("Attachment"))
+        // No reported kind still means the row carries media, so it keeps the generic glyph.
+        #expect(chat.previewAttachmentKind == .mixed)
+    }
+
+    @MainActor
+    @Test func chatRowProjectsAttachmentGlyphMatchingTheReportedKind() async throws {
+        let expectedKinds: [(ChatListAttachmentKindFfi?, ChatPreviewAttachmentKind)] = [
+            (.photo, .photo),
+            (.video, .video),
+            (.audio, .audio),
+            (.file, .file),
+            (.mixed, .mixed),
+            (nil, .mixed),
+        ]
+
+        for (reported, expected) in expectedKinds {
+            let row = chatListRow(
+                groupIdHex: "group",
+                title: "Planning",
+                preview: "",
+                sender: "alice",
+                timelineAt: 1_700_000_000,
+                attachmentKind: reported,
+                attachmentCount: 1
+            )
+
+            let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+            #expect(chat.previewAttachmentKind == expected)
+        }
+    }
+
+    @MainActor
+    @Test func chatRowKeepsAttachmentGlyphAlongsideACaption() async throws {
+        let row = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: "Look at this",
+            sender: "alice",
+            timelineAt: 1_700_000_000,
+            attachmentKind: .video,
+            attachmentCount: 1
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        // The caption is the whole preview text, so the glyph is all that marks the row as media.
+        #expect(chat.preview == "Look at this")
+        #expect(chat.previewAttachmentKind == .video)
+    }
+
+    @MainActor
+    @Test func chatRowOmitsAttachmentGlyphWithoutAttachments() async throws {
+        let textOnly = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: "Ready when you are",
+            sender: "alice",
+            timelineAt: 1_700_000_000
+        )
+
+        #expect(ChatItem(row: textOnly, activeAccountIdHex: "self").previewAttachmentKind == nil)
+
+        let deleted = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: "",
+            sender: "alice",
+            timelineAt: 1_700_000_000,
+            attachmentKind: .photo,
+            attachmentCount: 2,
+            deleted: true
+        )
+        let deletedChat = ChatItem(row: deleted, activeAccountIdHex: "self")
+
+        #expect(deletedChat.preview == L10n.string("Message deleted"))
+        #expect(deletedChat.previewAttachmentKind == nil)
+    }
+
+    @MainActor
+    @Test func resolvedMetadataMergeKeepsTheAttachmentGlyphWithItsPreview() async throws {
+        let mediaRow = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: "",
+            sender: "alice",
+            timelineAt: 1_700_000_000,
+            attachmentKind: .photo,
+            attachmentCount: 1
+        )
+        let textRow = chatListRow(
+            groupIdHex: "group",
+            title: "Planning",
+            preview: "Ready when you are",
+            sender: "alice",
+            timelineAt: 1_600_000_000
+        )
+        let media = ChatItem(row: mediaRow, activeAccountIdHex: "self")
+        let text = ChatItem(row: textRow, activeAccountIdHex: "self")
+
+        // The merge takes `preview` from the incoming row, so the glyph has to travel with it in
+        // both directions — otherwise a text preview keeps a stale photo glyph.
+        #expect(ChatListOrdering.preservingResolvedMetadata(in: media, from: text).previewAttachmentKind == .photo)
+        #expect(ChatListOrdering.preservingResolvedMetadata(in: text, from: media).previewAttachmentKind == nil)
     }
 
     @MainActor
@@ -29477,7 +29581,10 @@ private func chatListRow(
     sender: String,
     timelineAt: UInt64,
     kind: UInt64 = 9,
-    selfMembership: SelfMembershipFfi = .member
+    selfMembership: SelfMembershipFfi = .member,
+    attachmentKind: ChatListAttachmentKindFfi? = nil,
+    attachmentCount: UInt32 = 0,
+    deleted: Bool = false
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
@@ -29495,7 +29602,10 @@ private func chatListRow(
             contentTokens: emptyMarkdownDocument(),
             kind: kind,
             timelineAt: timelineAt,
-            deleted: false
+            deleted: deleted,
+            attachmentKind: attachmentKind,
+            attachmentCount: attachmentCount,
+            deliveryState: .notApplicable
         ),
         unreadCount: 0,
         hasUnread: false,

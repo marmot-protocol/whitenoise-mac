@@ -61,7 +61,7 @@ extension ChatItem {
             )
         }
         let preview = row.lastMessage.map {
-            ChatItem.previewText(for: $0, activeAccountIdHex: activeAccountIdHex, mentionNames: mentionNames)
+            ChatItem.previewProjection(for: $0, activeAccountIdHex: activeAccountIdHex, mentionNames: mentionNames)
         }
         // MDK owns durable chat ordering. `updatedAt` includes maintenance-only
         // writes and must not make a conversation jump in the sidebar.
@@ -84,7 +84,8 @@ extension ChatItem {
             title: title,
             publishedTitle: publishedTitle,
             subtitle: subtitle,
-            preview: preview?.isEmpty == false ? preview! : L10n.string("No messages yet"),
+            preview: preview?.text.isEmpty == false ? preview!.text : L10n.string("No messages yet"),
+            previewAttachmentKind: preview?.attachmentKind,
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
             pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
@@ -123,13 +124,22 @@ extension ChatItem {
         return DisplayText.short(fallbackId)
     }
 
-    private static func previewText(
+    /// A chat row's last-message text together with the media glyph that belongs beside it.
+    ///
+    /// Both come out of one pass so a row can never pair a photo glyph with a plain-text
+    /// preview, or drop the glyph from a preview that reads "Photo".
+    private struct PreviewProjection {
+        let text: String
+        var attachmentKind: ChatPreviewAttachmentKind?
+    }
+
+    private static func previewProjection(
         for preview: ChatListMessagePreviewFfi,
         activeAccountIdHex: String?,
         mentionNames: MarkdownMentionNames = [:]
-    ) -> String {
+    ) -> PreviewProjection {
         if preview.deleted {
-            return L10n.string("Message deleted")
+            return PreviewProjection(text: L10n.string("Message deleted"))
         }
 
         let presentation = MessageItem.presentation(for: preview.kind)
@@ -149,23 +159,34 @@ extension ChatItem {
         // Resolve the body first so the sender prefix applies to media-only previews too, not
         // just text — otherwise a group attachment shows up unattributed.
         let body: String
+        // A captioned attachment shows its caption, so the glyph is the only thing marking the
+        // row as media; a media-only preview gets it alongside the "Photo"/"2 videos" wording.
+        var attachmentKind: ChatPreviewAttachmentKind?
         if text.isEmpty || isMediaOnlyChat {
             body =
                 presentation.isChatBubble
                 ? attachmentPreview(kind: preview.attachmentKind, count: preview.attachmentCount)
                 : L10n.string("Unsupported message")
+            attachmentKind = presentation.isChatBubble ? ChatPreviewAttachmentKind(preview.attachmentKind) : nil
         } else {
             body = MentionDisplayResolver.resolve(in: text, mentionNames: mentionNames)
+            attachmentKind =
+                presentation.isChatBubble && preview.attachmentCount > 0
+                ? ChatPreviewAttachmentKind(preview.attachmentKind)
+                : nil
         }
         guard presentation.isChatBubble,
             preview.sender != activeAccountIdHex,
             let senderName = PeerDisplayText.sanitize(preview.senderDisplayName),
             !senderName.isEmpty
         else {
-            return body
+            return PreviewProjection(text: body, attachmentKind: attachmentKind)
         }
 
-        return "\(PeerDisplayText.templateFragment(senderName)): \(body)"
+        return PreviewProjection(
+            text: "\(PeerDisplayText.templateFragment(senderName)): \(body)",
+            attachmentKind: attachmentKind
+        )
     }
 
     private static func attachmentPreview(kind: ChatListAttachmentKindFfi?, count: UInt32) -> String {
@@ -197,6 +218,25 @@ extension ChatItem {
         }
     }
 
+}
+
+extension ChatPreviewAttachmentKind {
+    /// A missing kind still means "there is an attachment here" — the core reports `nil` for a
+    /// media type it does not classify, and for legacy rows that predate the kind field.
+    nonisolated init(_ kind: ChatListAttachmentKindFfi?) {
+        switch kind {
+        case .photo:
+            self = .photo
+        case .video:
+            self = .video
+        case .audio:
+            self = .audio
+        case .file:
+            self = .file
+        case .mixed, .none:
+            self = .mixed
+        }
+    }
 }
 
 extension ChatMessageDeliveryState {
