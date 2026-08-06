@@ -390,6 +390,7 @@ private struct ConversationView: View {
         let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
+        let pendingOutgoingMediaMessages = workspace.selectedPendingOutgoingMediaMessages
 
         ZStack {
             VStack(spacing: 0) {
@@ -409,7 +410,7 @@ private struct ConversationView: View {
                         // class of hang; if a large window's eager build ever costs too much, the fix
                         // is cheaper rows, not a return to lazy estimation.
                         VStack(spacing: 12) {
-                            if messageIDs.isEmpty {
+                            if messageIDs.isEmpty && pendingOutgoingMediaMessages.isEmpty {
                                 if isLoadingInitialPage {
                                     TimelineInitialLoadingView()
                                 } else {
@@ -445,6 +446,18 @@ private struct ConversationView: View {
                                 if paging.hasMoreAfter {
                                     TimelinePageLoadingRow(isLoading: paging.isLoadingAfter)
                                 }
+                            }
+
+                            // Media the user has already sent whose blobs are still going up.
+                            // Rendered after the real window rather than inside it: these rows
+                            // exist only on this client, and the published message that replaces
+                            // one arrives through the timeline store like any other.
+                            ForEach(pendingOutgoingMediaMessages) { pending in
+                                PendingOutgoingMessageBubble(
+                                    message: pending,
+                                    timestampReferenceDate: timestampReferenceDate,
+                                    timestampLocale: locale
+                                )
                             }
 
                             // Scroll-to-bottom target. Pure layout: pin/pagination state is
@@ -534,6 +547,13 @@ private struct ConversationView: View {
                         case .none:
                             return
                         }
+                    }
+                    // A pending media bubble is appended below the timeline window, so it never
+                    // moves `messageIDs.last` — without this, a message sent while the user was at
+                    // the bottom could appear just off the bottom edge.
+                    .onChange(of: pendingOutgoingMediaMessages.count) { oldCount, newCount in
+                        guard newCount > oldCount, isPinnedToBottom else { return }
+                        scrollToBottom(with: proxy)
                     }
                     .onChange(of: messageIDs.first) { _, _ in
                         guard let anchorId = pendingPrependAnchorId else { return }
@@ -769,7 +789,7 @@ private struct ConversationView: View {
                 uploadState: workspace.pendingMediaUploadStates[stagedVoiceMessage.id],
                 isSending: workspace.isSending,
                 canSend: workspace.canSend,
-                sendHelp: sendButtonHelp,
+                sendHelp: L10n.string("Send"),
                 onDiscard: workspace.discardStagedVoiceMessage,
                 onRetryUpload: {
                     workspace.retryPendingMediaUpload(stagedVoiceMessage.id)
@@ -905,7 +925,7 @@ private struct ConversationView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!workspace.canSend)
-                .help(sendButtonHelp)
+                .help(workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit"))
             }
         }
     }
@@ -916,20 +936,6 @@ private struct ConversationView: View {
     private var voiceRecordingButtonHelp: String {
         workspace.canRecordVoiceMessage
             ? L10n.string("Voice message") : L10n.string("A voice message is sent on its own")
-    }
-
-    /// Explains a Send that is disabled because media is still in flight. The thumbnails carry the
-    /// visible progress — a spinner while uploading, a retry button on failure — so the button
-    /// stays a plain disabled paperplane and only says why on hover.
-    private var sendButtonHelp: String {
-        switch workspace.composerMediaUploadStatus {
-        case .uploading:
-            L10n.string("Waiting for attachments to finish uploading")
-        case .failed:
-            L10n.string("An attachment failed to upload")
-        case nil:
-            workspace.editingMessageContext == nil ? L10n.string("Send") : L10n.string("Save edit")
-        }
     }
 
     private var bottomAnchorId: String {

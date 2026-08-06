@@ -22,11 +22,21 @@ private nonisolated struct MediaAttachmentDownloadTaskFailure: Error {
     let underlying: Error
 }
 
+/// One slot of a concurrently prepared batch. `index` is the position the user chose the file in,
+/// which the group's completion order does not preserve; a nil `attachment` with a nil
+/// `errorDescription` is a cancelled slot, which is silent by design.
+private nonisolated struct PreparedMediaAttachmentOutcome: Sendable {
+    let index: Int
+    let attachment: PendingMediaAttachment?
+    let errorDescription: String?
+}
+
 @MainActor
 extension WorkspaceState {
     func clearAllComposerDrafts() {
         discardAllComposerDraftPersistenceState()
         cancelAllPendingMediaUploads()
+        cancelAllPendingOutgoingMediaSends()
         draftTextByConversation.removeAll()
         composerMentionSelectionsByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
@@ -94,6 +104,7 @@ extension WorkspaceState {
             let key = ComposerDraftKey(accountId: accountId, chatId: chatId)
             discardComposerDraftPersistenceState(for: key)
             cancelPendingMediaUploads(for: key)
+            cancelPendingOutgoingMediaSends(for: key)
             draftTextByConversation[key] = nil
             composerMentionSelectionsByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
@@ -106,6 +117,7 @@ extension WorkspaceState {
     func clearComposerDrafts(forAccountId accountId: String) {
         discardComposerDraftPersistenceState(forAccountId: accountId)
         cancelPendingMediaUploads(forAccountId: accountId)
+        cancelPendingOutgoingMediaSends(forAccountId: accountId)
         for key in draftTextByConversation.keys.filter({ $0.accountId == accountId }) {
             draftTextByConversation[key] = nil
         }
@@ -417,22 +429,10 @@ extension WorkspaceState {
             presentMaxMediaAttachmentWarning()
         }
 
-        for url in selected {
-            let isSecurityScoped = url.startAccessingSecurityScopedResource()
-            defer {
-                if isSecurityScoped {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-            do {
-                let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
-                guard appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey) else { return }
-            } catch is CancellationError {
-                return
-            } catch {
-                lastError = error.localizedDescription
-            }
+        let prepared = await Self.preparedMediaAttachments(for: selected) { url in
+            try await Self.preparedMediaAttachment(fromFileURL: url)
         }
+        stagePreparedMediaAttachments(prepared, for: draftKey)
     }
 
     func addPastedMediaAttachments(from pasteboard: NSPasteboard = .general) async {
@@ -450,35 +450,95 @@ extension WorkspaceState {
             presentMaxMediaAttachmentWarning()
         }
 
-        for item in selected {
-            do {
-                let attachment = try await preparedPastedMediaAttachment(from: item)
-                guard appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey) else { return }
-            } catch is CancellationError {
-                return
-            } catch {
-                lastError = error.localizedDescription
+        let prepared = await Self.preparedMediaAttachments(for: selected) { item in
+            switch item.payload {
+            case .fileURL(let url):
+                return try await Self.preparedMediaAttachment(fromFileURL: url)
+            case .imageData(let data, let typeIdentifier):
+                return try await OutgoingMediaDraftProcessor.preparedAttachment(
+                    fromPastedImageData: data,
+                    typeIdentifier: typeIdentifier
+                )
             }
+        }
+        stagePreparedMediaAttachments(prepared, for: draftKey)
+    }
+
+    /// Prepares a whole selection at once, returning the outcomes in the order the user chose them.
+    ///
+    /// Preparation is the expensive half of staging — read, decode, downsample, re-encode — and an
+    /// attachment's upload cannot start until its own preparation is done. Preparing one file at a
+    /// time therefore also staggered the uploads: the last image of a ten-file drop did not begin
+    /// uploading until the other nine had been re-encoded. A failed item is reported rather than
+    /// aborting the batch, so one unsupported file no longer costs the user the rest of the drop.
+    private nonisolated static func preparedMediaAttachments<Item: Sendable>(
+        for items: [Item],
+        prepare: @Sendable @escaping (Item) async throws -> PendingMediaAttachment
+    ) async -> [PreparedMediaAttachmentOutcome] {
+        await withTaskGroup(of: PreparedMediaAttachmentOutcome.self) { group in
+            for (index, item) in items.enumerated() {
+                group.addTask {
+                    do {
+                        return PreparedMediaAttachmentOutcome(
+                            index: index,
+                            attachment: try await prepare(item),
+                            errorDescription: nil
+                        )
+                    } catch is CancellationError {
+                        return PreparedMediaAttachmentOutcome(index: index, attachment: nil, errorDescription: nil)
+                    } catch {
+                        return PreparedMediaAttachmentOutcome(
+                            index: index,
+                            attachment: nil,
+                            errorDescription: error.localizedDescription
+                        )
+                    }
+                }
+            }
+            var outcomes: [PreparedMediaAttachmentOutcome] = []
+            for await outcome in group {
+                outcomes.append(outcome)
+            }
+            return outcomes.sorted { $0.index < $1.index }
         }
     }
 
-    private func preparedPastedMediaAttachment(
-        from item: OutgoingMediaPasteboardAttachment
-    ) async throws -> PendingMediaAttachment {
-        switch item.payload {
-        case .fileURL(let url):
-            let isSecurityScoped = url.startAccessingSecurityScopedResource()
-            defer {
-                if isSecurityScoped {
-                    url.stopAccessingSecurityScopedResource()
-                }
+    private nonisolated static func preparedMediaAttachment(fromFileURL url: URL) async throws -> PendingMediaAttachment
+    {
+        let isSecurityScoped = url.startAccessingSecurityScopedResource()
+        defer {
+            if isSecurityScoped {
+                url.stopAccessingSecurityScopedResource()
             }
-            return try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
-        case .imageData(let data, let typeIdentifier):
-            return try await OutgoingMediaDraftProcessor.preparedAttachment(
-                fromPastedImageData: data,
-                typeIdentifier: typeIdentifier
-            )
+        }
+        return try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: url)
+    }
+
+    /// Stages a prepared batch in selection order, surfacing at most one failure. Preparation ran
+    /// while the user could still switch chats, so every append re-checks the selection and the
+    /// first refusal ends the batch (#245).
+    private func stagePreparedMediaAttachments(
+        _ outcomes: [PreparedMediaAttachmentOutcome],
+        for draftKey: ComposerDraftKey
+    ) {
+        // Preparation ran while the composer was live, and a recording can only start from an
+        // empty one — which this batch was, right up until it landed. Yield to the recording the
+        // same way `finishVoiceRecording` yields to a meanwhile-staged file, or the batch would
+        // append itself alongside a voice message that is meant to go out on its own.
+        guard stagedVoiceMessage == nil else {
+            presentVoiceMessageIsSentAloneWarning()
+            return
+        }
+        var failure: String?
+        for outcome in outcomes {
+            guard let attachment = outcome.attachment else {
+                failure = outcome.errorDescription ?? failure
+                continue
+            }
+            guard appendPendingMediaAttachmentIfSelectionUnchanged(attachment, for: draftKey) else { return }
+        }
+        if let failure {
+            lastError = failure
         }
     }
 
@@ -497,13 +557,21 @@ extension WorkspaceState {
     /// Upload a staged attachment to Blossom without publishing it, so pressing Send later only
     /// has to hand the resulting reference to `sendMediaAttachments`. The core exposes exactly
     /// this split: `uploadMedia(send: false)` is the first half of what `send: true` does.
-    func beginPendingMediaUpload(_ attachment: PendingMediaAttachment, for draftKey: ComposerDraftKey) {
-        guard let client, let activeAccount else { return }
+    ///
+    /// The returned task resolves to the Blossom reference (or `nil` if the upload failed or was
+    /// cancelled), so a Send pressed while this is still running can await the upload already in
+    /// flight instead of starting a duplicate one.
+    @discardableResult
+    func beginPendingMediaUpload(
+        _ attachment: PendingMediaAttachment,
+        for draftKey: ComposerDraftKey
+    ) -> Task<MediaAttachmentReferenceFfi?, Never> {
+        guard let client, let activeAccount else { return Task { nil } }
         setPendingMediaUploadState(.uploading, for: attachment.id, in: draftKey)
         pendingMediaUploadTasks[attachment.id]?.cancel()
         // The finished task stays in the map until the attachment is removed or sent: clearing it
         // here would race a retry that has already installed its replacement under the same id.
-        pendingMediaUploadTasks[attachment.id] = Task { [weak self] in
+        let task = Task { [weak self] () -> MediaAttachmentReferenceFfi? in
             do {
                 let result = try await client.uploadMedia(
                     accountRef: activeAccount.accountRef,
@@ -515,23 +583,27 @@ extension WorkspaceState {
                         blossomServer: nil
                     )
                 )
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return nil }
                 // A result that carries no reference is a failed upload, not a cancelled one: leaving
-                // it `.uploading` would pin the tile on a spinner with no retry, and `canSend` gates
-                // on every attachment reporting a reference, so the whole draft would wedge.
+                // it `.uploading` would pin the tile on a spinner with no retry, and an outgoing
+                // message awaiting this reference would wait for a value that never arrives.
                 guard let reference = result.attachments.first?.reference else {
                     self?.setPendingMediaUploadState(.failed, for: attachment.id, in: draftKey)
-                    return
+                    return nil
                 }
                 self?.setPendingMediaUploadState(.uploaded(reference), for: attachment.id, in: draftKey)
+                return reference
             } catch is CancellationError {
-                return
+                return nil
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return nil }
                 self?.setPendingMediaUploadState(.failed, for: attachment.id, in: draftKey)
                 self?.lastError = error.localizedDescription
+                return nil
             }
         }
+        pendingMediaUploadTasks[attachment.id] = task
+        return task
     }
 
     func retryPendingMediaUpload(_ id: PendingMediaAttachment.ID) {
@@ -539,6 +611,15 @@ extension WorkspaceState {
             let attachment = pendingMediaAttachmentsByConversation[draftKey]?.first(where: { $0.id == id })
         else { return }
         beginPendingMediaUpload(attachment, for: draftKey)
+    }
+
+    /// The upload task already running for `id`, handed over to whoever will await it and dropped
+    /// from the composer's map *without* being cancelled.
+    ///
+    /// This is what lets Send be non-blocking: the composer clear that follows would otherwise
+    /// cancel the very upload the outgoing message is about to wait on.
+    func detachPendingMediaUpload(_ id: PendingMediaAttachment.ID) -> Task<MediaAttachmentReferenceFfi?, Never>? {
+        pendingMediaUploadTasks.removeValue(forKey: id)
     }
 
     func cancelPendingMediaUpload(_ id: PendingMediaAttachment.ID) {

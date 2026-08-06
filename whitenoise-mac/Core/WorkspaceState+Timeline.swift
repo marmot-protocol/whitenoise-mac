@@ -1037,45 +1037,23 @@ extension WorkspaceState {
 
         do {
             if !mediaAttachments.isEmpty {
-                // Blossom already has every blob — staging uploaded them. Order comes from the
-                // composer, never from the order the uploads happened to finish in.
-                let uploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
-                let references = mediaAttachments.compactMap { uploadStates[$0.id]?.reference }
-                guard references.count == mediaAttachments.count else { return }
-
-                // We are holding the plaintext that produced these references, so the sender's own
-                // bubble has no reason to fetch its own image back from Blossom and decrypt it.
-                // Seed before publishing: the optimistic projection can render the bubble as soon
-                // as the send returns, and it must find a warm cache when it does.
-                await cacheOutgoingMediaPlaintext(
+                // Hand the send off and return. Staging started every upload the moment the file
+                // was attached, so most of the time the blobs are already on Blossom — but when
+                // they are not, the wait belongs to the message's bubble, not to the Send button
+                // (#710 blocked the button; this is the hybrid that does not).
+                handOffMediaSend(
                     mediaAttachments,
-                    references: references,
-                    accountId: activeAccount.id,
-                    groupIdHex: selectedChat.id
+                    caption: text,
+                    draftKey: draftKey,
+                    account: activeAccount,
+                    client: client
                 )
-
-                // A recording goes out as audio and nothing else. Staging one already empties the
-                // composer and blocks every other staging path, so this is the last line of that
-                // invariant rather than a case the UI can reach.
-                let carriesVoiceMessage = mediaAttachments.contains { $0.isVoiceMessage }
-                let caption = text.isEmpty || carriesVoiceMessage ? nil : text
-
-                // The blobs are already uploaded, so publishing is a short relay round-trip rather
-                // than a transfer. Empty the composer now instead of leaving the thumbnails sitting
-                // there looking unsent; the catch below puts them back if the publish fails.
-                let restorePoint = clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
-                do {
-                    _ = try await client.sendMediaAttachments(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: selectedChat.id,
-                        attachments: references,
-                        caption: caption
-                    )
-                } catch {
-                    restoreComposer(restorePoint, for: draftKey)
-                    throw error
-                }
-                clearMediaReferenceResolutionCache(forAccountId: activeAccount.id, groupIdHex: selectedChat.id)
+                await deletePersistedComposerDraft(
+                    for: draftKey,
+                    accountRef: activeAccount.accountRef,
+                    client: client
+                )
+                return
             } else if let replyDraftContext {
                 _ = try await client.replyToMessage(
                     accountRef: activeAccount.accountRef,
@@ -1090,8 +1068,7 @@ extension WorkspaceState {
                     text: text
                 )
             }
-            // Idempotent: the media branch already cleared optimistically before publishing.
-            _ = clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
+            clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
             await deletePersistedComposerDraft(
                 for: draftKey,
                 accountRef: activeAccount.accountRef,
@@ -1104,31 +1081,63 @@ extension WorkspaceState {
             // full re-map per delivery.
             await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
-            // A failed *publish* leaves the blobs on Blossom and the references valid, so the
-            // restored attachments stay `.uploaded` and the user can simply press Send again.
             lastError = error.localizedDescription
         }
     }
 
-    /// Empties one conversation's composer and returns what it held, so an optimistic clear can be
-    /// undone if the publish fails.
+    /// Moves a media draft out of the composer and into a pending outgoing message, then returns.
+    ///
+    /// The uploads staging started are *detached* rather than cancelled: the composer clear that
+    /// follows would otherwise kill the very transfers the new bubble is about to wait on. An
+    /// attachment whose upload already finished contributes its reference directly, and one whose
+    /// upload failed contributes nothing — the send re-uploads it.
+    private func handOffMediaSend(
+        _ mediaAttachments: [PendingMediaAttachment],
+        caption: String,
+        draftKey: ComposerDraftKey,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) {
+        let uploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
+        var adoptedUploads: [PendingMediaAttachment.ID: Task<MediaAttachmentReferenceFfi?, Never>] = [:]
+        for attachment in mediaAttachments {
+            if let reference = uploadStates[attachment.id]?.reference {
+                // Wrapping a finished reference as a task keeps the send routine on one code path
+                // instead of branching on whether staging beat the user to it.
+                adoptedUploads[attachment.id] = Task { reference }
+            } else if let inFlight = detachPendingMediaUpload(attachment.id) {
+                adoptedUploads[attachment.id] = inFlight
+            }
+        }
+        // A recording goes out as audio and nothing else. Staging one already empties the composer
+        // and blocks every other staging path, so this is the last line of that invariant rather
+        // than a case the UI can reach. Dropping the caption here rather than at publish time also
+        // keeps the pending bubble honest: it never shows a caption the message will not carry.
+        let carriesVoiceMessage = mediaAttachments.contains(where: \.isVoiceMessage)
+        clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
+        beginPendingOutgoingMediaSend(
+            PendingOutgoingMediaMessage(
+                attachments: mediaAttachments,
+                caption: carriesVoiceMessage ? "" : caption
+            ),
+            adoptedUploads: adoptedUploads,
+            for: draftKey,
+            account: account,
+            client: client
+        )
+    }
+
+    /// Empties one conversation's composer.
     ///
     /// Always clears via the captured `draftKey`, never the `draftText`/`replyDraftContext`
     /// setters — those resolve their key from the *live* selection, so if the user switched chats
     /// during a send they would wipe the newly selected conversation's composer instead of the one
-    /// we sent from.
-    @discardableResult
+    /// we sent from. Attachments staged *since* the snapshot survive: paste, drop and the importer
+    /// all still work while a send is in flight.
     private func clearComposerAfterSend(
         for draftKey: ComposerDraftKey,
         mediaAttachments: [PendingMediaAttachment]
-    ) -> ComposerSendRestorePoint {
-        let restorePoint = ComposerSendRestorePoint(
-            text: draftTextByConversation[draftKey],
-            mentionSelections: composerMentionSelectionsByConversation[draftKey],
-            replyContext: replyDraftContextByConversation[draftKey],
-            mediaAttachments: pendingMediaAttachmentsByConversation[draftKey],
-            mediaUploadStates: pendingMediaUploadStatesByConversation[draftKey]
-        )
+    ) {
         draftTextByConversation[draftKey] = nil
         composerMentionSelectionsByConversation[draftKey] = nil
         replyDraftContextByConversation[draftKey] = nil
@@ -1140,29 +1149,11 @@ extension WorkspaceState {
         var remainingUploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
         sentIds.forEach { remainingUploadStates[$0] = nil }
         pendingMediaUploadStatesByConversation[draftKey] = remainingUploadStates.isEmpty ? nil : remainingUploadStates
-        return restorePoint
-    }
-
-    private func restoreComposer(_ restorePoint: ComposerSendRestorePoint, for draftKey: ComposerDraftKey) {
-        draftTextByConversation[draftKey] = restorePoint.text
-        composerMentionSelectionsByConversation[draftKey] = restorePoint.mentionSelections
-        replyDraftContextByConversation[draftKey] = restorePoint.replyContext
-        let restoredAttachments = restorePoint.mediaAttachments ?? []
-        let restoredIds = Set(restoredAttachments.map(\.id))
-        let stagedSinceSnapshot = (pendingMediaAttachmentsByConversation[draftKey] ?? [])
-            .filter { !restoredIds.contains($0.id) }
-        let mergedAttachments = restoredAttachments + stagedSinceSnapshot
-        pendingMediaAttachmentsByConversation[draftKey] = mergedAttachments.isEmpty ? nil : mergedAttachments
-        var mergedUploadStates = pendingMediaUploadStatesByConversation[draftKey] ?? [:]
-        for (id, state) in restorePoint.mediaUploadStates ?? [:] {
-            mergedUploadStates[id] = state
-        }
-        pendingMediaUploadStatesByConversation[draftKey] = mergedUploadStates.isEmpty ? nil : mergedUploadStates
     }
 
     /// Files the plaintext we just published under the same cache key the bubble will look it up
     /// by, so an outgoing attachment renders from disk instead of round-tripping through Blossom.
-    private func cacheOutgoingMediaPlaintext(
+    func cacheOutgoingMediaPlaintext(
         _ attachments: [PendingMediaAttachment],
         references: [MediaAttachmentReferenceFfi],
         accountId: String,

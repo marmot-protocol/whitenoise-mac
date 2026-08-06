@@ -52880,65 +52880,6 @@
         }
       }
     },
-    "Waiting for attachments to finish uploading": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warten, bis die Anhänge hochgeladen sind"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esperando a que terminen de subirse los adjuntos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En attente de la fin du téléversement des pièces jointes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In attesa del completamento del caricamento degli allegati"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aguardando a conclusão do upload dos anexos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ожидание завершения загрузки вложений"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eklerin yüklenmesinin bitmesi bekleniyor"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在等待附件上传完成"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在等待附件上傳完成"
-          }
-        }
-      }
-    },
     "Watch-only": {
       "extractionState": "manual",
       "localizations": {

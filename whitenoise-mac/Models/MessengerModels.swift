@@ -738,8 +738,9 @@ enum MediaDownloadState: Equatable {
 }
 
 /// Blossom upload status for one composer attachment. Attachments upload as soon as they are
-/// staged, so the composer can refuse to send until every one of them carries a reference —
-/// rather than uploading at send time and failing the message after the fact.
+/// staged so the blob is usually already up by the time Send is pressed — but the upload never
+/// gates Send: an unfinished one is handed to the outgoing message and awaited there
+/// (`PendingOutgoingMediaMessage`).
 nonisolated enum PendingMediaUploadState: Hashable, Sendable {
     case uploading
     case uploaded(MediaAttachmentReferenceFfi)
@@ -755,21 +756,56 @@ nonisolated enum PendingMediaUploadState: Hashable, Sendable {
     var isUploaded: Bool { reference != nil }
 }
 
-/// What a composer held just before an optimistic clear, so a failed publish can put it back
-/// rather than losing the user's text and attachments.
-nonisolated struct ComposerSendRestorePoint: Sendable {
-    let text: String?
-    let mentionSelections: [ComposerMentionSelection]?
-    let replyContext: MessageReplyContext?
-    let mediaAttachments: [PendingMediaAttachment]?
-    let mediaUploadStates: [PendingMediaAttachment.ID: PendingMediaUploadState]?
+/// Where a sent-but-not-yet-published media message has got to.
+///
+/// Both in-flight cases render identically — one spinner over the whole bubble, never a badge per
+/// attachment — because the user pressed Send once and is waiting for one thing to happen. They
+/// stay distinct so a retry knows whether it has to re-upload or only re-publish.
+nonisolated enum PendingOutgoingMediaMessageState: Hashable, Sendable {
+    case uploading
+    case publishing
+    case failed
+
+    var isInFlight: Bool {
+        self != .failed
+    }
 }
 
-/// Why the composer's staged media is not ready to send yet. Present only while something is
-/// outstanding, so `nil` reads as "ready to send".
-nonisolated enum ComposerMediaUploadStatus: Hashable, Sendable {
-    case uploading
-    case failed
+/// A media message the user has already sent, still on its way to the relay.
+///
+/// Send does not wait for Blossom: pressing it empties the composer and parks the attachments
+/// here, where the bubble renders them from the plaintext we are still holding while the uploads
+/// finish. This is the row the transcript shows in the gap between "sent" and "published".
+nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let attachments: [PendingMediaAttachment]
+    let caption: String
+    let createdAt: Date
+    var state: PendingOutgoingMediaMessageState
+
+    init(
+        id: UUID = UUID(),
+        attachments: [PendingMediaAttachment],
+        caption: String,
+        createdAt: Date = Date(),
+        state: PendingOutgoingMediaMessageState = .uploading
+    ) {
+        self.id = id
+        self.attachments = attachments
+        self.caption = caption
+        self.createdAt = createdAt
+        self.state = state
+    }
+
+    /// Attachments that render as grid tiles, matching `MessageItem.visualMediaAttachments` so a
+    /// pending bubble and the published one it becomes lay out the same way.
+    var visualAttachments: [PendingMediaAttachment] {
+        attachments.filter { $0.kind == .image || $0.kind == .video }
+    }
+
+    var nonvisualAttachments: [PendingMediaAttachment] {
+        attachments.filter { $0.kind == .audio || $0.kind == .file }
+    }
 }
 
 nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
