@@ -125,11 +125,24 @@ extension WorkspaceState {
 
     func selectAccountFromSettings(_ account: AccountItem) {
         guard !account.signedOut else { return }
-        // The row for the already-active account is a no-op: it is rendered on the Accounts page
-        // the user is already reading, so switching would tear the session down and rebuild it
-        // only to land back on the same screen.
+        // The row for the already-active account is a no-op: the switcher is anchored to the
+        // settings page the user is already reading, so switching would tear the session down
+        // and rebuild it only to land back on the same screen.
         guard account.id != activeAccountId else { return }
-        switchActiveAccount(account, finalSelection: .settings(.accounts))
+        switchActiveAccount(account, finalSelection: settingsSelectionAfterAccountMutation)
+    }
+
+    /// Where to land after an account mutation hands the app a different active identity.
+    ///
+    /// The switcher lives at the top of Settings rather than on an Accounts page of its own, so
+    /// these paths stay in Settings: on the page the user was already reading (it is simply
+    /// re-answered for the new identity — `SettingsPanelView` reloads off `activeAccountId`), or
+    /// on the profile overview when the mutation came from the account rail instead.
+    var settingsSelectionAfterAccountMutation: WorkspaceSelection {
+        if case .settings(let page) = selection {
+            return .settings(page)
+        }
+        return .settings(.overview)
     }
 
     func switchActiveAccount(_ account: AccountItem, finalSelection: WorkspaceSelection?) {
@@ -452,7 +465,7 @@ extension WorkspaceState {
             // still-valid active account untouched needs no reselection.
             if needsActiveReset {
                 restoreOrSelectFirstAccount()
-                selection = .settings(.accounts)
+                selection = settingsSelectionAfterAccountMutation
                 await configureObservabilityRuntimeBestEffort()
                 await loadSettingsData()
                 await reloadChats()
@@ -569,7 +582,7 @@ extension WorkspaceState {
 
             resetActiveAccountUIState()
             if let nextActive = accounts.first(where: { !$0.signedOut }) {
-                switchActiveAccount(nextActive, finalSelection: .settings(.accounts))
+                switchActiveAccount(nextActive, finalSelection: settingsSelectionAfterAccountMutation)
                 await configureObservabilityRuntimeBestEffort()
                 await loadSettingsData()
             } else {
@@ -613,7 +626,7 @@ extension WorkspaceState {
                     && activeAccountId != preAwaitActiveAccountId
                     && currentActiveAccount?.id != account.id
                 if !userRacedToDifferentAccount {
-                    switchActiveAccount(refreshed, finalSelection: .settings(.accounts))
+                    switchActiveAccount(refreshed, finalSelection: settingsSelectionAfterAccountMutation)
                     await configureObservabilityRuntimeBestEffort()
                     await loadSettingsData()
                 }
