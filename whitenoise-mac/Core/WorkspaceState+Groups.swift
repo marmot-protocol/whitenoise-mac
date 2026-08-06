@@ -110,7 +110,10 @@ extension WorkspaceState {
         isGroupDetailsPresented = true
         if chat.isDirect {
             async let details: Void = loadGroupDetails(groupIdHex: chat.id)
-            async let commonGroups: Void = loadCommonGroups(forContactIdHex: chat.avatarSeed)
+            async let commonGroups: Void = loadCommonGroups(
+                forContactIdHex: chat.avatarSeed,
+                excludingGroupIdHex: chat.id
+            )
             // Chat info doubles as the peer's profile for a 1:1 conversation, so it carries the
             // follow control and needs the relationship resolved alongside everything else.
             async let followStatus: Void = refreshDirectPeerFollowStatus(for: chat)
@@ -142,7 +145,8 @@ extension WorkspaceState {
         accountIdHex: String,
         npub: String = "",
         displayName: String?,
-        pictureURL: String?
+        pictureURL: String?,
+        excludingGroupIdHex: String? = nil
     ) async {
         let accountIdHex = accountIdHex.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !accountIdHex.isEmpty, let client, let activeAccount else { return }
@@ -164,7 +168,10 @@ extension WorkspaceState {
         lastError = nil
 
         async let followStatus: Void = refreshFollowStatus(forContactIdHex: accountIdHex)
-        async let commonGroups: Void = loadCommonGroups(forContactIdHex: accountIdHex)
+        async let commonGroups: Void = loadCommonGroups(
+            forContactIdHex: accountIdHex,
+            excludingGroupIdHex: excludingGroupIdHex
+        )
         let resolved = await resolvedPeerFFI(
             accountIdHex: accountIdHex,
             activeAccount: activeAccount,
@@ -208,7 +215,10 @@ extension WorkspaceState {
             accountIdHex: member.id,
             npub: member.npub,
             displayName: member.publishedDisplayName ?? member.displayName,
-            pictureURL: nil
+            pictureURL: nil,
+            // A member row is only reachable from the open conversation's details, so that
+            // conversation is the one group the viewer already knows they share.
+            excludingGroupIdHex: groupDetailsSnapshot?.groupIdHex
         )
     }
 
@@ -216,7 +226,8 @@ extension WorkspaceState {
         await showContactDetails(
             accountIdHex: message.senderAccountIdHex,
             displayName: message.publishedSenderName ?? message.senderName,
-            pictureURL: message.senderPictureURL
+            pictureURL: message.senderPictureURL,
+            excludingGroupIdHex: message.groupIdHex
         )
     }
 
@@ -237,7 +248,11 @@ extension WorkspaceState {
         await startDirectChat(with: contact)
     }
 
-    func loadCommonGroups(forContactIdHex contactIdHex: String) async {
+    /// Collect the groups the viewer shares with a contact.
+    ///
+    /// `excludingGroupIdHex` drops the conversation the contact was opened from: the group whose
+    /// details are already on screen is not a group "in common", it is the group you are in.
+    func loadCommonGroups(forContactIdHex contactIdHex: String, excludingGroupIdHex: String? = nil) async {
         guard let client, let activeAccount, let accountId = activeAccountId else {
             clearCommonGroups()
             return
@@ -255,11 +270,13 @@ extension WorkspaceState {
         }
 
         let normalizedContactId = contactIdHex.lowercased()
+        let excludedGroupId = excludingGroupIdHex?.nilIfBlank?.lowercased()
         let chats =
             ((chatsByAccount[accountId] ?? []) + (archivedChatsByAccount[accountId] ?? []))
             .filter {
                 !$0.pendingConfirmation
                     && $0.selfMembership == .member
+                    && $0.id.lowercased() != excludedGroupId
             }
             .sorted {
                 let lhsDate = $0.updatedAt ?? .distantPast

@@ -18835,18 +18835,15 @@ struct whitenoise_macTests {
         state.selectChat(directChat)
         await state.showGroupDetails(for: directChat)
 
-        #expect(Set(state.commonGroupsForContact.map(\.id)) == ["direct-group", "group"])
+        // The direct chat whose details are open is the conversation the viewer is already in,
+        // so it must not be listed back to them as a group in common.
+        #expect(state.commonGroupsForContact.map(\.id) == ["group"])
         #expect(!state.isLoadingCommonGroups)
         #expect(!state.commonGroupsLoadHadFailures)
 
-        let directMessageGroup = try #require(
-            state.commonGroupsForContact.first { $0.id == "direct-group" }
-        )
-        #expect(directMessageGroup.isDirect)
-        #expect(directMessageGroup.subtitle == "Direct message")
-
-        state.openCommonGroup(directMessageGroup)
-        #expect(state.selection == .chat("direct-group"))
+        let sharedGroup = try #require(state.commonGroupsForContact.first { $0.id == "group" })
+        state.openCommonGroup(sharedGroup)
+        #expect(state.selection == .chat("group"))
         #expect(!state.isGroupDetailsPresented)
         #expect(state.commonGroupsForContact.isEmpty)
     }
@@ -18883,7 +18880,9 @@ struct whitenoise_macTests {
         #expect(state.contactDetailsTarget?.accountIdHex == aliceIdHex)
         #expect(state.contactDetailsTarget?.title == "Alice Cooper")
         #expect(state.contactDetailsTarget?.pictureURL == "https://example.com/alice.png")
-        #expect(state.commonGroupsForContact.map(\.id) == ["group"])
+        // "group" is the group whose details are open, so the only shared conversation is
+        // filtered out and the section reads empty.
+        #expect(state.commonGroupsForContact.isEmpty)
         #expect(!state.isLoadingContactDetails)
         #expect(state.isGroupDetailsPresented)
 
@@ -18891,6 +18890,90 @@ struct whitenoise_macTests {
         #expect(state.contactDetailsTarget == nil)
         #expect(state.isGroupDetailsPresented)
         #expect(state.commonGroupsForContact.isEmpty)
+    }
+
+    @MainActor
+    @Test func groupMemberContactDetailsListDirectChatButNotTheOpenGroup() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installGroupDetailsRecord(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let groupChat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(groupChat)
+        await state.showGroupDetails(for: groupChat)
+        let alice = try #require(state.groupDetailsSnapshot?.members.first { $0.id == aliceIdHex })
+
+        await state.showContactDetails(for: alice)
+
+        // The open group is dropped; the direct chat the viewer shares with Alice still shows.
+        #expect(state.commonGroupsForContact.map(\.id) == ["direct-group"])
+        let directMessageGroup = try #require(state.commonGroupsForContact.first)
+        #expect(directMessageGroup.isDirect)
+        #expect(!state.commonGroupsLoadHadFailures)
+    }
+
+    @MainActor
+    @Test func messageSenderContactDetailsExcludeTheHostingGroup() async throws {
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            alongside: [messageGroup()],
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceIdHex,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installGroupDetailsRecord(
+            groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let message = MessageItem(
+            id: "m1",
+            groupIdHex: "group",
+            senderAccountIdHex: aliceIdHex,
+            senderName: "Alice",
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            timelineAt: 1_700_000_000,
+            isOutgoing: false
+        )
+        await state.showContactDetails(for: message)
+
+        // Tapping a sender inside "group" opens their card from that group, so it is not
+        // reported back as a group in common.
+        #expect(state.contactDetailsTarget?.accountIdHex == aliceIdHex)
+        #expect(state.commonGroupsForContact.map(\.id) == ["direct-group"])
     }
 
     @MainActor
