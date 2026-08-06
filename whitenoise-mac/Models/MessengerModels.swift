@@ -781,6 +781,11 @@ nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
     let thumbhash: String?
     let durationSeconds: Double?
     let waveformSamples: [CGFloat]
+    /// Set only for audio the user recorded here, in the composer. Such a recording is not a
+    /// staged media file: it takes the composer over on its own and is sent as an audio-only
+    /// message, so it never mixes with text or other attachments. Audio *files* the user
+    /// attaches stay ordinary media and leave this `false`.
+    let isVoiceMessage: Bool
 
     init(
         id: UUID = UUID(),
@@ -790,7 +795,8 @@ nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
         dim: String?,
         thumbhash: String? = nil,
         durationSeconds: Double? = nil,
-        waveformSamples: [CGFloat] = []
+        waveformSamples: [CGFloat] = [],
+        isVoiceMessage: Bool = false
     ) {
         self.id = id
         self.fileName = fileName
@@ -800,6 +806,7 @@ nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
         self.thumbhash = thumbhash
         self.durationSeconds = durationSeconds
         self.waveformSamples = waveformSamples
+        self.isVoiceMessage = isVoiceMessage
     }
 
     var kind: MessageMediaKind {
@@ -834,6 +841,21 @@ nonisolated struct VoiceRecordingResult: Sendable {
 }
 
 nonisolated enum OutgoingMediaAttachmentPolicy {
+    /// Recognizes a draft attachment as audio recorded in this composer.
+    ///
+    /// A persisted draft crosses the FFI boundary as a plain media record with no "recorded
+    /// here" flag, so a restored recording is identified by the exact name
+    /// `MediaPlaybackTempStore.prepareVoiceRecordingFile` gave it — `voice-<UUID>.m4a`.
+    /// Requiring the UUID stem keeps a user's own `voice-notes.m4a` an ordinary attachment.
+    static func isVoiceRecordingFileName(_ fileName: String, mediaType: String) -> Bool {
+        guard supportedAudioMediaTypes.contains(mediaType.lowercased()) else { return false }
+        let name = fileName.lowercased()
+        guard name.hasSuffix(".m4a") else { return false }
+        let stem = name.dropLast(".m4a".count)
+        guard stem.hasPrefix("voice-") else { return false }
+        return UUID(uuidString: String(stem.dropFirst("voice-".count))) != nil
+    }
+
     static let supportedAudioMediaTypes: Set<String> = [
         "audio/aac",
         "audio/mp4",
@@ -1295,7 +1317,8 @@ nonisolated enum OutgoingMediaDraftProcessor {
                     data: data,
                     dim: nil,
                     durationSeconds: recording.durationSeconds,
-                    waveformSamples: MediaWaveformAnalyzer.normalized(recording.waveformSamples)
+                    waveformSamples: MediaWaveformAnalyzer.normalized(recording.waveformSamples),
+                    isVoiceMessage: true
                 ))
         }.value
         return prepared.attachment

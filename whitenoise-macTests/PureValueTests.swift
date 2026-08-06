@@ -811,6 +811,31 @@ struct PureValueTests {
         #expect(MediaDurationLabel.string(for: 3_600) == "1:00:00")
     }
 
+    @Test func onlyThisAppsRecordingFileNamesAreRecognizedAsVoiceMessages() async throws {
+        // A persisted draft loses the "recorded here" flag at the FFI boundary, so a restored
+        // recording is recognized by the exact name `prepareVoiceRecordingFile` writes. The UUID
+        // stem is what keeps a user's own audio file out of the voice-draft composer.
+        let recordingName = "voice-\(UUID().uuidString).m4a"
+
+        #expect(OutgoingMediaAttachmentPolicy.isVoiceRecordingFileName(recordingName, mediaType: "audio/mp4"))
+        #expect(
+            OutgoingMediaAttachmentPolicy.isVoiceRecordingFileName(
+                recordingName.uppercased(),
+                mediaType: "AUDIO/MP4"
+            )
+        )
+
+        #expect(!OutgoingMediaAttachmentPolicy.isVoiceRecordingFileName("voice-notes.m4a", mediaType: "audio/mp4"))
+        #expect(!OutgoingMediaAttachmentPolicy.isVoiceRecordingFileName("interview.m4a", mediaType: "audio/mp4"))
+        #expect(!OutgoingMediaAttachmentPolicy.isVoiceRecordingFileName(recordingName, mediaType: "application/pdf"))
+        #expect(
+            !OutgoingMediaAttachmentPolicy.isVoiceRecordingFileName(
+                "voice-\(UUID().uuidString).mp3",
+                mediaType: "audio/mpeg"
+            )
+        )
+    }
+
     @Test func outgoingMediaKindFallsBackToFileExtensionForGenericMediaTypes() async throws {
         // Regression for whitenoise-mac#317: the media type still drives classification,
         // but a generic/unknown type must consult the file extension instead of ignoring
