@@ -3,14 +3,15 @@
 //  whitenoise-mac
 //
 //  Left-hand navigation: the account rail, chat-list and settings-list
-//  drawers, their rows, and the pending-invite badge. Extracted verbatim
-//  from MessengerShellView.swift (no behavior change).
+//  drawers, their rows, and the pending-invite badge. The settings drawer
+//  opens with the account switcher card (SettingsAccountSwitcherViews.swift)
+//  above the page list.
 //
 
 import AppKit
 import SwiftUI
 
-private struct UnreadCountBadge: View {
+struct UnreadCountBadge: View {
     let count: Int
     var font: Font = .caption2.weight(.bold)
 
@@ -545,7 +546,7 @@ struct SettingsListDrawerView: View {
                 Text(L10n.string("Settings", locale: locale))
                     .font(.title2.weight(.semibold))
 
-                activeAccountSummary
+                SettingsAccountSwitcherCard()
             }
             .padding(.horizontal, 14)
             .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
@@ -574,43 +575,6 @@ struct SettingsListDrawerView: View {
         }
     }
 
-    private var activeAccountSummary: some View {
-        HStack(spacing: 10) {
-            if let account = workspace.activeAccount {
-                ProfileImageAvatarView(
-                    seed: account.accountIdHex,
-                    initials: account.initials,
-                    sanitizedPictureURL: account.sanitizedPictureURL,
-                    size: 34,
-                    isSelected: false
-                )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(account.displayName)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                    CopyableKeyLabel(accountIdHex: account.accountIdHex, head: 8, tail: 6, showsCopyButton: false)
-                }
-            } else {
-                Label(
-                    L10n.string("No account", locale: locale),
-                    systemImage: "person.crop.circle.badge.exclamationmark"
-                )
-                .font(.callout.weight(.semibold))
-            }
-
-            Spacer(minLength: 0)
-
-            if let account = workspace.activeAccount {
-                PublicIdentityQRCodeButton(
-                    accountIdHex: account.accountIdHex,
-                    displayName: account.displayName
-                )
-            }
-        }
-        .padding(10)
-        .glassCard()
-    }
 }
 
 struct SettingsSidebarRow: View {

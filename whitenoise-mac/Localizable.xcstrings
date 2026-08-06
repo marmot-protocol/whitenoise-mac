@@ -40517,65 +40517,6 @@
         }
       }
     },
-    "Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Beim Entfernen eines Kontos werden dessen privater Schlüssel und der lokale Nachrichtenverlauf von diesem Mac gelöscht. Die Identität selbst wird nicht aus dem Netzwerk gelöscht."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Al eliminar una cuenta se borran su llave privada y el historial de mensajes local de este Mac. La identidad en sí no se elimina de la red."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer un compte efface sa clé privée et l'historique local des messages de ce Mac. L'identité elle-même n'est pas supprimée du réseau."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La rimozione di un account elimina la sua chiave privata e la cronologia locale dei messaggi da questo Mac. L'identità in sé non viene eliminata dalla rete."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remover uma conta exclui a sua chave privada e o histórico de mensagens local deste Mac. A identidade em si não é excluída da rede."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "При удалении аккаунта его закрытый ключ и локальная история сообщений удаляются с этого Mac. Сама идентичность не удаляется из сети."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bir hesabı kaldırmak, özel anahtarını ve yerel mesaj geçmişini bu Mac'ten siler. Kimliğin kendisi ağdan silinmez."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除账号会从此 Mac 删除其私钥和本地消息历史。身份本身不会从网络中删除。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除帳號會從此 Mac 刪除其私密金鑰和本機訊息記錄。身分本身不會從網路中刪除。"
-          }
-        }
-      }
-    },
     "Removing member…": {
       "extractionState": "manual",
       "localizations": {
@@ -47495,6 +47436,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "滑動聊天即可存檔；存檔的聊天記錄保持活動狀態並仍然通知您。"
+          }
+        }
+      }
+    },
+    "Switch Account": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konto wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar de cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de compte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia account"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar de conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сменить аккаунт"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesap Değiştir"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換帳戶"
           }
         }
       }
