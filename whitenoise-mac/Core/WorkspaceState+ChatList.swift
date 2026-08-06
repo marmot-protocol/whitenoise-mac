@@ -715,6 +715,12 @@ extension WorkspaceState {
                 }
             }
         }
+        // A group row's preview is prefixed with the last sender's name, which MDK resolves
+        // from the directory on every row read — so fetching that sender's kind:0 now makes
+        // the prefix correct on the next delta without any further client work.
+        if let sender = row.lastMessage?.sender {
+            requestPeerProfileRefresh(sender)
+        }
         let groupImagePayload =
             row.conversationKind != .direct && directPeer == nil && groupAvatarURL == nil
             ? await decryptedGroupImagePayload(from: row, account: account, client: client)
@@ -815,6 +821,9 @@ extension WorkspaceState {
             activeAccount: activeAccount,
             client: client
         )
+        // A direct chat's whole title is this one peer. When an invite arrives before the
+        // inviter's kind:0 has propagated locally, this is the request that fetches it.
+        requestPeerProfileRefresh(memberId)
         let published = firstNonBlank([
             resolved?.profileDisplayName,
             resolved?.profileName,
@@ -1012,6 +1021,17 @@ extension WorkspaceState {
             .filter { !$0.isEmpty }
         )
         guard !senderIds.isEmpty else { return [:] }
+        // Record the identities this group's labels depend on, so a later profile resolution
+        // can tell whether replaying the transcript would change anything. Built here rather
+        // than scanned from the materialized rows because `MessageItem` carries only its own
+        // sender — reply-quote authors and group-system actors are named from the record and
+        // would be invisible to such a scan.
+        //
+        // Union, never replace: the live delta path calls this with only the *changed*
+        // records, so assigning would shrink the set to one sender and then suppress the
+        // replay for everyone else in the window — the exact staleness the replay exists to
+        // fix. Erring toward a superset only ever costs one unnecessary replay.
+        timelineProjectedSenderIds[groupIdHex, default: []].formUnion(senderIds)
 
         // Resolve any senders whose cached lookup is missing, incomplete, or stale in a
         // single off-main FFI batch, then cache the raw lookups (timestamped) so repeated
@@ -1123,6 +1143,22 @@ extension WorkspaceState {
                 pictureURL: resolved?.profilePicture?.nilIfBlank
             )
         }
+
+        // Ask the relays for anyone the local directory still cannot name. This is the
+        // only thing that makes a new sender's kind:0 arrive on our schedule rather than
+        // whenever MDK's background directory sync happens to watch them. Senders whose
+        // lookup is already complete are dropped inside `requestPeerProfileRefresh`, so
+        // the all-resolved steady state issues no relay traffic from this hot path
+        // (asserted by `peerProfileRefreshRequestCount`).
+        //
+        // Reaction senders ride along here rather than being resolved above: they are not
+        // part of `senderIds`, so adding them there would put an extra local FFI pair on
+        // every window for identities no message row renders. The queue resolves them
+        // locally before touching a relay, off this path. Their rows read the cache
+        // directly (`reactionReactorDisplay`), which is observed, so no re-projection is
+        // needed to show the result.
+        requestPeerProfileRefresh(senderIds)
+        requestPeerProfileRefresh(records.lazy.flatMap { $0.reactions.userReactions }.map(\.sender))
 
         return profiles
     }

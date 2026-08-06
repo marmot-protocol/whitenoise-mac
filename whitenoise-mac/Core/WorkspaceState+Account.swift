@@ -195,6 +195,7 @@ extension WorkspaceState {
         // group membership visibility can differ per account); drop them on switch so the new
         // account does not inherit stale cross-account entries (whitenoise-mac#8/#9).
         peerProfileFFICache.removeAll()
+        clearPeerProfileRefreshState()
         clearGroupMemberCache()
         groupImagePayloadCache.removeAll()
         // Read markers are keyed by groupIdHex only; stale entries from the
@@ -495,6 +496,7 @@ extension WorkspaceState {
         mediaDownloads.removeAll()
         clearMediaReferenceResolutionCache()
         peerProfileFFICache.removeAll()
+        clearPeerProfileRefreshState()
         clearGroupMemberCache()
         groupImagePayloadCache.removeAll()
         // Active-account teardown must evict decoded peer/group avatars held in the
@@ -783,11 +785,11 @@ extension WorkspaceState {
         defer { isRefreshingAccountProfiles = false }
 
         let accountIds = accounts.map(\.accountIdHex)
+        // Seed relays alone miss an identity published only to its own NIP-65 write relays,
+        // so use the same union every peer refresh uses.
+        let relays = await peerProfileLookupRelaysForActiveAccount()
         for accountIdHex in accountIds {
-            try? await client.refreshProfile(
-                accountIdHex: accountIdHex,
-                relays: MarmotClient.seedRelays
-            )
+            try? await client.refreshProfile(accountIdHex: accountIdHex, relays: relays)
         }
 
         guard let refreshed = try? await accountItemsFromRuntime(client: client) else { return }
@@ -847,6 +849,7 @@ extension WorkspaceState {
         mediaCacheReclaimedByteCount = nil
         mediaCacheGeneration &+= 1
         peerProfileFFICache.removeAll()
+        clearPeerProfileRefreshState()
         clearGroupMemberCache()
         clearConversationMetadata()
         clearSharedMedia()

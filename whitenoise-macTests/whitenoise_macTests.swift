@@ -13581,7 +13581,12 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func timelinePagingUsesLocalProfileDataWithoutRefreshingProfiles() async throws {
+    @Test func timelinePagingRefreshesAnUnnameableSenderOncePerGateWindow() async throws {
+        // Paging must not put a relay round-trip on every page. It is no longer "no refresh
+        // at all": a sender the local directory cannot name is now fetched from the relays
+        // (otherwise their npub is all we would ever show). The guard that replaces it is
+        // `PeerProfileRefreshGate` — in-flight dedup plus a backoff ladder — so two pages
+        // covering the same unresolved sender cost one fetch, not two.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -13600,8 +13605,8 @@ struct whitenoise_macTests {
             otherAccountIdHex: aliceId,
             otherDisplayName: "Alice",
             otherProfile: UserProfileMetadataFfi(
-                name: nil,
-                displayName: nil,
+                name: "alice",
+                displayName: "Alice",
                 about: nil,
                 picture: nil,
                 nip05: nil,
@@ -13624,12 +13629,21 @@ struct whitenoise_macTests {
         )
         let state = WorkspaceState(clientFactory: { runtime })
 
+        // Deliberately no `clearRefreshedProfileIds()` here: opening the conversation is part
+        // of bootstrap, so the fetch under test happens before this point and clearing would
+        // erase the very evidence the assertions need.
         await state.bootstrap()
-        runtime.clearRefreshedProfileIds()
         await state.loadMessages(groupIdHex: "direct-group")
         await state.loadOlderMessages(groupIdHex: "direct-group")
+        // Drain deterministically instead of racing the queue task against the assertions.
+        await state.settlePeerProfileRefreshQueueForTesting()
 
-        #expect(runtime.refreshedProfileIds.isEmpty)
+        // Bob has no published profile, so he is fetched — once in total, across the initial
+        // open and both page loads, because the gate dedupes and then backs off.
+        #expect(runtime.refreshedProfileIds.filter { $0 == bobId }.count == 1)
+        // Alice is already nameable from the local directory, so she costs no relay hop at
+        // all: the queue resolves locally first and only falls through on a miss.
+        #expect(!runtime.refreshedProfileIds.contains(aliceId))
         #expect(state.messagesByChat["direct-group"]?.first?.id == "message-000")
     }
 
@@ -13709,6 +13723,569 @@ struct whitenoise_macTests {
 
         let secondPass = state.messagesByChat["direct-group"] ?? []
         #expect(secondPass.first?.senderName == "Alice Cooper")
+    }
+
+    @MainActor
+    @Test func lateArrivingPeerMetadataRelabelsAlreadyRenderedMessages() async throws {
+        // The headline fix. `MessageItem.senderName` is baked at projection time and the live
+        // delta path re-maps only *changed* records, so before this a name that landed after a
+        // message was rendered could never reach it — the npub stayed on every old message for
+        // the life of the conversation. A resolved profile now replays the open window through
+        // the authoritative snapshot, so every row re-resolves its sender.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // Blank roster name and no profile: the npub fallback is the only name available.
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "",
+            otherProfile: UserProfileMetadataFfi(
+                name: nil,
+                displayName: nil,
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.accountIdsMissingProfiles.insert(aliceId)
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<40).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let clock = MutableClock(now: Date(timeIntervalSince1970: 2_000_000_000))
+        let state = WorkspaceState(nowProvider: { clock.now }, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        // Nothing was published yet, so the whole transcript is stuck on the npub fallback.
+        let beforeMetadata = state.messagesByChat["direct-group"] ?? []
+        #expect(beforeMetadata.count == 40)
+        #expect(beforeMetadata.allSatisfy { $0.senderName == DisplayText.short(aliceId) })
+        // The relays were asked, which is what eventually makes the metadata available.
+        #expect(runtime.refreshedProfileIds.contains(aliceId))
+
+        // Alice's kind:0 lands. Advance past the gate's first backoff rung so the peer is
+        // admitted again, exactly as it would be on any later projection pass.
+        runtime.accountIdsMissingProfiles.remove(aliceId)
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        clock.now = clock.now.addingTimeInterval(PeerProfileRefreshGate.retryCooldown + 1)
+        state.requestPeerProfileRefresh([aliceId])
+        await state.settlePeerProfileRefreshQueueForTesting()
+        await state.runPeerProfileReprojectionForTesting()
+
+        // Every message relabels in place — including the oldest, which no delta would revisit.
+        let afterMetadata = state.messagesByChat["direct-group"] ?? []
+        #expect(afterMetadata.allSatisfy { $0.senderName == "Alice Cooper" })
+        #expect(afterMetadata.first?.senderName == "Alice Cooper")
+        // The window is replayed, not reloaded: same rows, same order, same bounds.
+        #expect(afterMetadata.map(\.id) == beforeMetadata.map(\.id))
+        // The sidebar row for the direct chat picks the peer up too.
+        #expect(state.activeChats.first?.title == "Alice Cooper")
+        #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
+    }
+
+    @MainActor
+    @Test func steadyStatePeerProfileRefreshMakesNoRequestsAcrossWindowsAndDeltas() async throws {
+        // The render/projection paths call `requestPeerProfileRefresh` unconditionally, so the
+        // completeness short-circuit is what keeps them affordable. With every sender already
+        // nameable, repeated windows and live deltas must admit nothing at all.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<30).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        let settledRequestCount = state.peerProfileRefreshRequestCount
+        await state.loadOlderMessages(groupIdHex: "direct-group")
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        #expect(state.peerProfileRefreshRequestCount == settledRequestCount)
+        #expect(!runtime.refreshedProfileIds.contains(aliceId))
+        #expect(state.messagesByChat["direct-group"]?.first?.senderName == "Alice Cooper")
+    }
+
+    @MainActor
+    @Test func reactionAuthorProfilesAreRequestedFromTheProjectionNotTheRenderPath() async throws {
+        // `reactionReactorDisplay` runs inside a SwiftUI view body, once per reactor per render
+        // pass, so it must stay a pure read. The request for a reactor who never sent a message
+        // is issued from `messageSenderProfiles` instead — once per window/delta.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let reactorId = "carol1234567890carol1234567890carol1234567890carol1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // Carol only ever reacts — she is not in `senderIds`, so before this she was never
+        // resolved at all and her row was stuck on the npub no matter how long you waited.
+        runtime.accountIdsMissingProfiles.insert(reactorId)
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "message-000",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Hello",
+                    kind: 9,
+                    recordedAt: baseTime
+                ),
+                appMessage(
+                    id: "reaction-000",
+                    groupIdHex: "direct-group",
+                    sender: reactorId,
+                    plaintext: "👍",
+                    kind: 7,
+                    tags: [MessageTagFfi(values: ["e", "message-000"])],
+                    recordedAt: baseTime + 1
+                ),
+            ],
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        // The projection path asked for the reactor.
+        #expect(runtime.refreshedProfileIds.contains(reactorId))
+
+        // Rendering her row asks for nothing: no admission, no queue, no relay hop.
+        let requestsBeforeRender = state.peerProfileRefreshRequestCount
+        let reactor = state.reactionReactorDisplay(accountIdHex: reactorId)
+        #expect(state.peerProfileRefreshRequestCount == requestsBeforeRender)
+        #expect(state.queuedPeerProfileRefreshIds.isEmpty)
+        #expect(reactor.accountIdHex == reactorId)
+    }
+
+    @MainActor
+    @Test func peerProfileResolutionsWithinTheDebounceWindowCostOneReprojection() async throws {
+        // A roster resolving one member at a time must repaint once, not once per member.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let baseline = state.peerProfileReprojectionCount
+        state.schedulePeerProfileReprojection(ids: ["peer-a"])
+        state.schedulePeerProfileReprojection(ids: ["peer-b"])
+        state.schedulePeerProfileReprojection(ids: ["peer-c"])
+        // Three bumps, one coalesced pass — and the generation still moves once per resolution
+        // so view-level observers see each change.
+        #expect(state.peerProfileGeneration >= 3)
+
+        await state.runPeerProfileReprojectionForTesting()
+        #expect(state.peerProfileReprojectionCount == baseline + 1)
+        #expect(state.pendingPeerProfileReprojectionIds.isEmpty)
+    }
+
+    @MainActor
+    @Test func resolvingAPeerTheOpenWindowNeverNamesSkipsTheTranscriptReplay() async throws {
+        // Most refresh requests come from rosters and reaction lists, not from anyone the open
+        // transcript labels: a 40-member group whose members have never posted, or reactors
+        // whose rows read `peerProfileFFICache` directly and repaint on their own. Replaying
+        // the window for those re-maps and re-diffs every row to produce identical output —
+        // once per debounce window for the whole length of a drain.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cooper",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.installMessages(
+            (0..<10).map { index in
+                appMessage(
+                    id: String(format: "message-%03d", index),
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "Message \(index)",
+                    kind: 9,
+                    recordedAt: 1_700_000_000 + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        // `snapshot()` is the first thing the transcript replay does, so counting it is a
+        // direct witness for whether the window was replayed at all.
+        let replaysBefore = runtime.syncCallThreadRecord("timelineMessagesSubscription.snapshot").count
+
+        // A peer nobody in this window is labelled from.
+        state.schedulePeerProfileReprojection(ids: ["bob12345678901234567890bob12345678901234567890bob1234567890"])
+        await state.runPeerProfileReprojectionForTesting()
+        let replaysAfterUnrelatedPeer =
+            runtime.syncCallThreadRecord("timelineMessagesSubscription.snapshot").count
+        #expect(replaysAfterUnrelatedPeer == replaysBefore)
+
+        // The sender the window *does* name still replays — the guard scopes the work, it
+        // does not withhold the fix.
+        state.schedulePeerProfileReprojection(ids: [aliceId])
+        await state.runPeerProfileReprojectionForTesting()
+        let replaysAfterWindowSender =
+            runtime.syncCallThreadRecord("timelineMessagesSubscription.snapshot").count
+        #expect(replaysAfterWindowSender > replaysAfterUnrelatedPeer)
+    }
+
+    @MainActor
+    @Test func clearingANicknameReArmsTheMetadataFetchTheCooldownWasHoldingOff() async throws {
+        // Clearing a nickname hands the label back to whatever the peer published, so a missing
+        // kind:0 starts mattering again at exactly that moment. The gate may be sitting on a
+        // cooldown for this id — possibly the long one applied *because* it was nicknamed — and
+        // without dropping that admission state the row keeps the npub until the cooldown ends.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "",
+            otherProfile: UserProfileMetadataFfi(
+                name: nil,
+                displayName: nil,
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        runtime.accountIdsMissingProfiles.insert(aliceId)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        state.setContactNickname("Ali", forContactAccountIdHex: aliceId)
+        #expect(state.activeChats.first?.title == "Ali")
+
+        // Alice publishes while the nickname is in place, and the gate is holding a cooldown
+        // from the run that already failed for her.
+        runtime.accountIdsMissingProfiles.remove(aliceId)
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let requestsBefore = state.peerProfileRefreshRequestCount
+        state.setContactNickname(nil, forContactAccountIdHex: aliceId)
+        #expect(state.peerProfileRefreshRequestCount > requestsBefore)
+
+        await state.settlePeerProfileRefreshQueueForTesting()
+        await state.runPeerProfileReprojectionForTesting()
+
+        // The row lands on the published name rather than sitting on the fallback.
+        #expect(state.activeChats.first?.title == "Alice Cooper")
+    }
+
+    @MainActor
+    @Test func peerProfileRefreshFetchesFromSeedAndAccountNip65Relays() async throws {
+        // Seed relays alone miss a peer who publishes only to their own NIP-65 write relays.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installAccountNip65Relays(["wss://alice.relay.example"])
+        runtime.accountIdsMissingProfiles.insert(bobId)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.requestPeerProfileRefresh([bobId])
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        let relays = runtime.lastProfileRefreshRelays
+        #expect(relays.contains("wss://alice.relay.example"))
+        #expect(MarmotClient.seedRelays.allSatisfy { relays.contains($0) })
+        // Deduped: the seed relays also appear in the account's bootstrap list.
+        #expect(relays.count == Set(relays).count)
+    }
+
+    @MainActor
+    @Test func savingRelaySettingsRebuildsThePeerProfileLookupUnion() async throws {
+        // `peerProfileLookupRelays(for:)` memoizes the seed + NIP-65 union for the session, so
+        // editing relays in Settings would otherwise keep searching the pre-edit set for peer
+        // kind:0 until the next account switch.
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
+        let carolId = "caro1234567890caro1234567890caro1234567890caro1234567890caro"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installAccountNip65Relays(["wss://old.relay.example"])
+        runtime.accountIdsMissingProfiles.insert(bobId)
+        runtime.accountIdsMissingProfiles.insert(carolId)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.requestPeerProfileRefresh([bobId])
+        await state.settlePeerProfileRefreshQueueForTesting()
+        #expect(runtime.lastProfileRefreshRelays.contains("wss://old.relay.example"))
+
+        // The user edits their NIP-65 set in Settings.
+        state.selectedRelaySection = .nip65
+        state.relayDraft = ["wss://new.relay.example"]
+        await state.saveRelaySettings()
+
+        state.requestPeerProfileRefresh([carolId])
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        let relays = runtime.lastProfileRefreshRelays
+        #expect(relays.contains("wss://new.relay.example"))
+        #expect(!relays.contains("wss://old.relay.example"))
+        // The seed relays are still folded in, and the union is still deduped.
+        #expect(MarmotClient.seedRelays.allSatisfy { relays.contains($0) })
+        #expect(relays.count == Set(relays).count)
+    }
+
+    @MainActor
+    @Test func anAbortedRefreshHandsBackItsGateSlotInsteadOfStrandingThePeer() async throws {
+        // `tryStart` marks the id in flight, and the abort paths in `refreshPeerProfile` return
+        // without recording an outcome. Leaving the slot held would make the gate refuse that
+        // id for the life of the process — the peer's name could never resolve again.
+        //
+        // Reachable: `restoreOrSelectFirstAccount` and the preferred-account login path both
+        // move `activeAccountId` without going through `resetActiveAccountUIState`, so they
+        // never call `clearPeerProfileRefreshState` to sweep the slot on their way past.
+        let first = AccountSummaryFfi(
+            label: "First Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let second = AccountSummaryFfi(
+            label: "Second Account",
+            accountIdHex: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        runtime.accountIdsMissingProfiles.insert(bobId)
+        // Hold the attempt inside the relay round-trip so the account can move underneath it.
+        runtime.profileRefreshDelaysByAccountId[bobId] = 400_000_000
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let startingAccountId = try #require(state.activeAccountId)
+        state.requestPeerProfileRefresh([bobId])
+        // Let the queue task get as far as the suspended `refreshProfile`.
+        try await Task.sleep(nanoseconds: 80_000_000)
+        #expect(state.peerProfileRefreshGate.inFlightCountForTesting == 1)
+
+        // Exactly what `restoreOrSelectFirstAccount` does — move the active account without
+        // going anywhere near `clearPeerProfileRefreshState`.
+        let otherAccountId = try #require(state.accounts.first { $0.id != startingAccountId }?.id)
+        state.activeAccountId = otherAccountId
+
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        // The aborted attempt handed its slot back rather than stranding the peer.
+        #expect(state.peerProfileRefreshGate.inFlightCountForTesting == 0)
+
+        // Proof that it is really usable again: with the account restored, the same peer is
+        // admitted and actually fetched instead of being refused for the rest of the session.
+        state.activeAccountId = startingAccountId
+        runtime.clearRefreshedProfileIds()
+        runtime.profileRefreshDelaysByAccountId[bobId] = nil
+        state.requestPeerProfileRefresh([bobId])
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        #expect(runtime.refreshedProfileIds.contains(bobId))
+    }
+
+    @MainActor
+    @Test func peerProfileRefreshStateIsDroppedOnAccountSwitch() async throws {
+        // Admission cooldowns, the queue, and the relay-set cache are all scoped to the active
+        // account's directory view, exactly like `peerProfileFFICache` (#8/#9).
+        let first = AccountSummaryFfi(
+            label: "First Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let second = AccountSummaryFfi(
+            label: "Second Account",
+            accountIdHex: "fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        runtime.accountIdsMissingProfiles.insert(bobId)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.requestPeerProfileRefresh([bobId])
+        #expect(!state.queuedPeerProfileRefreshIds.isEmpty || state.peerProfileRefreshTask != nil)
+
+        guard let secondAccount = state.accounts.first(where: { $0.accountIdHex == second.accountIdHex }) else {
+            Issue.record("second account missing")
+            return
+        }
+        state.prepareForActiveAccountSwitch(to: secondAccount, preservingMessageCacheFor: nil)
+
+        #expect(state.queuedPeerProfileRefreshIds.isEmpty)
+        #expect(state.peerProfileRefreshTask == nil)
+        #expect(state.peerProfileFFICache.isEmpty)
+        // The cooldown from the previous account must not suppress the new account's first ask.
+        var gate = state.peerProfileRefreshGate
+        let admittedUnderNewAccount = gate.tryStart(bobId, now: Date(timeIntervalSince1970: 1_000))
+        #expect(admittedUnderNewAccount)
+
+        // The switch cancels any in-flight re-projection debounce. Releasing that slot on
+        // cancellation is what keeps re-projection alive: a wedged slot would make the
+        // `peerProfileReprojectionTask == nil` guard swallow every later resolution.
+        state.schedulePeerProfileReprojection(ids: ["peer-after-switch"])
+        #expect(state.peerProfileReprojectionTask != nil)
     }
 
     @MainActor
@@ -28211,6 +28788,19 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         nip05: nil,
         lud16: nil
     )
+    /// Overrides the account's published NIP-65 write relays, so a test can prove a peer
+    /// profile refresh searches them alongside the seed relays.
+    func installAccountNip65Relays(_ relays: [String]) {
+        relayLists = AccountRelayListsFfi(
+            complete: relayLists.complete,
+            missing: relayLists.missing,
+            defaultRelays: relayLists.defaultRelays,
+            bootstrapRelays: relayLists.bootstrapRelays,
+            nip65: RelayListFfi(kind: 10002, relays: relays),
+            inbox: relayLists.inbox
+        )
+    }
+
     private var relayLists = AccountRelayListsFfi(
         complete: true,
         missing: [],
@@ -28402,6 +28992,11 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         recordedStateLock.withLock { _refreshedProfileIds }
     }
     private var _refreshedProfileIds: [String] = []
+    /// Relay set the most recent `refreshProfile` searched.
+    var lastProfileRefreshRelays: [String] {
+        recordedStateLock.withLock { _lastProfileRefreshRelays }
+    }
+    private var _lastProfileRefreshRelays: [String] = []
     private(set) var markedReadMessageIds: [String] = []
     private(set) var accountKeyPackagesCallCount = 0
     /// Number of times `userProfile` was queried — used to assert settings-load coalescing
@@ -28829,7 +29424,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func refreshProfile(accountIdHex: String, relays: [String]) async throws {
-        recordedStateLock.withLock { _refreshedProfileIds.append(accountIdHex) }
+        recordedStateLock.withLock {
+            _refreshedProfileIds.append(accountIdHex)
+            _lastProfileRefreshRelays = relays
+        }
         if let delay = profileRefreshDelaysByAccountId[accountIdHex] {
             try await Task.sleep(nanoseconds: delay)
         }

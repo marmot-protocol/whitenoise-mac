@@ -1476,6 +1476,12 @@ extension WorkspaceState {
         mentionRosterCache[groupIdHex] = nil
         mentionNamesCache[groupIdHex] = nil
         groupMemberDetailsCache[groupIdHex] = members
+        // Every roster the app learns about flows through here, including the one chat-list
+        // enrichment fetches for a freshly received invite. The welcoming account is always
+        // a member of the group it invited us to, so this covers the inviter too — the
+        // explicit `welcomerAccountIdHex` request in `groupDetailsSnapshot` only has to
+        // cover the details screen.
+        requestPeerProfileRefresh(members.map(\.memberIdHex))
     }
 
     func invalidateGroupMembers(for groupIdHex: String) {

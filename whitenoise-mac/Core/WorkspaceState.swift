@@ -1581,6 +1581,48 @@ final class WorkspaceState {
     /// and cleared on account switch.
     var peerProfileFFICache: [String: CachedPeerProfile] = [:]
 
+    // MARK: - Peer profile relay refresh (see WorkspaceState+PeerProfiles.swift)
+
+    /// Admission control for relay kind:0 refreshes: per-id in-flight dedup, a bounded
+    /// backoff ladder, and a long cooldown. Account-scoped like `peerProfileFFICache`.
+    @ObservationIgnored var peerProfileRefreshGate = PeerProfileRefreshGate()
+    /// FIFO of ids admitted by the gate and waiting for a relay refresh.
+    @ObservationIgnored var queuedPeerProfileRefreshIds: [String] = []
+    @ObservationIgnored var peerProfileRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var peerProfileRefreshTaskId: UUID?
+    /// Relay set used for targeted kind:0 fetches, cached per account. Seed relays alone
+    /// miss a peer who publishes only to their own NIP-65 write relays.
+    @ObservationIgnored var peerProfileLookupRelaysByAccountId: [String: [String]] = [:]
+    /// Ids whose cached lookup became usable since the last re-projection pass. Drained
+    /// by `runPeerProfileReprojection`.
+    @ObservationIgnored var pendingPeerProfileReprojectionIds = Set<String>()
+    @ObservationIgnored var peerProfileReprojectionTask: Task<Void, Never>?
+    @ObservationIgnored var peerProfileReprojectionTaskId: UUID?
+    /// Bumped by every `schedulePeerProfileReprojection` call. The debounce compares it across
+    /// its sleep to detect "more resolutions landed", without needing a clock it can trust.
+    @ObservationIgnored var peerProfileReprojectionArrivals: UInt64 = 0
+    /// The `senderIds` set the last timeline projection of each group resolved labels for.
+    /// Lets a resolution skip replaying a window that shows none of the affected identities.
+    @ObservationIgnored var timelineProjectedSenderIds: [String: Set<String>] = [:]
+    /// Bumped when a refresh actually made a peer's profile resolvable. Views that read a
+    /// baked projection (rather than `peerProfileFFICache` directly) can observe this to
+    /// invalidate. The re-projection itself is driven by `schedulePeerProfileReprojection`,
+    /// not by polling this token, so a future push-based profile stream can share the same
+    /// entry point.
+    var peerProfileGeneration: UInt64 = 0
+
+    /// Coalescing window for profile-driven re-projection. A roster resolving one member
+    /// at a time must cost one re-projection, not one per member.
+    static let peerProfileReprojectionDebounceNanoseconds: UInt64 = 250_000_000
+    /// Concurrent relay refreshes. Android allows 6; this app also funnels the local
+    /// re-resolution through one serialized FFI queue (`ffiQueue`), so a lower ceiling
+    /// keeps the timeline hot path clear.
+    static let peerProfileRefreshFanout = 4
+    /// How many times a still-draining queue may restart the re-projection debounce. Caps the
+    /// coalescing window at roughly two seconds, so a long drain repaints on the way rather
+    /// than only at the end.
+    static let maxPeerProfileReprojectionDebounceExtensions = 7
+
     /// Per-group membership cache used by chat-list enrichment and timeline sender-name
     /// projection. Group rows already carry the latest group metadata; these call sites only
     /// need members to identify direct chats and provide member-name fallbacks, so cache just
@@ -1607,6 +1649,15 @@ final class WorkspaceState {
         /// state this must stay flat across timeline windows (whitenoise-mac#171). Not read by
         /// production code.
         var timelineSenderMemberFallbackFetchCount = 0
+
+        /// Test-only instrumentation: ids admitted by `peerProfileRefreshGate` for a relay
+        /// refresh. In the all-resolved steady state this must stay flat across timeline
+        /// windows and live deltas — the render paths call `requestPeerProfileRefresh`
+        /// unconditionally and rely on the completeness short-circuit to stay silent.
+        @ObservationIgnored var peerProfileRefreshRequestCount = 0
+        /// Test-only instrumentation: completed profile-driven re-projection passes. Asserts
+        /// that a burst of resolutions coalesces into one pass.
+        @ObservationIgnored var peerProfileReprojectionCount = 0
 
         /// Test hook for stale-result generation counter overflow hardening (issue #182).
         /// Production code only compares owner tokens for equality, so wraparound is valid.
@@ -1757,14 +1808,28 @@ final class WorkspaceState {
     /// A `ResolvedPeerFFI` plus the time it was resolved, so the cache can apply a TTL to
     /// complete lookups and always re-resolve incomplete ones (whitenoise-mac#8).
     struct CachedPeerProfile: Sendable {
-        var resolved: ResolvedPeerFFI
-        var resolvedAt: Date
+        let resolved: ResolvedPeerFFI
+        let resolvedAt: Date
+        /// Precomputed `resolved.isComplete`.
+        ///
+        /// That property trims up to four peer-controlled strings per evaluation, and the
+        /// timeline hot path reads it once per sender on every window apply *and* every live
+        /// delta (`isFresh`, plus the refresh-admission short-circuit). Computing it once at
+        /// insertion turns a repeated per-sender string-trimming cost into a stored `Bool`.
+        /// Both stored properties are `let` so the flag cannot desync from `resolved`.
+        let isComplete: Bool
+
+        init(resolved: ResolvedPeerFFI, resolvedAt: Date) {
+            self.resolved = resolved
+            self.resolvedAt = resolvedAt
+            self.isComplete = resolved.isComplete
+        }
 
         /// Whether this entry may be reused without re-resolving from the Rust store.
         /// Incomplete lookups are never reused; complete lookups are reused until the TTL
         /// elapses so later name/avatar changes are eventually picked up within a session.
         func isFresh(now: Date, ttl: TimeInterval) -> Bool {
-            resolved.isComplete && now.timeIntervalSince(resolvedAt) < ttl
+            isComplete && now.timeIntervalSince(resolvedAt) < ttl
         }
     }
 
@@ -2498,6 +2563,15 @@ final class WorkspaceState {
             uniquingKeysWith: { _, new in new }
         )
         let nicknames = activeContactNicknames
+        // The roster and the inviter are the identities an invite shows before any message
+        // exists, and MDK does not promote a welcome's members to watched directory users —
+        // so nothing else would ever fetch their kind:0. `welcomerAccountIdHex` is the
+        // account that sent the welcome for this group.
+        requestPeerProfileRefresh(
+            details.members.map(\.memberIdHex)
+                + details.group.admins
+                + [details.group.welcomerAccountIdHex].compactMap { $0 }
+        )
         let members = details.members
             .map { member in
                 let action = actionByMemberId[member.memberIdHex]
