@@ -952,6 +952,14 @@ final class WorkspaceState {
     var selectedChatRevision = 0
     var archivedChatsByAccount: [String: [ChatItem]] = [:]
     var pinnedChatIdsByAccount: [String: Set<String>] = [:]
+    /// Account id → group id → the peer that conversation was last a two-person chat with. Read
+    /// only while enriching chat rows, so it does not need to drive observation on its own.
+    @ObservationIgnored var rememberedDirectPeersByAccount: [String: [String: RememberedDirectPeer]] = [:]
+    /// Conversations whose transcript held no other sender, so no peer can be recovered from it —
+    /// a note-to-self chat is the ordinary case. Session-scoped, purely to avoid rescanning.
+    @ObservationIgnored var unrecoverableDirectPeerGroupIds = Set<String>()
+    /// How far back to look for the newest message from someone other than this account.
+    static let directPeerRecoveryScanLimit: UInt32 = 200
     @ObservationIgnored var chatLookupByAccount: [String: [String: ChatItem]] = [:]
     @ObservationIgnored var chatIndexByAccount: [String: [String: Int]] = [:]
     @ObservationIgnored var chatListGenerationByAccount: [String: Int] = [:]
@@ -987,6 +995,7 @@ final class WorkspaceState {
     @ObservationIgnored var hiddenMessageStore: (any HiddenMessageStoring)?
     @ObservationIgnored var pinnedChatStore: (any PinnedChatStoring)?
     @ObservationIgnored var contactNicknameStore: (any ContactNicknameStoring)?
+    @ObservationIgnored var directPeerMemoryStore: (any DirectPeerMemoryStoring)?
     var contactNicknamesByOwner: [String: [String: String]] = [:]
     @ObservationIgnored var contactNicknameRevision: UInt64 = 0
     @ObservationIgnored var cachedContactNicknames: CachedContactNicknames?
@@ -1891,6 +1900,7 @@ final class WorkspaceState {
         hiddenMessageStore: (any HiddenMessageStoring)? = nil,
         pinnedChatStore: (any PinnedChatStoring)? = nil,
         contactNicknameStore: (any ContactNicknameStoring)? = nil,
+        directPeerMemoryStore: (any DirectPeerMemoryStoring)? = nil,
         chatRestorationStore: (any ChatRestorationStoring)? = nil,
         quickReactionStore: (any QuickReactionStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
@@ -1915,6 +1925,7 @@ final class WorkspaceState {
         self.hiddenMessageStore = hiddenMessageStore
         self.pinnedChatStore = pinnedChatStore
         self.contactNicknameStore = contactNicknameStore
+        self.directPeerMemoryStore = directPeerMemoryStore
         let resolvedChatRestorationStore =
             chatRestorationStore ?? UserDefaultsChatRestorationStore()
         self.chatRestorationStore = resolvedChatRestorationStore

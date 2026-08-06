@@ -16961,6 +16961,390 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func directChatKeepsDepartedPeerNameAfterTheOnlyOtherMemberLeaves() async throws {
+        // MDK's roster only reports *current* members, so once the only other side of a DM leaves
+        // there is nobody left to name the conversation and MDK projects the shortened group id as
+        // its title. The chat must keep naming the peer it was a DM with — even on a fresh launch
+        // whose runtime no longer knows that peer at all.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let aliceProfile = UserProfileMetadataFfi(
+            name: "alice",
+            displayName: "Alice Actual",
+            about: nil,
+            picture: "https://example.com/alice.png",
+            nip05: nil,
+            lud16: nil
+        )
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-direct-peer-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
+
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: aliceProfile
+        )
+        let state = WorkspaceState(directPeerMemoryStore: store, clientFactory: { runtime })
+
+        await state.bootstrap()
+        let didResolvePeer = await waitFor { state.activeChats.first?.title == "Alice Actual" }
+        #expect(didResolvePeer)
+        let accountId = try #require(state.activeAccountId)
+        #expect(try store.loadAll()[accountId]?["direct-group"]?.accountIdHex == aliceId)
+
+        // Alice leaves. A fresh launch sees a roster holding only this account, and this runtime
+        // cannot resolve her profile either — the recorded copy is the only thing left.
+        let departedRuntime = FakeMarmotRuntime(accounts: [account])
+        departedRuntime.installGroupDetails(
+            GroupDetailsFfi(
+                group: directGroup(),
+                members: [soleRemainingSelfMember(accountIdHex: account.accountIdHex)]
+            )
+        )
+        departedRuntime.accountIdsMissingProfiles.insert(aliceId)
+        let relaunched = WorkspaceState(directPeerMemoryStore: store, clientFactory: { departedRuntime })
+
+        await relaunched.bootstrap()
+        let didKeepDepartedPeer = await waitFor { relaunched.activeChats.first?.title == "Alice Actual" }
+
+        if !didKeepDepartedPeer {
+            Issue.record("Expected the departed peer's name. title=\(relaunched.activeChats.first?.title ?? "nil")")
+        }
+        #expect(didKeepDepartedPeer)
+        #expect(relaunched.activeChats.first?.avatarSeed == aliceId)
+        #expect(relaunched.activeChats.first?.pictureURL == "https://example.com/alice.png")
+        #expect(relaunched.activeChats.first?.isDirect == true)
+    }
+
+    @MainActor
+    @Test func departedDirectPeerIsRecoveredFromTheTranscriptWhenNothingWasRecorded() async throws {
+        // Every DM whose peer left before this device ever recorded them — including all of them
+        // on the build that introduces the record — has nothing stored. Their messages outlive
+        // their membership, so the transcript still says who this chat was with.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            GroupDetailsFfi(
+                group: directGroup(),
+                members: [soleRemainingSelfMember(accountIdHex: account.accountIdHex)]
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "from-alice",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "See you around.",
+                    kind: 9,
+                    recordedAt: 1_700_000_100
+                ),
+                appMessage(
+                    id: "from-self",
+                    direction: "sent",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Bye!",
+                    kind: 9,
+                    recordedAt: 1_700_000_200
+                ),
+            ],
+            groupIdHex: "direct-group"
+        )
+        runtime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        // `FakeMarmotRuntime.storageRootPath` is a fixed shared path, so an injected store is what
+        // guarantees this starts with nothing recorded rather than reading another test's file.
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-direct-peer-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let state = WorkspaceState(
+            directPeerMemoryStore: DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory),
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        // The newest message is this account's own, so this only passes by paging back for the
+        // newest message that is not.
+        let didRecoverPeer = await waitFor { state.activeChats.first?.title == "Alice Actual" }
+
+        if !didRecoverPeer {
+            Issue.record(
+                "Expected the peer recovered from the transcript. title=\(state.activeChats.first?.title ?? "nil")"
+            )
+        }
+        #expect(didRecoverPeer)
+        #expect(state.activeChats.first?.avatarSeed == aliceId)
+        #expect(state.activeChats.first?.isDirect == true)
+    }
+
+    @MainActor
+    @Test func noteToSelfChatRecoversNoPeerAndScansItsTranscriptOnlyOnce() async throws {
+        // A note-to-self chat legitimately has no other member and no other sender. It must keep
+        // its own identity, and the fruitless scan must not repeat on every chat-list delta.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(
+            GroupDetailsFfi(
+                group: directGroup(),
+                members: [soleRemainingSelfMember(accountIdHex: account.accountIdHex)]
+            )
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "self-note",
+                    direction: "sent",
+                    groupIdHex: "direct-group",
+                    sender: account.accountIdHex,
+                    plaintext: "Remember the milk.",
+                    kind: 9,
+                    recordedAt: 1_700_000_100
+                )
+            ],
+            groupIdHex: "direct-group"
+        )
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-direct-peer-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let state = WorkspaceState(
+            directPeerMemoryStore: DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory),
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        let didEnrich = await waitFor { (runtime.groupDetailsCallCounts["direct-group"] ?? 0) >= 1 }
+        let didScan = await waitFor { state.unrecoverableDirectPeerGroupIds.contains("direct-group") }
+
+        #expect(didEnrich)
+        #expect(didScan)
+        #expect(state.activeChats.first?.avatarSeed == "direct-group")
+        let accountId = try #require(state.activeAccountId)
+        #expect(state.rememberedDirectPeer(groupIdHex: "direct-group", accountId: accountId) == nil)
+    }
+
+    @MainActor
+    @Test func departedDirectPeerPrefersTheirCurrentProfileOverTheRecordedCopy() async throws {
+        // A departed peer's profile outlives their membership, so a fresh lookup must still win;
+        // the recorded name is only the offline fallback.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-direct-peer-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
+
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(directPeerMemoryStore: store, clientFactory: { runtime })
+        await state.bootstrap()
+        let didResolvePeer = await waitFor { state.activeChats.first?.title == "Alice Actual" }
+        #expect(didResolvePeer)
+
+        let departedRuntime = FakeMarmotRuntime(accounts: [account])
+        departedRuntime.installGroupDetails(
+            GroupDetailsFfi(
+                group: directGroup(),
+                members: [soleRemainingSelfMember(accountIdHex: account.accountIdHex)]
+            )
+        )
+        departedRuntime.installProfile(
+            accountIdHex: aliceId,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Renamed",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let relaunched = WorkspaceState(directPeerMemoryStore: store, clientFactory: { departedRuntime })
+
+        await relaunched.bootstrap()
+        let didUseCurrentProfile = await waitFor { relaunched.activeChats.first?.title == "Alice Renamed" }
+
+        #expect(didUseCurrentProfile)
+    }
+
+    @MainActor
+    @Test func namedGroupKeepsItsOwnNameAfterEveryOtherMemberLeaves() async throws {
+        // A named group is not a DM. Its name is still the right title once it empties out, so the
+        // peer remembered from when it happened to hold two people must not hijack it.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-direct-peer-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
+
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            messageGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(directPeerMemoryStore: store, clientFactory: { runtime })
+        await state.bootstrap()
+        let didResolvePeer = await waitFor { state.activeChats.first?.title == "Alice Actual" }
+        #expect(didResolvePeer)
+
+        let departedRuntime = FakeMarmotRuntime(accounts: [account])
+        departedRuntime.installGroupDetails(
+            GroupDetailsFfi(
+                group: messageGroup(),
+                members: [soleRemainingSelfMember(accountIdHex: account.accountIdHex)]
+            )
+        )
+        let relaunched = WorkspaceState(directPeerMemoryStore: store, clientFactory: { departedRuntime })
+
+        await relaunched.bootstrap()
+        // A correct outcome here is "nothing changes", so there is no positive witness to wait on:
+        // let enrichment run to completion and assert the remembered peer never took the title.
+        let didEnrich = await waitFor { (departedRuntime.groupDetailsCallCounts["group"] ?? 0) >= 1 }
+        let didHijackTitle = await waitFor(attempts: 30) {
+            relaunched.activeChats.first?.title == "Alice Actual"
+        }
+
+        #expect(didEnrich)
+        #expect(!didHijackTitle)
+        #expect(relaunched.activeChats.first?.title == "Test Group")
+        #expect(relaunched.activeChats.first?.subtitle == "Test Group")
+    }
+
+    @MainActor
+    @Test func directPeerMemoryIsDroppedOnceTheConversationHoldsSeveralOtherMembers() async throws {
+        // Growing past two people makes a single peer the wrong description of the conversation,
+        // so the record must go — otherwise it would resurface as the title when the group empties.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-direct-peer-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
+
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            messageGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(directPeerMemoryStore: store, clientFactory: { runtime })
+        await state.bootstrap()
+        let didResolvePeer = await waitFor { state.activeChats.first?.title == "Alice Actual" }
+        #expect(didResolvePeer)
+        let accountId = try #require(state.activeAccountId)
+        #expect(try store.loadAll()[accountId]?["group"]?.accountIdHex == aliceId)
+
+        let grownRuntime = FakeMarmotRuntime(accounts: [account])
+        grownRuntime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let regrouped = WorkspaceState(directPeerMemoryStore: store, clientFactory: { grownRuntime })
+
+        await regrouped.bootstrap()
+        let didForgetPeer = await waitFor { ((try? store.loadAll())?[accountId]?["group"]) == nil }
+
+        #expect(didForgetPeer)
+        #expect(regrouped.activeChats.first?.title == "Test Group")
+    }
+
+    @Test func directPeerMemoryStoreUsesOpaqueProtectedBackupExcludedPerAccountFiles() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-direct-peer-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
+        let alice = RememberedDirectPeer(
+            accountIdHex: "alice",
+            displayName: "Alice",
+            pictureURL: "https://example.com/alice.png"
+        )
+        let bob = RememberedDirectPeer(accountIdHex: "bob", displayName: nil, pictureURL: nil)
+
+        try store.write(["direct-group": alice], forAccountId: "account-one")
+        try store.write(["other-group": bob], forAccountId: "account-two")
+
+        #expect(
+            try store.loadAll()
+                == [
+                    "account-one": ["direct-group": alice],
+                    "account-two": ["other-group": bob],
+                ]
+        )
+        let directoryValues = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        #expect(directoryValues.isExcludedFromBackup == true)
+        let files = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isExcludedFromBackupKey],
+            options: [.skipsHiddenFiles]
+        )
+        #expect(files.count == 2)
+        for file in files {
+            #expect(file.pathExtension == "json")
+            #expect(file.deletingPathExtension().lastPathComponent.count == 64)
+            #expect(!file.lastPathComponent.contains("account-one"))
+            #expect(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+        }
+
+        try store.remove(forAccountId: "account-one")
+        #expect(try store.loadAll() == ["account-two": ["other-group": bob]])
+
+        try store.removeAll()
+        #expect(try store.loadAll().isEmpty)
+    }
+
+    @MainActor
     @Test func mentionRosterWarmUpFiresForDirectChatsWithAColdMemberCache() async throws {
         let summary = AccountSummaryFfi(
             label: "Desktop Account",
@@ -30595,6 +30979,19 @@ private func keyPackageFixture(accountRef: String, eventIdHex: String) -> Accoun
         sourceRelays: MarmotClient.seedRelays,
         local: true,
         relay: false
+    )
+}
+
+/// The roster a conversation is left with once every other participant has gone.
+private func soleRemainingSelfMember(accountIdHex: String) -> GroupMemberDetailsFfi {
+    GroupMemberDetailsFfi(
+        memberIdHex: accountIdHex,
+        account: "Desktop Account",
+        local: true,
+        isAdmin: true,
+        isSelf: true,
+        npub: "npub1self",
+        displayName: "Desktop Account"
     )
 }
 
