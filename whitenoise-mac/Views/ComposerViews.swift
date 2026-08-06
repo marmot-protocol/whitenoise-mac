@@ -961,9 +961,9 @@ struct VoiceMessageDraftComposerView: View {
     let uploadState: PendingMediaUploadState?
     let isSending: Bool
     let canSend: Bool
-    /// Why Send is off, worded by the shell exactly as it words it for the text composer — the
-    /// recording uploads like any other attachment, so "still uploading" and "upload failed" are
-    /// both reachable here.
+    /// Worded by the shell exactly as it words it for the text composer. An unfinished upload no
+    /// longer keeps Send off — the recording carries on uploading from its bubble — so this is the
+    /// plain Send label; the bar still offers its own retry while the recording is staged.
     let sendHelp: String
     let onDiscard: () -> Void
     let onRetryUpload: () -> Void
