@@ -1408,7 +1408,24 @@ final class WorkspaceState {
         [ComposerDraftKey: [PendingMediaAttachment.ID: PendingMediaUploadState]] = [:]
     /// In-flight stage-time Blossom uploads, so removing an attachment (or tearing the composer
     /// down) cancels the upload it started instead of letting it land on a tile that is gone.
-    @ObservationIgnored var pendingMediaUploadTasks: [PendingMediaAttachment.ID: Task<Void, Never>] = [:]
+    /// The task carries the reference it produced, so a Send pressed mid-upload can adopt the
+    /// running upload and await it rather than starting a second one.
+    @ObservationIgnored var pendingMediaUploadTasks:
+        [PendingMediaAttachment.ID: Task<MediaAttachmentReferenceFfi?, Never>] = [:]
+    /// Media messages the user has already sent whose blobs are still going up, keyed by the
+    /// composer they left. Rendered as loading bubbles at the foot of the transcript until the
+    /// publish lands and the real timeline row replaces them.
+    var pendingOutgoingMediaMessagesByConversation: [ComposerDraftKey: [PendingOutgoingMediaMessage]] = [:]
+    /// The publish task per outgoing message. Each one waits on its predecessor in the same
+    /// conversation, so two messages sent back to back publish in the order they were pressed even
+    /// when the second one's uploads finish first.
+    @ObservationIgnored var pendingOutgoingMediaSendTasks: [PendingOutgoingMediaMessage.ID: Task<Void, Never>] = [:]
+    /// The uploads one outgoing message is waiting on — adopted from the composer where staging
+    /// had already started them, freshly created where it had not. Held separately from the
+    /// publish task because they are unstructured: adopting a running upload is the whole point,
+    /// and an adopted task predates the message that now owns it.
+    @ObservationIgnored var pendingOutgoingMediaUploadTasks:
+        [PendingOutgoingMediaMessage.ID: [Task<MediaAttachmentReferenceFfi?, Never>]] = [:]
     @ObservationIgnored var composerDraftPersistenceTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
     @ObservationIgnored var composerDraftMutationGenerations: [ComposerDraftKey: UInt64] = [:]
     @ObservationIgnored var dirtyComposerDraftKeys: Set<ComposerDraftKey> = []
@@ -2422,21 +2439,18 @@ final class WorkspaceState {
             && selectedChat?.canUseComposer == true
             && (!draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !pendingMediaAttachments.isEmpty)
-            // Attachments upload as they are staged, so the composer refuses to send until every
-            // one carries a Blossom reference. Text-only drafts are unaffected.
-            && composerMediaUploadStatus == nil
+            // Deliberately *not* gated on the staged uploads. Attachments start uploading the
+            // moment they are staged, but an unfinished one only means the message spends its
+            // first moments as a loading bubble — it never means the user has to sit and wait for
+            // a button to come back (#710 made Send wait; this is the hybrid that does not).
             && !isSending
     }
 
-    /// Why the selected composer is not sendable yet, or `nil` once every staged attachment
-    /// carries a reference. Drives both the `canSend` gate and the send button's tooltip, so
-    /// "the button is off" and "here is why" can never disagree.
-    var composerMediaUploadStatus: ComposerMediaUploadStatus? {
-        let attachments = pendingMediaAttachments
-        guard !attachments.isEmpty else { return nil }
-        let states = pendingMediaUploadStates
-        if attachments.contains(where: { states[$0.id] == .failed }) { return .failed }
-        return attachments.allSatisfy { states[$0.id]?.isUploaded == true } ? nil : .uploading
+    /// Media messages sent from the selected conversation that are still uploading or publishing,
+    /// oldest first — the loading bubbles the transcript appends after its real rows.
+    var selectedPendingOutgoingMediaMessages: [PendingOutgoingMediaMessage] {
+        guard let selectedComposerDraftKey else { return [] }
+        return pendingOutgoingMediaMessagesByConversation[selectedComposerDraftKey] ?? []
     }
 
     var showsMessengerChrome: Bool {
