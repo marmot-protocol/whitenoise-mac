@@ -827,7 +827,7 @@ struct whitenoise_macTests {
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Primary Account")
 
         // Simulate the user sitting on a Settings page for the current account.
-        state.selection = .settings(.accounts)
+        state.selection = .settings(.overview)
 
         // Add a second account, but make the runtime fail to come online.
         let secondary = AccountSummaryFfi(
@@ -850,7 +850,7 @@ struct whitenoise_macTests {
         #expect(runtime.startCallCount == 2)
         #expect(state.activeAccountId == "Primary Account")
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Primary Account")
-        #expect(state.selection == .settings(.accounts))
+        #expect(state.selection == .settings(.overview))
         #expect(state.phase == .ready)
     }
 
@@ -875,7 +875,7 @@ struct whitenoise_macTests {
         await state.bootstrap()
         #expect(state.phase == .ready)
         #expect(state.activeAccountId == "Primary Account")
-        state.selection = .settings(.accounts)
+        state.selection = .settings(.overview)
 
         let secondary = AccountSummaryFfi(
             label: "Second Identity",
@@ -893,7 +893,7 @@ struct whitenoise_macTests {
         #expect(runtime.startCallCount == 2)
         #expect(state.activeAccountId == "Primary Account")
         #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == "Primary Account")
-        #expect(state.selection == .settings(.accounts))
+        #expect(state.selection == .settings(.overview))
         #expect(state.phase == .ready)
     }
 
@@ -955,7 +955,7 @@ struct whitenoise_macTests {
         // Simulate a typed-but-unsubmitted key in the Add Account field.
         state.loginIdentity = "nsec1faketestkeyfaketestkeyfaketestkeyfaketestkeyfaketest"
 
-        state.showSettings(.accounts)
+        state.showSettings(.overview)
         #expect(state.loginIdentity == "")
 
         // And again when leaving for a chat.
@@ -964,6 +964,27 @@ struct whitenoise_macTests {
             state.selectChat(chat)
             #expect(state.loginIdentity == "")
         }
+    }
+
+    /// #32 one layer up: the Add Account sheet's own teardown has to scrub the key, because Esc
+    /// and a disappearing presenter both dismiss it without running its cancel affordance. Only
+    /// the source can hold that contract — once the sheet is gone there is nothing left to observe.
+    @MainActor
+    @Test func addAccountSheetScrubsEnteredNsecWhenItDisappears() throws {
+        let sourceURL =
+            URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "whitenoise-mac")
+            .appending(path: "Views")
+            .appending(path: "SettingsAccountSwitcherViews.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        let sheetStart = try #require(source.range(of: "struct AddAccountSheet: View {"))
+        let sheetSource = String(source[sheetStart.lowerBound...])
+        let normalized = sheetSource.components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(normalized.contains(".onDisappear{workspace.clearEnteredLoginIdentity()}"))
     }
 
     @MainActor
@@ -994,7 +1015,7 @@ struct whitenoise_macTests {
         #expect(runtime.removedAccountRefs == ["Desktop Account"])
         #expect(state.accounts.map(\.id) == ["Backup Account"])
         #expect(state.activeAccountId == "Backup Account")
-        #expect(state.selection == .settings(.accounts))
+        #expect(state.selection == .settings(.overview))
     }
 
     @MainActor
@@ -11026,7 +11047,7 @@ struct whitenoise_macTests {
         let didReachReadMarker = await waitFor { runtime.didReachMarkTimelineMessageReadGate }
         #expect(didReachReadMarker)
 
-        state.selection = .settings(.accounts)
+        state.selection = .settings(.overview)
         runtime.releaseMarkTimelineMessageReadGate()
         _ = await firstMark
 
@@ -11095,7 +11116,7 @@ struct whitenoise_macTests {
         let didReachReadMarker = await waitFor { runtime.didReachMarkTimelineMessageReadGate }
         #expect(didReachReadMarker)
 
-        state.selection = .settings(.accounts)
+        state.selection = .settings(.overview)
         runtime.releaseMarkTimelineMessageReadGate()
         _ = await firstMark
 
@@ -21588,9 +21609,6 @@ struct whitenoise_macTests {
         state.showSettings(.general)
         #expect(state.selection == .settings(.general))
 
-        state.showSettings(.accounts)
-        #expect(state.selection == .settings(.accounts))
-
         state.showSettings(.profile)
         #expect(state.selection == .settings(.profile))
 
@@ -21626,6 +21644,77 @@ struct whitenoise_macTests {
         #expect(SettingsPage.sidebarPages.contains(.privacySecurity))
         #expect(SettingsPage.sidebarPages.contains(.storage))
         #expect(SettingsPage.sidebarPages.last == .developerMode)
+    }
+
+    /// Switching identities is chrome at the top of Settings (`SettingsAccountSwitcherCard`),
+    /// not a page in the sidebar: like the iOS and Flutter clients, Settings shows the current
+    /// account with a switch control under it instead of routing through an Accounts tab.
+    @MainActor
+    @Test func settingsSidebarHasNoAccountsPage() async throws {
+        #expect(
+            SettingsPage.sidebarPages == [
+                .general,
+                .profile,
+                .identityKeys,
+                .relays,
+                .keyPackages,
+                .appearance,
+                .privacySecurity,
+                .notifications,
+                .storage,
+                .developerMode,
+            ]
+        )
+    }
+
+    /// Account mutations that hand the app a different active identity stay on the settings page
+    /// the switcher was opened from, and fall back to the profile overview the switcher card sits
+    /// above when they were started from the account rail instead.
+    @MainActor
+    @Test func accountMutationLandingKeepsTheOpenSettingsPageOtherwiseTheOverview() async throws {
+        let state = WorkspaceState.preview()
+
+        state.showSettings(.keyPackages)
+        #expect(state.settingsSelectionAfterAccountMutation == .settings(.keyPackages))
+
+        state.selection = nil
+        #expect(state.settingsSelectionAfterAccountMutation == .settings(.overview))
+
+        let chat = try #require(state.activeChats.first)
+        state.selectChat(chat)
+        #expect(state.settingsSelectionAfterAccountMutation == .settings(.overview))
+    }
+
+    /// The rail's sign-out lands in Settings on the overview, because the identity that owned the
+    /// open chat is gone and the switcher card there is what names the one that took over.
+    @MainActor
+    @Test func signingOutTheActiveAccountFromAChatLandsOnTheSettingsOverview() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = desktopAccount()
+        let secondary = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, secondary])
+        runtime.installGroup(messageGroup())
+        UserDefaults.standard.set(primary.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let chat = try #require(state.activeChats.first { $0.id == "group" })
+        state.selectChat(chat)
+        let active = try #require(state.accounts.first { $0.id == primary.label })
+
+        await state.signOutAccount(active)
+
+        #expect(state.activeAccountId == secondary.label)
+        #expect(state.selection == .settings(.overview))
     }
 
     @MainActor
@@ -22275,16 +22364,16 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func settingsAccountSwitchStaysOnAccountsPage() async throws {
+    @Test func settingsAccountSwitchStaysOnTheSettingsPageItWasStartedFrom() async throws {
         let state = WorkspaceState.preview()
-        state.showSettings(.accounts)
+        state.showSettings(.relays)
         state.searchText = "relay"
         state.draftText = "half-written"
 
         state.selectAccountFromSettings(AccountItem.samples[1])
 
         #expect(state.activeAccountId == AccountItem.samples[1].id)
-        #expect(state.selection == .settings(.accounts))
+        #expect(state.selection == .settings(.relays))
         #expect(state.searchText.isEmpty)
         #expect(state.draftText.isEmpty)
     }
@@ -22421,7 +22510,7 @@ struct whitenoise_macTests {
         // account-switch teardown.
         let state = WorkspaceState.preview()
         let active = try #require(state.activeAccount)
-        state.showSettings(.accounts)
+        state.showSettings(.overview)
         #expect(state.isShowingSettings)
 
         state.selectAccount(active)
@@ -22450,17 +22539,17 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func reselectingTheActiveAccountRowInSettingsKeepsTheSessionLoaded() async throws {
-        // Settings ▸ Accounts marks the active row "Active"; tapping it would otherwise tear the
-        // session down and rebuild it only to land back on the page already on screen.
+        // The settings account switcher marks the active row "Active"; tapping it would otherwise
+        // tear the session down and rebuild it only to land back on the page already on screen.
         let state = WorkspaceState.preview()
         let active = try #require(state.activeAccount)
-        state.showSettings(.accounts)
+        state.showSettings(.relays)
         let cachedChatIdsBefore = state.cachedMessageChatIds
         let reloadGenerationBefore = state.reloadChatsGeneration
 
         state.selectAccountFromSettings(active)
 
-        #expect(state.selection == .settings(.accounts))
+        #expect(state.selection == .settings(.relays))
         #expect(state.activeAccountId == active.id)
         #expect(state.cachedMessageChatIds == cachedChatIdsBefore)
         #expect(state.reloadChatsGeneration == reloadGenerationBefore)
@@ -25490,7 +25579,7 @@ struct whitenoise_macTests {
         // but the current chat-list snapshot has not learned about yet. The tap path must
         // select first and let the reload discover it, not reject it as unavailable.
         state.setChats([], forAccountId: account.label)
-        state.selection = .settings(.accounts)
+        state.selection = .settings(.overview)
         runtime.clearTimelineMessageQueries()
 
         state.handleNotificationResponse([
@@ -26080,9 +26169,9 @@ struct whitenoise_macTests {
         state.showSettingsPage(.notifications)
         state.lastError = WorkspaceState.notificationPermissionGuidance
 
-        state.showSettingsPage(.accounts)
+        state.showSettingsPage(.storage)
 
-        #expect(state.selection == .settings(.accounts))
+        #expect(state.selection == .settings(.storage))
         #expect(state.lastError == nil)
     }
 

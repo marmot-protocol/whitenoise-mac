@@ -3,9 +3,10 @@
 //  whitenoise-mac
 //
 //  The settings surface: SettingsPanelView and every settings page/row
-//  (accounts, profile, identity keys, appearance, privacy/security, audit
-//  logs, notifications, developer mode, relays, key packages). Extracted
-//  verbatim from MessengerShellView.swift (no behavior change).
+//  (profile, identity keys, appearance, privacy/security, audit logs,
+//  notifications, developer mode, relays, key packages). Switching between
+//  identities is not a page here — it lives in the switcher at the top of the
+//  settings drawer, in SettingsAccountSwitcherViews.swift.
 //
 
 import AppKit
@@ -29,8 +30,6 @@ struct SettingsPanelView: View {
                 ProfileSettingsView()
             case .general:
                 GeneralSettingsView()
-            case .accounts:
-                AccountsSettingsView()
             case .profile:
                 ProfileSettingsView()
             case .identityKeys:
@@ -253,26 +252,26 @@ struct SettingsScaffold<Content: View>: View {
     }
 }
 
-private var removeAccountConfirmationMessage: String {
-    L10n.string(
-        "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
-    )
-}
-
-private func removeAccountConfirmationTitle(for account: AccountItem?) -> String {
-    guard let account else { return L10n.string("Remove account?") }
-    return String(format: L10n.string("Remove %@?"), account.displayName)
-}
-
-private struct RemoveAccountConfirmationModifier: ViewModifier {
+struct RemoveAccountConfirmationModifier: ViewModifier {
     let account: AccountItem?
     @Binding var isPresented: Bool
     let isRemoveDisabled: Bool
     let onRemove: () -> Void
 
+    private static var message: String {
+        L10n.string(
+            "This deletes the private key and local message history for this identity from this Mac. This cannot be undone."
+        )
+    }
+
+    private static func title(for account: AccountItem?) -> String {
+        guard let account else { return L10n.string("Remove account?") }
+        return String(format: L10n.string("Remove %@?"), account.displayName)
+    }
+
     func body(content: Content) -> some View {
         content.confirmationDialog(
-            removeAccountConfirmationTitle(for: account),
+            Self.title(for: account),
             isPresented: $isPresented,
             titleVisibility: .visible
         ) {
@@ -282,12 +281,12 @@ private struct RemoveAccountConfirmationModifier: ViewModifier {
             .disabled(isRemoveDisabled)
             Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text(removeAccountConfirmationMessage)
+            Text(Self.message)
         }
     }
 }
 
-private extension View {
+extension View {
     func removeAccountConfirmation(
         account: AccountItem?,
         isPresented: Binding<Bool>,
@@ -302,231 +301,6 @@ private extension View {
                 onRemove: onRemove
             )
         )
-    }
-}
-
-struct AccountsSettingsView: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @State private var accountPendingRemoval: AccountItem?
-    @State private var accountPendingSignOut: AccountItem?
-
-    var body: some View {
-        @Bindable var workspace = workspace
-
-        SettingsScaffold(
-            title: L10n.string("Accounts"),
-            subtitle: L10n.string("Manage the identities available on this Mac."),
-            errorSectionTitle: L10n.string("Status")
-        ) {
-            Section {
-                ForEach(workspace.accounts) { account in
-                    AccountSettingsRow(
-                        account: account,
-                        isActive: account.id == workspace.activeAccountId,
-                        isRemoving: workspace.isRemovingAccount,
-                        isAccountMutationInProgress: workspace.isAccountMutationInProgress,
-                        onSelect: {
-                            workspace.selectAccountFromSettings(account)
-                        },
-                        onRemove: {
-                            accountPendingRemoval = account
-                        },
-                        onSignOut: {
-                            accountPendingSignOut = account
-                        },
-                        onSignIn: {
-                            Task { await workspace.signInAccount(account) }
-                        }
-                    )
-                }
-            } header: {
-                Text(L10n.string("Accounts"))
-            } footer: {
-                Text(
-                    L10n.string(
-                        "Removing an account deletes its private key and local message history from this Mac. The identity itself is not deleted from the network."
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
-            Section(L10n.string("Add Account")) {
-                SecureField(L10n.string(""), text: $workspace.loginIdentity, prompt: Text(L10n.string("nsec1...")))
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(workspace.isAuthenticating)
-
-                HStack(spacing: 10) {
-                    Button {
-                        Task {
-                            await workspace.login()
-                            workspace.showSettingsPage(.accounts)
-                        }
-                    } label: {
-                        Label(
-                            workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in with key"),
-                            systemImage: "key")
-                    }
-                    .nativeGlassProminentButtonStyle()
-                    .disabled(
-                        workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || workspace.isAuthenticating)
-
-                    Button {
-                        workspace.loginIdentity = ""
-                        Task {
-                            await workspace.signUp()
-                            workspace.showSettingsPage(.accounts)
-                        }
-                    } label: {
-                        Label(
-                            workspace.isAuthenticating ? L10n.string("Creating...") : L10n.string("Create identity"),
-                            systemImage: "plus.circle")
-                    }
-                    .nativeGlassButtonStyle()
-                    .disabled(workspace.isAuthenticating)
-
-                    Spacer()
-                }
-            }
-
-        }
-        .removeAccountConfirmation(
-            account: accountPendingRemoval,
-            isPresented: removeConfirmationBinding,
-            isRemoveDisabled: workspace.isAccountMutationInProgress
-        ) {
-            guard let account = accountPendingRemoval else { return }
-            accountPendingRemoval = nil
-            Task { await workspace.removeAccount(account) }
-        }
-        .confirmationDialog(
-            L10n.string("Sign out of this account?"),
-            isPresented: signOutConfirmationBinding,
-            titleVisibility: .visible
-        ) {
-            Button(L10n.string("Sign Out"), role: .destructive) {
-                guard let account = accountPendingSignOut else { return }
-                accountPendingSignOut = nil
-                Task { await workspace.signOutAccount(account) }
-            }
-            Button(L10n.string("Cancel"), role: .cancel) {
-                accountPendingSignOut = nil
-            }
-        } message: {
-            Text(L10n.string("The account and its local data will stay on this Mac so you can sign in again later."))
-        }
-    }
-
-    private var removeConfirmationBinding: Binding<Bool> {
-        Binding(
-            get: { accountPendingRemoval != nil },
-            set: { isPresented in
-                if !isPresented { accountPendingRemoval = nil }
-            }
-        )
-    }
-
-    private var signOutConfirmationBinding: Binding<Bool> {
-        Binding(
-            get: { accountPendingSignOut != nil },
-            set: { isPresented in
-                if !isPresented { accountPendingSignOut = nil }
-            }
-        )
-    }
-}
-
-struct AccountSettingsRow: View {
-    let account: AccountItem
-    let isActive: Bool
-    let isRemoving: Bool
-    let isAccountMutationInProgress: Bool
-    let onSelect: () -> Void
-    let onRemove: () -> Void
-    let onSignOut: () -> Void
-    let onSignIn: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Button(action: account.signedOut ? onSignIn : onSelect) {
-                HStack(spacing: 12) {
-                    ProfileImageAvatarView(
-                        seed: account.accountIdHex,
-                        initials: account.initials,
-                        sanitizedPictureURL: account.sanitizedPictureURL,
-                        size: 44,
-                        isSelected: false
-                    )
-                    .opacity(account.signedOut ? 0.4 : 1)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(account.displayName)
-                            .font(.callout.weight(.semibold))
-                            .lineLimit(1)
-
-                        HStack(spacing: 8) {
-                            CopyableKeyLabel(accountIdHex: account.accountIdHex, showsCopyButton: false)
-
-                            Text(statusText)
-                                .font(.caption)
-                                .foregroundStyle(account.signedOut ? Color.orange : .secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    if isActive {
-                        Label(L10n.string("Active"), systemImage: "checkmark.circle.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tint)
-                    }
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isRemoving || (account.signedOut && isAccountMutationInProgress))
-
-            PublicIdentityQRCodeButton(
-                accountIdHex: account.accountIdHex,
-                displayName: account.displayName
-            )
-            .disabled(isRemoving)
-
-            Menu {
-                if account.signedOut {
-                    Button(action: onSignIn) {
-                        Label(L10n.string("Sign In"), systemImage: "person.crop.circle.badge.checkmark")
-                    }
-                } else {
-                    Button(action: onSignOut) {
-                        Label(L10n.string("Sign Out"), systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                }
-                Divider()
-                Button(role: .destructive, action: onRemove) {
-                    Label(L10n.string("Remove Account"), systemImage: "person.crop.circle.badge.minus")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .disabled(isRemoving || isAccountMutationInProgress)
-            .help(L10n.string("Account actions"))
-            .accessibilityLabel(Text(String(format: L10n.string("Actions for %@"), account.displayName)))
-        }
-    }
-
-    private var statusText: String {
-        if account.signedOut {
-            return L10n.string("Signed out")
-        }
-        if account.localSigning {
-            return L10n.string("Local signing")
-        }
-        return account.externalSigning ? L10n.string("External signing") : L10n.string("Watch-only")
     }
 }
 
