@@ -1462,6 +1462,9 @@ extension WorkspaceState {
     }
 
     func invalidateGroupMembers(for groupIdHex: String) {
+        // A roster change can bring a new sender into a conversation that had none, so let the
+        // peer recovery scan run again for it.
+        unrecoverableDirectPeerGroupIds.remove(groupIdHex)
         groupMemberDetailsCache[groupIdHex] = nil
         mentionRosterCache[groupIdHex] = nil
         mentionNamesCache[groupIdHex] = nil
@@ -1471,6 +1474,7 @@ extension WorkspaceState {
     }
 
     func clearGroupMemberCache() {
+        unrecoverableDirectPeerGroupIds.removeAll()
         groupMemberDetailsCache.removeAll()
         mentionRosterCache.removeAll()
         mentionNamesCache.removeAll()

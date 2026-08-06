@@ -41,9 +41,13 @@ extension WorkspaceState {
             if contactNicknameStore == nil {
                 contactNicknameStore = ContactNicknameFileStore(storageRootPath: storageRootPath)
             }
+            if directPeerMemoryStore == nil {
+                directPeerMemoryStore = DirectPeerMemoryFileStore(storageRootPath: storageRootPath)
+            }
             loadHiddenMessages()
             loadPinnedChats()
             loadContactNicknames()
+            loadRememberedDirectPeers()
             let summaries = try await runOffMain {
                 try runtime.listAccounts()
             }
@@ -403,6 +407,7 @@ extension WorkspaceState {
             purgeHiddenMessages(accountId: removedAccountId)
             purgePinnedChats(accountId: removedAccountId)
             purgeContactNicknames(ownerAccountIdHex: removedAccountIdHex)
+            purgeRememberedDirectPeers(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
             accounts = try await accountItemsFromRuntime(client: client)
@@ -856,6 +861,7 @@ extension WorkspaceState {
         clearAllHiddenMessages()
         clearAllPinnedChats()
         clearAllContactNicknames()
+        clearAllRememberedDirectPeers()
         clearChatRestorationTargets()
         isRefreshing = false
         isSending = false
