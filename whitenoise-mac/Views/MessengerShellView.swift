@@ -728,7 +728,8 @@ private struct ConversationView: View {
             }
         }
 
-        if !workspace.pendingMediaAttachments.isEmpty {
+        // A staged recording is presented by the voice-draft bar below, not as a thumbnail.
+        if !workspace.pendingMediaAttachments.isEmpty, workspace.stagedVoiceMessage == nil {
             PendingMediaDraftStrip(
                 attachments: workspace.pendingMediaAttachments,
                 uploadStates: workspace.pendingMediaUploadStates,
@@ -758,9 +759,23 @@ private struct ConversationView: View {
             VoiceRecordingComposerView(
                 samples: workspace.voiceRecordingSamples,
                 durationSeconds: workspace.voiceRecordingDurationSeconds,
-                onCancel: workspace.cancelVoiceRecording,
                 onStop: {
                     Task { await workspace.finishVoiceRecording() }
+                }
+            )
+        } else if let stagedVoiceMessage = workspace.stagedVoiceMessage {
+            VoiceMessageDraftComposerView(
+                attachment: stagedVoiceMessage,
+                uploadState: workspace.pendingMediaUploadStates[stagedVoiceMessage.id],
+                isSending: workspace.isSending,
+                canSend: workspace.canSend,
+                sendHelp: sendButtonHelp,
+                onDiscard: workspace.discardStagedVoiceMessage,
+                onRetryUpload: {
+                    workspace.retryPendingMediaUpload(stagedVoiceMessage.id)
+                },
+                onSend: {
+                    Task { await workspace.sendDraft() }
                 }
             )
         } else {
@@ -865,8 +880,8 @@ private struct ConversationView: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .disabled(workspace.isSending)
-                    .help(L10n.string("Voice message"))
+                    .disabled(workspace.isSending || !workspace.canRecordVoiceMessage)
+                    .help(voiceRecordingButtonHelp)
                 }
 
                 Button {
@@ -893,6 +908,14 @@ private struct ConversationView: View {
                 .help(sendButtonHelp)
             }
         }
+    }
+
+    /// Explains a mic button that is off because the composer already holds something. A
+    /// recording is sent on its own, so it can only start from an empty composer — saying so on
+    /// hover is friendlier than letting the tap silently discard the draft.
+    private var voiceRecordingButtonHelp: String {
+        workspace.canRecordVoiceMessage
+            ? L10n.string("Voice message") : L10n.string("A voice message is sent on its own")
     }
 
     /// Explains a Send that is disabled because media is still in flight. The thumbnails carry the

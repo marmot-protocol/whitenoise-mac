@@ -14403,6 +14403,174 @@ struct whitenoise_macTests {
         #expect(runtime.sentMediaAttachments.last?.caption == nil)
     }
 
+    /// A finished recording as `finishVoiceRecording()` stages it.
+    private func recordedVoiceMessage(fileName: String = "voice-note.m4a") -> PendingMediaAttachment {
+        PendingMediaAttachment(
+            fileName: fileName,
+            mediaType: "audio/mp4",
+            data: Data("recorded audio".utf8),
+            dim: nil,
+            durationSeconds: 4,
+            waveformSamples: [0.2, 0.7, 0.4],
+            isVoiceMessage: true
+        )
+    }
+
+    @MainActor
+    @Test func stagedRecordingTakesTheComposerOverInsteadOfJoiningTheMediaStrip() async throws {
+        // A recording is a whole message, not an attachment: it stands alone in the composer, and
+        // nothing else can be staged next to it until it is sent or discarded.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let photo = PendingMediaAttachment(
+            fileName: "photo.png",
+            mediaType: "image/png",
+            data: Data("photo".utf8),
+            dim: "10x10"
+        )
+        state.appendPendingMediaAttachment(photo, for: draftKey)
+        #expect(state.stagedVoiceMessage == nil)
+
+        // With a photo staged the mic is off — recording would have to discard it.
+        #expect(!state.canRecordVoiceMessage)
+        await state.startVoiceRecording()
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.lastError == L10n.string("A voice message is sent on its own"))
+        state.lastError = nil
+
+        let recording = recordedVoiceMessage()
+        state.appendPendingMediaAttachment(recording, for: draftKey)
+
+        #expect(state.stagedVoiceMessage?.id == recording.id)
+        #expect(state.pendingMediaAttachments.map(\.id) == [recording.id])
+        #expect(state.pendingMediaUploadStates[photo.id] == nil)
+
+        // Every other staging path is refused while the recording is staged.
+        #expect(!state.canBeginMediaAttachmentSelection())
+        #expect(state.lastError == L10n.string("A voice message is sent on its own"))
+        #expect(state.pendingMediaAttachments.map(\.id) == [recording.id])
+    }
+
+    @MainActor
+    @Test func recordingIsRefusedWhileTheComposerHoldsText() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        #expect(state.canRecordVoiceMessage)
+
+        state.draftText = "half-written message"
+        #expect(!state.canRecordVoiceMessage)
+
+        await state.startVoiceRecording()
+
+        // The typed text survives: the recording never started rather than replacing it.
+        #expect(!state.isRecordingVoiceMessage)
+        #expect(state.voiceRecorder == nil)
+        #expect(state.draftText == "half-written message")
+        #expect(state.lastError == L10n.string("A voice message is sent on its own"))
+    }
+
+    @MainActor
+    @Test func stagedRecordingSendsAsAudioOnly() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(recordedVoiceMessage(), for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+        #expect(state.canSend)
+
+        await state.sendDraft()
+
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
+        #expect(runtime.sentMediaAttachments.last?.fileNames == ["voice-note.m4a"])
+        #expect(runtime.sentMediaAttachments.last?.caption == nil)
+        #expect(state.stagedVoiceMessage == nil)
+        #expect(state.pendingMediaAttachments.isEmpty)
+    }
+
+    @MainActor
+    @Test func discardingAStagedRecordingCancelsItsUpload() async throws {
+        // The trash can has to reach the in-flight upload too, or the blob keeps climbing to
+        // Blossom for a recording the user just threw away.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let recording = recordedVoiceMessage()
+        await runtime.uploadReleaseGate.hold("voice-note.m4a")
+        state.appendPendingMediaAttachment(recording, for: draftKey)
+        #expect(state.pendingMediaUploadStates[recording.id] == .uploading)
+
+        state.discardStagedVoiceMessage()
+
+        #expect(state.stagedVoiceMessage == nil)
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(state.pendingMediaUploadStates[recording.id] == nil)
+        #expect(!state.canSend)
+
+        await runtime.uploadReleaseGate.release("voice-note.m4a")
+        await Self.settleComposerMediaUploads(state)
+
+        // The released upload has nowhere to land: the composer stays empty.
+        #expect(state.pendingMediaAttachments.isEmpty)
+        #expect(state.pendingMediaUploadStates.isEmpty)
+
+        await state.sendDraft()
+        #expect(runtime.sendMediaAttachmentsCallCount == 0)
+    }
+
+    @MainActor
+    @Test func stagingARecordingDropsAnActiveReplyLikeEveryOtherAttachment() async throws {
+        // A reply banner is not draft content, so it never blocks the mic — but reply and pending
+        // media are mutually exclusive (#399) because outgoing media carries no reply target. The
+        // recording path is one more staging path and honours that the same way the paperclip does,
+        // rather than leaving a banner promising a reply the send cannot make.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.startReply(
+            to: MessageItem(
+                id: "parent",
+                senderName: "Alice",
+                body: "How did the launch go?",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false
+            ))
+        #expect(state.replyDraftContext?.targetMessageId == "parent")
+        #expect(state.canRecordVoiceMessage)
+
+        state.appendPendingMediaAttachment(recordedVoiceMessage(), for: draftKey)
+
+        #expect(state.stagedVoiceMessage != nil)
+        #expect(state.replyDraftContext == nil)
+
+        await Self.settleComposerMediaUploads(state)
+        await state.sendDraft()
+
+        #expect(runtime.replyToMessageCallCount == 0)
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
+        #expect(runtime.sentMediaAttachments.last?.fileNames == ["voice-note.m4a"])
+    }
+
     @MainActor
     @Test func stagedVoiceNoteUploadsAndGatesSendLikeAnyOtherAttachment() async throws {
         // Upload feedback used to be image-only, so a voice note or a document showed no progress
