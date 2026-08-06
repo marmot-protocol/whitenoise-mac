@@ -686,9 +686,34 @@ extension WorkspaceState {
             mentionNames = Self.mentionNames(from: members)
             directPeer = await directPeerProfile(
                 from: members,
+                groupIdHex: row.groupIdHex,
                 activeAccount: account,
                 client: client
             )
+            if directPeer == nil,
+                Self.otherMembers(in: members, activeAccount: account).isEmpty,
+                PeerDisplayText.sanitize(row.groupName) == nil
+            {
+                // Nobody is left to name this conversation and it never had a group name, so MDK
+                // projects the shortened group id as its title. Fall back to whoever this chat was
+                // last a one-to-one with, which is what the user recognises it by.
+                directPeer = await rememberedDirectPeerProfile(
+                    groupIdHex: row.groupIdHex,
+                    activeAccount: account,
+                    client: client
+                )
+                if directPeer == nil {
+                    // Nothing was recorded — the peer left before this device ever enriched the
+                    // chat (including every such conversation that predates this feature). Their
+                    // messages outlive their membership, so recover the identity from the
+                    // transcript and record it so this costs one lookup, not one per enrichment.
+                    directPeer = await recoveredDirectPeerProfile(
+                        from: row,
+                        activeAccount: account,
+                        client: client
+                    )
+                }
+            }
         }
         let groupImagePayload =
             row.conversationKind != .direct && directPeer == nil && groupAvatarURL == nil
@@ -756,17 +781,33 @@ extension WorkspaceState {
         ChatListOrdering.sorted(chatItems)
     }
 
+    static func otherMembers(
+        in members: [GroupMemberDetailsFfi],
+        activeAccount: AccountItem
+    ) -> [GroupMemberDetailsFfi] {
+        members.filter { member in
+            !member.isSelf && member.memberIdHex != activeAccount.accountIdHex
+        }
+    }
+
     func directPeerProfile(
         from members: [GroupMemberDetailsFfi],
+        groupIdHex: String,
         activeAccount: AccountItem,
         client: any MarmotRuntime
     ) async -> ChatPeerProfile? {
-        let otherMembers = members.filter { member in
-            !member.isSelf && member.memberIdHex != activeAccount.accountIdHex
-        }
+        let otherMembers = Self.otherMembers(in: members, activeAccount: activeAccount)
         guard otherMembers.count == 1,
             let otherMember = otherMembers.first
-        else { return nil }
+        else {
+            // Several other members means this is a real group, which no single peer describes.
+            // Drop any peer remembered from when it was a two-person chat so it cannot resurface
+            // as the title once the group empties out.
+            if otherMembers.count > 1 {
+                forgetDirectPeer(groupIdHex: groupIdHex, accountId: activeAccount.id)
+            }
+            return nil
+        }
 
         let memberId = otherMember.memberIdHex
         let resolved = await resolvedPeerFFI(
@@ -784,12 +825,141 @@ extension WorkspaceState {
         // the override reach the DM's chat-row title, and through that the forward picker,
         // compose contacts, and the sidebar filter.
         let nickname = activeContactNicknames.nickname(forContactAccountIdHex: memberId)
+        let pictureURL = resolved?.profilePicture?.nilIfBlank
+
+        // The roster is the only place this identity is available; once the peer leaves, MDK stops
+        // reporting them. Capture it while it is in hand so the chat can still name them later.
+        if activeAccountId == activeAccount.id {
+            rememberDirectPeer(
+                RememberedDirectPeer(
+                    accountIdHex: memberId,
+                    displayName: published,
+                    pictureURL: pictureURL
+                ),
+                groupIdHex: groupIdHex,
+                accountId: activeAccount.id
+            )
+        }
 
         return ChatPeerProfile(
             accountIdHex: memberId,
             displayName: nickname ?? published,
             publishedDisplayName: nickname == nil ? nil : published,
-            pictureURL: resolved?.profilePicture?.nilIfBlank
+            pictureURL: pictureURL
+        )
+    }
+
+    /// The departed other party of a conversation that no longer has one.
+    ///
+    /// Their profile outlives their membership, so prefer a fresh lookup and treat the recorded
+    /// name and picture as the offline fallback.
+    func rememberedDirectPeerProfile(
+        groupIdHex: String,
+        activeAccount: AccountItem,
+        client: any MarmotRuntime
+    ) async -> ChatPeerProfile? {
+        guard
+            let remembered = rememberedDirectPeer(
+                groupIdHex: groupIdHex,
+                accountId: activeAccount.id
+            )
+        else { return nil }
+
+        let memberId = remembered.accountIdHex
+        let resolved = await resolvedPeerFFI(
+            accountIdHex: memberId,
+            activeAccount: activeAccount,
+            client: client
+        )
+        let published = firstNonBlank([
+            resolved?.profileDisplayName,
+            resolved?.profileName,
+            resolved?.directoryDisplayName,
+            remembered.displayName,
+        ])
+        let nickname = activeContactNicknames.nickname(forContactAccountIdHex: memberId)
+
+        return ChatPeerProfile(
+            accountIdHex: memberId,
+            displayName: nickname ?? published,
+            publishedDisplayName: nickname == nil ? nil : published,
+            pictureURL: resolved?.profilePicture?.nilIfBlank ?? remembered.pictureURL?.nilIfBlank
+        )
+    }
+
+    /// Recover the other party of a conversation that has no roster peer and no recorded one, by
+    /// reading the transcript: whoever else spoke here is who this chat was with.
+    ///
+    /// A note-to-self chat has no other sender and correctly recovers nothing. That answer is
+    /// cached for the session so an empty scan is not repeated on every chat-list delta.
+    func recoveredDirectPeerProfile(
+        from row: ChatListRowFfi,
+        activeAccount: AccountItem,
+        client: any MarmotRuntime
+    ) async -> ChatPeerProfile? {
+        let groupIdHex = row.groupIdHex
+        guard !unrecoverableDirectPeerGroupIds.contains(groupIdHex) else { return nil }
+
+        let selfIdHex = activeAccount.accountIdHex
+        var memberId = row.lastMessage?.sender.nilIfBlank.flatMap { $0 == selfIdHex ? nil : $0 }
+        if memberId == nil {
+            // The newest message is this account's own (or there is none), so page back through
+            // the transcript for the newest message that is not.
+            let accountRef = activeAccount.accountRef
+            memberId = try? await runOffMain { () -> String? in
+                let page = try client.timelineMessages(
+                    accountRef: accountRef,
+                    query: TimelineMessageQueryFfi(
+                        groupIdHex: groupIdHex,
+                        search: nil,
+                        before: nil,
+                        beforeMessageId: nil,
+                        after: nil,
+                        afterMessageId: nil,
+                        limit: Self.directPeerRecoveryScanLimit
+                    )
+                )
+                return page.messages.reversed().first { $0.sender != selfIdHex }?.sender.nilIfBlank
+            }
+        }
+
+        guard activeAccountId == activeAccount.id else { return nil }
+        guard let memberId else {
+            unrecoverableDirectPeerGroupIds.insert(groupIdHex)
+            return nil
+        }
+
+        let resolved = await resolvedPeerFFI(
+            accountIdHex: memberId,
+            activeAccount: activeAccount,
+            client: client
+        )
+        let published = firstNonBlank([
+            resolved?.profileDisplayName,
+            resolved?.profileName,
+            resolved?.directoryDisplayName,
+            PeerDisplayText.sanitize(row.lastMessage?.senderDisplayName),
+        ])
+        let pictureURL = resolved?.profilePicture?.nilIfBlank
+        let nickname = activeContactNicknames.nickname(forContactAccountIdHex: memberId)
+
+        if activeAccountId == activeAccount.id {
+            rememberDirectPeer(
+                RememberedDirectPeer(
+                    accountIdHex: memberId,
+                    displayName: published,
+                    pictureURL: pictureURL
+                ),
+                groupIdHex: groupIdHex,
+                accountId: activeAccount.id
+            )
+        }
+
+        return ChatPeerProfile(
+            accountIdHex: memberId,
+            displayName: nickname ?? published,
+            publishedDisplayName: nickname == nil ? nil : published,
+            pictureURL: pictureURL
         )
     }
 
