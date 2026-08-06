@@ -15901,6 +15901,35 @@ struct whitenoise_macTests {
         #expect(copiedText == "public-key-value")
     }
 
+    @MainActor
+    @Test func copyConfirmationShowsThenClearsItself() async throws {
+        let confirmation = CopyConfirmation(duration: .milliseconds(30))
+
+        #expect(!confirmation.isConfirming)
+        confirmation.confirm()
+        // macOS gives no system-level copy confirmation, so the checkmark is the only signal the
+        // user gets that the click landed — it has to be up immediately, not after an await.
+        #expect(confirmation.isConfirming)
+
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(!confirmation.isConfirming)
+    }
+
+    @MainActor
+    @Test func repeatedCopyRestartsTheConfirmationWindow() async throws {
+        let confirmation = CopyConfirmation(duration: .milliseconds(200))
+
+        confirmation.confirm()
+        try await Task.sleep(for: .milliseconds(120))
+        // Second copy mid-window: the first reset must not fire and blank the confirmation while
+        // the user is still looking at the result of the newer copy.
+        confirmation.confirm()
+        try await Task.sleep(for: .milliseconds(120))
+
+        #expect(confirmation.isConfirming)
+    }
+
     @Test func globalMessageSearchTextNormalizesOrderedTokensAndBoundsSnippets() {
         let tokens = GlobalMessageSearchText.tokens(in: "  CAFÉ…shipped!  ")
 

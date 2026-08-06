@@ -559,7 +559,6 @@ struct PublicIdentityQRCodeButton: View {
 
 struct PublicIdentityQRCodeSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(WorkspaceState.self) private var workspace
     let displayName: String
     let npub: String
 
@@ -606,10 +605,11 @@ struct PublicIdentityQRCodeSheet: View {
                 .frame(maxWidth: .infinity)
 
             HStack(spacing: 10) {
-                Button {
-                    workspace.copyText(npub)
-                } label: {
-                    Label(L10n.string("Copy npub"), systemImage: "doc.on.doc")
+                CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
+                    Label(
+                        isConfirming ? L10n.string("Copied") : L10n.string("Copy npub"),
+                        systemImage: isConfirming ? "checkmark" : "doc.on.doc"
+                    )
                 }
                 .nativeGlassButtonStyle()
 
@@ -980,13 +980,14 @@ struct IdentityKeysSettingsView: View {
                                 .lineLimit(3)
                                 .textSelection(.enabled)
 
-                            Button {
-                                workspace.copyText(npub)
-                            } label: {
-                                Image(systemName: "doc.on.doc")
+                            CopyToClipboardButton(
+                                value: npub,
+                                actionDescription: L10n.string("Copy npub")
+                            ) { isConfirming in
+                                Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                                    .foregroundStyle(isConfirming ? Color.green : Color.accentColor)
                             }
                             .buttonStyle(.borderless)
-                            .help(L10n.string("Copy npub"))
 
                             PublicIdentityQRCodeButton(
                                 accountIdHex: account.accountIdHex,
@@ -1126,13 +1127,14 @@ struct PrivateKeyBackupSheet: View {
                             .lineLimit(4)
                             .truncationMode(.middle)
                         Spacer(minLength: 8)
-                        Button {
-                            workspace.copyText(revealedSecret)
-                        } label: {
-                            Image(systemName: "doc.on.doc")
+                        CopyToClipboardButton(
+                            value: revealedSecret,
+                            actionDescription: L10n.string("Copy")
+                        ) { isConfirming in
+                            Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                                .foregroundStyle(isConfirming ? Color.green : Color.accentColor)
                         }
                         .buttonStyle(.borderless)
-                        .help(L10n.string("Copy"))
                     }
                 }
             }
@@ -1235,15 +1237,12 @@ struct CopyableKeyLabel: View {
                 .textSelection(.enabled)
 
             if showsCopyButton {
-                Button {
-                    workspace.copyText(npub)
-                } label: {
-                    Image(systemName: "doc.on.doc")
+                CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
+                    Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 10))
+                        .foregroundStyle(isConfirming ? Color.green : Color.secondary)
                 }
                 .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help(L10n.string("Copy npub"))
             }
         }
     }
