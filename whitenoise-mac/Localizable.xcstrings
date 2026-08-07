@@ -41284,61 +41284,61 @@
         }
       }
     },
-    "Restore last selected chat on launch": {
+    "Restore last selected chat": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Beim Start letzten ausgewählten Chat wiederherstellen"
+            "value": "Letzten ausgewählten Chat wiederherstellen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restaurar el último chat seleccionado al abrir"
+            "value": "Restaurar el último chat seleccionado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restaurer la dernière discussion sélectionnée au lancement"
+            "value": "Restaurer la dernière discussion sélectionnée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ripristina all’avvio l’ultima chat selezionata"
+            "value": "Ripristina l’ultima chat selezionata"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restaurar a última conversa selecionada ao abrir"
+            "value": "Restaurar a última conversa selecionada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Восстанавливать последний выбранный чат при запуске"
+            "value": "Восстанавливать последний выбранный чат"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başlatıldığında son seçilen sohbeti geri yükle"
+            "value": "Son seçilen sohbeti geri yükle"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "启动时恢复上次选择的聊天"
+            "value": "恢复上次选择的聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "啟動時還原上次選擇的聊天"
+            "value": "還原上次選擇的聊天"
           }
         }
       }
@@ -41638,61 +41638,61 @@
         }
       }
     },
-    "Return to the last conversation selected for this account after White Noise finishes loading.": {
+    "Return to the last conversation selected for this account, both on launch and when you switch accounts.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kehre nach dem Laden von White Noise zur letzten für diesen Account ausgewählten Unterhaltung zurück."
+            "value": "Kehre beim Start und beim Wechsel des Accounts zur letzten für diesen Account ausgewählten Unterhaltung zurück."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vuelve a la última conversación seleccionada para esta cuenta cuando White Noise termine de cargar."
+            "value": "Vuelve a la última conversación seleccionada para esta cuenta, tanto al abrir la app como al cambiar de cuenta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Revenez à la dernière conversation sélectionnée pour ce compte une fois White Noise chargé."
+            "value": "Revenez à la dernière conversation sélectionnée pour ce compte, au lancement comme lors d’un changement de compte."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Torna all’ultima conversazione selezionata per questo account al termine del caricamento di White Noise."
+            "value": "Torna all’ultima conversazione selezionata per questo account, sia all’avvio sia quando cambi account."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Volte à última conversa selecionada para esta conta depois que o White Noise terminar de carregar."
+            "value": "Volte à última conversa selecionada para esta conta, tanto ao abrir o app como ao trocar de conta."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Возвращаться к последнему выбранному для этого аккаунта разговору после загрузки White Noise."
+            "value": "Возвращаться к последнему выбранному для этого аккаунта разговору при запуске и при переключении аккаунтов."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise yüklenmeyi bitirdikten sonra bu hesap için son seçilen sohbete dön."
+            "value": "Hem uygulama açıldığında hem de hesap değiştirdiğinizde bu hesap için son seçilen sohbete dön."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise 加载完成后，返回此账户上次选择的会话。"
+            "value": "启动时以及切换账户时，都返回此账户上次选择的会话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise 載入完成後，返回此帳號上次選擇的對話。"
+            "value": "啟動時以及切換帳號時，都回到此帳號上次選擇的對話。"
           }
         }
       }

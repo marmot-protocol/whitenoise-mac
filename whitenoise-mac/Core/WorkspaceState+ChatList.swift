@@ -88,7 +88,6 @@ extension WorkspaceState {
 
     func reloadChats(forceFreshSnapshot: Bool = false) async {
         guard client != nil, let activeAccount else {
-            discardStartupChatRestoration()
             cancelChatListReload()
             stopChatListListener()
             return
@@ -765,14 +764,16 @@ extension WorkspaceState {
         return payload
     }
 
+    /// Picks the conversation for an account that has none selected — at launch, and again once a
+    /// switch's fresh snapshot lands. The active account's remembered chat outranks its most recent
+    /// one, which is what makes the memory account-scoped in effect and not just in storage.
     func selectInitialChatIfNeeded() async {
-        let restoredChat = consumeStartupRestoredChat()
-        guard selection == nil,
-            !isShowingSettings,
-            let chat = restoredChat ?? mostRecentChat(in: activeChats)
-        else { return }
+        guard selection == nil, !isShowingSettings else { return }
 
-        selection = .chat(chat.id)
+        let outcome = resolveRememberedChatForActiveAccount()
+        guard let chat = outcome.chat ?? mostRecentChat(in: activeChats) else { return }
+
+        withRememberedChatPreserved(outcome.preservesMemory) { selection = .chat(chat.id) }
         closeNewChatComposer()
         pruneMessageCache(keeping: chat.id)
         beginTimelineInitialLoadIfNeeded(groupIdHex: chat.id)

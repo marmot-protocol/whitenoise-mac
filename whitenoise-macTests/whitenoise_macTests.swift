@@ -11965,6 +11965,268 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func accountSwitchOpensTheChatRememberedForTheAccountBeingSwitchedTo() async throws {
+        // The memory was per account in storage but only ever read at launch, so a switch fell back
+        // to the new account's newest row — and then persisted *that* as the account's last chat,
+        // erasing the real one. One hop was enough to make the whole setting look account-blind.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let first = AccountItem(
+            id: "First Account",
+            accountRef: "First Account",
+            displayName: "First Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111"
+        )
+        let second = AccountItem(
+            id: "Second Account",
+            accountRef: "Second Account",
+            displayName: "Second Account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222"
+        )
+        let firstRemembered = chatListOrderingTestItem(id: "first-older", title: "First Older", updatedAt: 100)
+        let firstNewest = chatListOrderingTestItem(id: "first-newer", title: "First Newer", updatedAt: 300)
+        let secondRemembered = chatListOrderingTestItem(id: "second-older", title: "Second Older", updatedAt: 150)
+        let secondNewest = chatListOrderingTestItem(id: "second-newer", title: "Second Newer", updatedAt: 350)
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [
+                first.accountIdHex: firstRemembered.id,
+                second.accountIdHex: secondRemembered.id,
+            ]
+        )
+        let state = WorkspaceState(accounts: [first, second], chatRestorationStore: store)
+        // Loaded after init: a fixture whose rows are already cached lets the initializer select one,
+        // which would persist it and overwrite the very memory under test.
+        state.setChats([firstNewest, firstRemembered], forAccountId: first.id)
+        state.setChats([secondNewest, secondRemembered], forAccountId: second.id)
+        state.activeAccountId = first.id
+        state.selection = .chat(firstRemembered.id)
+
+        state.selectAccount(second)
+
+        #expect(state.activeAccountId == second.id)
+        #expect(state.selection == .chat(secondRemembered.id))
+        #expect(store.targetsByAccount[first.accountIdHex] == firstRemembered.id)
+
+        state.selectAccount(first)
+
+        #expect(state.selection == .chat(firstRemembered.id))
+        #expect(store.targetsByAccount[second.accountIdHex] == secondRemembered.id)
+    }
+
+    @MainActor
+    @Test func accountSwitchWithoutCachedRowsDefersRestorationToTheFreshSnapshot() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let first = AccountItem(
+            id: "First Account",
+            accountRef: "First Account",
+            displayName: "First Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111"
+        )
+        let second = AccountItem(
+            id: "Second Account",
+            accountRef: "Second Account",
+            displayName: "Second Account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222"
+        )
+        let firstChat = chatListOrderingTestItem(id: "first-chat", title: "First Chat", updatedAt: 100)
+        let secondRemembered = chatListOrderingTestItem(id: "second-older", title: "Second Older", updatedAt: 150)
+        let secondNewest = chatListOrderingTestItem(id: "second-newer", title: "Second Newer", updatedAt: 350)
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [second.accountIdHex: secondRemembered.id]
+        )
+        let state = WorkspaceState(accounts: [first, second], chatRestorationStore: store)
+        state.setChats([firstChat], forAccountId: first.id)
+        state.activeAccountId = first.id
+        state.selection = .chat(firstChat.id)
+
+        state.selectAccount(second)
+
+        // The second account's rows have never been loaded in this process, so the switch lands on
+        // nothing rather than on a stand-in row: selecting one would persist through `selection` and
+        // destroy the memory before the snapshot could honor it.
+        #expect(state.selection == nil)
+        #expect(store.targetsByAccount[second.accountIdHex] == secondRemembered.id)
+
+        state.setChats([secondNewest, secondRemembered], forAccountId: second.id)
+        await state.selectInitialChatIfNeeded()
+
+        #expect(state.selection == .chat(secondRemembered.id))
+    }
+
+    @MainActor
+    @Test func accountSwitchNeverAdoptsAnotherAccountsRememberedChat() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let first = AccountItem(
+            id: "First Account",
+            accountRef: "First Account",
+            displayName: "First Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111"
+        )
+        let second = AccountItem(
+            id: "Second Account",
+            accountRef: "Second Account",
+            displayName: "Second Account",
+            accountIdHex: "2222222222222222222222222222222222222222222222222222222222222222"
+        )
+        // Both accounts are members of the same group, which is the only way a global last-chat
+        // memory could ever resolve for the wrong identity.
+        let shared = chatListOrderingTestItem(id: "shared-group", title: "Shared", updatedAt: 100)
+        let secondOwn = chatListOrderingTestItem(id: "second-own", title: "Second Own", updatedAt: 350)
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [first.accountIdHex: shared.id]
+        )
+        let state = WorkspaceState(accounts: [first, second], chatRestorationStore: store)
+        state.setChats([shared], forAccountId: first.id)
+        state.setChats([secondOwn, shared], forAccountId: second.id)
+        state.activeAccountId = first.id
+        state.selection = .chat(shared.id)
+
+        state.selectAccount(second)
+
+        #expect(state.selection == .chat(secondOwn.id))
+        #expect(store.targetsByAccount[first.accountIdHex] == shared.id)
+        #expect(store.targetsByAccount[second.accountIdHex] == secondOwn.id)
+    }
+
+    @MainActor
+    @Test func archivingTheRememberedChatStopsRestoringItWithoutForgettingIt() async throws {
+        let account = AccountItem(
+            id: "Desktop Account",
+            accountRef: "Desktop Account",
+            displayName: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
+        let remembered = chatListOrderingTestItem(id: "archived-group", title: "Archived", updatedAt: 100)
+        let newest = chatListOrderingTestItem(id: "active-group", title: "Active", updatedAt: 300)
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [account.accountIdHex: remembered.id]
+        )
+        let state = WorkspaceState(accounts: [account], chatRestorationStore: store)
+        state.activeAccountId = account.id
+        state.setChats([newest], forAccountId: account.id)
+        state.setArchivedChats([remembered], forAccountId: account.id)
+        state.selection = nil
+
+        // Every switch resets the sidebar to the active filter, so reopening an archived
+        // conversation would show a transcript with no row beside it.
+        #expect(state.rememberedChat(forAccount: account) == nil)
+
+        await state.selectInitialChatIfNeeded()
+
+        // The stand-in gets selected, but must not be written over the memory: unarchiving has to
+        // bring the conversation back, unlike one that has genuinely left the account's list.
+        #expect(state.selection == .chat(newest.id))
+        #expect(store.targetsByAccount[account.accountIdHex] == remembered.id)
+        // The suspension lasts exactly as long as that one automatic selection.
+        #expect(!state.isPreservingRememberedChat)
+        state.selectChat(newest)
+        #expect(store.targetsByAccount[account.accountIdHex] == newest.id)
+    }
+
+    @MainActor
+    @Test func returningToTheChatsFromSettingsKeepsAnArchivedRememberedChat() async throws {
+        // The rail avatar is the way back from Settings, and it picks a conversation for the user —
+        // so it needs the same protection as the post-snapshot pass, or a settings-anchored account
+        // switch would quietly forget an archived memory on the way out.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let account = AccountItem(
+            id: "Desktop Account",
+            accountRef: "Desktop Account",
+            displayName: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
+        let remembered = chatListOrderingTestItem(id: "archived-group", title: "Archived", updatedAt: 100)
+        let newest = chatListOrderingTestItem(id: "active-group", title: "Active", updatedAt: 300)
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [account.accountIdHex: remembered.id]
+        )
+        let state = WorkspaceState(accounts: [account], chatRestorationStore: store)
+        state.activeAccountId = account.id
+        state.setChats([newest], forAccountId: account.id)
+        state.setArchivedChats([remembered], forAccountId: account.id)
+        state.showSettings(.overview)
+
+        state.selectAccount(account)
+
+        #expect(state.selection == .chat(newest.id))
+        #expect(store.targetsByAccount[account.accountIdHex] == remembered.id)
+    }
+
+    @MainActor
+    @Test func completedSnapshotWithNoChatsForgetsTheRememberedChat() async throws {
+        // Emptiness used to stand in for "the list has not loaded", which let a dead memory outlive
+        // the snapshot that disproved it. What makes a list authoritative is the caller — this one
+        // runs directly after `applyChatRows` — not whether it happens to have rows.
+        let account = AccountItem(
+            id: "Desktop Account",
+            accountRef: "Desktop Account",
+            displayName: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [account.accountIdHex: "deleted-group"]
+        )
+        let state = WorkspaceState(accounts: [account], chatRestorationStore: store)
+        state.activeAccountId = account.id
+        state.setChats([], forAccountId: account.id)
+        state.selection = nil
+
+        await state.selectInitialChatIfNeeded()
+
+        #expect(state.selection == nil)
+        #expect(store.targetsByAccount[account.accountIdHex] == nil)
+    }
+
+    @MainActor
+    @Test func railTapBeforeTheSnapshotLandsNeverForgetsTheRememberedChat() async throws {
+        // The rail can be tapped while the account's rows are still whatever was cached earlier in
+        // the process. Deciding a memory is dead from that list would destroy it just before the
+        // fresh snapshot arrives to honor it.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let account = AccountItem(
+            id: "Desktop Account",
+            accountRef: "Desktop Account",
+            displayName: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+        )
+        let store = InMemoryChatRestorationStore(
+            isEnabled: true,
+            targetsByAccount: [account.accountIdHex: "not-loaded-yet"]
+        )
+        let state = WorkspaceState(accounts: [account], chatRestorationStore: store)
+        state.activeAccountId = account.id
+        state.showSettings(.overview)
+
+        state.selectAccount(account)
+
+        // Nothing to land on yet, so the tap leaves Settings without a conversation — and, crucially,
+        // with the memory intact for `selectInitialChatIfNeeded()` to honor.
+        #expect(state.selection == nil)
+        #expect(store.targetsByAccount[account.accountIdHex] == "not-loaded-yet")
+
+        state.setChats(
+            [chatListOrderingTestItem(id: "not-loaded-yet", title: "Late", updatedAt: 100)], forAccountId: account.id)
+        await state.selectInitialChatIfNeeded()
+
+        #expect(state.selection == .chat("not-loaded-yet"))
+    }
+
+    @MainActor
     @Test func bootstrapSelectsMostRecentChatAndLoadsTimeline() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
