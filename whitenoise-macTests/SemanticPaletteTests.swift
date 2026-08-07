@@ -93,6 +93,15 @@ struct SemanticPaletteTests {
             ("fillSecondaryHover", WNNSColor.fillSecondaryHover, WNNSColor.fillContentSecondary, 4.5),
             ("fillSecondary/tertiary", WNNSColor.fillSecondary, WNNSColor.fillContentTertiary, 2.0),
             ("fillDestructive", WNNSColor.fillDestructive, WNNSColor.fillContentQuaternary, 4.5),
+            // The unread badge. Held to the large-text bar rather than the body-text one, and this
+            // is the one place in the table where that is a real concession: white on `blue600`
+            // measures 5.17 in Aqua, but white on the brighter `blue500` measures 3.68 in Dark
+            // Aqua. The dark step is the brighter one on purpose — it is what separates the pill
+            // from the near-black row, which `fillInfo/onSecondary` below asserts — and the content
+            // it carries is a bold two-glyph numeral in a capsule, never running text. Going the
+            // other way (`blue600` in dark) would buy 4.5 here and spend it on a pill that recedes
+            // into the row, which is the complaint this token was added to fix.
+            ("fillInfo", WNNSColor.fillInfo, WNNSColor.fillContentInfo, 3.0),
             ("fillDisabled", WNNSColor.fillDisabled, WNNSColor.fillContentDisabled, 1.4),
             // The intentions are background/content pairs like any other, and are used as pairs:
             // the pending-invite badge draws `intentionInfoContent` on `intentionInfoBackground`,
@@ -109,6 +118,12 @@ struct SemanticPaletteTests {
             // An intention wash is laid over the app's own surfaces, so it has to be told apart
             // from them too — a badge whose capsule matches the row behind it is not a badge.
             ("intentionInfo/onPrimary", WNNSColor.backgroundPrimary, WNNSColor.intentionInfoContent, 4.5),
+            // The unread pill against the surfaces it is actually drawn on: the chat-list row
+            // (`backgroundSecondary`) and the account rail (`backgroundTertiary`). A badge whose
+            // capsule matches the row behind it is not a badge — this is the half of the pair that
+            // `fillInfo`'s lowered text bar is buying.
+            ("fillInfo/onSecondary", WNNSColor.backgroundSecondary, WNNSColor.fillInfo, 4.5),
+            ("fillInfo/onTertiary", WNNSColor.backgroundTertiary, WNNSColor.fillInfo, 4.5),
             // The scrim over media, and the chrome drawn on it.
             ("overlayTertiary", WNNSColor.overlayTertiary, WNNSColor.fillContentQuaternary, 4.5),
         ]
@@ -150,6 +165,43 @@ struct SemanticPaletteTests {
                 """
             )
         }
+    }
+
+    /// The unread badge's whole job is to not look like the rest of the chrome, so the property
+    /// worth asserting is not its contrast but that it is a *hue* — `fillPrimary`, the token it
+    /// used to take, is a neutral that inverts with the surface, which is why a badge drawn in it
+    /// read as another piece of chrome rather than as an unread count.
+    @Test func theUnreadFillIsAHueRatherThanTheNeutralPrimaryFill() throws {
+        for appearance in try Self.appearances() {
+            let info = try #require(
+                Self.resolvedComponents(WNNSColor.fillInfo, in: appearance))
+            let primary = try Self.resolvedHex(WNNSColor.fillPrimary, in: appearance)
+            let unread = try Self.resolvedHex(WNNSColor.fillInfo, in: appearance)
+
+            #expect(
+                info.blue > info.red && info.blue > info.green,
+                """
+                fillInfo resolves to \(unread) in \(appearance.name.rawValue), which is not a \
+                blue — a neutral here is the regression this token exists to prevent
+                """
+            )
+            #expect(
+                unread != primary,
+                "fillInfo collapsed onto fillPrimary (\(primary)) in \(appearance.name.rawValue)")
+        }
+
+        // Brighter in dark than in light, the way the palette's other blues run. Flattening the two
+        // steps to one value would still pass every assertion above while giving up the separation
+        // from the near-black row that the dark step is chosen for.
+        let steps = try Self.appearances().map { try Self.resolvedHex(WNNSColor.fillInfo, in: $0) }
+        #expect(steps == ["2563EB", "3B82F6"], "fillInfo should be blue600 in Aqua, blue500 in Dark Aqua")
+
+        // The content on it does *not* cross over — unlike `fillContentPrimary`, which is the
+        // reason that pair cannot be reused here.
+        let content = try Self.appearances().map {
+            try Self.resolvedHex(WNNSColor.fillContentInfo, in: $0)
+        }
+        #expect(content == ["FFFFFF", "FFFFFF"])
     }
 
     // MARK: - Accents
@@ -430,6 +482,20 @@ struct SemanticPaletteTests {
             resolved = color.usingColorSpace(.sRGB)
         }
         return hexString(of: try #require(resolved))
+    }
+
+    /// The sRGB channels a token resolves to under `appearance`, for asserting on a token's hue
+    /// rather than on its contrast against something else.
+    private static func resolvedComponents(
+        _ color: NSColor,
+        in appearance: NSAppearance
+    ) -> (red: CGFloat, green: CGFloat, blue: CGFloat)? {
+        var resolved: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB)
+        }
+        guard let resolved else { return nil }
+        return (resolved.redComponent, resolved.greenComponent, resolved.blueComponent)
     }
 
     private static func relativeLuminance(of color: NSColor) -> Double {
