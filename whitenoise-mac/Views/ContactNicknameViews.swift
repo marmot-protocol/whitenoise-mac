@@ -36,7 +36,7 @@ struct ContactNicknameRow: View {
                                 .truncationMode(.middle)
                         } else {
                             Text(L10n.string("None"))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
 
                         Spacer()
@@ -64,13 +64,13 @@ struct ContactNicknameRow: View {
                         )
                     )
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(2)
                 }
 
                 Text(L10n.string("Only you see this on this device. It is never published."))
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
             }
             .alert(
                 nickname == nil ? L10n.string("Set Nickname") : L10n.string("Edit Nickname"),

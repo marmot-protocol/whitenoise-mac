@@ -64,10 +64,10 @@ private struct BackgroundStatusBanner: View {
         if let status = workspace.backgroundStatus {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(WNColor.intentionWarningContent)
                 Text(status)
                     .font(.callout)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(WNColor.backgroundContentPrimary)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
@@ -105,7 +105,7 @@ private struct WelcomeAuthView: View {
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 104, height: 104)
-                .shadow(color: Color.black.opacity(0.12), radius: 18, y: 10)
+                .shadow(color: WNColor.shadow.opacity(0.1), radius: 18, y: 10)
 
             // Standard primary/secondary pattern: hierarchy comes from the button style,
             // and the system owns the label/fill colors (adapts to accent, contrast, and
@@ -169,7 +169,7 @@ private struct WelcomeAuthView: View {
             if let lastError = workspace.lastError {
                 Text(lastError)
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WNColor.backgroundContentDestructive)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 460)
                     .padding(.top, 2)
@@ -179,9 +179,11 @@ private struct WelcomeAuthView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
-            // Matches the app-logo tile grey (#202020) so the mark sits on a seamless field.
-            Color(red: 32.0 / 255.0, green: 32.0 / 255.0, blue: 32.0 / 255.0)
-                .ignoresSafeArea()
+            // `backgroundPrimary`, as on the other clients' sign-in screen. It used to be a fixed
+            // #202020 chosen to bleed into the logo tile, which made this the one pane in the app
+            // whose surface belonged to no palette and did not follow the appearance at all. The
+            // logo now reads as the app icon it is, sitting on the app's own surface.
+            MessagesTranscriptBackground()
         }
     }
 }
@@ -239,7 +241,7 @@ private struct SignedOutAccountsView: View {
                 Text(L10n.string("Choose an account"))
                     .font(.title2.weight(.semibold))
                 Text(L10n.string("Sign in to continue with an account stored on this Mac."))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             VStack(spacing: 10) {
@@ -260,7 +262,7 @@ private struct SignedOutAccountsView: View {
                                     .font(.headline)
                                 Text(DisplayText.short(account.npub ?? account.accountIdHex))
                                     .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                             Spacer(minLength: 20)
                             Text(L10n.string("Sign In"))
@@ -286,7 +288,7 @@ private struct SignedOutAccountsView: View {
             if let lastError = workspace.lastError {
                 Text(lastError)
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WNColor.backgroundContentDestructive)
                     .multilineTextAlignment(.center)
             }
         }
@@ -602,9 +604,9 @@ private struct ConversationView: View {
                                     .frame(width: 40, height: 40)
                                     .background(.regularMaterial, in: Circle())
                                     .overlay {
-                                        Circle().strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                                        Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1)
                                     }
-                                    .shadow(color: .black.opacity(0.16), radius: 8, y: 3)
+                                    .shadow(color: WNColor.shadow.opacity(0.1), radius: 8, y: 3)
                             }
                             .buttonStyle(.plain)
                             .help(L10n.string("Jump to latest message"))
@@ -675,7 +677,7 @@ private struct ConversationView: View {
             .overlay {
                 if isFileDropTargeted {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
+                        .strokeBorder(WNColor.borderPrimary, lineWidth: 2)
                         .padding(10)
                         .allowsHitTesting(false)
                 }
@@ -907,21 +909,11 @@ private struct ConversationView: View {
                 Button {
                     Task { await workspace.sendDraft() }
                 } label: {
-                    Group {
-                        if workspace.isSending {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.white)
-                                .scaleEffect(0.72)
-                        } else {
-                            Image(systemName: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark")
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                    }
-                    .frame(width: 32, height: 32)
-                    .background {
-                        MessagesSendButtonBackground(isEnabled: workspace.canSend || workspace.isSending)
-                    }
+                    MessagesSendButtonLabel(
+                        systemImage: workspace.editingMessageContext == nil ? "paperplane.fill" : "checkmark",
+                        isEnabled: workspace.canSend,
+                        isSending: workspace.isSending
+                    )
                 }
                 .buttonStyle(.plain)
                 .disabled(!workspace.canSend)
@@ -1045,7 +1037,7 @@ private struct StartupView: View {
             ProgressView()
             Text(L10n.string("Starting Marmot"))
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

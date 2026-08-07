@@ -48,7 +48,18 @@ struct ContentView: View {
                     workspace.handleMessageLinkOpen(url)
                 }
             )
-            .tint(Color(nsColor: .systemBlue))
+            // The app-wide tint is `fillPrimary`, the primary action's fill on every White Noise
+            // client: near-black in light appearance, white in dark. It is deliberately not a hue —
+            // the palette's only blue is `intentionInfoContent`, reserved for links and search
+            // hits, and the twelve accent sets are reserved for identifying people.
+            .tint(WNColor.fillPrimary)
+            // The default foreground for anything that does not name a color: text and glyphs that
+            // inherit rather than choose. Without this they fall back to AppKit's `labelColor`,
+            // which is close to `backgroundContentPrimary` but is not part of the palette — so an
+            // unstyled glyph on a `fillSecondary` control would be right only by coincidence.
+            // `fillContentSecondary` happens to be the same value, which is why those controls read
+            // correctly by inheritance.
+            .foregroundStyle(WNColor.backgroundContentPrimary)
             .nativeWindowGlassBackground()
             .onOpenURL { url in
                 workspace.handleDeepLinkURL(url)

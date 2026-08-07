@@ -133,6 +133,6 @@ struct DisappearingMessageHeaderSubtitle: View {
                 Text(fallback)
             }
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(WNColor.backgroundContentSecondary)
     }
 }
