@@ -103,9 +103,9 @@ struct SemanticPaletteTests {
             // into the row, which is the complaint this token was added to fix.
             ("fillInfo", WNNSColor.fillInfo, WNNSColor.fillContentInfo, 3.0),
             ("fillDisabled", WNNSColor.fillDisabled, WNNSColor.fillContentDisabled, 1.4),
-            // The intentions are background/content pairs like any other, and are used as pairs:
-            // the pending-invite badge draws `intentionInfoContent` on `intentionInfoBackground`,
-            // the way the other clients style every info surface. Held to the large-text bar rather
+            // The intentions are background/content pairs like any other, and the app draws them
+            // as pairs — an intention's content on its own wash, the way the other clients style
+            // every info/success/warning/error surface. Held to the large-text bar rather
             // than the body-text one, because that is where the reference palette actually sits —
             // a `600` step on a `50` wash of the same hue measures 3.15 (success, Aqua) to 5.6, and
             // these surfaces carry short bold labels and glyphs, never running text. The bar still
