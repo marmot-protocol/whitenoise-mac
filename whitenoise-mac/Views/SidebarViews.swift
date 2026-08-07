@@ -18,13 +18,14 @@ struct UnreadCountBadge: View {
     var body: some View {
         Text(verbatim: count > 99 ? "99+" : "\(count)")
             .font(font)
-            // `fillPrimary` + `fillContentPrimary`, the pair the other clients give the unread
-            // count. Both invert between appearances, so the count is white on a near-black pill in
-            // light and near-black on a white pill in dark.
-            .foregroundStyle(WNColor.fillContentPrimary)
+            // `fillInfo` + `fillContentInfo`: a white count on a blue pill in both appearances.
+            // Deliberately *not* `fillPrimary`, which this used to take — that token is already the
+            // sent bubble, the send button and the selected row, so an unread count drawn in it read
+            // as chrome instead of as something waiting for you.
+            .foregroundStyle(WNColor.fillContentInfo)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
-            .background(Capsule().fill(WNColor.fillPrimary))
+            .background(Capsule().fill(WNColor.fillInfo))
     }
 }
 
@@ -693,20 +694,23 @@ struct ChatRowContent: View {
                     if searchResult == nil {
                         ChatDeliveryStateIcon(state: chat.latestMessageDelivery)
                     }
+                    // The three unread signals share `fillInfo` with `UnreadCountBadge`: a row can
+                    // show the mention pill next to the count, and one of them in the neutral fill
+                    // would read as a different kind of thing than the other.
                     if chat.hasUnread {
                         if chat.hasMention {
                             Image(systemName: "at")
                                 .font(.caption2.weight(.bold))
-                                .foregroundStyle(WNColor.fillContentPrimary)
+                                .foregroundStyle(WNColor.fillContentInfo)
                                 .frame(width: 18, height: 18)
-                                .background(Circle().fill(WNColor.fillPrimary))
+                                .background(Circle().fill(WNColor.fillInfo))
                                 .help(L10n.string("You were mentioned"))
                         }
                         if chat.unreadCount > 0 {
                             UnreadCountBadge(count: chat.unreadCount, font: MessagesType.badge)
                         } else {
                             Circle()
-                                .fill(WNColor.fillPrimary)
+                                .fill(WNColor.fillInfo)
                                 .frame(width: 9, height: 9)
                                 .accessibilityLabel(L10n.string("Marked unread"))
                         }
