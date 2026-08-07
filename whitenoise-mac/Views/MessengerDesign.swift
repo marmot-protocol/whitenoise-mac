@@ -38,16 +38,26 @@ struct AvatarView: View {
 /// Applies the shared avatar ring + drop shadow. Centralized so `AvatarView` and
 /// `ProfileImageAvatarView` stay visually identical and only one of them draws it.
 struct AvatarChromeModifier: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
     let isSelected: Bool
     var isEnabled = true
     /// The unselected ring. Initials avatars pass their accent's border token, which is what makes
-    /// a pale fill read as an object against a light window; photo avatars keep
-    /// `neutralRing`, the same split the Flutter client draws between its image and initials
-    /// avatars. Selection still wins over both — the ring is a focus affordance first.
+    /// a pale fill read as an object against a light window; photo avatars keep `neutralRing`, the
+    /// same split the other clients draw between their image and initials avatars.
     var ringColor: Color = neutralRing
 
-    /// Hairline for avatars that are showing a picture rather than initials.
-    static let neutralRing = Color.white.opacity(0.2)
+    /// Hairline for avatars that are showing a picture rather than initials. `borderTertiary`, the
+    /// palette's resting border, rather than the white wash this used to be: a wash lightens
+    /// whatever is behind it, so it only read as a hairline in one of the two appearances.
+    static let neutralRing = WNColor.borderTertiary
+
+    /// How much the selected avatar grows. Size is the affordance that reads in both appearances,
+    /// so it carries selection on its own where the ring cannot. Kept small enough that the account
+    /// rail's avatar still fits inside its frame (`accountRailAvatarSize` inside
+    /// `accountRailAvatarFrameSize`), and applied as a scale so no neighbour is pushed around when
+    /// the selection moves.
+    static let selectedScale: CGFloat = 1.15
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -55,14 +65,25 @@ struct AvatarChromeModifier: ViewModifier {
             content
                 .overlay {
                     Circle()
-                        .strokeBorder(
-                            isSelected ? MessagesPalette.sentBubble : ringColor,
-                            lineWidth: isSelected ? 3 : 1)
+                        .strokeBorder(strokeColor, lineWidth: isSelected ? 3 : 1)
                 }
-                .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                .shadow(color: WNColor.shadow.opacity(0.1), radius: 2, y: 1)
+                .scaleEffect(isSelected ? Self.selectedScale : 1)
         } else {
             content
         }
+    }
+
+    /// The one place in the app that reads the appearance to pick a token, and it is deliberate:
+    /// what the selection ring has to contrast with is the avatar's own accent fill, and that fill
+    /// is itself inverted between appearances (the ramp's `950` step in dark, `50` in light). In
+    /// dark, `borderPrimary` is white and a white ring on a deep fill is the clearest selection
+    /// mark in the app. In light the same token is near-black, and a heavy near-black ring around a
+    /// pale disc reads as an outlined object rather than a selected one — so light keeps the
+    /// avatar's own ring and lets `selectedScale` say which one is active.
+    private var strokeColor: Color {
+        guard isSelected, colorScheme == .dark else { return ringColor }
+        return WNColor.borderPrimary
     }
 }
 
@@ -93,107 +114,149 @@ struct AvatarChromeModifier: ViewModifier {
 /// 2. **This appearance-dependence is designed, unlike an opacity flip.** Two full token sets are
 ///    specified per ramp, so contrast is preserved by construction rather than by luck. That is the
 ///    opposite of resolving one translucent color against two different backdrops, the trap
-///    documented on `MentionChipPalette` below.
-/// 3. **The disc is deliberately soft in Aqua, and softer here than in Flutter.** The Flutter
-///    client draws these on pure white/black; `windowBackgroundColor` is `#ECECEC`/`#323232`. In
-///    Dark Aqua the `200` ring sits 8.6:1–11:1 against the window, a crisp outline. In Aqua both
-///    fill and ring land within 1.01–1.26 of the window, so the edge is carried by hue plus the
-///    drop shadow in `AvatarChromeModifier` rather than by luminance. That shadow, which Flutter
-///    has no equivalent of, is doing real work on the gray macOS window — do not drop it.
+///    documented on the pairing rule in `WNNSColor`.
+/// 3. **The disc is deliberately soft in Aqua.** These are drawn on the palette's own surfaces
+///    now — `backgroundPrimary`/`Secondary`/`Tertiary` rather than AppKit's `#ECECEC`/`#323232`
+///    window gray — so the app matches what the other clients draw them on. In Dark Aqua the `200`
+///    ring is a crisp outline against those surfaces. In Aqua both fill and ring land close to
+///    them, so the edge is carried by hue plus the drop shadow in `AvatarChromeModifier` rather
+///    than by luminance. That shadow, which the other clients have no equivalent of, is doing real
+///    work here — do not drop it.
 ///
 /// `AvatarChromeModifier` therefore takes the `200` step as its `ringColor` for initials avatars,
 /// keeping the neutral hairline for the ones showing a picture.
-enum AvatarPalette {
-    /// The twelve accents in the Flutter client's `AvatarColor` declaration order. `accentIndex(for:)`
-    /// indexes into this array with that client's arithmetic, so reordering these silently recolors
-    /// every avatar on one platform.
-    private static let accents: [AvatarColorSet] = [
-        accent("blue", step50: 0xEFF6FF, step200: 0xBFDBFE, step900: 0x1E3A8A, step950: 0x172554),
-        accent("cyan", step50: 0xECFEFF, step200: 0xA5F3FC, step900: 0x164E63, step950: 0x083344),
-        accent("emerald", step50: 0xECFDF5, step200: 0xA7F3D0, step900: 0x064E3B, step950: 0x022C22),
-        accent("fuchsia", step50: 0xFDF4FF, step200: 0xF5D0FE, step900: 0x701A75, step950: 0x4A044E),
-        accent("indigo", step50: 0xEEF2FF, step200: 0xC7D2FE, step900: 0x312E81, step950: 0x1E1B4B),
-        accent("lime", step50: 0xF7FEE7, step200: 0xD9F99D, step900: 0x365314, step950: 0x1A2E05),
-        accent("orange", step50: 0xFFF7ED, step200: 0xFED7AA, step900: 0x7C2D12, step950: 0x431407),
-        accent("rose", step50: 0xFFF1F2, step200: 0xFECDD3, step900: 0x881337, step950: 0x4C0519),
-        accent("sky", step50: 0xF0F9FF, step200: 0xBAE6FD, step900: 0x0C4A6E, step950: 0x082F49),
-        accent("teal", step50: 0xF0FDFA, step200: 0x99F6E4, step900: 0x134E4A, step950: 0x042F2E),
-        accent("violet", step50: 0xF5F3FF, step200: 0xDDD6FE, step900: 0x4C1D95, step950: 0x2E1065),
-        accent("amber", step50: 0xFFFBEB, step200: 0xFDE68A, step900: 0x78350F, step950: 0x451A03),
+nonisolated enum AvatarPalette {
+    /// The twelve accents in the other clients' `AvatarColor` declaration order.
+    /// `accentIndex(for:)` indexes into this array with that client's arithmetic, so reordering
+    /// these silently recolors every avatar on one platform.
+    ///
+    /// The ramp values themselves live once, in `WNAccentColors` — these are the same sets the
+    /// palette hands to mentions and anything else that identifies a person, viewed through the
+    /// three tokens an avatar needs.
+    private static let accents: [WNAccentColorSet] = [
+        WNAccentColors.blue,
+        WNAccentColors.cyan,
+        WNAccentColors.emerald,
+        WNAccentColors.fuchsia,
+        WNAccentColors.indigo,
+        WNAccentColors.lime,
+        WNAccentColors.orange,
+        WNAccentColors.rose,
+        WNAccentColors.sky,
+        WNAccentColors.teal,
+        WNAccentColors.violet,
+        WNAccentColors.amber,
     ]
 
-    /// For seeds that do not start with a hex digit. The Flutter client logs and falls back here
-    /// too; the only such seed in this app is the still-unnamed group in the compose flow, which is
+    /// For seeds that do not start with a hex digit. The other clients log and fall back here too;
+    /// the only such seed in this app is the still-unnamed group in the compose flow, which is
     /// keyed on its typed title because it has no group id yet.
+    ///
+    /// Neutral is the one set drawn from the semantic fills rather than an accent, which is what
+    /// `WnAvatar` does with `AvatarColor.neutral`.
     static let neutral = AvatarColorSet(
-        // neutral100 / neutral800, neutral500 / neutral400, neutral950 / white.
-        fill: dynamic("avatarFill.neutral", light: 0xF5F5F5, dark: 0x262626),
-        border: dynamic("avatarBorder.neutral", light: 0x737373, dark: 0xA3A3A3),
-        content: dynamic("avatarContent.neutral", light: 0x0A0A0A, dark: 0xFFFFFF))
+        fill: WNColor.fillSecondary,
+        border: WNColor.borderSecondary,
+        content: WNColor.fillContentSecondary)
 
     static var accentCount: Int { accents.count }
 
     static func colors(for seed: String) -> AvatarColorSet {
         guard let index = accentIndex(for: seed) else { return neutral }
-        return accents[index]
+        return AvatarColorSet(accents[index])
     }
 
-    /// The Flutter client's mapping: the value of the seed's **first hex digit**, modulo the accent
+    /// The whole accent set at `index`, for the callers that need a token the three avatar ones do
+    /// not carry. A mention takes `contentSecondary`; see `MentionTextPalette`.
+    static func accent(at index: Int) -> WNAccentColorSet {
+        accents[index]
+    }
+
+    /// The other clients' mapping: the value of the seed's **first hex digit**, modulo the accent
     /// count, or `nil` when that character is not one. Only the first character participates — two
-    /// pubkeys sharing a leading nibble share a color, by design on both platforms.
+    /// pubkeys sharing a leading nibble share a color, by design on every platform.
     ///
     /// Note the inherited skew: a nibble spans 0...15 but there are twelve accents, so `c`-`f` wrap
     /// onto blue, cyan, emerald, and fuchsia, leaving those four twice as likely as the other
-    /// eight. Kept as-is deliberately — matching the other client's assignment is the point, and
-    /// `% accents.count` is exactly what it computes.
+    /// eight. Kept as-is deliberately — matching the other clients' assignment is the point, and
+    /// `% accents.count` is exactly what they compute.
     static func accentIndex(for seed: String) -> Int? {
         guard let first = seed.first, first.isASCII, let nibble = first.hexDigitValue else { return nil }
         return nibble % accents.count
     }
 
-    private static func accent(
-        _ name: String, step50: UInt32, step200: UInt32, step900: UInt32, step950: UInt32
-    ) -> AvatarColorSet {
-        AvatarColorSet(
-            fill: dynamic("avatarFill.\(name)", light: step50, dark: step950),
-            // The one token the design system holds constant across appearances.
-            border: Color(nsColor: NSColor(rgb: step200)),
-            content: dynamic("avatarContent.\(name)", light: step900, dark: step50))
+    /// The same mapping for an `npub1…`, without decoding it.
+    ///
+    /// Message bodies carry mentions as bech32, and the accent has to be chosen while the body's
+    /// attributed string is built — off the main actor, with no `Marmot` client in reach, so
+    /// `hexPubkeyFromNpub` (which the other clients call here) is not available.
+    ///
+    /// It is not needed. `accentIndex(for:)` reads exactly one hex digit, and that digit is
+    /// recoverable from the bech32 directly: a bech32 payload is the byte string regrouped into
+    /// 5-bit characters, most significant bits first, so the first data character holds the top
+    /// *five* bits of byte 0 while the first hex digit is its top *four*. Dropping the low bit
+    /// converts between them.
+    ///
+    /// Returns `nil` for anything that is not a plain `npub1…`. `nprofile` in particular is
+    /// TLV-encoded rather than a bare key, so its first data character is a record tag and means
+    /// nothing here — the other clients also restrict the per-user color to `npub` for this reason.
+    static func accentIndex(forNpub npub: String) -> Int? {
+        let prefix = "npub1"
+        guard npub.hasPrefix(prefix),
+            let firstDataCharacter = npub.dropFirst(prefix.count).first,
+            let fiveBitValue = bech32Alphabet.firstIndex(of: firstDataCharacter)
+        else { return nil }
+        return (fiveBitValue >> 1) % accents.count
     }
 
-    /// A single token that resolves per appearance at draw time. `NSColor(name:)` rather than an
-    /// `@Environment(\.colorScheme)` read so that `AvatarPalette` stays a plain static API that
-    /// non-`View` callers and tests can ask for colors without building a view hierarchy.
-    private static func dynamic(_ name: String, light: UInt32, dark: UInt32) -> Color {
-        Color(
-            nsColor: NSColor(name: name) { appearance in
-                appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                    ? NSColor(rgb: dark) : NSColor(rgb: light)
-            })
-    }
+    /// The BIP-173 bech32 character set, where a character's index *is* its 5-bit value.
+    private static let bech32Alphabet = Array("qpzry9x8gf2tvdw0s3jn54khce6mua7l")
 }
 
-/// The three tokens an avatar needs from its accent ramp. Mirrors the Flutter client's
-/// `AvatarColorSet` minus `contentSecondary`, which only feeds widgets this app does not have.
-struct AvatarColorSet {
+/// The three tokens an avatar needs from its accent ramp. Mirrors the other clients'
+/// `AvatarColorSet` minus `contentSecondary`, which feeds mentions rather than avatars — reach for
+/// `WNAccentColors` directly if you need that one.
+nonisolated struct AvatarColorSet {
     let fill: Color
     let border: Color
     let content: Color
-}
 
-extension NSColor {
-    /// `0xRRGGBB` in sRGB, so the ramp tables above read as the hex the design system publishes.
-    fileprivate convenience init(rgb: UInt32) {
-        self.init(
-            srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255,
-            green: CGFloat((rgb >> 8) & 0xFF) / 255,
-            blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1)
+    init(fill: Color, border: Color, content: Color) {
+        self.fill = fill
+        self.border = border
+        self.content = content
+    }
+
+    fileprivate init(_ accent: WNAccentColorSet) {
+        self.init(fill: accent.fill, border: accent.border, content: accent.contentPrimary)
     }
 }
 
-enum MessagesPalette {
-    static let sentBubble = Color(nsColor: .systemBlue)
+/// `nonisolated` for the same reason `AttachmentRowPalette` below is: the bubble fills are read
+/// while a message's display content is built off the main actor.
+nonisolated enum MessagesPalette {
+    /// The sent bubble's fill: `fillPrimary`, the same token the primary button takes.
+    /// It is inverted against the surface rather than an accent hue, which is why a sent
+    /// bubble is near-black in light appearance and white in dark — White Noise has no
+    /// blue "my messages" color, on any client.
+    static let sentBubble = WNColor.fillPrimary
+
+    /// Content on the sent bubble. Pairs with `sentBubble` and crosses over with it, so it
+    /// is white on the light appearance's dark bubble and near-black on the dark
+    /// appearance's white one. Never substitute a literal `.white` here.
+    static let sentBubbleContent = WNColor.fillContentPrimary
+
+    /// The received bubble's fill, and the content that goes on it.
+    static let receivedBubble = WNColor.backgroundMessageIncoming
+    static let receivedBubbleContent = WNColor.backgroundContentPrimary
+
+    static func bubbleFill(isOutgoing: Bool) -> Color {
+        isOutgoing ? sentBubble : receivedBubble
+    }
+
+    static func bubbleContent(isOutgoing: Bool) -> Color {
+        isOutgoing ? sentBubbleContent : receivedBubbleContent
+    }
 }
 
 /// Surface for the non-visual attachment rows: the audio player, the download/failed status rows,
@@ -202,78 +265,93 @@ enum MessagesPalette {
 /// Unlike the reply quote, these rows sit *beside* the bubble in `MessageBubble`'s stack rather than
 /// inside it, so they never inherit `BubbleBackground`'s fill and have to bring their own.
 nonisolated enum AttachmentRowPalette {
-    /// The accent itself — the same fill the sent bubble uses, which is what the row's white content
-    /// (play button, waveform, detail text) is drawn for.
+    /// The same fill the sent bubble uses, which is what `outgoingContent` is drawn for.
     ///
-    /// It has to stay **opaque**. A translucent white wash composites against whatever is behind the
+    /// It has to stay **opaque**. A translucent wash composites against whatever is behind the
     /// row, and what is behind it is the window background: dark in dark appearance, light in light
     /// appearance. That is how sent voice notes and documents came to render white-on-white and
     /// vanish in light mode while looking correct in dark.
     static let outgoingFill = MessagesPalette.sentBubble
 
-    /// Received rows stay on a wash, which is safe here because `.primary` flips with the
-    /// appearance — it darkens the light backdrop and lightens the dark one.
-    static let incomingFill = Color.primary.opacity(0.06)
+    /// Received rows take the received bubble's fill, so an attachment row reads as part of the
+    /// same message as the bubble above it.
+    static let incomingFill = MessagesPalette.receivedBubble
+
+    /// The row's content — play button, waveform, detail text. Paired with the fill above, which
+    /// matters more here than anywhere else in the app: both fills invert between appearances, so a
+    /// literal `.white` (what these rows used to draw) is correct in exactly one of the four
+    /// combinations.
+    static let outgoingContent = MessagesPalette.sentBubbleContent
+    static let incomingContent = MessagesPalette.receivedBubbleContent
 
     static func fill(isOutgoing: Bool) -> Color {
         isOutgoing ? outgoingFill : incomingFill
     }
+
+    static func content(isOutgoing: Bool) -> Color {
+        isOutgoing ? outgoingContent : incomingContent
+    }
+
+    /// The disc behind a play/status glyph, and the unplayed waveform. Derived from the row's own
+    /// content color so it steps away from the fill in whichever direction that fill has room —
+    /// the alternative, a fixed white or black wash, is only correct in one of the four
+    /// fill × appearance combinations.
+    static func controlFill(isOutgoing: Bool) -> Color {
+        content(isOutgoing: isOutgoing).opacity(0.14)
+    }
+
+    static func waveformBar(isOutgoing: Bool) -> Color {
+        content(isOutgoing: isOutgoing).opacity(0.42)
+    }
+
+    static func waveformPlayedBar(isOutgoing: Bool) -> Color {
+        content(isOutgoing: isOutgoing).opacity(0.9)
+    }
+
+    /// Detail text inside an attachment row — file size, duration. `backgroundContentTertiary` is
+    /// what the other clients use for de-emphasized text inside a bubble, in *both* directions:
+    /// the `400`/`500` neutral step is the one that clears both bubble fills.
+    static let detailContent = WNColor.backgroundContentTertiary
 }
 
-/// The background chip drawn behind an `@mention`'s glyphs, Signal's treatment: the mention keeps
-/// the body font, weight, and inherited foreground, and is set off by its fill alone. Each chip is
-/// the bubble's own fill pushed a step further, never a different hue — a mention should look like
-/// part of the bubble, not like something pasted into it.
+/// How an `@mention` is set off from the text around it: **bold, in the mentioned person's own
+/// accent**, with no background chip and no decoration — the same treatment the other clients give
+/// it.
 ///
-/// The chip has to hold up over four different fills — the accent-filled sent bubble, plus the light
-/// and dark neutral fills shared by received bubbles, agent rows, and the composer. No single
-/// translucent wash does that, which is why the previous `primary.opacity(0.14)` read as smudged
-/// text everywhere: `.primary` flips direction between the appearances, so it darkened one neutral
-/// fill and lightened the other, too faintly to register either way.
+/// The color is `accent.contentSecondary`, the `500` step of that person's accent ramp, and the
+/// choice of step is the whole trick. `500` is the one rung of each ramp that is neither the light
+/// surface (`50`) nor the dark one (`950`), so a single value stays legible on every fill a mention
+/// can land on — the sent bubble, the received bubble, an agent row, the composer — in both
+/// appearances, without the mention having to know which of them it is on. That is why this replaced
+/// a background chip: a chip has to be picked per fill, and there is no fill-independent chip.
 ///
-/// Direction is per fill, and it is not a free choice. The sent bubble and the light neutral fill
-/// both take a darker chip. The dark neutral fill cannot: it is already close to black, so even a
-/// 45%-black wash only reaches 1.43 contrast against it, while a light step of the same gray reaches
-/// 1.86. There it steps lighter instead — same achromatic family, just the only direction with room.
-///
-/// Measured against the fill behind it (WCAG contrast, chip vs. bubble), every combination lands at
-/// 1.84–1.87 where the old chip managed 1.19–1.55, and the inherited body text keeps 6.1:1 or
-/// better against the chip:
-///
-/// | fill | chip | chip ÷ fill | was | text ÷ chip |
-/// | --- | --- | --- | --- | --- |
-/// | sent, light | `#0053AD` | 1.84 | 1.29 | 7.39 |
-/// | sent, dark | `#075AAD` | 1.87 | 1.19 | 6.83 |
-/// | received, light | `#AEAEAE` | 1.86 | 1.37 | 9.47 |
-/// | received, dark | `#616161` | 1.86 | 1.55 | 6.19 |
+/// A mention whose accent cannot be determined (an `nprofile`, which is TLV-encoded rather than a
+/// bare key) stays bold and keeps the surrounding foreground, so it is still marked as a mention but
+/// does not claim to identify a specific person with a color that would be wrong.
 ///
 /// `nonisolated` because a message's attributed string is built off-main while mapping a timeline
-/// window (whitenoise-mac#285), so these must be reachable from outside the main actor.
-nonisolated enum MentionChipPalette {
-    /// Over the accent-filled sent bubble: the same blue, pushed distinctly darker. One value for
-    /// both appearances, because that fill is blue in either.
-    static let onSentBubble = Color.black.opacity(0.32)
-
-    /// Over a neutral fill: the same gray, one step away. Which way depends on the appearance — the
-    /// light fill has room to go darker, the dark fill only has room to go lighter — so this is a
-    /// dynamic color resolved at draw time rather than a fixed overlay.
-    static let neutralFillTextBackground = NSColor(name: "mentionChipOnNeutralFill") { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(white: 1.0, alpha: 0.20)
-            : NSColor(white: 0.0, alpha: 0.26)
+/// window (whitenoise-mac#285), so this must be reachable from outside the main actor.
+nonisolated enum MentionTextPalette {
+    /// The accent color for a mention written as `npub1…`, or `nil` when the reference is not a
+    /// bare public key and no person-specific color can honestly be applied.
+    static func foreground(forNpub npub: String) -> Color? {
+        AvatarPalette.accentIndex(forNpub: npub).map { AvatarPalette.accent(at: $0).contentSecondary }
     }
 
-    /// SwiftUI twin of `neutralFillTextBackground`. The composer's `NSTextView` draft token takes
-    /// the AppKit one; both are the same chip, because the draft sits on the same neutral surface a
-    /// received bubble does.
-    static let onNeutralFill = Color(nsColor: neutralFillTextBackground)
-
-    static func color(on fill: MarkdownMentionFill) -> Color {
-        switch fill {
-        case .neutral: onNeutralFill
-        case .sentBubble: onSentBubble
+    /// AppKit twin, for the composer's `NSTextView` draft tokens. Reads the accent's own
+    /// dynamic `NSColor` rather than converting the SwiftUI one back: `NSColor(someColor)` can
+    /// bake in whichever appearance was current when it ran, which would freeze a draft token's
+    /// color at the appearance the composer first drew under.
+    static func nsForeground(forNpub npub: String) -> NSColor? {
+        AvatarPalette.accentIndex(forNpub: npub).map {
+            AvatarPalette.accent(at: $0).nsContentSecondary
         }
     }
+
+    /// The composer draft's fallback for a token whose accent is unknown. The draft sits on
+    /// `backgroundPrimary`, so it takes that surface's primary content color; a rendered message
+    /// body instead inherits whatever its bubble already set.
+    static let composerFallbackForeground = WNNSColor.backgroundContentPrimary
 }
 
 enum MessagesLayout {
@@ -308,11 +386,12 @@ struct MessagesSearchField: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentTertiary)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(.callout)
+                .foregroundStyle(WNColor.backgroundContentPrimary)
                 .focused($isFocused)
                 .accessibilityIdentifier(accessibilityIdentifier ?? "search.field")
 
@@ -323,7 +402,7 @@ struct MessagesSearchField: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
                 .buttonStyle(.plain)
                 .help(L10n.string("Clear search"))
@@ -342,88 +421,106 @@ struct MessagesSearchField: View {
     }
 }
 
+/// The round icon controls in the composer, the account rail, and the conversation header.
+///
+/// These are the other clients' `WnIconButton` in its `outline` form: a `fillSecondary` disc inside a
+/// `borderTertiary` ring, stepping to the active fill when selected. There is no destructive form:
+/// a live microphone replaces the whole composer with `VoiceRecordingComposerView` rather than
+/// recoloring this control, and nothing else here is destructive.
 struct MessagesCircleControlBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
     var isSelected = false
-    var isActive = false
 
     var body: some View {
         Circle()
-            .fill(fillColor)
+            .fill(isSelected ? WNColor.fillSecondaryActive : WNColor.fillSecondary)
             .overlay {
                 Circle()
-                    .stroke(strokeColor, lineWidth: 1)
+                    .stroke(WNColor.borderTertiary, lineWidth: 1)
             }
             .nativeBackgroundExtensionEffect()
     }
-
-    private var fillColor: Color {
-        if isActive {
-            return Color.red.opacity(colorScheme == .dark ? 0.28 : 0.18)
-        }
-        if isSelected {
-            return Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34)
-        }
-        return Color.white.opacity(colorScheme == .dark ? 0.06 : 0.18)
-    }
-
-    private var strokeColor: Color {
-        if isActive {
-            return Color.red.opacity(colorScheme == .dark ? 0.42 : 0.30)
-        }
-        return Color.white.opacity(colorScheme == .dark ? 0.08 : 0.32)
-    }
 }
 
+/// The selected chat row in the sidebar. `fillTertiaryHover` is the ghost control's pointed-at
+/// fill — one neutral step off the surface — which is what the other clients highlight a selected
+/// list row with. An unselected row draws nothing at all, since `fillTertiary` is transparent.
 struct MessagesSidebarRowBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
     let isSelected: Bool
 
     var body: some View {
         RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(
-                isSelected
-                    ? Color.white.opacity(colorScheme == .dark ? 0.13 : 0.28)
-                    : Color.clear
-            )
+            .fill(isSelected ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
     }
 }
 
 struct MessagesSearchFieldBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Capsule(style: .continuous)
-            .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.28))
+            .fill(WNColor.backgroundPrimary)
             .overlay {
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.28), lineWidth: 1)
+                    .stroke(WNColor.borderTertiary, lineWidth: 1)
             }
     }
 }
 
+/// The send button. `fillPrimary` when it can send, `fillDisabled` when it cannot — the same pair
+/// `WnButton.primary` uses, so the send control and a primary push button are the same button.
 struct MessagesSendButtonBackground: View {
     let isEnabled: Bool
 
     var body: some View {
         Circle()
-            .fill(isEnabled ? MessagesPalette.sentBubble : Color.white.opacity(0.08))
-            .overlay {
-                Circle()
-                    .stroke(Color.white.opacity(isEnabled ? 0.18 : 0.08), lineWidth: 1)
-            }
+            .fill(isEnabled ? WNColor.fillPrimary : WNColor.fillDisabled)
     }
 }
 
-struct MessagesComposerFieldBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
+/// The send control, disc and glyph together, because the two are a pairing rather than two
+/// choices: the glyph on `fillPrimary` is `fillContentPrimary`, and the glyph on `fillDisabled` is
+/// `fillContentDisabled`. Naming the glyph's color is what the two call sites were missing — an
+/// unstyled one inherits the app-wide `backgroundContentPrimary`, which is near-black in light
+/// appearance and disappears into the near-black `fillPrimary` disc under it.
+struct MessagesSendButtonLabel: View {
+    let systemImage: String
+    /// Whether the composer can send right now. The disc stays filled while a send is in flight, so
+    /// the spinner is never drawn on the disabled gray.
+    let isEnabled: Bool
+    let isSending: Bool
+
+    private var isFilled: Bool { isEnabled || isSending }
 
     var body: some View {
+        Group {
+            if isSending {
+                ProgressView()
+                    .controlSize(.small)
+                    // Spins inside the send button, so it takes the send button's content color
+                    // rather than a literal white.
+                    .tint(WNColor.fillContentPrimary)
+                    .scaleEffect(0.72)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isFilled ? WNColor.fillContentPrimary : WNColor.fillContentDisabled)
+            }
+        }
+        .frame(width: 32, height: 32)
+        .background {
+            MessagesSendButtonBackground(isEnabled: isFilled)
+        }
+    }
+}
+
+/// The composer's text field: `backgroundPrimary` inside a `borderSecondary` hairline, matching
+/// `WnChatMessageInput` on the other clients. `borderSecondary` rather than `borderTertiary` because
+/// this is an editable field at rest, not a divider.
+struct MessagesComposerFieldBackground: View {
+    var body: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color.white.opacity(colorScheme == .dark ? 0.06 : 0.22))
+            .fill(WNColor.backgroundPrimary)
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.32), lineWidth: 1)
+                    .stroke(WNColor.borderSecondary, lineWidth: 1)
             }
     }
 }
@@ -438,46 +535,47 @@ struct GlassFill: View {
     var material: Material = .regularMaterial
     var darkOpacity: Double
     var lightOpacity: Double
-    var lightTint: NSColor = .windowBackgroundColor
+    /// The wash laid over the material. `backgroundPrimary` already inverts between
+    /// appearances — white over the light material, black over the dark one — so only the
+    /// strength of the wash still has to be chosen per appearance.
+    var tint: Color = WNColor.backgroundPrimary
 
     var body: some View {
         ZStack {
             Rectangle()
                 .fill(material)
-            Color(nsColor: colorScheme == .dark ? .black : lightTint)
+            tint
                 .opacity(colorScheme == .dark ? darkOpacity : lightOpacity)
         }
     }
 }
 
+/// The window's base surface, behind every pane.
+///
+/// This and the three below were the app's hardcoded grays — `#0E0E0F` / `#F9F9F6` and friends,
+/// values that existed nowhere else in White Noise. They are the neutral ramp now, which is what
+/// makes the mac app's chrome the same set of surfaces the other clients use rather than a
+/// look-alike.
 struct MessagesWindowBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Rectangle()
-            .fill(
-                colorScheme == .dark
-                    ? Color(red: 0.055, green: 0.055, blue: 0.058)
-                    : Color(red: 0.975, green: 0.975, blue: 0.965)
-            )
+            .fill(WNColor.backgroundSecondary)
             .ignoresSafeArea()
     }
 }
 
+/// The transcript, the detail panes, and the settings pages: the app's primary reading surface.
 struct MessagesTranscriptBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Rectangle()
-            .fill(
-                colorScheme == .dark
-                    ? Color(red: 0.055, green: 0.055, blue: 0.058)
-                    : Color(nsColor: .textBackgroundColor)
-            )
+            .fill(WNColor.backgroundPrimary)
             .ignoresSafeArea()
     }
 }
 
+/// The two sidebar columns. Both sit *off* the primary surface, one step further than the
+/// transcript, which is how the other clients separate navigation from content — the account
+/// rail takes the deeper of the two.
 struct MessagesSidebarBackground: View {
     enum Level {
         case rail
@@ -485,7 +583,6 @@ struct MessagesSidebarBackground: View {
     }
 
     let level: Level
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Rectangle()
@@ -494,34 +591,18 @@ struct MessagesSidebarBackground: View {
     }
 
     private var backgroundColor: Color {
-        if colorScheme == .dark {
-            switch level {
-            case .rail:
-                return Color(red: 0.18, green: 0.18, blue: 0.18)
-            case .drawer:
-                return Color(red: 0.145, green: 0.145, blue: 0.145)
-            }
-        } else {
-            switch level {
-            case .rail:
-                return Color(red: 0.84, green: 0.84, blue: 0.82)
-            case .drawer:
-                return Color(red: 0.90, green: 0.90, blue: 0.88)
-            }
+        switch level {
+        case .rail: WNColor.backgroundTertiary
+        case .drawer: WNColor.backgroundSecondary
         }
     }
 }
 
+/// The conversation header, which reads as part of the transcript below it.
 struct MessagesHeaderBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Rectangle()
-            .fill(
-                colorScheme == .dark
-                    ? Color(red: 0.055, green: 0.055, blue: 0.058)
-                    : Color(nsColor: .textBackgroundColor)
-            )
+            .fill(WNColor.backgroundPrimary)
     }
 }
 
@@ -532,9 +613,10 @@ struct MessagesComposerBarBackground: View {
     }
 }
 
+/// The app's hairline. `borderTertiary` is the resting border on every other client — by a wide
+/// margin the most-used border token there — and a separator is exactly that: a border with nothing
+/// on either side of it.
 struct GlassSeparator: View {
-    @Environment(\.colorScheme) private var colorScheme
-
     enum Axis {
         case horizontal
         case vertical
@@ -544,15 +626,11 @@ struct GlassSeparator: View {
 
     var body: some View {
         Rectangle()
-            .fill(Color.primary.opacity(colorScheme == .dark ? 0.11 : 0.08))
+            .fill(WNColor.borderTertiary)
             .frame(
                 width: axis == .vertical ? 1 : nil,
                 height: axis == .horizontal ? 1 : nil
             )
-            .overlay {
-                Rectangle()
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.05 : 0.18))
-            }
     }
 }
 
@@ -582,7 +660,6 @@ struct LiquidGlassBackground: View {
 }
 
 struct GlassRoundedBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
     var cornerRadius: CGFloat = 8
     var material: Material = .ultraThinMaterial
     var borderColor: Color?
@@ -592,7 +669,7 @@ struct GlassRoundedBackground: View {
             .fill(material)
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(borderColor ?? Color.white.opacity(colorScheme == .dark ? 0.16 : 0.34), lineWidth: 1)
+                    .stroke(borderColor ?? WNColor.borderTertiary, lineWidth: 1)
             }
             .nativeBackgroundExtensionEffect()
     }
@@ -616,21 +693,22 @@ struct GlassCardModifier: ViewModifier {
 }
 
 struct GlassCapsuleBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
     var borderColor: Color?
 
     var body: some View {
-        // Flat translucent fill instead of `.ultraThinMaterial`. A material capsule renders a
+        // Flat fill instead of `.ultraThinMaterial`. A material capsule renders a
         // `CABackdropLayer` blur per instance — fine once, but these are per-row chrome
-        // (reactions, system notices), and rendering every visible one was a measurable slice
+        // (day headers, system notices), and rendering every visible one was a measurable slice
         // of initial-render / scroll cost (Instruments: CA::Render::copy_image / -[CAFilter
-        // CA_copyRenderValue]). `.quaternary` is a solid, adaptive hierarchical fill that reads
-        // almost identically without the backdrop pass. See the #205 scroll-performance work.
+        // CA_copyRenderValue]). See the #205 scroll-performance work. `fillSecondary` keeps that
+        // property — it is a plain opaque color, so there is no backdrop pass at all — and it is
+        // the token the other clients put behind a pill, where `.quaternary` was the system's
+        // hierarchical gray and belonged to no palette.
         Capsule(style: .continuous)
-            .fill(.quaternary)
+            .fill(WNColor.fillSecondary)
             .overlay {
                 Capsule(style: .continuous)
-                    .stroke(borderColor ?? Color.white.opacity(colorScheme == .dark ? 0.14 : 0.3), lineWidth: 1)
+                    .stroke(borderColor ?? WNColor.borderTertiary, lineWidth: 1)
             }
     }
 }

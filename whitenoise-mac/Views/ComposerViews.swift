@@ -86,7 +86,7 @@ struct ComposerMessageInputView: View {
             if text.isEmpty {
                 Text(placeholder)
                     .font(.body)
-                    .foregroundStyle(Color(nsColor: .placeholderTextColor))
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
                     .padding(.top, 1)
                     .allowsHitTesting(false)
             }
@@ -121,9 +121,9 @@ struct ComposerMentionPicker: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+        .shadow(color: WNColor.shadow.opacity(0.1), radius: 12, y: 4)
         .accessibilityIdentifier("composer.mentionPicker")
     }
 }
@@ -147,12 +147,12 @@ private struct ComposerMentionRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(candidate.displayName)
                         .font(.callout.weight(.medium))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(WNColor.backgroundContentPrimary)
                         .lineLimit(1)
                     if !candidate.npub.isEmpty {
                         Text(DisplayText.short(candidate.npub))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .lineLimit(1)
                     }
                 }
@@ -164,7 +164,7 @@ private struct ComposerMentionRow: View {
             .background {
                 if isHovered {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.14))
+                        .fill(WNColor.fillTertiaryHover)
                         .padding(.horizontal, 4)
                 }
             }
@@ -214,7 +214,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     static var plainTypingAttributes: [NSAttributedString.Key: Any] {
         [
             .font: NSFont.preferredFont(forTextStyle: .body),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: WNNSColor.backgroundContentPrimary,
         ]
     }
 
@@ -246,8 +246,8 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         textView.importsGraphics = false
         textView.allowsUndo = true
         textView.font = .preferredFont(forTextStyle: .body)
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .labelColor
+        textView.textColor = WNNSColor.backgroundContentPrimary
+        textView.insertionPointColor = WNNSColor.backgroundContentPrimary
         // Plain text is the baseline; only a mention marker adds attributes on top of it.
         textView.typingAttributes = Self.plainTypingAttributes
         textView.textContainerInset = NSSize(width: 0, height: 1)
@@ -505,27 +505,23 @@ enum ComposerMentionMarkerStore {
         let selection: ComposerMentionSelection
     }
 
-    /// Identity markers plus the visible chip. The chip is never maintained on its own: it is
-    /// written only by `add` and dropped wherever the markers are dropped, so styling cannot drift
-    /// from identity — a marker that later fails validation reverts to plain text with no separate
-    /// cleanup path. Sweeping `.backgroundColor` is safe over any range because the composer text
-    /// view is plain text (`isRichText = false`), so the chip is the only background in play.
-    private static let markerAttributes: [NSAttributedString.Key] = [
-        .composerMentionNpub,
-        .composerMentionDisplayText,
-        .backgroundColor,
-    ]
-
     static func add(_ selection: ComposerMentionSelection, to textView: NSTextView) {
         guard isExact(selection, in: textView.string), let storage = textView.textStorage else { return }
         storage.addAttribute(.composerMentionNpub, value: selection.npub, range: selection.range)
         storage.addAttribute(.composerMentionDisplayText, value: selection.displayText, range: selection.range)
-        // Same chip a received bubble draws: the draft token sits on the same neutral surface, so
-        // it reads as the same kind of object even though the sent bubble's accent fill needs a
-        // darker one.
+        // The same treatment a rendered mention gets — bold, in the mentioned person's accent — so
+        // a token looks the same while you are typing it as it will once it is sent. See
+        // `MentionTextPalette`; where the accent cannot be derived the token stays bold on the
+        // field's own content color.
         storage.addAttribute(
-            .backgroundColor,
-            value: MentionChipPalette.neutralFillTextBackground,
+            .foregroundColor,
+            value: MentionTextPalette.nsForeground(forNpub: selection.npub)
+                ?? MentionTextPalette.composerFallbackForeground,
+            range: selection.range
+        )
+        storage.addAttribute(
+            .font,
+            value: NSFont.boldSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize),
             range: selection.range
         )
     }
@@ -539,10 +535,25 @@ enum ComposerMentionMarkerStore {
         }
     }
 
+    /// Reverts a range to plain typed text: the identity markers come off, and the styling `add`
+    /// laid over them is *restored to the plain values* rather than removed.
+    ///
+    /// Restoring rather than removing is the whole point. With no `.foregroundColor` attribute at
+    /// all, TextKit draws the run in opaque black — it does not fall back to the text view's
+    /// `textColor` — which is invisible on the composer's `backgroundPrimary` field in dark
+    /// appearance and fine in light, so the damage only shows in one of the two. `replaceAll`
+    /// sweeps the *entire* storage before re-adding tokens, so one mention anywhere in a draft was
+    /// enough to blank every character of it.
+    ///
+    /// The styling is still never maintained on its own: it is written only by `add` and reset
+    /// wherever the markers are dropped, so it cannot drift from identity. Resetting these keys is
+    /// safe over any range because the composer text view is plain text (`isRichText = false`), so
+    /// the plain attributes are what every unstyled character already carries.
     private static func removeMarkers(in range: NSRange, from storage: NSTextStorage) {
-        for key in markerAttributes {
-            storage.removeAttribute(key, range: range)
-        }
+        storage.removeAttribute(.composerMentionNpub, range: range)
+        storage.removeAttribute(.composerMentionDisplayText, range: range)
+        guard range.length > 0 else { return }
+        storage.addAttributes(ComposerMessageTextViewRepresentable.plainTypingAttributes, range: range)
     }
 
     static func selections(in textView: NSTextView) -> [ComposerMentionSelection] {
@@ -703,8 +714,10 @@ struct PendingMediaDraftStrip: View {
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 18, weight: .semibold))
                                     .symbolRenderingMode(.palette)
+                                    // Two-layer glyph: the inner disc is the surface it is
+                                    // punched out of, the ring is content on that surface.
                                     .foregroundStyle(
-                                        Color(nsColor: .windowBackgroundColor), Color.primary.opacity(0.82))
+                                        WNColor.backgroundPrimary, WNColor.backgroundContentSecondary)
                             }
                             .buttonStyle(.plain)
                             .help(L10n.string("Remove attachment"))
@@ -746,11 +759,11 @@ struct PendingMediaDraftTile: View {
         .frame(width: tileSize.width, height: tileSize.height)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
+                .fill(WNColor.fillSecondary)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
         }
         .overlay(alignment: .bottomTrailing) {
             if let uploadState {
@@ -809,21 +822,21 @@ struct PendingMediaDraftTile: View {
         HStack(spacing: 8) {
             Image(systemName: "mic.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(WNColor.backgroundContentPrimary)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 5) {
                 ComposerAudioWaveformView(
                     samples: attachment.waveformSamples,
                     progress: 0,
-                    barColor: Color.accentColor.opacity(0.82),
-                    playedColor: Color.accentColor
+                    barColor: WNColor.backgroundContentTertiary,
+                    playedColor: WNColor.backgroundContentPrimary
                 )
                 .frame(height: 24)
 
                 Text(attachment.durationLabel ?? attachment.sizeLabel)
                     .font(.caption2.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
         }
@@ -839,14 +852,14 @@ struct PendingMediaDraftTile: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(WNColor.backgroundContentSecondary)
         .padding(.horizontal, 8)
     }
 
     private func iconPreview(systemName: String) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 20, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
     }
 }
 
@@ -863,21 +876,21 @@ private struct PendingMediaUploadStatusBadge: View {
         case .uploading:
             ProgressView()
                 .controlSize(.small)
-                .tint(.accentColor)
+                .tint(WNColor.backgroundContentPrimary)
                 .scaleEffect(0.62)
                 .frame(width: 24, height: 24)
                 .background(.regularMaterial, in: .circle)
-                .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                .shadow(color: WNColor.shadow.opacity(0.1), radius: 4, y: 1)
         case .uploaded:
             EmptyView()
         case .failed:
             Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetry)
                 .labelStyle(.iconOnly)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(WNColor.fillContentQuaternary)
                 .buttonStyle(.plain)
                 .frame(width: 24, height: 24)
-                .background(.red, in: .circle)
+                .background(WNColor.fillDestructive, in: .circle)
                 .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
                 .help(L10n.string("Retry upload"))
         }
@@ -917,23 +930,33 @@ struct VoiceRecordingComposerView: View {
             ComposerAudioWaveformView(
                 samples: samples,
                 progress: 0,
-                barColor: Color.accentColor.opacity(0.70),
-                playedColor: Color.accentColor,
+                // Recording, so every bar is "live" rather than played — one token at full
+                // strength. `backgroundContent*` rather than a fill token because the bars are
+                // drawn straight onto the bar's own surface, and primary rather than the
+                // destructive red this used to be: a recording in progress is the composer doing
+                // what it was asked to, not an error. The voice-draft bar below uses the same two
+                // tokens at two weights, so the two waveforms read as one control.
+                barColor: WNColor.backgroundContentPrimary,
+                playedColor: WNColor.backgroundContentPrimary,
                 mode: .liveRecording
             )
             .frame(height: 30)
 
             Text(Self.durationLabel(durationSeconds))
                 .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(minWidth: 44, alignment: .trailing)
 
+            // Stop is the only thing this bar asks for, so it wears the primary action's pair
+            // (`fillPrimary` + `fillContentPrimary`) rather than the destructive one. Finishing a
+            // recording keeps it — the trash can that throws it away lives in the voice-draft bar
+            // this hands off to, and that is where the destructive color belongs.
             Button(action: onStop) {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(WNColor.fillContentPrimary)
                     .frame(width: 30, height: 30)
-                    .background(Color.accentColor, in: Circle())
+                    .background(WNColor.fillPrimary, in: .circle)
             }
             .buttonStyle(.plain)
             .help(L10n.string("Finish recording"))
@@ -944,7 +967,7 @@ struct VoiceRecordingComposerView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
         }
     }
 
@@ -1004,19 +1027,20 @@ struct VoiceMessageDraftComposerView: View {
             .accessibilityLabel(playbackActionLabel)
             .accessibilityIdentifier("composer.voiceDraft.playback")
 
-            // Unplayed bars are neutral, played bars accent — the same reading the transcript's
-            // audio rows use, so progress is legible rather than two shades of the same blue.
+            // Unplayed bars are de-emphasized, played bars are full-strength content — the same
+            // reading the transcript's audio rows use, so progress is legible as one hue at two
+            // weights rather than two competing colors.
             ComposerAudioWaveformView(
                 samples: attachment.waveformSamples,
                 progress: playbackProgress,
-                barColor: Color.secondary.opacity(0.55),
-                playedColor: Color.accentColor
+                barColor: WNColor.backgroundContentTertiary,
+                playedColor: WNColor.backgroundContentPrimary
             )
             .frame(height: 30)
 
             Text(MediaDurationLabel.string(for: isPlaying ? elapsedSeconds : (attachment.durationSeconds ?? 0)))
                 .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(minWidth: 44, alignment: .trailing)
 
             // Discard sits with Send rather than at the far left: the two decisions the bar asks
@@ -1024,7 +1048,7 @@ struct VoiceMessageDraftComposerView: View {
             Button(action: discard) {
                 Image(systemName: "trash")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WNColor.backgroundContentDestructive)
                     .frame(width: 30, height: 30)
                     .background {
                         MessagesCircleControlBackground()
@@ -1039,29 +1063,19 @@ struct VoiceMessageDraftComposerView: View {
                 Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetryUpload)
                     .labelStyle(.iconOnly)
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(WNColor.fillContentQuaternary)
                     .buttonStyle(.plain)
                     .frame(width: 30, height: 30)
-                    .background(.red, in: .circle)
+                    .background(WNColor.fillDestructive, in: .circle)
                     .help(L10n.string("Retry upload"))
             }
 
             Button(action: send) {
-                Group {
-                    if isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                            .scaleEffect(0.72)
-                    } else {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                }
-                .frame(width: 32, height: 32)
-                .background {
-                    MessagesSendButtonBackground(isEnabled: canSend || isSending)
-                }
+                MessagesSendButtonLabel(
+                    systemImage: "paperplane.fill",
+                    isEnabled: canSend,
+                    isSending: isSending
+                )
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
@@ -1074,7 +1088,7 @@ struct VoiceMessageDraftComposerView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
         }
         // The player is built from one recording's bytes: if this view's identity outlives a
         // re-recording, drop it so playback cannot replay the discarded take.
@@ -1308,7 +1322,7 @@ struct TimelineInitialLoadingView: View {
                 .controlSize(.regular)
             Text(L10n.string("Loading messages..."))
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
@@ -1351,7 +1365,7 @@ struct ReplyComposerContextView: View {
 
                 Text(context.body)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
@@ -1390,7 +1404,7 @@ struct EditComposerContextView: View {
                     .font(.caption.weight(.semibold))
                 Text(context.originalBody)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
 
@@ -1412,7 +1426,7 @@ struct MembershipEndedComposerNotice: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: membership.endedSymbolName ?? "")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(membership.endedDescription ?? "")
@@ -1420,7 +1434,7 @@ struct MembershipEndedComposerNotice: View {
 
                 Text(ChatSelfMembership.endedHistoryExplanation)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             Spacer(minLength: 0)
@@ -1442,7 +1456,7 @@ struct PendingGroupInviteComposerNotice: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(WNColor.intentionInfoContent)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(inviteMessage)
@@ -1451,7 +1465,7 @@ struct PendingGroupInviteComposerNotice: View {
 
                     Text(L10n.string("If you decline, this chat will be removed from your chat list."))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -1650,7 +1664,7 @@ struct ConversationHeader: View {
                             Text(chat.title)
                                 .font(.system(size: 15, weight: .semibold))
                                 .lineLimit(1)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(WNColor.backgroundContentPrimary)
 
                             headerSubtitle
                         }
@@ -1781,7 +1795,7 @@ struct MessageInfoSheet: View {
     private func infoRow(title: String, value: String) -> some View {
         GridRow {
             Text(title)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             Text(value)
                 .textSelection(.enabled)
         }
@@ -1815,13 +1829,13 @@ struct MessageForwardSheet: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 TextField(L10n.string("Search chats"), text: $query)
                     .textFieldStyle(.plain)
             }
             .padding(.horizontal, 12)
             .frame(height: 36)
-            .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+            .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
 
@@ -1849,7 +1863,7 @@ struct MessageForwardSheet: View {
                                     ProgressView().controlSize(.small)
                                 } else {
                                     Image(systemName: "arrowshape.turn.up.right")
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(WNColor.backgroundContentSecondary)
                                 }
                             }
                             .padding(.horizontal, 16)

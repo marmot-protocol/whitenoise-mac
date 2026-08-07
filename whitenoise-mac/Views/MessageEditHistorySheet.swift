@@ -56,7 +56,7 @@ private struct MessageEditHistoryView: View {
                     if versions.isEmpty {
                         Text(L10n.string("No earlier versions."))
                             .font(.callout)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .padding(.top, 8)
                     }
                     ForEach(versions, id: \.version.id) { entry in
@@ -79,11 +79,12 @@ private struct MessageEditHistoryView: View {
                         : (isLatest ? L10n.string("Current") : L10n.string("Edited"))
                 )
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(isLatest ? Color.accentColor : Color.secondary)
+                .foregroundStyle(
+                    isLatest ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary)
                 Spacer()
                 Text(DisplayText.messageTimestamp(for: version.date))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             Text(version.text)
                 .font(.body)

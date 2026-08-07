@@ -7,17 +7,6 @@ import SwiftUI
 /// Injected through the builder so the transformation stays pure and off-main.
 typealias MarkdownMentionNames = [String: String]
 
-/// Which fill the rendered text will be drawn on top of, so a mention chip can be picked to
-/// contrast with it. Threaded through the builder rather than resolved in the view: the
-/// attributed string is built once, off-main, when the message is mapped, and body/layout
-/// passes must not rewrite it (see `MarkdownMessageView`, whitenoise-mac#205).
-nonisolated enum MarkdownMentionFill {
-    /// A neutral surface — received bubbles, agent rows, anything not filled with the accent.
-    case neutral
-    /// The accent-filled sent bubble.
-    case sentBubble
-}
-
 // Pure FFI → display-model transformation (built off-main while mapping a timeline window,
 // read on the main actor by the views). Marked `nonisolated` so it does not inherit the
 // module's default main-actor isolation — otherwise constructing it from `MessageItem.init`
@@ -55,8 +44,7 @@ nonisolated struct MarkdownDisplayDocument {
 
     init(
         document: MarkdownDocumentFfi,
-        mentionNames: MarkdownMentionNames = [:],
-        mentionFill: MarkdownMentionFill = .neutral
+        mentionNames: MarkdownMentionNames = [:]
     ) {
         var swiftTruncated = false
         var budget = MarkdownDisplayBudget(limit: Self.maxDisplayNodes)
@@ -64,7 +52,6 @@ nonisolated struct MarkdownDisplayDocument {
             from: document.blocks,
             remainingDepth: Self.maxDepth,
             mentionNames: mentionNames,
-            mentionFill: mentionFill,
             budget: &budget,
             truncated: &swiftTruncated
         )
@@ -75,7 +62,6 @@ nonisolated struct MarkdownDisplayDocument {
         from blocks: [MarkdownBlockFfi],
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill,
         budget: inout MarkdownDisplayBudget,
         truncated: inout Bool
     ) -> [MarkdownDisplayBlockNode] {
@@ -93,7 +79,6 @@ nonisolated struct MarkdownDisplayDocument {
                         block,
                         remainingDepth: remainingDepth,
                         mentionNames: mentionNames,
-                        mentionFill: mentionFill,
                         budget: &budget,
                         truncated: &truncated
                     )
@@ -151,7 +136,6 @@ nonisolated enum MarkdownDisplayBlock {
         _ block: MarkdownBlockFfi,
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill,
         budget: inout MarkdownDisplayBudget,
         truncated: inout Bool
     ) {
@@ -162,7 +146,6 @@ nonisolated enum MarkdownDisplayBlock {
                     from: inlines,
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     truncated: &truncated
                 )
             )
@@ -173,7 +156,6 @@ nonisolated enum MarkdownDisplayBlock {
                     from: inlines,
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     truncated: &truncated
                 )
             )
@@ -187,7 +169,6 @@ nonisolated enum MarkdownDisplayBlock {
                     from: blocks,
                     remainingDepth: remainingDepth - 1,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     budget: &budget,
                     truncated: &truncated
                 )
@@ -199,7 +180,6 @@ nonisolated enum MarkdownDisplayBlock {
                     items: items,
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     budget: &budget,
                     truncated: &truncated
                 )
@@ -210,7 +190,6 @@ nonisolated enum MarkdownDisplayBlock {
                 from: Array(header.prefix(headerCount)),
                 remainingDepth: remainingDepth,
                 mentionNames: mentionNames,
-                mentionFill: mentionFill,
                 truncated: &truncated
             )
             var displayRows: [MarkdownDisplayTableRow] = []
@@ -221,7 +200,6 @@ nonisolated enum MarkdownDisplayBlock {
                     from: Array(row.prefix(cellCount)),
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     truncated: &truncated
                 )
                 guard row.isEmpty || !cells.isEmpty else { break }
@@ -240,7 +218,6 @@ nonisolated enum MarkdownDisplayBlock {
         items: [MarkdownListItemFfi],
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill,
         budget: inout MarkdownDisplayBudget,
         truncated: inout Bool
     ) -> [MarkdownDisplayListItem] {
@@ -251,7 +228,6 @@ nonisolated enum MarkdownDisplayBlock {
                 from: item.blocks,
                 remainingDepth: remainingDepth - 1,
                 mentionNames: mentionNames,
-                mentionFill: mentionFill,
                 budget: &budget,
                 truncated: &truncated
             )
@@ -289,7 +265,6 @@ nonisolated enum MarkdownDisplayBlock {
         from cells: [MarkdownTableCellFfi],
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill,
         truncated: inout Bool
     ) -> [MarkdownDisplayTableCell] {
         cells.enumerated().map { index, cell in
@@ -299,7 +274,6 @@ nonisolated enum MarkdownDisplayBlock {
                     from: cell.inlines,
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     truncated: &truncated
                 )
             )
@@ -342,15 +316,13 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     static func attributedString(
         from inlines: [MarkdownInlineFfi],
         remainingDepth: Int,
-        mentionNames: MarkdownMentionNames = [:],
-        mentionFill: MarkdownMentionFill = .neutral
+        mentionNames: MarkdownMentionNames = [:]
     ) -> AttributedString {
         var truncated = false
         return attributedString(
             from: inlines,
             remainingDepth: remainingDepth,
             mentionNames: mentionNames,
-            mentionFill: mentionFill,
             truncated: &truncated
         )
     }
@@ -359,7 +331,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         from inlines: [MarkdownInlineFfi],
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill,
         truncated: inout Bool
     ) -> AttributedString {
         guard remainingDepth > 0 else {
@@ -375,7 +346,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                     link: nil,
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     truncated: &truncated
                 )
             )
@@ -389,7 +359,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         link: MarkdownDisplayLink?,
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill,
         truncated: inout Bool
     ) -> AttributedString {
         switch inline {
@@ -408,7 +377,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 link: link,
                 remainingDepth: remainingDepth - 1,
                 mentionNames: mentionNames,
-                mentionFill: mentionFill,
                 truncated: &truncated
             )
         case .strong(let children):
@@ -418,7 +386,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 link: link,
                 remainingDepth: remainingDepth - 1,
                 mentionNames: mentionNames,
-                mentionFill: mentionFill,
                 truncated: &truncated
             )
         case .strikethrough(let children):
@@ -428,7 +395,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 link: link,
                 remainingDepth: remainingDepth - 1,
                 mentionNames: mentionNames,
-                mentionFill: mentionFill,
                 truncated: &truncated
             )
         case .link(let dest, _, let children, let classification):
@@ -438,7 +404,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 link: actionableURL(from: dest, classification: classification),
                 remainingDepth: remainingDepth - 1,
                 mentionNames: mentionNames,
-                mentionFill: mentionFill,
                 truncated: &truncated
             )
         case .image(_, let title, let alt, _):
@@ -449,7 +414,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                     link: link,
                     remainingDepth: remainingDepth - 1,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     truncated: &truncated
                 )
             }
@@ -459,7 +423,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         case .math(let content):
             return styled(content, intent: intent.union(.code), link: link)
         case .nostrMention(let entity), .nostrUri(let entity):
-            return nostrEntity(entity, intent: intent, mentionNames: mentionNames, mentionFill: mentionFill)
+            return nostrEntity(entity, intent: intent, mentionNames: mentionNames)
         @unknown default:
             return AttributedString()
         }
@@ -486,7 +450,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         link: MarkdownDisplayLink?,
         remainingDepth: Int,
         mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill,
         truncated: inout Bool
     ) -> AttributedString {
         guard remainingDepth > 0 else {
@@ -502,7 +465,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                     link: link,
                     remainingDepth: remainingDepth,
                     mentionNames: mentionNames,
-                    mentionFill: mentionFill,
                     truncated: &truncated
                 )
             )
@@ -539,8 +501,7 @@ nonisolated enum MarkdownDisplayInlineBuilder {
     private static func nostrEntity(
         _ entity: MarkdownNostrEntityFfi,
         intent: InlinePresentationIntent,
-        mentionNames: MarkdownMentionNames,
-        mentionFill: MarkdownMentionFill
+        mentionNames: MarkdownMentionNames
     ) -> AttributedString {
         let shortReference = shortBech32(entity.bech32)
         let displayText: String
@@ -562,11 +523,6 @@ nonisolated enum MarkdownDisplayInlineBuilder {
             displayText = shortReference
             presentation = .underlined
         }
-        // No baked foreground color: the bubble owns `.tint` so the linked reference stays visible
-        // on both sent and received, and the chip is picked to keep that inherited text legible.
-        // A mention is set off by a background chip (Signal's treatment) rather than bold weight,
-        // a foreground color, or a decoration — see `MentionChipPalette` for why the chip has to
-        // know its fill instead of being one translucent wash over all of them.
         var attributed = styled(
             displayText,
             intent: intent,
@@ -574,8 +530,18 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 MarkdownDisplayLink(url: $0, presentation: presentation)
             }
         )
+        // A mention is set off by weight plus the mentioned person's own accent — the same
+        // treatment the other clients give it, and the reason it needs no knowledge of the fill
+        // it lands on. See `MentionTextPalette`.
+        //
+        // The accent is only applied when it can be derived honestly; where it cannot, the
+        // mention stays bold and inherits the bubble's foreground, which also keeps a linked
+        // `nprofile` reference visible on both sent and received.
         if presentation == .mention {
-            attributed.backgroundColor = MentionChipPalette.color(on: mentionFill)
+            attributed.inlinePresentationIntent = intent.union(.stronglyEmphasized)
+            if let accent = MentionTextPalette.foreground(forNpub: entity.bech32) {
+                attributed.foregroundColor = accent
+            }
         }
         return attributed
     }

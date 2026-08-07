@@ -199,7 +199,7 @@ struct GroupDetailsSheet: View {
                                     )
                                 )
                                 .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
 
                                 HStack(spacing: 10) {
@@ -241,12 +241,12 @@ struct GroupDetailsSheet: View {
 
                                     Text(ChatSelfMembership.endedHistoryExplanation)
                                         .font(.callout)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(WNColor.backgroundContentSecondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             } icon: {
                                 Image(systemName: snapshot.selfMembership.endedSymbolName ?? "")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                         }
                     }
@@ -317,11 +317,11 @@ struct GroupDetailsSheet: View {
                                     ProgressView()
                                         .controlSize(.small)
                                     Text(L10n.string("Checking shared groups…"))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(WNColor.backgroundContentSecondary)
                                 }
                             } else if workspace.commonGroupsForContact.isEmpty {
                                 Label(L10n.string("No groups in common"), systemImage: "person.2.slash")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WNColor.backgroundContentSecondary)
                             } else {
                                 ForEach(workspace.commonGroupsForContact) { commonGroup in
                                     Button {
@@ -340,18 +340,18 @@ struct GroupDetailsSheet: View {
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(commonGroup.title)
                                                     .font(.callout.weight(.semibold))
-                                                    .foregroundStyle(.primary)
+                                                    .foregroundStyle(WNColor.backgroundContentPrimary)
                                                     .lineLimit(1)
                                                 Text(commonGroup.subtitle)
                                                     .font(.caption)
-                                                    .foregroundStyle(.secondary)
+                                                    .foregroundStyle(WNColor.backgroundContentSecondary)
                                                     .lineLimit(1)
                                             }
 
                                             Spacer()
                                             Image(systemName: "chevron.right")
                                                 .font(.caption.weight(.semibold))
-                                                .foregroundStyle(.tertiary)
+                                                .foregroundStyle(WNColor.backgroundContentTertiary)
                                         }
                                         .contentShape(Rectangle())
                                     }
@@ -362,7 +362,7 @@ struct GroupDetailsSheet: View {
                             if workspace.commonGroupsLoadHadFailures {
                                 Text(L10n.string("Some groups could not be checked."))
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                         }
                     }
@@ -510,7 +510,7 @@ struct GroupDetailsSheet: View {
                         if let blocker = snapshot.leaveBlocker {
                             Text(blocker.message)
                                 .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                     }
 
@@ -538,7 +538,7 @@ struct GroupDetailsSheet: View {
                                 } else if let status = workspace.groupTranscriptExportStatus {
                                     Label(status, systemImage: "checkmark.circle")
                                         .font(.callout)
-                                        .foregroundStyle(.green)
+                                        .foregroundStyle(WNColor.intentionSuccessContent)
                                 }
                             }
 
@@ -690,7 +690,7 @@ struct GroupDiagnosticsValueRow: View {
 
                 Text(displayValue)
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(lineLimit)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -748,13 +748,13 @@ struct GroupMemberRow: View {
                             if member.isSelf {
                                 Text(L10n.string("You"))
                                     .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                         }
 
                         Text(member.detailLabel)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .lineLimit(1)
                     }
 
@@ -861,7 +861,7 @@ struct ContactDetailsView: View {
                         .lineLimit(1)
                     Text(isSelf ? L10n.string("You") : L10n.string("Contact"))
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
                 Spacer()
@@ -920,11 +920,11 @@ struct ContactDetailsView: View {
                             ProgressView()
                                 .controlSize(.small)
                             Text(L10n.string("Checking shared groups…"))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                     } else if workspace.commonGroupsForContact.isEmpty {
                         Label(L10n.string("No groups in common"), systemImage: "person.2.slash")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     } else {
                         ForEach(workspace.commonGroupsForContact) { commonGroup in
                             Button {
@@ -942,17 +942,17 @@ struct ContactDetailsView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(commonGroup.title)
                                             .font(.callout.weight(.semibold))
-                                            .foregroundStyle(.primary)
+                                            .foregroundStyle(WNColor.backgroundContentPrimary)
                                             .lineLimit(1)
                                         Text(commonGroup.subtitle)
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(WNColor.backgroundContentSecondary)
                                             .lineLimit(1)
                                     }
                                     Spacer()
                                     Image(systemName: "chevron.right")
                                         .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.tertiary)
+                                        .foregroundStyle(WNColor.backgroundContentTertiary)
                                 }
                                 .contentShape(Rectangle())
                             }
@@ -963,7 +963,7 @@ struct ContactDetailsView: View {
                     if workspace.commonGroupsLoadHadFailures {
                         Text(L10n.string("Some groups could not be checked."))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
             }
@@ -1025,7 +1025,7 @@ private struct ContactFollowControl: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(L10n.string("Checking…"))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("contact.details.follow.loading")
@@ -1093,7 +1093,7 @@ struct GroupImagePickerSheet: View {
                             .lineLimit(1)
                         Text(L10n.string("Group image"))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
 
                     Spacer()
@@ -1118,7 +1118,7 @@ struct GroupImagePickerSheet: View {
 
                         Text(L10n.string("or search the web"))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
 
                         Spacer()
                     }
@@ -1150,7 +1150,7 @@ struct GroupImagePickerSheet: View {
 
                     Text(L10n.string("Search terms are sent to Openverse."))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack {
@@ -1174,13 +1174,13 @@ struct GroupImagePickerSheet: View {
                             VStack(spacing: 10) {
                                 Image(systemName: "photo.on.rectangle.angled")
                                     .font(.system(size: 28, weight: .light))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WNColor.backgroundContentSecondary)
                                 Text(
                                     workspace.isSearchingGroupImages
                                         ? L10n.string("Searching") : L10n.string("No images")
                                 )
                                 .font(.callout.weight(.medium))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                             .frame(maxWidth: .infinity, minHeight: 300)
                         } else {
@@ -1239,12 +1239,12 @@ struct GroupImageResultTile: View {
                     } placeholder: {
                         Image(systemName: "photo")
                             .font(.system(size: 24, weight: .light))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 } else {
                     Image(systemName: "photo")
                         .font(.system(size: 24, weight: .light))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
             .aspectRatio(1.18, contentMode: .fit)
@@ -1258,7 +1258,7 @@ struct GroupImageResultTile: View {
 
             Text(result.creditLine)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -231,7 +231,7 @@ struct ChatEmojiPicker: View {
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             TextField(L10n.string("Search emoji"), text: $query)
                 .textFieldStyle(.plain)
             if !query.isEmpty {
@@ -239,7 +239,7 @@ struct ChatEmojiPicker: View {
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(L10n.string("Clear search"))
@@ -247,7 +247,7 @@ struct ChatEmojiPicker: View {
         }
         .padding(.horizontal, 11)
         .frame(height: 34)
-        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+        .background(WNColor.fillSecondary, in: Capsule())
         .padding(10)
     }
 
@@ -308,7 +308,7 @@ struct ChatEmojiPicker: View {
         } header: {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
                 .background(.bar)
@@ -338,7 +338,7 @@ struct ChatEmojiPicker: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor).opacity(0.92))
+        .background(WNColor.backgroundSecondary.opacity(0.92))
     }
 
     private func railButton(
@@ -350,9 +350,13 @@ struct ChatEmojiPicker: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(selected ? Color.primary : Color.secondary)
+                .foregroundStyle(
+                    selected ? WNColor.fillContentSecondary : WNColor.fillContentTertiary
+                )
                 .frame(width: 34, height: 28)
-                .background(selected ? Color.primary.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .background(
+                    selected ? WNColor.fillTertiaryHover : WNColor.fillTertiary,
+                    in: RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

@@ -8,11 +8,18 @@
 
 import SwiftUI
 
-/// A tight, clustered row of reaction chips (emoji + count). Own reactions get a gentle accent
-/// fill. Tapping a chip opens the viewer filtered to that emoji; the overflow chip opens it on
-/// "All". Chips are view-only — adding/removing is done from the hover React control.
+/// A tight, clustered row of reaction chips (emoji + count). Tapping a chip opens the viewer
+/// filtered to that emoji; the overflow chip opens it on "All". Chips are view-only —
+/// adding/removing is done from the hover React control.
+///
+/// Colors come from `WNReactionColors`, which is keyed by direction because a chip hangs off the
+/// bubble's edge and therefore sits against `fillPrimary` or `backgroundMessageIncoming` — fills
+/// that run in opposite directions. A chip for a reaction the local account added takes the
+/// `selected` state.
 struct MessageReactionChips: View {
     let reactions: [MessageReaction]
+    /// Which bubble these chips hang off, which decides the whole chip color set.
+    let isOutgoing: Bool
     /// emoji to focus the viewer on, or nil for the "All" tab.
     let onOpenViewer: (String?) -> Void
 
@@ -32,7 +39,12 @@ struct MessageReactionChips: View {
         reactions.contains { $0.isOwn }
     }
 
+    private var colors: WNReactionColorSet {
+        WNReactionColors.set(isOutgoing: isOutgoing)
+    }
+
     var body: some View {
+        let colors = colors
         Button {
             onOpenViewer(nil)
         } label: {
@@ -41,7 +53,7 @@ struct MessageReactionChips: View {
                 if totalCount > 1 {
                     Text(verbatim: "\(totalCount)")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isOwn ? colors.contentSelected : colors.content)
                 }
             }
             .font(.footnote)
@@ -49,14 +61,7 @@ struct MessageReactionChips: View {
             .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
-                    .fill(isOwn ? Color.accentColor.opacity(0.20) : Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(
-                        isOwn ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.12),
-                        lineWidth: 1
-                    )
+                    .fill(isOwn ? colors.fillSelected : colors.fill)
             )
         }
         .buttonStyle(.plain)
@@ -128,10 +133,12 @@ struct MessageReactionDetailsView: View {
                     .font(.caption.weight(.semibold))
             }
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(isSelected ? Color.white : Color.primary)
+            // The viewer's filter pills are buttons on a `background*` surface, so they take the
+            // fill/fill-content pairs: `fillPrimary` when active, `fillSecondary` at rest.
+            .foregroundStyle(isSelected ? WNColor.fillContentPrimary : WNColor.fillContentSecondary)
             .padding(.horizontal, 12)
             .frame(minHeight: 30)
-            .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.16), in: Capsule())
+            .background(isSelected ? WNColor.fillPrimary : WNColor.fillSecondary, in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -208,7 +215,7 @@ struct MessageReactionDetailsView: View {
                 if canRemove {
                     Text(L10n.string("Tap to remove"))
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
             Spacer(minLength: 8)

@@ -86,7 +86,7 @@ struct NewChatPanelView: View {
                     if let lastError = workspace.lastError {
                         Text(lastError)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(WNColor.backgroundContentDestructive)
                             .padding(.horizontal, 12)
                             .padding(.top, 6)
                     }
@@ -143,7 +143,7 @@ struct NewChatPanelView: View {
                     .controlSize(.small)
                 Text(L10n.string("Finding people from your groups..."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(12)
         }
@@ -243,7 +243,7 @@ struct ChooseMembersPanelView: View {
             HStack {
                 Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 Spacer()
                 Button(L10n.string("Next")) {
                     workspace.composeShowNameGroup()
@@ -331,7 +331,12 @@ struct NameGroupPanelView: View {
                         .glassCard()
                         .overlay {
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(isNameFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                                // `borderTertiary` at rest, not `fillTertiary`: a border takes a
+                                // border token, and `fillTertiary` is the ghost control's
+                                // transparent resting fill — it drew nothing at all here.
+                                .stroke(
+                                    isNameFocused ? WNColor.borderPrimary : WNColor.borderTertiary,
+                                    lineWidth: 1)
                         }
                         .accessibilityIdentifier("compose.groupName")
 
@@ -340,7 +345,7 @@ struct NameGroupPanelView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
                             .font(MessagesType.sectionHeader)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                         ForEach(workspace.newChatRecipients, id: \.accountIdHex) { member in
                             memberRow(member)
                         }
@@ -350,7 +355,7 @@ struct NameGroupPanelView: View {
                     if let lastError = workspace.lastError {
                         Text(lastError)
                             .font(.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(WNColor.backgroundContentDestructive)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -393,9 +398,10 @@ struct NameGroupPanelView: View {
         if trimmedName.isEmpty {
             Image(systemName: "person.2.fill")
                 .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(width: 84, height: 84)
-                .background(Circle().fill(.quaternary))
+                .background(Circle().fill(WNColor.fillSecondary))
+                .overlay(Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
         } else {
             AvatarView(seed: trimmedName, initials: trimmedName, size: 84, isSelected: false)
         }
@@ -444,7 +450,7 @@ struct NameGroupPanelView: View {
                     .lineLimit(1)
                 Text(shortKey(npub: member.npub, hex: member.accountIdHex))
                     .font(MessagesType.meta)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -571,7 +577,7 @@ private struct ComposeSectionHeader: View {
     var body: some View {
         Text(title)
             .font(MessagesType.sectionHeader)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.top, 10)
@@ -590,7 +596,8 @@ private struct ComposeActionRow: View {
                 Image(systemName: symbol)
                     .font(.system(size: 13, weight: .semibold))
                     .frame(width: 32, height: 32)
-                    .background(Circle().fill(.quaternary))
+                    .background(Circle().fill(WNColor.fillSecondary))
+                    .overlay(Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
                 Text(title)
                     .font(MessagesType.rowLabel)
                 Spacer(minLength: 0)
@@ -631,13 +638,13 @@ private struct ComposeContactRow: View {
                         .lineLimit(1)
                     Text(subtitle)
                         .font(MessagesType.meta)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if let provenance {
                         Text(provenance)
                             .font(MessagesType.meta)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(WNColor.backgroundContentTertiary)
                             .lineLimit(1)
                     }
                 }
@@ -648,7 +655,9 @@ private struct ComposeContactRow: View {
                 } else if let selection {
                     Image(systemName: selection ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 19))
-                        .foregroundStyle(selection ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(
+                            selection
+                                ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary)
                 }
             }
             .padding(.horizontal, 10)
@@ -697,16 +706,16 @@ private struct ComposeDiscoveryStatusRow: View {
                     .controlSize(.small)
                 Text(L10n.string("Searching your network..."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(12)
         case .failed:
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 Text(L10n.string("Search couldn't be completed."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 Button(L10n.string("Retry")) {
                     workspace.scheduleUserDiscovery()
                 }
@@ -716,10 +725,10 @@ private struct ComposeDiscoveryStatusRow: View {
         case .partial:
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 Text(L10n.string("Some results may be missing."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(12)
         }
@@ -733,7 +742,7 @@ private struct ComposeResolvingRow: View {
                 .controlSize(.small)
             Text(L10n.string("Resolving..."))
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
         }
         .padding(12)
     }
@@ -746,10 +755,10 @@ private struct ComposeNoMatchesView: View {
         VStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 30))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WNColor.backgroundContentTertiary)
             Text(L10n.string("No matches"))
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             if let onPaste {
                 Button(L10n.string("Paste npub"), action: onPaste)
                     .buttonStyle(.link)
@@ -779,12 +788,12 @@ private struct MemberChip: View {
                     .lineLimit(1)
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(.leading, 4)
             .padding(.trailing, 7)
             .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(.quaternary))
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(WNColor.fillSecondary))
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)

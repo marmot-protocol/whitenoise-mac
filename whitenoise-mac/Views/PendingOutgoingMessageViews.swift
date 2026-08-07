@@ -97,7 +97,6 @@ struct PendingOutgoingMessageBubble: View {
         PendingOutgoingMessageMetadata(
             createdAt: message.createdAt,
             isFailed: message.state == .failed,
-            isOnBubbleFill: !message.caption.isEmpty,
             timestampReferenceDate: timestampReferenceDate,
             timestampLocale: timestampLocale
         )
@@ -114,7 +113,7 @@ private struct PendingOutgoingMessageCaption<Metadata: View>: View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(caption)
                 .font(.system(size: 15.5))
-                .foregroundStyle(.white)
+                .foregroundStyle(MessagesPalette.sentBubbleContent)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -141,7 +140,6 @@ private struct PendingOutgoingMessageCaption<Metadata: View>: View {
 private struct PendingOutgoingMessageMetadata: View {
     let createdAt: Date
     let isFailed: Bool
-    let isOnBubbleFill: Bool
     let timestampReferenceDate: Date
     let timestampLocale: Locale
 
@@ -157,14 +155,18 @@ private struct PendingOutgoingMessageMetadata: View {
             .monospacedDigit()
 
             Image(systemName: isFailed ? "exclamationmark.circle.fill" : "clock")
-                .foregroundStyle(isFailed ? Color.red : tint)
+                .foregroundStyle(isFailed ? WNColor.backgroundContentDestructiveSecondary : tint)
         }
         .font(.system(size: 10.5, weight: .medium))
         .foregroundStyle(tint)
     }
 
+    /// The same token `MessageBubble.compactMetadata` uses, and for the same reason: the neutral
+    /// `400`/`500` step is the one rung that clears the sent bubble and the transcript surface
+    /// alike, so a pending row and the delivered row that replaces it read identically. That is
+    /// what retired the `isOnBubbleFill` flag this used to branch on.
     private var tint: Color {
-        isOnBubbleFill ? Color.white.opacity(0.68) : Color.secondary.opacity(0.72)
+        WNColor.backgroundContentTertiary
     }
 }
 
@@ -218,7 +220,7 @@ private struct PendingOutgoingMediaGrid: View {
         .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.16), lineWidth: 1)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
         }
     }
 
@@ -265,7 +267,7 @@ private struct PendingOutgoingMediaTile: View {
 
     var body: some View {
         ZStack {
-            Color.primary.opacity(0.06)
+            WNColor.backgroundTertiary
 
             if let preview {
                 Image(nsImage: preview)
@@ -277,14 +279,14 @@ private struct PendingOutgoingMediaTile: View {
             } else {
                 Image(systemName: attachment.kind.systemImageName)
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
             }
 
             if hiddenCount > 0 {
-                Color.black.opacity(0.46)
+                WNColor.overlayTertiary
                 Text(verbatim: "+\(hiddenCount)")
                     .font(.title2.bold())
-                    .foregroundStyle(.white)
+                    .foregroundStyle(WNColor.fillContentQuaternary)
             }
         }
         .frame(width: sideLength, height: sideLength)
@@ -316,7 +318,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
                 fileRow
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(AttachmentRowPalette.outgoingContent)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(width: 260, alignment: .leading)
@@ -337,14 +339,14 @@ private struct PendingOutgoingMediaAttachmentRow: View {
             ComposerAudioWaveformView(
                 samples: attachment.waveformSamples,
                 progress: 0,
-                barColor: Color.white.opacity(0.55),
-                playedColor: Color.white
+                barColor: AttachmentRowPalette.waveformBar(isOutgoing: true),
+                playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: true)
             )
             .frame(height: 24)
 
             Text(MediaDurationLabel.string(for: attachment.durationSeconds ?? 0))
                 .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.white.opacity(0.7))
+                .foregroundStyle(AttachmentRowPalette.detailContent)
         }
     }
 
@@ -360,7 +362,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
                     .truncationMode(.middle)
                 Text(attachment.durationLabel ?? attachment.sizeLabel)
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(0.7))
+                    .foregroundStyle(AttachmentRowPalette.detailContent)
             }
 
             Spacer(minLength: 0)
