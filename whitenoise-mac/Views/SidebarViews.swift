@@ -18,10 +18,13 @@ struct UnreadCountBadge: View {
     var body: some View {
         Text(verbatim: count > 99 ? "99+" : "\(count)")
             .font(font)
-            .foregroundStyle(.white)
+            // `fillPrimary` + `fillContentPrimary`, the pair the other clients give the unread
+            // count. Both invert between appearances, so the count is white on a near-black pill in
+            // light and near-black on a white pill in dark.
+            .foregroundStyle(WNColor.fillContentPrimary)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
-            .background(Capsule().fill(MessagesPalette.sentBubble))
+            .background(Capsule().fill(WNColor.fillPrimary))
     }
 }
 
@@ -70,7 +73,9 @@ struct AccountRailView: View {
                     }
             }
             .buttonStyle(.plain)
-            .foregroundStyle(isSettingsSelected ? Color.primary : Color.secondary)
+            .foregroundStyle(
+                isSettingsSelected ? WNColor.fillContentSecondary : WNColor.fillContentTertiary
+            )
             .help(L10n.string("Settings"))
         }
         .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
@@ -144,11 +149,13 @@ private struct AccountRailAvatar: View {
         if account.signedOut {
             Image(systemName: "pause.circle.fill")
                 .font(.system(size: 15))
-                .foregroundStyle(.secondary)
-                .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                // Punched out of the rail behind it, so it takes the rail's own surface rather
+                // than the system window color.
+                .background(Circle().fill(WNColor.backgroundTertiary))
         } else if unread > 0 {
             UnreadCountBadge(count: unread)
-                .overlay(Capsule().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                .overlay(Capsule().strokeBorder(WNColor.backgroundTertiary, lineWidth: 1.5))
         }
     }
 }
@@ -359,7 +366,7 @@ private struct ChatListFilterMenu: View {
         .background {
             if workspace.chatListFilter == filter {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.14))
+                    .fill(WNColor.fillTertiaryHover)
             }
         }
     }
@@ -592,16 +599,19 @@ struct SettingsSidebarRow: View {
         HStack(spacing: 10) {
             Image(systemName: page.systemImage)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .foregroundStyle(
+                    isSelected
+                        ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
+                )
                 .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(page.title(in: locale))
                     .font(.callout.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(WNColor.backgroundContentPrimary)
                 Text(page.sidebarSubtitle(in: locale))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -654,13 +664,13 @@ struct ChatRowContent: View {
                     if isPinned {
                         Image(systemName: "pin.fill")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .accessibilityLabel(L10n.string("Pinned"))
                     }
                     if chat.muted {
                         Image(systemName: "bell.slash.fill")
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .accessibilityLabel(L10n.string("Muted"))
                     }
                     Spacer(minLength: 8)
@@ -672,12 +682,12 @@ struct ChatRowContent: View {
                     )
                     .equatable()
                     .font(MessagesType.meta)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
                     previewText
                         .font(MessagesType.preview)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if searchResult == nil {
@@ -687,16 +697,16 @@ struct ChatRowContent: View {
                         if chat.hasMention {
                             Image(systemName: "at")
                                 .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(WNColor.fillContentPrimary)
                                 .frame(width: 18, height: 18)
-                                .background(Circle().fill(Color.accentColor))
+                                .background(Circle().fill(WNColor.fillPrimary))
                                 .help(L10n.string("You were mentioned"))
                         }
                         if chat.unreadCount > 0 {
                             UnreadCountBadge(count: chat.unreadCount, font: MessagesType.badge)
                         } else {
                             Circle()
-                                .fill(Color.accentColor)
+                                .fill(WNColor.fillPrimary)
                                 .frame(width: 9, height: 9)
                                 .accessibilityLabel(L10n.string("Marked unread"))
                         }
@@ -723,7 +733,8 @@ struct ChatRowContent: View {
         }
         return Text(verbatim: "\(searchResult.senderName): ").bold()
             + Text(searchResult.snippet.leading)
-            + Text(searchResult.snippet.match).bold().foregroundColor(.primary)
+            + Text(searchResult.snippet.match).bold()
+            .foregroundColor(WNColor.intentionInfoContent)
             + Text(searchResult.snippet.trailing)
     }
 }
@@ -737,15 +748,15 @@ private struct ChatDeliveryStateIcon: View {
             EmptyView()
         case .pending:
             Image(systemName: "clock")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .help(L10n.string("Sending"))
         case .delivered:
             Image(systemName: "checkmark")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .help(L10n.string("Delivered"))
         case .failed:
             Image(systemName: "exclamationmark.circle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(WNColor.intentionErrorContent)
                 .help(L10n.string("Not delivered"))
         }
     }
@@ -774,6 +785,14 @@ private struct ChatTimestampText: View, Equatable {
     }
 }
 
+/// An invitation waiting on an answer. This is the other clients' `ChatStatusType.request`, which
+/// is the one chat-row status they draw in the info intention rather than in neutral gray — it is
+/// the only one that is asking the reader for something. Taking the intention's own background and
+/// content tokens (`intentionInfoBackground` + `intentionInfoContent`) is how the reference styles
+/// every info surface, and it is also why this capsule has no hairline: the intention pair is
+/// self-contained, and a neutral `borderTertiary` ring drawn around a blue wash belongs to neither
+/// family. The neutral capsule stays on `LeavingGroupBadge` and `MembershipEndedBadge`, which
+/// report a state rather than ask for a decision.
 struct PendingInviteBadge: View {
     var body: some View {
         Label(L10n.string("Invite"), systemImage: "envelope.badge")
@@ -781,8 +800,8 @@ struct PendingInviteBadge: View {
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .foregroundStyle(.secondary)
-            .background(.quaternary, in: Capsule())
+            .foregroundStyle(WNColor.intentionInfoContent)
+            .background(WNColor.intentionInfoBackground, in: Capsule())
             .help(L10n.string("Group invite pending"))
     }
 }
@@ -794,8 +813,9 @@ struct LeavingGroupBadge: View {
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .foregroundStyle(.secondary)
-            .background(.quaternary, in: Capsule())
+            .foregroundStyle(WNColor.fillContentTertiary)
+            .background(WNColor.fillSecondary, in: Capsule())
+            .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
             .help(L10n.string("Leave request pending"))
     }
 }
@@ -814,8 +834,9 @@ struct MembershipEndedBadge: View {
         .labelStyle(.titleAndIcon)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
-        .foregroundStyle(.secondary)
-        .background(.quaternary, in: Capsule())
+        .foregroundStyle(WNColor.fillContentTertiary)
+        .background(WNColor.fillSecondary, in: Capsule())
+        .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
         .help(membership.endedDescription ?? "")
     }
 }

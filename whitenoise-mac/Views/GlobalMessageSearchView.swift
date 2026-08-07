@@ -18,7 +18,7 @@ struct GlobalMessageSearchView: View {
                         .font(.title2.weight(.semibold))
                     Text(L10n.string("Search across your visible chats"))
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 Spacer()
                 Button {
@@ -71,7 +71,7 @@ struct GlobalMessageSearchView: View {
                 ProgressView()
                 Text(L10n.string("Searching message history…"))
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = workspace.globalMessageSearchError {
@@ -115,20 +115,20 @@ private struct GlobalMessageSearchResultRow: View {
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
                     Text("·")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(WNColor.backgroundContentTertiary)
                     Text(result.senderName)
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text(timestamp)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
 
                 highlightedSnippet
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -136,7 +136,7 @@ private struct GlobalMessageSearchResultRow: View {
             .padding(.vertical, 10)
             .background {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(0.045))
+                    .fill(WNColor.fillSecondary)
             }
             .contentShape(Rectangle())
         }
@@ -146,7 +146,9 @@ private struct GlobalMessageSearchResultRow: View {
 
     private var highlightedSnippet: Text {
         Text(result.snippet.leading)
-            + Text(result.snippet.match).bold().foregroundColor(.primary)
+            // The matched run takes `intentionInfoContent`, the same token the other clients
+            // highlight a search hit with.
+            + Text(result.snippet.match).bold().foregroundColor(WNColor.intentionInfoContent)
             + Text(result.snippet.trailing)
     }
 

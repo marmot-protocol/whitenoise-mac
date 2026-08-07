@@ -27,7 +27,7 @@ struct GroupAddMembersSheet: View {
             if let resolveError {
                 Text(resolveError)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WNColor.backgroundContentDestructive)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 6)
@@ -77,10 +77,10 @@ struct GroupAddMembersSheet: View {
             VStack(spacing: 6) {
                 Image(systemName: "person.2")
                     .font(.title)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
                 Text(L10n.string("No one added yet"))
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -113,7 +113,7 @@ struct GroupAddMembersSheet: View {
                     .lineLimit(1)
                 Text(DisplayText.short(recipient.npub))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
@@ -121,7 +121,7 @@ struct GroupAddMembersSheet: View {
                 staged.removeAll { $0.accountIdHex == recipient.accountIdHex }
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .buttonStyle(.plain)
         }

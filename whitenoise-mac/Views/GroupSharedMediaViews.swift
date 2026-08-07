@@ -102,10 +102,10 @@ struct GroupSharedMediaSection: View {
     private func errorRow(_ error: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label(L10n.string("Shared media unavailable"), systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             Text(error)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             Button(L10n.string("Retry")) {
                 Task { await workspace.loadSharedMedia(groupIdHex: groupIdHex) }
             }
@@ -119,10 +119,10 @@ struct GroupSharedMediaSection: View {
             VStack(spacing: 6) {
                 Image(systemName: systemImage)
                     .font(.title2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
                 Text(title)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             Spacer()
         }
@@ -172,24 +172,24 @@ private struct SharedMediaThumbnail: View {
     private var tileContent: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.secondary.opacity(0.12))
+                .fill(WNColor.fillSecondary)
             if let image {
                 image.resizable()
                     .scaledToFill()
             } else if isVideo {
                 // Static placeholder — videos aren't frame-extracted here, so never spin.
                 Image(systemName: "film")
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
             } else if didFail {
                 Image(systemName: "photo")
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
             } else {
                 ProgressView().controlSize(.small)
             }
             if isVideo {
                 Image(systemName: "play.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.9))
                     .shadow(radius: 2)
             }
         }
@@ -299,14 +299,14 @@ private struct SharedMediaImagePreviewView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(minWidth: 480, minHeight: 360)
-        .background(Color.black.opacity(0.85))
+        .background(WNColor.shadow.opacity(0.85))
         .overlay(alignment: .topTrailing) {
             Button {
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(.white.opacity(0.9))
+                    .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.9))
             }
             .buttonStyle(.plain)
             .padding(12)
@@ -325,14 +325,14 @@ private struct SharedMediaFileRow: View {
         HStack(spacing: 10) {
             Image(systemName: item.attachment.kind.systemImageName)
                 .font(.title3)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.attachment.fileName)
                     .lineLimit(1)
                 Text(item.attachment.mediaType)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 8)

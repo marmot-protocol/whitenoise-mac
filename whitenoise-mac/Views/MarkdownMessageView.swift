@@ -31,7 +31,7 @@ struct MarkdownMessageView: View {
                 if document.truncated {
                     Text(L10n.string("… (message truncated)"))
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -79,14 +79,14 @@ private struct MarkdownBlockView: View {
         case .blockQuote(let blocks):
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.secondary.opacity(0.5))
+                    .fill(WNColor.borderTertiary)
                     .frame(width: 3)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(blocks) { inner in
                         MarkdownBlockView(block: inner.block)
                     }
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
         case .list(let items):
@@ -121,6 +121,31 @@ private struct MarkdownInlineText: View {
     }
 }
 
+/// The fenced-code and math-block pair, named so the contrast between the two can be asserted
+/// against the same values the view draws.
+nonisolated enum MarkdownCodeBlockPalette {
+    /// `backgroundContentSecondary` as a *fill* looks odd written down, but it is what the other
+    /// clients set behind code: the neutral `500`/`400` step is the one mid-gray that reads as a
+    /// distinct block against the sent bubble and the received bubble alike, in both appearances. A
+    /// wash keyed off `.primary` cannot, because it changes direction between them while the sent
+    /// bubble does too.
+    static let fill = WNColor.backgroundContentSecondary
+
+    /// Named rather than inherited, for two reasons. A code block nested in a block quote inherits
+    /// the quote's `backgroundContentSecondary` — the block's own fill — so its text was drawn in
+    /// exactly the color behind it and disappeared. And the app-wide `backgroundContentPrimary` it
+    /// inherits everywhere else only clears 2.52:1 on this mid-gray in dark appearance, where
+    /// `fillContentPrimary` clears 7.85:1 (4.74:1 in light). One named token fixes both: the block
+    /// reads the same whatever it is nested in.
+    static let content = WNColor.fillContentPrimary
+
+    /// The AppKit twins of the two above, so the contrast between them can be asserted on the
+    /// dynamic colors themselves rather than on a snapshot frozen by `NSColor(someSwiftUIColor)` —
+    /// see the note on that conversion in `WNNSColor`.
+    static let nsFill = WNNSColor.backgroundContentSecondary
+    static let nsContent = WNNSColor.fillContentPrimary
+}
+
 private struct MarkdownCodeBlock: View {
     let content: String
 
@@ -128,9 +153,12 @@ private struct MarkdownCodeBlock: View {
         // No `.textSelection(.enabled)` — see the note in MarkdownMessageView.body.
         Text(content)
             .font(.system(.callout, design: .monospaced))
+            .foregroundStyle(MarkdownCodeBlockPalette.content)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(8)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(
+                MarkdownCodeBlockPalette.fill,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 
@@ -158,10 +186,12 @@ private struct MarkdownListView: View {
         switch marker {
         case .checkbox(let checked):
             Image(systemName: checked ? "checkmark.square.fill" : "square")
-                .foregroundStyle(checked ? Color.accentColor : .secondary)
+                .foregroundStyle(
+                    checked ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary
+                )
                 .font(.callout)
         case .text(let text):
-            Text(text).foregroundStyle(.secondary)
+            Text(text).foregroundStyle(WNColor.backgroundContentSecondary)
         }
     }
 }
@@ -187,6 +217,9 @@ private struct MarkdownTableView: View {
             }
         }
         .padding(8)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(WNColor.borderTertiary, lineWidth: 1)
+        }
     }
 }

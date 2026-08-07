@@ -198,12 +198,12 @@ struct PureValueTests {
         #expect(ComposerMentionMarkerStore.selections(in: editedMentionView).isEmpty)
     }
 
-    /// The composer chip is derived from the identity markers rather than tracked on its own, so
-    /// the styled range must follow a repaired marker and vanish with an invalidated one. Drift
-    /// either way would leave a chip on text that is no longer a mention, or a mention with no
-    /// visible affordance.
+    /// A composer token's styling is derived from the identity markers rather than tracked on its
+    /// own, so the styled range must follow a repaired marker and vanish with an invalidated one.
+    /// Drift either way would leave a mention's styling on text that is no longer a mention, or a
+    /// mention with no visible affordance.
     @MainActor
-    @Test func mentionChipTracksTheIdentityRangeAndDisappearsWithTheMarker() throws {
+    @Test func mentionStylingTracksTheIdentityRangeAndDisappearsWithTheMarker() throws {
         let candidate = mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq")
         let selection = ComposerMentionSelection(
             range: NSRange(location: 0, length: 5),
@@ -215,29 +215,64 @@ struct PureValueTests {
         textView.isRichText = false
         textView.string = "@Alex "
         ComposerMentionMarkerStore.replaceAll(with: [selection], in: textView)
-        #expect(chipRanges(in: textView) == [NSRange(location: 0, length: 5)])
+        #expect(mentionStyledRanges(in: textView) == [NSRange(location: 0, length: 5)])
 
-        // Boundary edit: the marker is repaired to the shifted range, and so is the chip.
+        // Boundary edit: the marker is repaired to the shifted range, and so is the styling.
         textView.insertText("Hi ", replacementRange: NSRange(location: 0, length: 0))
         let repaired = ComposerMentionMarkerStore.selections(in: textView)
         #expect(repaired.map(\.range) == [NSRange(location: 3, length: 5)])
-        #expect(chipRanges(in: textView) == repaired.map(\.range))
+        #expect(mentionStyledRanges(in: textView) == repaired.map(\.range))
 
-        // Internal edit: the marker is dropped, and the chip goes with it.
+        // Internal edit: the marker is dropped, and the styling goes with it.
         let editedMentionView = NSTextView()
         editedMentionView.isRichText = false
         editedMentionView.string = "@Alex "
         ComposerMentionMarkerStore.replaceAll(with: [selection], in: editedMentionView)
         editedMentionView.insertText("x", replacementRange: NSRange(location: 3, length: 0))
         #expect(ComposerMentionMarkerStore.selections(in: editedMentionView).isEmpty)
-        #expect(chipRanges(in: editedMentionView).isEmpty)
+        #expect(mentionStyledRanges(in: editedMentionView).isEmpty)
 
-        // A draft with no picked mention is never chipped.
+        // A draft with no picked mention is never styled.
         let plainView = NSTextView()
         plainView.isRichText = false
         plainView.string = "@Alex "
         ComposerMentionMarkerStore.replaceAll(with: [], in: plainView)
-        #expect(chipRanges(in: plainView).isEmpty)
+        #expect(mentionStyledRanges(in: plainView).isEmpty)
+    }
+
+    /// Dropping a token has to leave *plain typed text* behind, not text with no foreground color
+    /// at all: TextKit draws an uncolored run in opaque black rather than falling back to the text
+    /// view's `textColor`, so a swept draft is invisible on the composer's dark field and perfectly
+    /// legible on its light one. `replaceAll` sweeps the whole storage before re-adding tokens, so
+    /// this covers every character of the draft and not just the former token.
+    @MainActor
+    @Test func draftKeepsTheComposerContentColorAfterItsMentionsAreDropped() throws {
+        let selection = ComposerMentionSelection(
+            range: NSRange(location: 3, length: 5),
+            displayText: "@Alex",
+            npub: "npub1qqqq"
+        )
+        let textView = NSTextView()
+        textView.isRichText = false
+        textView.string = "Hi @Alex there"
+        ComposerMentionMarkerStore.replaceAll(with: [selection], in: textView)
+
+        // The token is dropped the way an invalidating edit drops it: markers gone, no styled run
+        // left anywhere.
+        ComposerMentionMarkerStore.replaceAll(with: [], in: textView)
+        #expect(ComposerMentionMarkerStore.selections(in: textView).isEmpty)
+        #expect(mentionStyledRanges(in: textView).isEmpty)
+
+        let storage = try #require(textView.textStorage)
+        let plainForeground =
+            ComposerMessageTextViewRepresentable.plainTypingAttributes[.foregroundColor] as? NSColor
+        for location in 0..<(textView.string as NSString).length {
+            let foreground = storage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor
+            #expect(
+                foreground == plainForeground,
+                "character \(location) lost the composer's content color"
+            )
+        }
     }
 
     @MainActor
@@ -2755,20 +2790,29 @@ struct PureValueTests {
             remainingDepth: 32
         )
         #expect(links(in: mention).map(\.absoluteString) == ["nostr:\(npub)"])
-        #expect(mention.runs.allSatisfy { $0.backgroundColor != nil })
         #expect(underlineStyles(in: mention) == [nil])
 
-        // The chip has to contrast with the fill it is drawn on, so the sent bubble's accent fill
-        // gets a different one from a neutral surface. Collapsing the two back into a single
-        // translucent wash is the regression this guards.
-        let sentMention = MarkdownDisplayInlineBuilder.attributedString(
-            from: [.nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub))],
-            remainingDepth: 32,
-            mentionFill: .sentBubble
+        // A mention is bold, in the mentioned person's accent, and carries no background chip.
+        // Asserted against `MentionTextPalette` rather than "it differs from the body" so a
+        // mention that quietly stopped identifying anyone fails here.
+        #expect(mention.runs.allSatisfy { $0.backgroundColor == nil })
+        #expect(
+            mention.runs.first?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
+        #expect(mention.runs.first?.foregroundColor == MentionTextPalette.foreground(forNpub: npub))
+
+        // An `nprofile` is TLV-encoded rather than a bare key, so no accent can be derived from
+        // it. It stays bold but inherits the surrounding foreground instead of claiming to
+        // identify someone with a color that would be wrong.
+        let nprofile = "nprofile1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
+        let nprofileMention = MarkdownDisplayInlineBuilder.attributedString(
+            from: [.nostrMention(entity: MarkdownNostrEntityFfi(hrp: .nprofile, bech32: nprofile))],
+            remainingDepth: 32
         )
-        #expect(mention.runs.first?.backgroundColor == MentionChipPalette.onNeutralFill)
-        #expect(sentMention.runs.first?.backgroundColor == MentionChipPalette.onSentBubble)
-        #expect(String(sentMention.characters) == String(mention.characters))
+        #expect(MentionTextPalette.foreground(forNpub: nprofile) == nil)
+        #expect(nprofileMention.runs.first?.foregroundColor == nil)
+        #expect(
+            nprofileMention.runs.first?.inlinePresentationIntent?.contains(.stronglyEmphasized)
+                == true)
 
         let note = "note1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
         let noteReference = MarkdownDisplayInlineBuilder.attributedString(
@@ -3156,20 +3200,28 @@ struct PureValueTests {
         attributed.runs.map(\.underlineStyle)
     }
 
-    /// Ranges carrying the mention chip, read back from a composer text view's storage. The
-    /// identity markers use private attribute keys, so the chip is what a test can observe
-    /// directly; identity is observed through `ComposerMentionMarkerStore.selections(in:)`.
+    /// Ranges carrying a mention token's visible styling, read back from a composer text view's
+    /// storage. The identity markers use private attribute keys, so the styling is what a test can
+    /// observe directly; identity is observed through
+    /// `ComposerMentionMarkerStore.selections(in:)`.
+    ///
+    /// A token is styled by weight and by the mentioned person's accent, matching a rendered
+    /// mention, rather than by a background chip. The **weight** is what is enumerated here: the
+    /// composer's typing attributes carry a foreground color for every character, so enumerating
+    /// color alone would match the entire draft, while only a mention is bold.
     @MainActor
-    private func chipRanges(in textView: NSTextView) -> [NSRange] {
+    private func mentionStyledRanges(in textView: NSTextView) -> [NSRange] {
         guard let storage = textView.textStorage else { return [] }
+        let plainWeight = NSFontManager.shared.weight(of: .preferredFont(forTextStyle: .body))
         var result: [NSRange] = []
         storage.enumerateAttribute(
-            .backgroundColor,
+            .font,
             in: NSRange(location: 0, length: (textView.string as NSString).length)
         ) { value, range, _ in
-            if value != nil {
-                result.append(range)
-            }
+            guard let font = value as? NSFont,
+                NSFontManager.shared.weight(of: font) > plainWeight
+            else { return }
+            result.append(range)
         }
         return result
     }

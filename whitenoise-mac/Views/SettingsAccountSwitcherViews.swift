@@ -178,7 +178,7 @@ struct AccountSwitcherPopover: View {
                     .font(.headline)
                 Text(L10n.string("Manage the identities available on this Mac.", locale: locale))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -187,7 +187,7 @@ struct AccountSwitcherPopover: View {
             if workspace.accounts.isEmpty {
                 Text(L10n.string("No accounts", locale: locale))
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ScrollView {
@@ -258,7 +258,10 @@ struct AccountSwitcherRow: View {
 
                         Text(statusText)
                             .font(.caption)
-                            .foregroundStyle(account.signedOut ? Color.orange : .secondary)
+                            .foregroundStyle(
+                                account.signedOut
+                                    ? WNColor.intentionWarningContent
+                                    : WNColor.backgroundContentSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -269,7 +272,7 @@ struct AccountSwitcherRow: View {
                     if isActive {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.callout)
-                            .foregroundStyle(.tint)
+                            .foregroundStyle(WNColor.intentionSuccessContent)
                             .accessibilityLabel(Text(L10n.string("Active", locale: locale)))
                     }
                 }

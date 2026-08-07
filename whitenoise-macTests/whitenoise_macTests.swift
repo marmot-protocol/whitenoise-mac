@@ -5743,10 +5743,11 @@ struct whitenoise_macTests {
         #expect(!structured.supportsInlineMetadata)
     }
 
-    /// A mention chip has to contrast with the bubble fill behind it, and the row's attributed
-    /// string is built once here — off-main, never rewritten during a body pass — so the fill is
-    /// chosen at mapping time from the direction the row already knows.
-    @Test func mentionChipFollowsTheBubbleDirectionOfTheMessage() {
+    /// A mention is colored by *who it mentions*, not by which bubble it lands in — that is the
+    /// property that let the fill-dependent chip go away. The row's attributed string is built once
+    /// here, off-main and never rewritten during a body pass, so this also pins that a sent and a
+    /// received copy of the same mention come out identical.
+    @Test func mentionTakesTheMentionedAccentRegardlessOfBubbleDirection() {
         let npub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
         let tokens = MarkdownDocumentFfi(
             blocks: [
@@ -5756,7 +5757,7 @@ struct whitenoise_macTests {
             ],
             truncated: false
         )
-        func chip(isOutgoing: Bool) -> Color? {
+        func mentionRun(isOutgoing: Bool) -> AttributedString.Runs.Element? {
             MessageItem(
                 id: "mention-\(isOutgoing)",
                 senderName: "Alice",
@@ -5766,13 +5767,19 @@ struct whitenoise_macTests {
                 sentAt: Date(timeIntervalSince1970: 1_700_000_000),
                 isOutgoing: isOutgoing
             )
-            .contentMarkdown?.inlineParagraph?.runs.first?.backgroundColor
+            .contentMarkdown?.inlineParagraph?.runs.first
         }
 
-        // Asserted against the palette constants rather than just "these two differ", so a
-        // reversed mapping fails here instead of passing with the chips swapped.
-        #expect(chip(isOutgoing: true) == MentionChipPalette.onSentBubble)
-        #expect(chip(isOutgoing: false) == MentionChipPalette.onNeutralFill)
+        let accent = MentionTextPalette.foreground(forNpub: npub)
+        #expect(accent != nil)
+        for isOutgoing in [true, false] {
+            let run = mentionRun(isOutgoing: isOutgoing)
+            #expect(run?.foregroundColor == accent)
+            #expect(run?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
+            // No background chip in either direction; the chip is what used to have to know the
+            // fill, and reintroducing one is the regression this guards.
+            #expect(run?.backgroundColor == nil)
+        }
     }
 
     /// The audio player, the download/failed status rows, and the document row draw white content

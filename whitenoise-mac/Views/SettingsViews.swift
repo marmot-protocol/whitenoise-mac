@@ -50,8 +50,15 @@ struct SettingsPanelView: View {
                 DeveloperModeSettingsView()
             }
         }
+        // The same surface the transcript and the group/contact detail panes draw on, rather than
+        // the glass wash this used to be. A settings page is a reading surface in the content
+        // column, so it takes the reading surface: `backgroundPrimary`. The glass wash never
+        // reached that value in light appearance — a material over `backgroundSecondary` with a
+        // partial white tint lands visibly grayer than the chat beside it, which is the whole
+        // complaint. Glass stays where it belongs in settings: the header (`GlassToolbarBackground`)
+        // and the sheets that lift off this pane.
         .background {
-            LiquidGlassBackground()
+            MessagesTranscriptBackground()
         }
         .task(id: workspace.activeAccountId) {
             await workspace.loadSettingsData()
@@ -79,7 +86,7 @@ struct GeneralSettingsView: View {
 
                 Text(L10n.string("Open the White Noise window automatically when you log in to your Mac."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
 
                 launchAtLoginStatus
 
@@ -98,7 +105,7 @@ struct GeneralSettingsView: View {
                         "Return to the last conversation selected for this account after White Noise finishes loading.")
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }
         .onAppear {
@@ -129,7 +136,7 @@ struct GeneralSettingsView: View {
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
 
                 Button(L10n.string("Open Login Items Settings")) {
                     launchAtLogin.openSystemSettings()
@@ -141,7 +148,7 @@ struct GeneralSettingsView: View {
                 systemImage: "exclamationmark.triangle"
             )
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
         case .notRegistered, .enabled:
             EmptyView()
         }
@@ -175,7 +182,7 @@ struct SettingsHeader: View {
             if let subtitle {
                 Text(subtitle)
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }
         .padding(.horizontal, 28)
@@ -345,7 +352,7 @@ struct PublicIdentityQRCodeSheet: View {
                         .lineLimit(1)
                     Text(L10n.string("Public identity"))
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
                 Spacer()
@@ -356,7 +363,9 @@ struct PublicIdentityQRCodeSheet: View {
             }
 
             ZStack {
-                Color.white
+                // The same surface the code's own quiet zone is rendered in, so the padding around
+                // it is continuous with it rather than a border. See `QRCodePalette`.
+                WNColor.backgroundPrimary
                 // Encode the marmot:// profile link form so scanners can route the
                 // scheme; the visible text and Copy button keep the bare npub.
                 QRCodeImageView(payload: MarmotProfileLink.qrPayload(npub: npub))
@@ -366,12 +375,12 @@ struct PublicIdentityQRCodeSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    .stroke(WNColor.borderTertiary, lineWidth: 1)
             }
 
             Text(DisplayText.short(npub, head: 24, tail: 24))
                 .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
                 .lineLimit(2)
@@ -409,39 +418,96 @@ private nonisolated struct RenderedQRCodeImage: @unchecked Sendable {
     let nsImage: NSImage
 }
 
+/// One appearance's resolved QR colors, flattened to components so the Core Image work can happen
+/// off the main actor. Resolved rather than carried as a dynamic `NSColor` deliberately: a QR code
+/// is rasterized once into a bitmap that has no appearance of its own, so the two colors have to be
+/// pinned at render time and the bitmap re-rendered when the appearance changes.
+struct QRCodeInk: Equatable, Sendable {
+    let red: Double
+    let green: Double
+    let blue: Double
+
+    init(_ color: NSColor) {
+        let resolved = color.usingColorSpace(.sRGB) ?? .black
+        red = resolved.redComponent
+        green = resolved.greenComponent
+        blue = resolved.blueComponent
+    }
+
+    var ciColor: CIColor { CIColor(red: red, green: green, blue: blue) }
+
+    /// The resolved color as AppKit sees it — a static color, since the whole point of this type is
+    /// that the appearance has already been chosen.
+    var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: 1) }
+}
+
+/// The palette's own QR pair: `qrCode` modules on `backgroundPrimary`. Both invert with the
+/// appearance, which is the point — a code pinned to black-on-white sits as a lit card in a dark
+/// window. A conforming decoder reads either polarity (asserted in `SemanticPaletteTests`); what it
+/// cannot read is a tinted or low-contrast code, which is why neither of these is an accent.
+struct QRCodePalette: Equatable, Sendable {
+    let modules: QRCodeInk
+    let background: QRCodeInk
+
+    @MainActor
+    static func resolved(for colorScheme: ColorScheme) -> QRCodePalette {
+        let name: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        var modules = QRCodeInk(WNNSColor.qrCode)
+        var background = QRCodeInk(WNNSColor.backgroundPrimary)
+        // Resolving under the *view's* scheme rather than the drawing appearance already current:
+        // the two can disagree while an appearance override is settling, and a code rendered under
+        // the wrong one would sit inverted against the sheet until the payload changed.
+        NSAppearance(named: name)?.performAsCurrentDrawingAppearance {
+            modules = QRCodeInk(WNNSColor.qrCode)
+            background = QRCodeInk(WNNSColor.backgroundPrimary)
+        }
+        return QRCodePalette(modules: modules, background: background)
+    }
+}
+
 struct QRCodeImageView: View {
     let payload: String
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var renderedPayload: String?
+    @State private var renderedPalette: QRCodePalette?
     @State private var renderedImage: NSImage?
+
+    private var isRendered: Bool {
+        renderedPayload == payload && renderedPalette == QRCodePalette.resolved(for: colorScheme)
+    }
 
     var body: some View {
         Group {
-            if renderedPayload == payload, let renderedImage {
+            if isRendered, let renderedImage {
                 Image(nsImage: renderedImage)
                     .interpolation(.none)
                     .resizable()
                     .scaledToFit()
-            } else if renderedPayload == payload {
+            } else if isRendered {
                 ContentUnavailableView("QR code unavailable", systemImage: "qrcode")
-                    .foregroundStyle(.black)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             } else {
                 ProgressView()
                     .controlSize(.small)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }
-        .task(id: payload) {
+        // Keyed on the appearance as well as the payload: the rasterized code carries no appearance
+        // of its own, so switching Aqua and Dark Aqua has to re-render it rather than re-resolve it.
+        .task(id: QRCodeRenderKey(payload: payload, palette: QRCodePalette.resolved(for: colorScheme))) {
+            let palette = QRCodePalette.resolved(for: colorScheme)
             let image = await Task.detached(priority: .utility) {
-                Self.image(for: payload)
+                Self.image(for: payload, palette: palette)
             }.value
             guard !Task.isCancelled else { return }
             renderedImage = image?.nsImage
             renderedPayload = payload
+            renderedPalette = palette
         }
     }
 
-    nonisolated private static func image(for payload: String) -> RenderedQRCodeImage? {
+    nonisolated static func ciImage(for payload: String, palette: QRCodePalette) -> CIImage? {
         guard !payload.isEmpty,
             let filter = CIFilter(name: "CIQRCodeGenerator")
         else { return nil }
@@ -451,11 +517,28 @@ struct QRCodeImageView: View {
         guard let outputImage = filter.outputImage else { return nil }
 
         let scaledImage = outputImage.transformed(by: CGAffineTransform(scaleX: 12, y: 12))
-        let representation = NSCIImageRep(ciImage: scaledImage)
+        // `CIQRCodeGenerator` hands back opaque black modules on an opaque white quiet zone, so the
+        // `backgroundPrimary` behind this view never showed through — recoloring is what actually
+        // puts the code on the app's surface instead of on a white card.
+        guard let falseColor = CIFilter(name: "CIFalseColor") else { return scaledImage }
+        falseColor.setValue(scaledImage, forKey: kCIInputImageKey)
+        falseColor.setValue(palette.modules.ciColor, forKey: "inputColor0")
+        falseColor.setValue(palette.background.ciColor, forKey: "inputColor1")
+        return falseColor.outputImage ?? scaledImage
+    }
+
+    nonisolated private static func image(for payload: String, palette: QRCodePalette) -> RenderedQRCodeImage? {
+        guard let ciImage = ciImage(for: payload, palette: palette) else { return nil }
+        let representation = NSCIImageRep(ciImage: ciImage)
         let image = NSImage(size: representation.size)
         image.addRepresentation(representation)
         return RenderedQRCodeImage(nsImage: image)
     }
+}
+
+private struct QRCodeRenderKey: Equatable {
+    let payload: String
+    let palette: QRCodePalette
 }
 
 struct SettingsErrorView: View {
@@ -465,7 +548,7 @@ struct SettingsErrorView: View {
         if let error {
             Text(error)
                 .font(.callout)
-                .foregroundStyle(.red)
+                .foregroundStyle(WNColor.backgroundContentDestructive)
                 .textSelection(.enabled)
         }
     }
@@ -499,9 +582,9 @@ struct ProfileSettingsView: View {
 
                                 Image(systemName: "camera.fill")
                                     .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(WNColor.fillContentQuaternary)
                                     .frame(width: 20, height: 20)
-                                    .background(.black.opacity(0.68), in: Circle())
+                                    .background(WNColor.overlayTertiary, in: Circle())
                             }
                             .contentShape(Circle())
                         }
@@ -600,7 +683,7 @@ struct ProfileImagePickerSheet: View {
                         .font(.headline)
                     Text(L10n.string("Choose from your Mac or search the web"))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
                 Spacer()
@@ -655,7 +738,7 @@ struct ProfileImagePickerSheet: View {
                     L10n.string("Search terms are sent to Openverse. Selected images are copied to Blossom before use.")
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 SettingsErrorView(error: workspace.lastError)
@@ -666,12 +749,12 @@ struct ProfileImagePickerSheet: View {
                         VStack(spacing: 10) {
                             Image(systemName: "person.crop.circle.badge.plus")
                                 .font(.system(size: 28, weight: .light))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                             Text(
                                 workspace.isSearchingProfileImages ? L10n.string("Searching") : L10n.string("No images")
                             )
                             .font(.callout.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                         .frame(maxWidth: .infinity, minHeight: 300)
                     } else {
@@ -739,7 +822,7 @@ struct IdentityKeysSettingsView: View {
                                 .lineLimit(1)
                             Text(accountSigningDescription(for: account))
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                     }
                 }
@@ -750,7 +833,7 @@ struct IdentityKeysSettingsView: View {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Text(npub)
                                 .font(.system(.callout, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WNColor.backgroundContentSecondary)
                                 .lineLimit(3)
                                 .textSelection(.enabled)
 
@@ -759,7 +842,10 @@ struct IdentityKeysSettingsView: View {
                                 actionDescription: L10n.string("Copy npub")
                             ) { isConfirming in
                                 Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                                    .foregroundStyle(isConfirming ? Color.green : Color.accentColor)
+                                    .foregroundStyle(
+                                        isConfirming
+                                            ? WNColor.intentionSuccessContent
+                                            : WNColor.backgroundContentPrimary)
                             }
                             .buttonStyle(.borderless)
 
@@ -778,7 +864,7 @@ struct IdentityKeysSettingsView: View {
                                 ? L10n.string("Stored in Keychain")
                                 : L10n.string("Not stored on this Mac")
                         )
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
 
                     Button {
@@ -799,7 +885,7 @@ struct IdentityKeysSettingsView: View {
                             "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally."
                         )
                     )
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                     Button(role: .destructive) {
@@ -876,7 +962,7 @@ struct PrivateKeyBackupSheet: View {
             case .encrypted:
                 Text(L10n.string("Protect your key with a passphrase. You'll need it to restore the backup."))
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 SecureField(L10n.string("Passphrase"), text: $passphrase)
                     .textFieldStyle(.roundedBorder)
@@ -888,7 +974,7 @@ struct PrivateKeyBackupSheet: View {
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.callout)
-                .foregroundStyle(.orange)
+                .foregroundStyle(WNColor.intentionWarningContent)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -906,7 +992,10 @@ struct PrivateKeyBackupSheet: View {
                             actionDescription: L10n.string("Copy")
                         ) { isConfirming in
                             Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                                .foregroundStyle(isConfirming ? Color.green : Color.accentColor)
+                                .foregroundStyle(
+                                    isConfirming
+                                        ? WNColor.intentionSuccessContent
+                                        : WNColor.backgroundContentPrimary)
                         }
                         .buttonStyle(.borderless)
                     }
@@ -931,7 +1020,7 @@ struct PrivateKeyBackupSheet: View {
             if let error = workspace.lastError {
                 Text(error)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WNColor.backgroundContentDestructive)
             }
         }
         .padding(20)
@@ -947,7 +1036,7 @@ struct PrivateKeyBackupSheet: View {
         .frame(maxWidth: .infinity)
         .background {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.10))
+                .fill(WNColor.fillSecondary)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.string("Backup type"))
@@ -964,13 +1053,15 @@ struct PrivateKeyBackupSheet: View {
                 .font(.callout.weight(.semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
-                .foregroundStyle(isSelected ? Color.white : Color.secondary)
+                .foregroundStyle(
+                    isSelected ? WNColor.fillContentPrimary : WNColor.fillContentTertiary
+                )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 7)
                 .background {
                     if isSelected {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(Color.accentColor)
+                            .fill(WNColor.fillPrimary)
                     }
                 }
         }
@@ -1005,7 +1096,7 @@ struct CopyableKeyLabel: View {
         HStack(spacing: 6) {
             Text(DisplayText.short(npub, head: head, tail: tail))
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -1014,7 +1105,8 @@ struct CopyableKeyLabel: View {
                 CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
                     Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 10))
-                        .foregroundStyle(isConfirming ? Color.green : Color.secondary)
+                        .foregroundStyle(
+                            isConfirming ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary)
                 }
                 .buttonStyle(.borderless)
             }
@@ -1047,14 +1139,14 @@ struct AppearanceSettingsView: View {
                 }
 
                 Text(L10n.string("System follows your Mac language. Other choices update White Noise immediately."))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Section(L10n.string("Quick reactions")) {
                 Text(L10n.string("Choose and order the six reactions shown in message actions."))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
 
                 ForEach(Array(workspace.quickReactions.enumerated()), id: \.offset) { index, emoji in
                     HStack(spacing: 12) {
@@ -1064,7 +1156,7 @@ struct AppearanceSettingsView: View {
                             Text(emoji)
                                 .font(.system(size: 24))
                                 .frame(width: 38, height: 32)
-                                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                                .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(
@@ -1082,7 +1174,7 @@ struct AppearanceSettingsView: View {
                         }
 
                         Text(String(format: L10n.string("Quick reaction %d"), index + 1))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
 
                         Spacer()
 
@@ -1162,7 +1254,7 @@ struct PrivacySecuritySettingsView: View {
                     )
                 )
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             Section(L10n.string("Data Sharing")) {
@@ -1205,7 +1297,7 @@ struct PrivacySecuritySettingsView: View {
                                 + L10n.string("Leave off to keep sensitive data obfuscated.")
                         )
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
                 .disabled(workspace.isSavingPrivacySecurity || !workspace.privacySecuritySettings.auditLoggingEnabled)
@@ -1215,7 +1307,7 @@ struct PrivacySecuritySettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                         Text(L10n.string("Saving..."))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
             }
@@ -1277,7 +1369,7 @@ struct PrivacySecuritySettingsView: View {
 
                 if let auditLogUploadStatus = workspace.auditLogUploadStatus {
                     Label(auditLogUploadStatus, systemImage: "checkmark.seal")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(WNColor.intentionSuccessContent)
                 }
             }
 
@@ -1291,11 +1383,11 @@ struct PrivacySecuritySettingsView: View {
                     )
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .tint(WNColor.fillDestructive)
                 .disabled(workspace.isAccountMutationInProgress)
 
                 Text(L10n.string("Reset White Noise to a newly installed state on this Mac."))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1343,17 +1435,17 @@ struct AuditLogFileRow: View {
                 Spacer()
                 Text(byteCount(file.sizeBytes))
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             Text(details)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .lineLimit(1)
 
             Text(file.path)
                 .font(.caption2.monospaced())
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WNColor.backgroundContentTertiary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -1407,7 +1499,7 @@ struct NotificationsSettingsView: View {
                 LabeledContent(L10n.string("Permission")) {
                     HStack(spacing: 8) {
                         Text(workspace.notificationAuthorizationStatus.label)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                         if workspace.isSavingNotifications {
                             ProgressView()
                                 .controlSize(.small)
@@ -1439,7 +1531,7 @@ struct NotificationsSettingsView: View {
                 .disabled(!workspace.notificationSettings.localNotificationsEnabled)
 
                 Text(workspace.notificationPreviewMode.detail)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1477,7 +1569,7 @@ struct StorageSettingsView: View {
                     } else {
                         Text(byteCount(workspace.mediaCacheFootprint.byteCount))
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
 
@@ -1486,7 +1578,7 @@ struct StorageSettingsView: View {
                         "White Noise encrypts cached attachment data on this Mac. Clearing it does not remove accounts, messages, drafts, or settings."
                     )
                 )
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
                 Button(role: .destructive) {
@@ -1517,7 +1609,7 @@ struct StorageSettingsView: View {
                         ),
                         systemImage: "checkmark.circle"
                     )
-                    .foregroundStyle(.green)
+                    .foregroundStyle(WNColor.intentionSuccessContent)
                 }
             }
         }
@@ -1576,7 +1668,7 @@ struct DeveloperModeSettingsView: View {
                     Text(L10n.string("Location"))
 
                     Text(workspace.storageRootPath)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1592,7 +1684,7 @@ struct DeveloperModeSettingsView: View {
                 ForEach(workspace.diagnosticsInfo) { item in
                     LabeledContent(item.title) {
                         Text(item.value)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -1707,7 +1799,7 @@ struct RelayDiagnosticsView: View {
                 Spacer()
                 Text(settings.isComplete ? L10n.string("Complete") : L10n.string("Missing"))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             RelayDiagnosticsRow(
@@ -1718,7 +1810,7 @@ struct RelayDiagnosticsView: View {
             if !settings.missing.isEmpty {
                 Text(String(format: L10n.string("Missing: %@"), settings.missing.joined(separator: ", ")))
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(WNColor.intentionWarningContent)
             }
         }
         .padding(.vertical, 4)
@@ -1735,12 +1827,12 @@ struct RelayDiagnosticsRow: View {
             if relays.isEmpty {
                 Text(L10n.string("Not published"))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
             } else {
                 ForEach(relays, id: \.self) { relay in
                     Text(relay)
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1749,16 +1841,21 @@ struct RelayDiagnosticsRow: View {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
                     .frame(width: 18)
                 Text(title)
                 Spacer()
+                // Drawn on `fillSecondary`, so it takes a `fillContent*` token rather than a
+                // `backgroundContent*` one. `fillContentTertiary` is the de-emphasized step of that
+                // family — the right weight for a count beside its own row title, and the same
+                // `500`/`400` ramp steps this already rendered at.
                 Text(verbatim: "\(relays.count)")
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.fillContentTertiary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
+                    .background(WNColor.fillSecondary, in: Capsule())
+                    .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
             }
             .font(.callout)
         }
@@ -1835,10 +1932,10 @@ struct KeyPackageRow: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "key.fill")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(WNColor.fillContentPrimary)
                     .frame(width: 30, height: 30)
                     .background {
-                        Circle().fill(MessagesPalette.sentBubble)
+                        Circle().fill(WNColor.fillPrimary)
                     }
 
                 VStack(alignment: .leading, spacing: 5) {
@@ -1866,7 +1963,7 @@ struct KeyPackageRow: View {
                         }
                         Text(package.publishedLabel)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
 
                     keyValue(L10n.string("Event"), package.eventIdHex)
@@ -1876,7 +1973,7 @@ struct KeyPackageRow: View {
                         keyValue(L10n.string("Slot"), package.keyPackageId)
                         Text(L10n.plural("%llu bytes", package.keyPackageBytes))
                             .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
 
@@ -1886,7 +1983,7 @@ struct KeyPackageRow: View {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.red)
+                .foregroundStyle(WNColor.backgroundContentDestructive)
                 .help(L10n.string("Delete key package"))
                 .disabled(package.eventIdHex.isEmpty || workspace.deletingKeyPackageId != nil)
             }
@@ -1895,11 +1992,11 @@ struct KeyPackageRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.string("Source relays"))
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                     ForEach(package.sourceRelays, id: \.self) { relay in
                         Text(relay)
                             .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -1924,10 +2021,10 @@ struct KeyPackageRow: View {
         HStack(spacing: 6) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
             Text(value.isEmpty ? L10n.string("Unknown") : DisplayText.short(value, head: 12, tail: 10))
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .textSelection(.enabled)
         }
     }
@@ -1961,7 +2058,7 @@ struct RelayRow: View {
                             : "Insecure — cleartext ws:// (public host)"
                     )
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(WNColor.intentionWarningContent)
                 }
             }
 
@@ -1971,7 +2068,7 @@ struct RelayRow: View {
                 Image(systemName: "minus.circle")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
             .help(L10n.string("Remove relay"))
         }
         .padding(.vertical, 4)

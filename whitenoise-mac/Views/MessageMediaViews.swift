@@ -93,13 +93,15 @@ struct ConversationMessageRow: View {
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(
+                        isSelected ? WNColor.backgroundContentPrimary : WNColor.backgroundContentTertiary
+                    )
                     .frame(width: 24)
                     .padding(.leading, 14)
                 content
             }
             .padding(.vertical, 1)
-            .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
+            .background(isSelected ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
             .contentShape(Rectangle())
             .onTapGesture { workspace.toggleMessageSelection(message) }
             .accessibilityElement(children: .combine)
@@ -158,14 +160,14 @@ struct TimelineNoticeRow: View {
 
                     Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
 
                 if showsDebugMetadata {
                     MessageDebugMetadataView(message: message, isOutgoing: false)
                 }
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background {
@@ -220,7 +222,7 @@ struct MessageBubble: View {
                     } label: {
                         Text(message.senderName)
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                             .padding(.horizontal, 4)
                     }
                     .buttonStyle(.plain)
@@ -230,7 +232,7 @@ struct MessageBubble: View {
                 } else {
                     Text(message.senderName)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .padding(.horizontal, 4)
                 }
             }
@@ -263,7 +265,7 @@ struct MessageBubble: View {
             }
 
             if message.supportsChatActions && !message.reactions.isEmpty {
-                MessageReactionChips(reactions: message.reactions) { emoji in
+                MessageReactionChips(reactions: message.reactions, isOutgoing: message.isOutgoing) { emoji in
                     reactionViewerEmoji = emoji
                     isReactionViewerPresented = true
                 }
@@ -448,8 +450,12 @@ struct MessageBubble: View {
                     trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
                 )
                 .font(.system(size: 15.5))
-                .foregroundStyle(message.isOutgoing ? .white : .primary)
-                .tint(message.isOutgoing ? .white : .accentColor)
+                .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
+                // Links take `intentionInfoContent` — the palette's one blue outside the accent
+                // sets, and the same token the other clients use for a link inside a bubble. Its
+                // `600`/`500` step clears both bubble fills, so it needs no per-direction variant.
+                // Mentions carry the mentioned person's accent and override this per run.
+                .tint(WNColor.intentionInfoContent)
                 .multilineTextAlignment(.leading)
             }
 
@@ -536,9 +542,11 @@ struct MessageBubble: View {
         message.deliveryIndicator(at: deliveryClock)
     }
 
+    /// The timestamp/delivery footer. One token in both directions, as on the other clients:
+    /// `backgroundContentTertiary` is the neutral `400`/`500` step, which is the only rung that
+    /// clears the sent bubble and the received bubble in both appearances.
     private var metadataColor: Color {
-        message.isOutgoing && message.hasBubbleContent && !usesStickerStyle
-            ? Color.white.opacity(0.68) : Color.secondary.opacity(0.72)
+        WNColor.backgroundContentTertiary
     }
 
     private var compactMetadata: some View {
@@ -554,7 +562,9 @@ struct MessageBubble: View {
                 Image(systemName: systemImage)
                     // Only a real failure earns the alarm color; an in-flight send stays in the
                     // metadata's own tint next to the timestamp.
-                    .foregroundStyle(deliveryIndicator == .failed ? Color.red : metadataColor)
+                    .foregroundStyle(
+                        deliveryIndicator == .failed
+                            ? WNColor.backgroundContentDestructiveSecondary : metadataColor)
             }
         }
         .font(.system(size: 10.5, weight: .medium))
@@ -588,7 +598,7 @@ private extension View {
     /// download/failed status rows, and the document row. See `AttachmentRowPalette` for why the
     /// outgoing fill is the opaque accent rather than a wash over whatever sits behind the row.
     func attachmentRowChrome(isOutgoing: Bool) -> some View {
-        foregroundStyle(isOutgoing ? Color.white : Color.primary)
+        foregroundStyle(AttachmentRowPalette.content(isOutgoing: isOutgoing))
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .frame(width: 260, alignment: .leading)
@@ -680,30 +690,24 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
 }
 
 /// The chat-bubble shape: a rounded rectangle with the trailing/leading bottom corner
-/// tucked in on the sender's side. Outgoing bubbles use the accent fill; incoming bubbles
-/// use a scheme-aware translucent fill with a hairline stroke.
+/// tucked in on the sender's side.
+///
+/// Both fills are opaque palette tokens — `fillPrimary` for sent, `backgroundMessageIncoming` for
+/// received — and neither carries a stroke, matching the other clients. The received bubble used to
+/// be a translucent wash, which meant its apparent color depended on whatever it happened to be
+/// scrolled over.
 private struct BubbleBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
     let isOutgoing: Bool
 
     var body: some View {
-        let shape = UnevenRoundedRectangle(
+        UnevenRoundedRectangle(
             topLeadingRadius: 20,
             bottomLeadingRadius: isOutgoing ? 20 : 6,
             bottomTrailingRadius: isOutgoing ? 6 : 20,
             topTrailingRadius: 20,
             style: .continuous
         )
-
-        if isOutgoing {
-            shape.fill(MessagesPalette.sentBubble)
-        } else {
-            shape
-                .fill(colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
-                .overlay {
-                    shape.stroke(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.24), lineWidth: 1)
-                }
-        }
+        .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
     }
 }
 
@@ -817,7 +821,7 @@ struct MessageVisualMediaGrid: View {
         .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(isOutgoing ? 0.16 : 0.1), lineWidth: 1)
+                .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
         }
     }
 
@@ -878,10 +882,13 @@ struct MessageVisualMediaTile: View {
             content
 
             if hiddenCount > 0 {
-                Color.black.opacity(0.46)
+                // Chrome over media: `overlayTertiary` is the palette's scrim, and content on it
+                // takes `fillContentQuaternary` — white in both appearances, because the scrim is
+                // dark in both.
+                WNColor.overlayTertiary
                 Text(verbatim: "+\(hiddenCount)")
                     .font(.title2.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(WNColor.fillContentQuaternary)
             }
         }
         .frame(width: sideLength, height: sideLength)
@@ -951,14 +958,14 @@ struct MessageVisualMediaTile: View {
 
     private func placeholder(systemImage: String, isLoading: Bool) -> some View {
         ZStack {
-            Color.primary.opacity(0.06)
+            WNColor.backgroundTertiary
             if isLoading {
                 ProgressView()
                     .controlSize(.small)
             } else {
                 Image(systemName: systemImage)
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
             }
         }
     }
@@ -1115,12 +1122,12 @@ struct MessageAttachmentStatusRow: View {
         HStack(spacing: 10) {
             ZStack {
                 Circle()
-                    .fill(iconBackground)
+                    .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
                     .frame(width: 30, height: 30)
                 if isLoading {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(isOutgoing ? Color.white : Color.primary)
+                        .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
                 } else {
                     Image(systemName: systemImage)
                         .font(.system(size: 14, weight: .semibold))
@@ -1133,7 +1140,7 @@ struct MessageAttachmentStatusRow: View {
                     .lineLimit(1)
                 Text(detail)
                     .font(.caption2)
-                    .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
+                    .foregroundStyle(AttachmentRowPalette.detailContent)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1148,10 +1155,6 @@ struct MessageAttachmentStatusRow: View {
             }
         }
         .attachmentRowChrome(isOutgoing: isOutgoing)
-    }
-
-    private var iconBackground: Color {
-        isOutgoing ? Color.white.opacity(0.18) : Color.primary.opacity(0.08)
     }
 }
 
@@ -1197,7 +1200,7 @@ struct MessageAudioAttachmentPlayer: View {
                     .frame(width: 30, height: 30)
                     .background {
                         Circle()
-                            .fill(isOutgoing ? Color.white.opacity(0.18) : Color.primary.opacity(0.08))
+                            .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
                     }
             }
             .buttonStyle(.plain)
@@ -1212,14 +1215,14 @@ struct MessageAudioAttachmentPlayer: View {
                     ComposerAudioWaveformView(
                         bars: visibleWaveformBars,
                         progress: playbackProgress,
-                        barColor: isOutgoing ? Color.white.opacity(0.42) : Color.secondary.opacity(0.55),
-                        playedColor: isOutgoing ? Color.white.opacity(0.9) : Color.accentColor
+                        barColor: AttachmentRowPalette.waveformBar(isOutgoing: isOutgoing),
+                        playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: isOutgoing)
                     )
                     .frame(height: 24)
 
                     Text(durationLabel)
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.72) : Color.secondary)
+                        .foregroundStyle(AttachmentRowPalette.detailContent)
                         .lineLimit(1)
                 }
             }
@@ -1381,7 +1384,7 @@ struct MessageVideoAttachmentPlayer: View {
             if let player {
                 VideoPlayer(player: player)
                     .frame(width: sideLength, height: sideLength)
-                    .background(Color.black)
+                    .background(WNColor.shadow)
             } else {
                 Button(action: activatePlayback) {
                     playbackPlaceholder
@@ -1419,20 +1422,24 @@ struct MessageVideoAttachmentPlayer: View {
         }
     }
 
+    // Chrome that sits over a video frame, so it follows the other clients' media pairing rather
+    // than the app surface's: `overlayTertiary` for the scrim (black at 50% in both appearances,
+    // since a video frame is not light or dark in a way the palette can know) and
+    // `fillContentQuaternary` for everything drawn on it.
     private var playbackPlaceholder: some View {
         ZStack {
-            Color.black.opacity(0.86)
+            WNColor.overlayTertiary
             Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
                 .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(WNColor.fillContentQuaternary)
                 .frame(width: 48, height: 48)
-                .background(Color.black.opacity(0.45), in: Circle())
+                .background(WNColor.overlayTertiary, in: Circle())
 
             VStack {
                 Spacer()
                 Text(download.fileName.nilIfBlank ?? attachment.fileName)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.86))
+                    .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.86))
                     .lineLimit(1)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
@@ -1441,9 +1448,9 @@ struct MessageVideoAttachmentPlayer: View {
             if isLoading {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(.white)
+                    .tint(WNColor.fillContentQuaternary)
                     .frame(width: 42, height: 42)
-                    .background(Color.black.opacity(0.45), in: Circle())
+                    .background(WNColor.overlayTertiary, in: Circle())
             }
         }
         .frame(width: sideLength, height: sideLength)
@@ -1619,7 +1626,11 @@ struct MessageImageGalleryOverlay: View {
         let _ = workspace.mediaCacheGeneration
         GeometryReader { geometry in
             ZStack {
-                Color.black.opacity(0.92)
+                // The full-bleed viewer backdrop. `shadow` is the palette's black — the only pure
+                // black it defines, and black in both appearances — held at viewer strength rather
+                // than `overlayTertiary`'s 50%, which would leave the transcript legible behind the
+                // photo.
+                WNColor.shadow.opacity(0.92)
                     .onTapGesture(perform: onClose)
 
                 imageContent
@@ -1632,7 +1643,7 @@ struct MessageImageGalleryOverlay: View {
                     HStack(spacing: 12) {
                         Text(selectedAttachment.fileName)
                             .font(.callout.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(WNColor.fillContentQuaternary)
                             .lineLimit(1)
 
                         Spacer()
@@ -1640,17 +1651,18 @@ struct MessageImageGalleryOverlay: View {
                         if canNavigate {
                             Text(verbatim: "\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
                                 .font(.caption.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.72))
+                                .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
                         }
 
                         Button(action: onClose) {
                             Image(systemName: "xmark")
                                 .font(.system(size: 15, weight: .bold))
                                 .frame(width: 34, height: 34)
-                                .background(Color.white.opacity(0.14), in: Circle())
+                                .background(
+                                    WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
                         }
                         .buttonStyle(.plain)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(WNColor.fillContentQuaternary)
                         .help(L10n.string("Close"))
                         .accessibilityLabel(L10n.string("Close"))
                     }
@@ -1708,10 +1720,11 @@ struct MessageImageGalleryOverlay: View {
             Image(systemName: systemName)
                 .font(.system(size: 26, weight: .bold))
                 .frame(width: 54, height: 54)
-                .background(Color.white.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
+                .background(
+                    WNColor.fillContentQuaternary.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.white.opacity(isEnabled ? 0.96 : 0.28))
+        .foregroundStyle(WNColor.fillContentQuaternary.opacity(isEnabled ? 0.96 : 0.28))
         .disabled(!isEnabled)
         .help(accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
@@ -1730,7 +1743,7 @@ struct MessageImageGalleryContent: View {
             case .idle, .loading:
                 ProgressView()
                     .controlSize(.regular)
-                    .tint(.white)
+                    .tint(WNColor.fillContentQuaternary)
             case .failed:
                 VStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
@@ -1743,7 +1756,7 @@ struct MessageImageGalleryContent: View {
                         Label(L10n.string("Retry"), systemImage: "arrow.clockwise")
                     }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(WNColor.fillContentQuaternary)
             case .loaded(let download):
                 DownsampledMessageGalleryImage(download: download, attachment: attachment)
             }
@@ -1779,7 +1792,7 @@ struct DownsampledMessageGalleryImage: View {
             } placeholder: {
                 Text(L10n.string("Image unavailable"))
                     .font(.callout.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(WNColor.fillContentQuaternary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
@@ -1799,7 +1812,7 @@ struct MessageDebugMetadataView: View {
                 .font(.caption2.monospaced())
                 .lineLimit(1)
         }
-        .foregroundStyle(isOutgoing ? Color.white.opacity(0.74) : Color.primary.opacity(0.52))
+        .foregroundStyle(WNColor.backgroundContentTertiary)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1880,11 +1893,13 @@ struct MessageInlineActionIcon: View {
         Image(systemName: systemName)
             .font(.system(size: 18, weight: .medium))
             .symbolRenderingMode(.monochrome)
-            .foregroundStyle(isHovering ? Color.primary : Color.secondary.opacity(0.9))
+            .foregroundStyle(
+                isHovering ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
+            )
             .frame(width: 40, height: 40)
             .background {
                 Circle()
-                    .fill(isHovering ? Color.primary.opacity(0.07) : .clear)
+                    .fill(isHovering ? WNColor.fillTertiaryHover : WNColor.fillTertiary)
                     .frame(width: 32, height: 32)
             }
             .contentShape(Rectangle())
@@ -1941,9 +1956,9 @@ struct MessageEmojiPickerPopover: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WNColor.fillContentTertiary)
                     .frame(width: 32, height: 32)
-                    .background(Color.primary.opacity(0.08), in: Circle())
+                    .background(WNColor.fillSecondary, in: Circle())
                     .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
@@ -2072,7 +2087,9 @@ struct MessageOverflowPopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(action.role == .destructive ? Color.red : Color.primary)
+        .foregroundStyle(
+            action.role == .destructive
+                ? WNColor.backgroundContentDestructive : WNColor.backgroundContentPrimary)
     }
 }
 
@@ -2121,18 +2138,18 @@ struct MessageReplyContextView: View {
         Button(action: onOpen) {
             HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(isOutgoing ? Color.white.opacity(0.72) : MessagesPalette.sentBubble.opacity(0.68))
+                    .fill(WNColor.borderTertiary)
                     .frame(width: 3)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.senderName)
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.9) : MessagesPalette.sentBubble)
+                        .foregroundStyle(WNColor.backgroundContentTertiary)
                         .lineLimit(1)
 
                     Text(context.body)
                         .font(.caption)
-                        .foregroundStyle(isOutgoing ? Color.white.opacity(0.78) : Color.secondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                 }
@@ -2143,13 +2160,18 @@ struct MessageReplyContextView: View {
         .help(L10n.string("Show replied-to message"))
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        // The quote is its own card on `backgroundPrimary`, identically in both directions, as on
+        // the other clients — which is what lets its content take `background*` tokens instead of
+        // having to be picked per bubble fill. It cannot inherit a translucent material here: it
+        // sits *inside* the bubble, so a material would composite against `fillPrimary` and leave
+        // the quote's text colors undefined.
         .background {
-            if isOutgoing {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(0.13))
-            } else {
-                GlassRoundedBackground(cornerRadius: 8)
-            }
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(WNColor.backgroundPrimary)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(WNColor.borderTertiary, lineWidth: 1)
+                }
         }
     }
 }
@@ -2162,7 +2184,7 @@ struct TimelineDayHeaderView: View {
             Spacer(minLength: 24)
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background { GlassCapsuleBackground() }

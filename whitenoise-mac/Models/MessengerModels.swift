@@ -2138,15 +2138,11 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         self.senderPictureURL = senderPictureURL
         self.body = body
         self.wireBody = wireBody ?? body
-        // The mention chip has to contrast with the bubble it lands in, and the attributed string
-        // is built here — once, off-main — rather than during a body pass, so the fill is decided
-        // here too, from the direction this row already knows.
+        // Built here — once, off-main — rather than during a body pass, so a layout pass never
+        // rewrites it (whitenoise-mac#205). It no longer needs to know which bubble it will land
+        // in: a mention takes the mentioned person's accent, which reads on either one.
         self.contentMarkdown = contentMarkdown.map {
-            MarkdownDisplayDocument(
-                document: $0,
-                mentionNames: mentionNames,
-                mentionFill: isOutgoing ? .sentBubble : .neutral
-            )
+            MarkdownDisplayDocument(document: $0, mentionNames: mentionNames)
         }
         self.mentionNames = mentionNames
         self.trimmedBody = trimmedBody
