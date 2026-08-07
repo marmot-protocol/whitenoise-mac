@@ -115,6 +115,19 @@ nonisolated enum WNNSColor {
     static let fillDestructiveActive = NSColor.wnDynamic(
         "wn.fillDestructiveActive", light: WNColorRamp.red500, dark: WNColorRamp.red500)
 
+    /// The unread signal: the count badge, the mention pill, the manual-unread dot. The one
+    /// fill in the palette that carries a hue rather than inverting with the surface, because
+    /// an unread count has to be told apart from the chrome around it — `fillPrimary` is
+    /// already the sent bubble, the send button and the selected row, so a badge drawn in it
+    /// reads as more of the same rather than as something waiting for you. Follows the blue's
+    /// own convention of a `600` step in light and a brighter `500` in dark, which is what
+    /// keeps the pill separated from the near-black row behind it.
+    ///
+    /// Not part of `semantic_colors.dart` — the Flutter client draws this badge in
+    /// `fillPrimary`. The divergence is deliberate; see `fillContentInfo` for the pairing.
+    static let fillInfo = NSColor.wnDynamic(
+        "wn.fillInfo", light: WNColorRamp.blue600, dark: WNColorRamp.blue500)
+
     static let fillDisabled = NSColor.wnDynamic(
         "wn.fillDisabled", light: WNColorRamp.neutral300, dark: WNColorRamp.neutral650)
     static let fillContentDisabled = NSColor.wnDynamic(
@@ -135,6 +148,11 @@ nonisolated enum WNNSColor {
     /// both appearances, because both of those fills are dark in both.
     static let fillContentQuaternary = NSColor.wnDynamic(
         "wn.fillContentQuaternary", light: WNColorRamp.white, dark: WNColorRamp.white)
+    /// Content on `fillInfo` — the unread count itself. White in both appearances for the
+    /// same reason `fillContentQuaternary` is: the fill it sits on is a saturated blue in
+    /// both, so this pair does not cross over the way `fillPrimary`'s does.
+    static let fillContentInfo = NSColor.wnDynamic(
+        "wn.fillContentInfo", light: WNColorRamp.white, dark: WNColorRamp.white)
 
     // MARK: - Borders
 
