@@ -116,9 +116,11 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     let previewAttachmentKind: ChatPreviewAttachmentKind?
     let updatedAt: Date?
     let avatarSeed: String
-    let pictureURL: String?
+    /// `private(set)` so the only in-place writer is `replacingPeerPresentation` below, which
+    /// re-derives `sanitizedPictureURL` alongside it. The two must never disagree.
+    private(set) var pictureURL: String?
     /// Pre-sanitized avatar URL for chat rows/headers; the view still applies `loadRemoteImages`.
-    let sanitizedPictureURL: URL?
+    private(set) var sanitizedPictureURL: URL?
     /// Decrypted encrypted-Blossom group image. Direct chats leave this nil and use the peer
     /// profile picture instead. The payload id is the component's content hash, so decoded-image
     /// caching naturally invalidates when the group commits a replacement image.
@@ -178,6 +180,30 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         } else {
             copy.title = published
             copy.publishedTitle = nil
+        }
+        return copy
+    }
+
+    /// A copy whose peer-derived presentation — title, the published name a nickname is
+    /// overriding, and the avatar — reflects a profile that resolved after this row was built.
+    ///
+    /// Mutates a copy rather than re-invoking the memberwise initializer. Listing the carried
+    /// fields by hand reads as exhaustive but silently drops any field added to `ChatItem`
+    /// later, and every one of them (unread counts, mute and membership state, the preview's
+    /// attachment glyph) is row state a profile refresh has no business inventing.
+    nonisolated func replacingPeerPresentation(
+        displayName: String,
+        publishedDisplayName: String?,
+        pictureURL: String?
+    ) -> ChatItem {
+        var copy = self
+        copy.title = displayName
+        // A private nickname makes `title` the nickname and `publishedTitle` the name the peer
+        // actually publishes, so the published name has to be carried explicitly here.
+        copy.publishedTitle = publishedDisplayName
+        if let pictureURL {
+            copy.pictureURL = pictureURL
+            copy.sanitizedPictureURL = RemoteImageURLPolicy.sanitizedURL(from: pictureURL)
         }
         return copy
     }

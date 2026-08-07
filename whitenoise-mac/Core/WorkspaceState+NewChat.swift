@@ -68,7 +68,10 @@ extension WorkspaceState {
         let member = try await runOffMain {
             try client.normalizeMemberRef(memberRef: memberRef)
         }
-        try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: MarmotClient.seedRelays)
+        // Seed relays alone miss a recipient published only to their own NIP-65 write
+        // relays, so use the same union every peer refresh uses.
+        let relays = await peerProfileLookupRelaysForActiveAccount()
+        try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: relays)
         peerProfileFFICache[member.accountIdHex] = nil
         let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
             let profile = try? client.userProfile(accountIdHex: member.accountIdHex)

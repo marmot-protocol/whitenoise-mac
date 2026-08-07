@@ -3742,6 +3742,310 @@ struct PureValueTests {
         #expect(ChatRowStatus.status(for: leaving) == .leaving)
         #expect(ChatDestructiveActions.action(for: leaving) == nil)
     }
+
+    // MARK: - PeerProfileRefreshGate
+
+    @Test func peerProfileGateDedupesInFlightAttemptsForTheSameAccount() {
+        var gate = PeerProfileRefreshGate()
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        let firstAttempt = gate.tryStart("alice", now: now)
+        // A second caller for the same id while the first attempt is outstanding must not
+        // start another relay round-trip: render paths ask on every frame.
+        let concurrentAttempt = gate.tryStart("alice", now: now)
+        // A different id is unaffected.
+        let otherPeer = gate.tryStart("bob", now: now)
+
+        #expect(firstAttempt)
+        #expect(!concurrentAttempt)
+        #expect(otherPeer)
+    }
+
+    @Test func peerProfileGateSuppressesRetriesUntilTheBackoffElapses() {
+        var gate = PeerProfileRefreshGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        _ = gate.tryStart("alice", now: start)
+        gate.finish("alice", now: start, resolved: false)
+
+        // A first failure backs off by 2s; nothing before that instant may start.
+        let duringBackoff = gate.tryStart("alice", now: start.addingTimeInterval(1.9))
+        let afterBackoff = gate.tryStart("alice", now: start.addingTimeInterval(2.0))
+
+        #expect(!duringBackoff)
+        #expect(afterBackoff)
+    }
+
+    @Test func peerProfileGateWalksTheBackoffLadderThenFallsBackToTheLongCooldown() {
+        // Attempt 1 → 2s, attempt 2 → 4s, attempt 3 spends the run → the long cooldown.
+        // Mirrors whitenoise-linux's 3-attempt 2s/4s ladder, so a peer whose kind:0 is
+        // nowhere costs a bounded number of round-trips instead of looping.
+        var gate = PeerProfileRefreshGate()
+        var now = Date(timeIntervalSince1970: 1_000)
+        var observedDelays: [TimeInterval] = []
+
+        for _ in 0..<PeerProfileRefreshGate.maxAttemptsPerWindow {
+            _ = gate.tryStart("alice", now: now)
+            gate.finish("alice", now: now, resolved: false)
+            let retryAfter = gate.retryAfterForTesting("alice")
+            observedDelays.append(retryAfter?.timeIntervalSince(now) ?? -1)
+            now = retryAfter ?? now
+        }
+
+        #expect(observedDelays == [2, 4, PeerProfileRefreshGate.retryCooldown])
+        // The ladder resets once the run is spent, so a later window starts fresh.
+        #expect(gate.attemptForTesting("alice") == 0)
+    }
+
+    @Test func peerProfileGateAppliesTheLongCooldownOnceAPeerResolves() {
+        var gate = PeerProfileRefreshGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        _ = gate.tryStart("alice", now: start)
+        gate.finish("alice", now: start, resolved: true)
+        // Read the ladder state before the probes below: the `tryStart` at +60 prunes this
+        // settled entry as its cooldown expires, which is the intended bound.
+        #expect(gate.attemptForTesting("alice") == 0)
+
+        let duringCooldown = gate.tryStart("alice", now: start.addingTimeInterval(59))
+        let afterCooldown = gate.tryStart("alice", now: start.addingTimeInterval(60))
+
+        #expect(!duringCooldown)
+        #expect(afterCooldown)
+    }
+
+    @Test func peerProfileGatePrunesSettledEntriesOnFinishNotOnlyOnTryStart() {
+        // Android's #230: a gate that goes quiescent after a burst of `finish` calls — a large
+        // group whose senders all resolve in one pass — must not retain one entry per distinct
+        // pubkey for the process lifetime. Pruning on `finish` too bounds the retained set to
+        // the pubkeys with a live cooldown rather than every pubkey ever seen.
+        var gate = PeerProfileRefreshGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        for index in 0..<50 {
+            let id = "peer-\(index)"
+            _ = gate.tryStart(id, now: start)
+            gate.finish(id, now: start, resolved: true)
+        }
+        #expect(gate.retainedEntryCountForTesting == 50)
+
+        // One later `finish`, past every cooldown, sweeps the whole settled set.
+        let later = start.addingTimeInterval(PeerProfileRefreshGate.retryCooldown + 1)
+        _ = gate.tryStart("late", now: later)
+        gate.finish("late", now: later, resolved: true)
+
+        #expect(gate.retainedEntryCountForTesting == 1)
+    }
+
+    @Test func peerProfileGateRetainsAMidLadderEntryPastItsBackoffSoTheLadderCannotRestart() {
+        // Pruning a mid-ladder entry the moment its backoff expired would drop the attempt
+        // counter, and the next request would restart at 2s forever instead of ever reaching
+        // the long cooldown. Retention is still bounded: an entry nobody re-asks about within
+        // one cooldown of its backoff expiring is stale, and does reset.
+        var gate = PeerProfileRefreshGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        _ = gate.tryStart("alice", now: start)
+        gate.finish("alice", now: start, resolved: false)
+
+        let secondAttemptAt = start.addingTimeInterval(2.5)
+        _ = gate.tryStart("alice", now: secondAttemptAt)
+        gate.finish("alice", now: secondAttemptAt, resolved: false)
+        // The 4s rung, i.e. attempt 2 — not attempt 1 again.
+        #expect(gate.retryAfterForTesting("alice")?.timeIntervalSince(secondAttemptAt) == 4)
+
+        let longAbandoned = secondAttemptAt.addingTimeInterval(4 + PeerProfileRefreshGate.retryCooldown + 1)
+        _ = gate.tryStart("alice", now: longAbandoned)
+        #expect(gate.attemptForTesting("alice") == nil)
+    }
+
+    @Test func peerProfileGateRemoveClearsAdmissionStateForAnExternalUpdate() {
+        // A profile that arrives from outside this gate must not be held off by the cooldown
+        // the gate set for its own earlier failed attempt.
+        var gate = PeerProfileRefreshGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        _ = gate.tryStart("alice", now: start)
+        gate.finish("alice", now: start, resolved: false)
+        let blockedByCooldown = gate.tryStart("alice", now: start)
+
+        gate.remove("alice")
+        let allowedAfterRemove = gate.tryStart("alice", now: start)
+
+        #expect(!blockedByCooldown)
+        #expect(allowedAfterRemove)
+    }
+
+    @Test func peerProfileGateEscalatesTheCooldownAcrossRepeatedFailedRuns() {
+        // Without escalation the gate is an infinite pulse: a spent run reset the ladder, the
+        // 60s cooldown elapsed, and the next projection re-admitted the id at 2s — three relay
+        // round-trips per peer per ~66s for the life of the process. The projection paths
+        // request every sender and roster member they see, so an unresolvable 50-member group
+        // sustained that forever. Each successive dead run must cost less than the last.
+        var gate = PeerProfileRefreshGate()
+        var now = Date(timeIntervalSince1970: 1_000)
+        var cooldowns: [TimeInterval] = []
+
+        // Four runs: one more than `repeatedFailureCooldowns` has rungs, to pin the ceiling.
+        for _ in 0..<4 {
+            var settledAt = now
+            for _ in 0..<PeerProfileRefreshGate.maxAttemptsPerWindow {
+                let admitted = gate.tryStart("alice", now: now)
+                #expect(admitted)
+                gate.finish("alice", now: now, resolved: false)
+                settledAt = now
+                now = gate.retryAfterForTesting("alice") ?? now
+            }
+            // `now` is the instant the spent run will next admit; the delta from the last
+            // `finish` is the cooldown that run actually bought.
+            cooldowns.append(now.timeIntervalSince(settledAt))
+        }
+
+        #expect(cooldowns == [60, 300, 1800, 1800])
+        #expect(gate.failedRunsForTesting("alice") == 4)
+    }
+
+    @Test func peerProfileGateHoldsAFailedRunPastItsCooldownSoEscalationSurvivesPruning() {
+        // The escalation lives in the retained entry. Pruning it the moment its cooldown
+        // elapsed would drop `failedRuns` and put the id straight back on the 2s rung — the
+        // exact pulse the escalation exists to stop.
+        var gate = PeerProfileRefreshGate()
+        var now = Date(timeIntervalSince1970: 1_000)
+
+        for _ in 0..<PeerProfileRefreshGate.maxAttemptsPerWindow {
+            _ = gate.tryStart("alice", now: now)
+            gate.finish("alice", now: now, resolved: false)
+            now = gate.retryAfterForTesting("alice") ?? now
+        }
+        #expect(gate.failedRunsForTesting("alice") == 1)
+
+        // Admitted again once the cooldown elapses, and the run count carries forward.
+        let admittedAfterCooldown = gate.tryStart("alice", now: now)
+        #expect(admittedAfterCooldown)
+        gate.finish("alice", now: now, resolved: false)
+        #expect(gate.failedRunsForTesting("alice") == 1)
+        #expect(gate.attemptForTesting("alice") == 1)
+    }
+
+    @Test func peerProfileGateClearsTheFailureHistoryOnceThePeerResolves() {
+        // A peer going unnameable again later is a fresh problem — a changed pubkey, a rotated
+        // relay set — and must get the responsive ladder back, not the escalated cooldown.
+        var gate = PeerProfileRefreshGate()
+        var now = Date(timeIntervalSince1970: 1_000)
+
+        for _ in 0..<PeerProfileRefreshGate.maxAttemptsPerWindow {
+            _ = gate.tryStart("alice", now: now)
+            gate.finish("alice", now: now, resolved: false)
+            now = gate.retryAfterForTesting("alice") ?? now
+        }
+        #expect(gate.failedRunsForTesting("alice") == 1)
+
+        _ = gate.tryStart("alice", now: now)
+        gate.finish("alice", now: now, resolved: true)
+
+        #expect(gate.failedRunsForTesting("alice") == 0)
+        now = now.addingTimeInterval(PeerProfileRefreshGate.retryCooldown)
+        _ = gate.tryStart("alice", now: now)
+        gate.finish("alice", now: now, resolved: false)
+        // Back on the first rung of the urgent ladder.
+        #expect(gate.retryAfterForTesting("alice")?.timeIntervalSince(now) == 2)
+    }
+
+    @Test func peerProfileGateDeferRetriesSkipsTheUrgentLadderAndSettlesTheRun() {
+        // A nicknamed peer already renders correctly everywhere; only the published name shown
+        // beneath the nickname is missing. That does not justify the 2s/4s burst.
+        var gate = PeerProfileRefreshGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        _ = gate.tryStart("alice", now: start)
+        gate.finish("alice", now: start, resolved: false, deferRetries: true)
+
+        #expect(gate.retryAfterForTesting("alice")?.timeIntervalSince(start) == 60)
+        #expect(gate.attemptForTesting("alice") == 0)
+        // One deferred run still counts, so a peer who stays unnameable keeps escalating.
+        #expect(gate.failedRunsForTesting("alice") == 1)
+    }
+
+    // MARK: - ChatItem peer presentation
+
+    @Test func replacingPeerPresentationCarriesEveryFieldItDoesNotOwn() {
+        // This copy used to re-invoke the memberwise initializer and list the carried fields by
+        // hand, which silently dropped `previewAttachmentKind` the moment that field was added:
+        // every direct row whose peer resolved late lost its media glyph. Mutating a copy makes
+        // the carry total by construction.
+        let original = ChatItem(
+            id: "group-1",
+            title: "npub1abc…",
+            subtitle: "subtitle",
+            preview: "Photo",
+            previewAttachmentKind: .photo,
+            updatedAt: Date(timeIntervalSince1970: 1_000),
+            avatarSeed: hex("a"),
+            pictureURL: "https://example.com/old.png",
+            unreadCount: 3,
+            manuallyMarkedUnread: true,
+            unreadMentionCount: 2,
+            isDirect: true,
+            hasAuthoritativeConversationKind: true,
+            muted: true,
+            mutedUntilMs: 12_345,
+            leaveRequestPending: true,
+            pendingConfirmation: true,
+            selfMembership: .left
+        )
+
+        let updated = original.replacingPeerPresentation(
+            displayName: "Ali",
+            publishedDisplayName: "Alice Cooper",
+            pictureURL: "https://example.com/new.png"
+        )
+
+        #expect(updated.title == "Ali")
+        #expect(updated.publishedTitle == "Alice Cooper")
+        #expect(updated.pictureURL == "https://example.com/new.png")
+        // Derived alongside `pictureURL`, never left pointing at the previous avatar.
+        #expect(updated.sanitizedPictureURL == URL(string: "https://example.com/new.png"))
+        // Everything else is row state a profile refresh has no business inventing.
+        #expect(updated.previewAttachmentKind == .photo)
+        #expect(updated.preview == "Photo")
+        #expect(updated.subtitle == "subtitle")
+        #expect(updated.unreadCount == 3)
+        #expect(updated.manuallyMarkedUnread)
+        #expect(updated.unreadMentionCount == 2)
+        #expect(updated.muted)
+        #expect(updated.mutedUntilMs == 12_345)
+        #expect(updated.leaveRequestPending)
+        #expect(updated.pendingConfirmation)
+        #expect(updated.selfMembership == .left)
+        #expect(updated.updatedAt == original.updatedAt)
+    }
+
+    @Test func replacingPeerPresentationKeepsTheExistingAvatarWhenNoneResolved() {
+        // A peer whose name resolved but whose picture did not must not be blanked back to no
+        // avatar; `nil` here means "nothing new", not "clear it".
+        let original = ChatItem(
+            id: "group-1",
+            title: "npub1abc…",
+            subtitle: "",
+            preview: "",
+            updatedAt: nil,
+            avatarSeed: hex("a"),
+            pictureURL: "https://example.com/old.png",
+            unreadCount: 0,
+            isDirect: true
+        )
+
+        let updated = original.replacingPeerPresentation(
+            displayName: "Alice Cooper",
+            publishedDisplayName: nil,
+            pictureURL: nil
+        )
+
+        #expect(updated.title == "Alice Cooper")
+        #expect(updated.publishedTitle == nil)
+        #expect(updated.pictureURL == "https://example.com/old.png")
+        #expect(updated.sanitizedPictureURL == original.sanitizedPictureURL)
+    }
 }
 
 /// 64-char hex built from a short seed, so tests read as `hex("a")` rather than a wall of digits.

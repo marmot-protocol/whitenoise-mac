@@ -29,6 +29,11 @@ extension WorkspaceState {
                 isSelf: true
             )
         }
+        // Read-only on purpose: this runs inside a SwiftUI view body, once per reactor per
+        // render pass. Reaction senders are requested from `messageSenderProfiles` on the
+        // projection path instead — once per window/delta rather than once per frame.
+        // `peerProfileFFICache` is observed, so a name resolved there reaches this row on its
+        // own with no re-projection.
         let resolved = peerProfileFFICache[accountIdHex]?.resolved
         let rosterMember = selectedChat.flatMap { chat in
             groupMemberDetailsCache[chat.id]?.first { $0.memberIdHex == accountIdHex }
