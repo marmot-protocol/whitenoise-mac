@@ -30839,7 +30839,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func secureDeleteExpired(accountRef: String, groupIdHex: String) async throws -> SecureDeleteExpiredResultFfi {
         secureDeleteExpiredCallCount += 1
         await secureDeleteExpiredGate.passIfArmed()
-        return SecureDeleteExpiredResultFfi(prunedMessages: 0, secretsDeleted: 0, mediaCiphertextSha256: [])
+        return SecureDeleteExpiredResultFfi(
+            prunedMessages: 0,
+            secretsDeleted: 0,
+            mediaCiphertextSha256: [],
+            erasurePending: false
+        )
     }
 
     func sweepExpiredRetention(accountRef: String, nowMs: UInt64) async throws -> RetentionSweepReportFfi {
