@@ -433,6 +433,11 @@ extension WorkspaceState {
             guard activeAccountId == accountId else { return }
             relaySettings = RelaySettingsSnapshot(lists: lists)
             relayDraft = relaySettings.relays(for: selectedRelaySection)
+            // `peerProfileLookupRelays(for:)` memoizes the seed + NIP-65 union for the whole
+            // session, so without this a user who edits their relays here keeps searching the
+            // pre-edit set for peer kind:0 until they switch accounts. Drop just this
+            // account's entry; the next lookup rebuilds it from the list we were handed.
+            peerProfileLookupRelaysByAccountId[accountId] = nil
         } catch {
             guard activeAccountId == accountId else { return }
             lastError = error.localizedDescription

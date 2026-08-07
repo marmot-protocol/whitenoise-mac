@@ -138,6 +138,15 @@ extension WorkspaceState {
         relabelTimelineSenders(accountIdHex: contact, nickname: nickname)
         relabelComposeContacts(accountIdHex: contact, nickname: nickname)
         relabelContactDetailsTarget(accountIdHex: contact, nickname: nickname)
+
+        if nickname == nil {
+            // Clearing a nickname hands the label back to whatever the peer published, so this
+            // is exactly when a missing kind:0 starts mattering again. The gate may be holding
+            // this id in a cooldown — possibly the long one `refreshPeerProfile` applies
+            // *because* it was nicknamed — so drop that admission state before asking.
+            peerProfileRefreshGate.remove(contact)
+            requestPeerProfileRefresh(contact)
+        }
     }
 
     // MARK: - Private
