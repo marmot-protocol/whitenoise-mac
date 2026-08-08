@@ -134,6 +134,10 @@ private struct ComposerMentionRow: View {
 
     @State private var isHovered = false
 
+    private var shortNpub: String? {
+        candidate.npub.isEmpty ? nil : DisplayText.short(candidate.npub)
+    }
+
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 8) {
@@ -149,8 +153,10 @@ private struct ComposerMentionRow: View {
                         .font(.callout.weight(.medium))
                         .foregroundStyle(WNColor.backgroundContentPrimary)
                         .lineLimit(1)
-                    if !candidate.npub.isEmpty {
-                        Text(DisplayText.short(candidate.npub))
+                    // Under a private nickname, who the person actually publishes as says more
+                    // about which of two similarly-nicknamed contacts this is than their npub.
+                    if let subtitle = candidate.publishedDisplayName ?? shortNpub {
+                        Text(subtitle)
                             .font(.caption)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .lineLimit(1)

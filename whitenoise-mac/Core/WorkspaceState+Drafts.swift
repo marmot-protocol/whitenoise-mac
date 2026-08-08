@@ -124,7 +124,10 @@ extension WorkspaceState {
                     client: client
                 )
             {
-                mentionNames = Self.mentionNames(from: members)
+                mentionNames = Self.mentionNames(
+                    from: members,
+                    nicknames: contactNicknames(forOwnerAccountIdHex: account.accountIdHex)
+                )
             } else {
                 mentionNames = [:]
             }

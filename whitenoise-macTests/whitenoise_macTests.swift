@@ -14118,6 +14118,89 @@ struct whitenoise_macTests {
         #expect(state.activeChats.first?.pictureURL == "https://example.com/alice.png")
     }
 
+    /// A mention is baked into the bubble's attributed string when the window is projected, so
+    /// nicknaming someone the open conversation mentions cannot be patched in the way a sender
+    /// label can — it needs the window replayed. Every earlier message has to change, including
+    /// ones no live delta would ever revisit, and clearing the nickname has to give the published
+    /// name back.
+    @MainActor
+    @Test func nicknamingAMentionedMemberRepaintsTheOpenTranscript() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let aliceNpub = "npub1alyce"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cooper",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Cooper",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let mentionTokens = MarkdownDocumentFfi(
+            blocks: [
+                .paragraph(inlines: [
+                    .text(content: "ping "),
+                    .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: aliceNpub)),
+                ])
+            ],
+            truncated: false
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<3).map { index in
+                appMessage(
+                    id: "message-\(index)",
+                    groupIdHex: "direct-group",
+                    sender: aliceId,
+                    plaintext: "ping @\(aliceNpub)",
+                    contentTokens: mentionTokens,
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "direct-group"
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "direct-group")
+
+        func renderedMentions() -> [String] {
+            (state.messagesByChat["direct-group"] ?? []).map { message in
+                message.contentMarkdown?.inlineParagraph.map { String($0.characters) } ?? ""
+            }
+        }
+
+        #expect(renderedMentions() == Array(repeating: "ping @Alice Cooper", count: 3))
+        let projectedIds = (state.messagesByChat["direct-group"] ?? []).map(\.id)
+
+        state.setContactNickname("Mum", forContactAccountIdHex: aliceId)
+        await state.contactNicknameMentionReplayTask?.value
+
+        #expect(renderedMentions() == Array(repeating: "ping @Mum", count: 3))
+        // Replayed, not reloaded: the same rows in the same order.
+        #expect((state.messagesByChat["direct-group"] ?? []).map(\.id) == projectedIds)
+
+        state.setContactNickname(nil, forContactAccountIdHex: aliceId)
+        await state.contactNicknameMentionReplayTask?.value
+
+        #expect(renderedMentions() == Array(repeating: "ping @Alice Cooper", count: 3))
+    }
+
     @MainActor
     @Test func steadyStatePeerProfileRefreshMakesNoRequestsAcrossWindowsAndDeltas() async throws {
         // The render/projection paths call `requestPeerProfileRefresh` unconditionally, so the
@@ -31833,6 +31916,7 @@ private func appMessage(
     groupIdHex: String,
     sender: String,
     plaintext: String,
+    contentTokens: MarkdownDocumentFfi = emptyMarkdownDocument(),
     kind: UInt64,
     tags: [MessageTagFfi] = [],
     recordedAt: UInt64
@@ -31843,7 +31927,7 @@ private func appMessage(
         groupIdHex: groupIdHex,
         sender: sender,
         plaintext: plaintext,
-        contentTokens: emptyMarkdownDocument(),
+        contentTokens: contentTokens,
         kind: kind,
         tags: tags,
         sourceEpoch: nil,

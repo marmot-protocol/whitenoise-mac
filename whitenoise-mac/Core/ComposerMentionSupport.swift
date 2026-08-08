@@ -15,22 +15,33 @@ nonisolated struct ComposerMentionCandidate: Identifiable, Equatable, Sendable {
     let memberIdHex: String
     /// Avatar/profile seed — the member's account id (falls back to the member id).
     let accountIdHex: String
+    /// What the picker inserts and the row shows: the viewer's private nickname when one is set,
+    /// else the published name, else a shortened reference.
     let displayName: String
+    /// The published name `displayName` hides; nil when no nickname applies.
+    let publishedDisplayName: String?
     let npub: String
+    /// Every name this member answers to — the label above, plus the published name a nickname
+    /// hides. Both the picker filter and send-time canonicalization walk this, so a draft that
+    /// spells out the peer's real name still leaves the composer as an npub.
+    let searchableNames: [String]
 
     // Lowercased match fields, precomputed once — `filter` runs on every keystroke.
-    let displayNameLowercased: String
+    let searchableNamesLowercased: [String]
     let npubLowercased: String
     let memberIdHexLowercased: String
 
-    init(details: GroupMemberDetailsFfi) {
+    init(details: GroupMemberDetailsFfi, nickname: String? = nil) {
         memberIdHex = details.memberIdHex
         accountIdHex = details.account ?? details.memberIdHex
         npub = details.npub
         let reference = details.npub.isEmpty ? memberIdHex : details.npub
-        displayName = PeerDisplayText.sanitize(details.displayName) ?? DisplayText.short(reference, head: 10, tail: 6)
+        let published = PeerDisplayText.sanitize(details.displayName)
+        displayName = nickname ?? published ?? DisplayText.short(reference, head: 10, tail: 6)
+        publishedDisplayName = WorkspaceState.publishedContactName(published, overriddenBy: nickname)
+        searchableNames = [displayName, publishedDisplayName].compactMap { $0 }
         id = memberIdHex
-        displayNameLowercased = displayName.lowercased()
+        searchableNamesLowercased = searchableNames.map { $0.lowercased() }
         npubLowercased = npub.lowercased()
         memberIdHexLowercased = memberIdHex.lowercased()
     }
@@ -103,7 +114,7 @@ nonisolated enum ComposerMentionQuery {
         } else {
             let needle = trimmed.lowercased()
             filtered = candidates.filter { candidate in
-                candidate.displayNameLowercased.contains(needle)
+                candidate.searchableNamesLowercased.contains { $0.contains(needle) }
                     || candidate.npubLowercased.contains(needle)
                     || candidate.memberIdHexLowercased.contains(needle)
             }
@@ -122,8 +133,15 @@ nonisolated enum ComposerMentionCanonicalizer {
     private static let underscoreScalar = UnicodeScalar("_")
     private static let slashScalar = UnicodeScalar("/")
 
-    /// Rewrite every "@DisplayName" in `text` that matches a candidate to "@npub…", so the wire
-    /// format carries stable public keys rather than display names.
+    /// A written name that identifies exactly one member, and the npub it must become.
+    private struct MentionAlias {
+        let name: String
+        let npub: String
+    }
+
+    /// Rewrite every "@Name" in `text` that matches a candidate to "@npub…", so the wire format
+    /// carries stable public keys rather than display names. A member is matchable under any of
+    /// their `searchableNames`, which is what lets a private nickname be typed and still send.
     static func canonicalize(
         _ text: String,
         selections: [ComposerMentionSelection] = [],
@@ -131,25 +149,7 @@ nonisolated enum ComposerMentionCanonicalizer {
     ) -> String {
         guard text.contains("@") else { return text }
         let canonical = canonicalizeSelections(in: text, selections: selections)
-        let replacements =
-            Dictionary(grouping: candidates, by: \.displayName)
-            .values
-            // A typed name is safe to infer only when every matching roster entry identifies the
-            // same npub. Picker selections above remain unambiguous even for duplicate names.
-            .compactMap { matches -> ComposerMentionCandidate? in
-                let npubs = Set(matches.map(\.npub).filter { !$0.isEmpty })
-                guard npubs.count == 1, let onlyNpub = npubs.first else { return nil }
-                return matches.first { $0.npub == onlyNpub }
-            }
-            .filter { candidate in
-                !candidate.npub.isEmpty
-                    && !candidate.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    // A peer-controlled name that is itself a profile reference must never
-                    // retarget the literal reference the sender typed. Picker selections were
-                    // already canonicalized by their exact range above and remain supported.
-                    && !MarkdownLinkPolicy.isResolvableProfileReference(candidate.displayName)
-            }
-            .sorted { $0.displayName.count > $1.displayName.count }
+        let replacements = unambiguousAliases(in: candidates)
         guard !replacements.isEmpty else { return canonical }
 
         var inferred = ""
@@ -157,9 +157,9 @@ nonisolated enum ComposerMentionCanonicalizer {
         while index < canonical.endIndex {
             if canonical[index] == "@",
                 leftBoundaryAllowsMention(at: index, in: canonical),
-                let match = matchCandidate(in: canonical, at: index, candidates: replacements)
+                let match = matchAlias(in: canonical, at: index, aliases: replacements)
             {
-                inferred += "@\(match.candidate.npub)"
+                inferred += "@\(match.alias.npub)"
                 index = match.endIndex
                 continue
             }
@@ -167,6 +167,31 @@ nonisolated enum ComposerMentionCanonicalizer {
             index = canonical.index(after: index)
         }
         return inferred
+    }
+
+    /// Every roster name that resolves to one npub, longest first so a short name that prefixes a
+    /// longer one cannot consume it.
+    private static func unambiguousAliases(in candidates: [ComposerMentionCandidate]) -> [MentionAlias] {
+        let written = candidates.flatMap { candidate in
+            candidate.searchableNames.map { (name: $0, npub: candidate.npub) }
+        }
+        return Dictionary(grouping: written, by: \.name)
+            // A typed name is safe to infer only when every roster entry carrying it identifies
+            // the same npub — including across the two names one member may answer to. Picker
+            // selections above remain unambiguous even for duplicate names.
+            .compactMap { name, matches -> MentionAlias? in
+                let npubs = Set(matches.map(\.npub).filter { !$0.isEmpty })
+                guard npubs.count == 1, let onlyNpub = npubs.first else { return nil }
+                return MentionAlias(name: name, npub: onlyNpub)
+            }
+            .filter { alias in
+                !alias.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    // A peer-controlled name that is itself a profile reference must never
+                    // retarget the literal reference the sender typed. Picker selections were
+                    // already canonicalized by their exact range above and remain supported.
+                    && !MarkdownLinkPolicy.isResolvableProfileReference(alias.name)
+            }
+            .sorted { $0.name.count > $1.name.count }
     }
 
     private static func canonicalizeSelections(
@@ -208,17 +233,17 @@ nonisolated enum ComposerMentionCanonicalizer {
         return true
     }
 
-    private static func matchCandidate(
+    private static func matchAlias(
         in text: String,
         at atIndex: String.Index,
-        candidates: [ComposerMentionCandidate]
-    ) -> (candidate: ComposerMentionCandidate, endIndex: String.Index)? {
+        aliases: [MentionAlias]
+    ) -> (alias: MentionAlias, endIndex: String.Index)? {
         let nameStart = text.index(after: atIndex)
-        for candidate in candidates {
-            guard text[nameStart...].hasPrefix(candidate.displayName) else { continue }
-            let nameEnd = text.index(nameStart, offsetBy: candidate.displayName.count)
+        for alias in aliases {
+            guard text[nameStart...].hasPrefix(alias.name) else { continue }
+            let nameEnd = text.index(nameStart, offsetBy: alias.name.count)
             guard rightBoundaryAllowsMention(at: nameEnd, in: text) else { continue }
-            return (candidate, nameEnd)
+            return (alias, nameEnd)
         }
         return nil
     }
