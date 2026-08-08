@@ -1459,6 +1459,11 @@ final class WorkspaceState {
     /// Last-request-wins ownership for observability configuration across account switches.
     /// Blocking FFI can resume after cancellation, so the generation is checked before publishing.
     var observabilityRuntimeGeneration: UInt64 = 0
+    /// Handle for the fire-and-forget reconfiguration that `refreshObservabilityRuntime()` spawns.
+    /// Ownership stays with `observabilityRuntimeGeneration` — the handle is retained so callers
+    /// (notably tests asserting the post-switch configuration) can await the reconfiguration
+    /// instead of racing it.
+    @ObservationIgnored var observabilityRuntimeRefreshTask: Task<Void, Never>?
     var notificationTask: Task<Void, Never>?
     var chatListTask: Task<Void, Never>?
     var chatListTaskAccountId: String?
@@ -2661,7 +2666,7 @@ final class WorkspaceState {
     }
 
     func refreshObservabilityRuntime() {
-        Task { [weak self] in
+        observabilityRuntimeRefreshTask = Task { [weak self] in
             await self?.configureObservabilityRuntimeBestEffort()
         }
     }

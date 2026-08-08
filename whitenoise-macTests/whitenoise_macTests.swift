@@ -26216,6 +26216,11 @@ struct whitenoise_macTests {
         try await state.configureObservabilityRuntime()
         runtime.releaseTelemetryInstallIdGate()
         try await stalePrimaryConfiguration
+        // The switch also spawns its own reconfiguration, which races the explicit call above:
+        // whichever bumps the generation second publishes, and the loser returns without
+        // publishing. Await the spawned one so the assertions read the settled configuration
+        // instead of the pre-switch value the loser left behind.
+        await state.observabilityRuntimeRefreshTask?.value
 
         #expect(state.activeAccountId == secondary.label)
         #expect(state.observabilityRuntimeConfiguration?.accountLabel == secondaryItem.displayName)
