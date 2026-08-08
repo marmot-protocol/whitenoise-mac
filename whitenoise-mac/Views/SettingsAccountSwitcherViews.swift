@@ -100,12 +100,25 @@ struct SettingsAccountSwitcherCard: View {
                         accountPendingRemoval = account
                     }
                 )
+                // A popover is hosted in its own window, so SwiftUI re-derives the
+                // system-backed environment values — `\.locale` among them — instead of
+                // inheriting the one ContentView injects. `AccountSwitcherPopover` is a
+                // separate `View` that reads `@Environment(\.locale)` for itself, so
+                // without this it resolves every label against the *system* language and
+                // renders English while the rest of the app follows the preference. The
+                // confirmation dialogs below don't need it: their closures capture this
+                // view's own `locale`. Same re-injection as the global search sheet in
+                // `ContentView`.
+                .environment(workspace)
+                .environment(\.locale, workspace.preferredLocale)
             }
         }
         .padding(10)
         .glassCard()
         .sheet(isPresented: $isAddAccountPresented) {
             AddAccountSheet()
+                .environment(workspace)
+                .environment(\.locale, workspace.preferredLocale)
         }
         .removeAccountConfirmation(
             account: accountPendingRemoval,

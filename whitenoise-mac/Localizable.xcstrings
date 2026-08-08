@@ -6041,7 +6041,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "账号"
+            "value": "账户"
           }
         },
         "zh-Hant": {
@@ -6129,25 +6129,25 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Actifs"
+            "value": "Actif"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attive"
+            "value": "Attivo"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ativos"
+            "value": "Ativa"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Активные"
+            "value": "Активный"
           }
         },
         "tr": {
@@ -6300,7 +6300,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agregar cuenta"
+            "value": "Añadir cuenta"
           }
         },
         "fr": {
@@ -14071,7 +14071,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Создать новый идентификатор"
+            "value": "Создать новую личность"
           }
         },
         "tr": {
@@ -26556,13 +26556,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本地签约"
+            "value": "本地签名"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "本地簽約"
+            "value": "本地簽署"
           }
         }
       }
