@@ -3795,6 +3795,62 @@ struct PureValueTests {
         #expect(ChatDestructiveActions.action(for: leaving) == nil)
     }
 
+    // MARK: - Chat row preview line
+
+    /// An unanswered invite says so where the last message would go, so the row explains itself in
+    /// words instead of in a capsule beside the title. Direct and group invites read differently
+    /// because only the direct row's title names the person who sent it.
+    @Test func pendingInviteWithoutMessagesExplainsItselfInThePreviewLine() {
+        let english = Locale(identifier: "en")
+
+        #expect(
+            invitePreviewChat(isDirect: true, preview: "").previewPlaceholder(locale: english)
+                == "Has invited you to a secure chat"
+        )
+        #expect(
+            invitePreviewChat(isDirect: false, preview: "").previewPlaceholder(locale: english)
+                == "You have been invited to a secure chat"
+        )
+    }
+
+    /// The invite line is a *placeholder*: an invite that already carries history shows that
+    /// history, exactly as an accepted chat would.
+    @Test func pendingInviteCarryingMessagesShowsThemRatherThanTheInviteLine() {
+        #expect(
+            invitePreviewChat(isDirect: true, preview: "Alice: Welcome in")
+                .previewPlaceholder(locale: Locale(identifier: "en")) == nil
+        )
+    }
+
+    /// Only a pending invite gets the invite wording; every other empty chat keeps the neutral
+    /// placeholder, including one whose invite flag survives alongside an ended membership —
+    /// `ChatRowStatus` settles that precedence, and the preview line must not re-decide it.
+    @Test func emptyChatsThatAreNotPendingInvitesKeepTheNeutralPlaceholder() {
+        let english = Locale(identifier: "en")
+
+        #expect(
+            invitePreviewChat(isDirect: true, preview: "", pendingConfirmation: false)
+                .previewPlaceholder(locale: english) == "No messages yet"
+        )
+        #expect(
+            invitePreviewChat(isDirect: false, preview: "", membership: .removed)
+                .previewPlaceholder(locale: english) == "No messages yet"
+        )
+        #expect(
+            invitePreviewChat(isDirect: false, preview: "", leaveRequestPending: true)
+                .previewPlaceholder(locale: english) == "No messages yet"
+        )
+    }
+
+    /// The line is resolved against the caller's locale rather than baked in at mapping time,
+    /// which is what lets a language switch reach a chat list nothing else rebuilt.
+    @Test func invitePreviewLineFollowsTheRequestedLocale() {
+        let chat = invitePreviewChat(isDirect: false, preview: "")
+        let spanish = chat.previewPlaceholder(locale: Locale(identifier: AppLanguage.spanish.rawValue))
+        #expect(spanish == "Has sido invitado a un chat seguro")
+        #expect(spanish != chat.previewPlaceholder(locale: Locale(identifier: "en")))
+    }
+
     // MARK: - PeerProfileRefreshGate
 
     @Test func peerProfileGateDedupesInFlightAttemptsForTheSameAccount() {
@@ -4173,6 +4229,29 @@ private func destructiveActionChat(
         unreadCount: 0,
         isDirect: isDirect,
         leaveRequestPending: leaveRequestPending,
+        selfMembership: membership
+    )
+}
+
+private func invitePreviewChat(
+    isDirect: Bool,
+    preview: String,
+    pendingConfirmation: Bool = true,
+    leaveRequestPending: Bool = false,
+    membership: ChatSelfMembership = .member
+) -> ChatItem {
+    ChatItem(
+        id: "group",
+        title: "Alice",
+        subtitle: "",
+        preview: preview,
+        updatedAt: nil,
+        avatarSeed: "seed",
+        pictureURL: nil,
+        unreadCount: 0,
+        isDirect: isDirect,
+        leaveRequestPending: leaveRequestPending,
+        pendingConfirmation: pendingConfirmation,
         selfMembership: membership
     )
 }

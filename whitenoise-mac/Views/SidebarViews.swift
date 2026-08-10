@@ -634,6 +634,8 @@ struct ChatRowContent: View {
     var isPinned = false
     var searchResult: GlobalMessageSearchResult?
 
+    private var rowStatus: ChatRowStatus? { ChatRowStatus.status(for: chat) }
+
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             ProfileImageAvatarView(
@@ -652,14 +654,16 @@ struct ChatRowContent: View {
                         .lineLimit(1)
                     // Precedence lives in `ChatRowStatus` so the badge and the row's
                     // destructive menu item are decided by one rule.
-                    switch ChatRowStatus.status(for: chat) {
+                    switch rowStatus {
                     case .leaving:
                         LeavingGroupBadge()
                     case .membershipEnded(let membership):
                         MembershipEndedBadge(membership: membership)
-                    case .pendingInvite:
-                        PendingInviteBadge()
-                    case nil:
+                    // A pending invite reports itself on the line below instead — the invite text
+                    // where the last message would be, the `+` badge where the unread count would
+                    // be. The two capsules above stay here because they report a settled state
+                    // about the chat rather than something waiting on the reader.
+                    case .pendingInvite, nil:
                         EmptyView()
                     }
                     if isPinned {
@@ -694,10 +698,15 @@ struct ChatRowContent: View {
                     if searchResult == nil {
                         ChatDeliveryStateIcon(state: chat.latestMessageDelivery)
                     }
-                    // The three unread signals share `fillInfo` with `UnreadCountBadge`: a row can
-                    // show the mention pill next to the count, and one of them in the neutral fill
-                    // would read as a different kind of thing than the other.
-                    if chat.hasUnread {
+                    // An unanswered invite takes this slot outright, the way the other clients
+                    // read it: it is the one thing in the chat that is actually waiting on you,
+                    // and a count beside it would offer messages the invite has not let you open.
+                    if rowStatus == .pendingInvite {
+                        PendingInviteBadge()
+                    } else if chat.hasUnread {
+                        // The three unread signals share `fillInfo` with `UnreadCountBadge`: a row
+                        // can show the mention pill next to the count, and one of them in the
+                        // neutral fill would read as a different kind of thing than the other.
                         if chat.hasMention {
                             Image(systemName: "at")
                                 .font(.caption2.weight(.bold))
@@ -730,6 +739,11 @@ struct ChatRowContent: View {
         // A search hit shows the matched message rather than the chat's last one, so the
         // last-message glyph would describe the wrong message.
         guard let searchResult else {
+            // What an empty chat says here depends on why it is empty, and an unanswered invite
+            // says so in words rather than in a badge beside the title.
+            if let placeholder = chat.previewPlaceholder(locale: locale) {
+                return Text(placeholder)
+            }
             guard let kind = chat.previewAttachmentKind else { return Text(chat.preview) }
             // Inline in the same `Text` so the glyph wraps, truncates and picks up the row's
             // preview font and secondary style along with the words.
@@ -789,24 +803,32 @@ private struct ChatTimestampText: View, Equatable {
     }
 }
 
-/// An invitation waiting on an answer. This is the other clients' `ChatStatusType.request`, which
-/// is the one chat-row status they draw in the info intention rather than in neutral gray — it is
-/// the only one that is asking the reader for something. Taking the intention's own background and
-/// content tokens (`intentionInfoBackground` + `intentionInfoContent`) is how the reference styles
-/// every info surface, and it is also why this capsule has no hairline: the intention pair is
-/// self-contained, and a neutral `borderTertiary` ring drawn around a blue wash belongs to neither
-/// family. The neutral capsule stays on `LeavingGroupBadge` and `MembershipEndedBadge`, which
-/// report a state rather than ask for a decision.
+/// An invitation waiting on an answer, drawn in the row's unread slot as a `+` on the same
+/// `fillInfo` disc the unread count and the mention pill use.
+///
+/// This is the other clients' `ChatStatusType.request`, and sharing the unread badge's shape is
+/// the whole point of it: an invite and an unread message are the same kind of claim on the
+/// reader — something in this chat is waiting — so they belong in the same slot, in the same fill,
+/// distinguished only by the glyph. `+` reads as "join", which is the answer the row is asking
+/// for. The neutral title-side capsule stays on `LeavingGroupBadge` and `MembershipEndedBadge`,
+/// which report a settled state rather than ask for a decision.
+///
+/// Icon-only, so it carries both an accessibility label and a hover explanation; the row's
+/// preview line says the same thing in words.
+///
+/// Both read "Invite pending" rather than "Group invite pending" or the bare "Invite":
+/// `ChatRowStatus` never looks at `isDirect`, so this badge sits on direct invites too, and the
+/// "Invite" key belongs to the group sheet's action button — translated as a verb ("Einladen",
+/// "Invitar"), which is not what a status badge is saying.
 struct PendingInviteBadge: View {
     var body: some View {
-        Label(L10n.string("Invite"), systemImage: "envelope.badge")
-            .font(.caption2.weight(.semibold))
-            .labelStyle(.titleAndIcon)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .foregroundStyle(WNColor.intentionInfoContent)
-            .background(WNColor.intentionInfoBackground, in: Capsule())
-            .help(L10n.string("Group invite pending"))
+        Image(systemName: "plus")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(WNColor.fillContentInfo)
+            .frame(width: 18, height: 18)
+            .background(Circle().fill(WNColor.fillInfo))
+            .accessibilityLabel(L10n.string("Invite pending"))
+            .help(L10n.string("Invite pending"))
     }
 }
 

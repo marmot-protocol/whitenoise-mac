@@ -338,7 +338,7 @@ extension WorkspaceState {
             id: groupIdHex,
             title: title,
             subtitle: isDirect ? L10n.string("Direct message") : L10n.string("Group chat"),
-            preview: L10n.string("No messages yet"),
+            preview: "",
             updatedAt: nil,
             avatarSeed: avatarSeed,
             pictureURL: pictureURL,

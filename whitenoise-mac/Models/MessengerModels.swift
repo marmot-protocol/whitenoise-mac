@@ -110,6 +110,11 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     var title: String
     var publishedTitle: String?
     let subtitle: String
+    /// The chat's last message as the row draws it, or empty when the chat has none.
+    ///
+    /// Deliberately *not* pre-filled with a "No messages yet" placeholder: what an empty chat
+    /// says depends on why it is empty — an unanswered invite explains itself here — and the
+    /// answer is localized, so it is resolved at render time by `previewPlaceholder(locale:)`.
     let preview: String
     /// Set when the last message carries attachments, so the row can mark the preview with a
     /// media glyph. Travels with `preview` — anything that carries one forward carries both.
@@ -154,6 +159,30 @@ nonisolated struct ChatItem: Identifiable, Hashable {
 
     /// True when the local account can use the outbound composer for this chat.
     var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember }
+
+    /// What the row draws where the last message would go, for a chat that has no last message.
+    /// `nil` means `preview` carries a real message and should be drawn as-is.
+    ///
+    /// An unanswered invite spends this line saying so, the way the other clients do, rather than
+    /// wearing a capsule beside its title: the line is the one part of the row that is otherwise
+    /// empty for exactly the chats an invite arrives in, and it has the width to say who invited
+    /// you. The `+` badge in the unread slot is the other half of that reading.
+    ///
+    /// Resolved here rather than baked into `preview` at mapping time because it is localized:
+    /// the chat list is not rebuilt on a language switch, so a stored translation would keep the
+    /// previous language until some unrelated update happened to rebuild the row.
+    func previewPlaceholder(locale: Locale = AppLanguage.currentLocale) -> String? {
+        guard preview.isEmpty else { return nil }
+        guard ChatRowStatus.status(for: self) == .pendingInvite else {
+            return L10n.string("No messages yet", locale: locale)
+        }
+        // A direct invite's row title is the person who sent it, so this line continues from it.
+        // A group invite's title is the group, and the chat-list row carries no welcomer, so it
+        // stays subjectless rather than guessing at a name.
+        return isDirect
+            ? L10n.string("Has invited you to a secure chat", locale: locale)
+            : L10n.string("You have been invited to a secure chat", locale: locale)
+    }
 
     /// The other party's account hex, for a direct chat whose peer has actually resolved.
     ///
