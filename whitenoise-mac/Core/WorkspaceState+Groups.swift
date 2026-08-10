@@ -205,7 +205,9 @@ extension WorkspaceState {
         }
     }
 
-    static func publishedContactName(_ published: String?, overriddenBy nickname: String?) -> String? {
+    /// `nonisolated` so the pure value types that carry a nickname-first label — the mention
+    /// candidate among them — can record the overridden name the same way this actor does.
+    nonisolated static func publishedContactName(_ published: String?, overriddenBy nickname: String?) -> String? {
         guard let nickname, let published = published?.nilIfBlank, published != nickname else { return nil }
         return published
     }

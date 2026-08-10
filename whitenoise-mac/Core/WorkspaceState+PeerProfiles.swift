@@ -332,35 +332,22 @@ extension WorkspaceState {
         }
     }
 
-    /// Replays the open conversation's authoritative window so every row re-resolves its
-    /// sender name — including rows the live delta path would never revisit.
+    /// Replays the open conversation's authoritative window so every row re-resolves whatever the
+    /// projection bakes into it — sender names, and the mention tokens rendered into each bubble
+    /// — including rows the live delta path would never revisit.
     ///
     /// `snapshot()` is a pure in-memory clone of the window the runtime already holds: no
     /// store read, no relay traffic, and identical bounds, so a scrolled-back reader keeps
     /// their position and pagination state. `loadMessages` would instead re-run the
     /// initial-load path and re-anchor the window to the head.
-    private func reprojectSelectedTimelineForPeerProfiles(
-        ids: Set<String>,
-        account: AccountItem,
-        client: any MarmotRuntime
-    ) async {
+    ///
+    /// Callers decide whether a replay is worth it; this only re-checks that the window it is
+    /// about to replace is still the one on screen, which is also what makes it safe for a
+    /// caller whose conversation or account moved on while it was suspended.
+    func replaySelectedTimelineWindow(account: AccountItem, client: any MarmotRuntime) async {
         guard let subscription = activeTimelineSubscription,
             let groupIdHex = activeTimelineGroupId,
             selectedChat?.id == groupIdHex
-        else { return }
-
-        // Replay only when a resolved id is one the open window's rows actually name. Most
-        // requests come from rosters and reaction lists — a 40-member group whose members
-        // have never posted, or reactors whose rows read `peerProfileFFICache` directly and
-        // repaint on their own. Replaying for those re-maps and re-diffs the whole transcript
-        // to produce byte-identical rows, once per debounce window for the length of a drain.
-        //
-        // `timelineProjectedSenderIds` is the exact `senderIds` set the last projection of
-        // this window resolved, so it covers reply-quote authors and group-system actors too
-        // — identities the materialized `MessageItem`s do not carry and a scan of the store
-        // would miss.
-        guard let projectedSenderIds = timelineProjectedSenderIds[groupIdHex],
-            !projectedSenderIds.isDisjoint(with: ids)
         else { return }
 
         guard let page = try? await runOffMain({ subscription.snapshot() }) else { return }
@@ -376,6 +363,31 @@ extension WorkspaceState {
             client: client,
             owner: .subscription(subscription)
         )
+    }
+
+    /// Replays the open window for peers that just became nameable.
+    private func reprojectSelectedTimelineForPeerProfiles(
+        ids: Set<String>,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
+        guard let groupIdHex = activeTimelineGroupId, selectedChat?.id == groupIdHex else { return }
+
+        // Replay only when a resolved id is one the open window's rows actually name. Most
+        // requests come from rosters and reaction lists — a 40-member group whose members
+        // have never posted, or reactors whose rows read `peerProfileFFICache` directly and
+        // repaint on their own. Replaying for those re-maps and re-diffs the whole transcript
+        // to produce byte-identical rows, once per debounce window for the length of a drain.
+        //
+        // `timelineProjectedSenderIds` is the exact `senderIds` set the last projection of
+        // this window resolved, so it covers reply-quote authors and group-system actors too
+        // — identities the materialized `MessageItem`s do not carry and a scan of the store
+        // would miss.
+        guard let projectedSenderIds = timelineProjectedSenderIds[groupIdHex],
+            !projectedSenderIds.isDisjoint(with: ids)
+        else { return }
+
+        await replaySelectedTimelineWindow(account: account, client: client)
     }
 
     /// Re-titles direct-chat rows whose peer just became nameable.

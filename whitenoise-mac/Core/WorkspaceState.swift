@@ -998,7 +998,11 @@ final class WorkspaceState {
     @ObservationIgnored var directPeerMemoryStore: (any DirectPeerMemoryStoring)?
     var contactNicknamesByOwner: [String: [String: String]] = [:]
     @ObservationIgnored var contactNicknameRevision: UInt64 = 0
-    @ObservationIgnored var cachedContactNicknames: CachedContactNicknames?
+    @ObservationIgnored var cachedContactNicknames: NicknameStamped<ContactNicknames>?
+    /// Replays the open transcript after a nickname write so mention tokens already baked into
+    /// rendered bubbles pick up the new label. Held only so tests can await it — a replay that
+    /// outlives its conversation re-checks the account and subscription before applying anything.
+    @ObservationIgnored var contactNicknameMentionReplayTask: Task<Void, Never>?
     @ObservationIgnored let chatRestorationStore: any ChatRestorationStoring
     /// Set only for the duration of an automatic selection made past a preserved memory. See
     /// `withRememberedChatPreserved(_:_:)`.
@@ -1632,10 +1636,13 @@ final class WorkspaceState {
     var groupMemberDetailsCache: [String: [GroupMemberDetailsFfi]] = [:]
     /// Mention-picker projections derived from `groupMemberDetailsCache`. Kept outside Observation
     /// so reading or populating the cache from a view body does not schedule another render.
-    @ObservationIgnored var mentionRosterCache: [String: [ComposerMentionCandidate]] = [:]
+    /// Both mention caches fold in the viewer's private nicknames, so both are stamped with the
+    /// nickname set they were built from: a nickname write invalidates them for the cost of a
+    /// comparison on the read path, without touching any group whose projection is never read again.
+    @ObservationIgnored var mentionRosterCache: [String: NicknameStamped<[ComposerMentionCandidate]>] = [:]
     /// Timeline Markdown mention projections share the same roster lifetime as the picker cache.
     /// Keeping this separate avoids rebuilding and sanitizing every member on each projection delta.
-    @ObservationIgnored var mentionNamesCache: [String: MarkdownMentionNames] = [:]
+    @ObservationIgnored var mentionNamesCache: [String: NicknameStamped<MarkdownMentionNames>] = [:]
     var groupMemberDetailsLookups: [String: GroupMemberDetailsLookup] = [:]
     var readStateMetadataEnrichmentAttempts = Set<String>()
     var nextGroupMemberDetailsLookupToken: UInt64 = 0
@@ -1783,12 +1790,6 @@ final class WorkspaceState {
                 )
             }
         }
-    }
-
-    struct CachedContactNicknames {
-        let ownerAccountIdHex: String
-        let revision: UInt64
-        let value: ContactNicknames
     }
 
     /// Cached raw output of the per-sender profile FFI lookups.
@@ -2582,10 +2583,7 @@ final class WorkspaceState {
                         PeerDisplayText.sanitize(member.displayName),
                         PeerDisplayText.sanitize(member.account),
                     ]) ?? DisplayText.short(member.npub, head: 12, tail: 8)
-                // You cannot nickname yourself, so `isSelf` rows always read the published name.
-                let nickname =
-                    member.isSelf
-                    ? nil : nicknames.nickname(forContactAccountIdHex: member.memberIdHex)
+                let nickname = member.nickname(from: nicknames)
                 let displayName = nickname ?? published
                 return GroupMemberItem(
                     id: member.memberIdHex,

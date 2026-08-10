@@ -681,8 +681,13 @@ extension WorkspaceState {
                 return ChatItem(row: row, activeAccountIdHex: account.accountIdHex)
             }
             // The roster is already in hand here, so resolving the preview's "@npub…" mentions to
-            // names costs only a dictionary build — no extra FFI on the chat-list path.
-            mentionNames = Self.mentionNames(from: members)
+            // names costs only a dictionary build — no extra FFI on the chat-list path. Resolved
+            // against the enriching account's own nicknames, not the active one's: enrichment can
+            // still be in flight across a switch, and private labels are per-account.
+            mentionNames = Self.mentionNames(
+                from: members,
+                nicknames: contactNicknames(forOwnerAccountIdHex: account.accountIdHex)
+            )
             directPeer = await directPeerProfile(
                 from: members,
                 groupIdHex: row.groupIdHex,
