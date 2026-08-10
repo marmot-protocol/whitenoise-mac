@@ -93,7 +93,7 @@ struct GeneralSettingsView: View {
                 Divider()
 
                 Toggle(
-                    L10n.string("Restore last selected chat on launch"),
+                    L10n.string("Restore last selected chat"),
                     isOn: Binding(
                         get: { workspace.restoreLastSelectedChat },
                         set: { workspace.setRestoreLastSelectedChat($0) }
@@ -102,7 +102,8 @@ struct GeneralSettingsView: View {
 
                 Text(
                     L10n.string(
-                        "Return to the last conversation selected for this account after White Noise finishes loading.")
+                        "Return to the last conversation selected for this account, both on launch and when you switch accounts."
+                    )
                 )
                 .font(.caption)
                 .foregroundStyle(WNColor.backgroundContentSecondary)

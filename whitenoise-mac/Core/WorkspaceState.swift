@@ -1000,7 +1000,9 @@ final class WorkspaceState {
     @ObservationIgnored var contactNicknameRevision: UInt64 = 0
     @ObservationIgnored var cachedContactNicknames: CachedContactNicknames?
     @ObservationIgnored let chatRestorationStore: any ChatRestorationStoring
-    @ObservationIgnored var shouldResolveStartupChatSelection = true
+    /// Set only for the duration of an automatic selection made past a preserved memory. See
+    /// `withRememberedChatPreserved(_:_:)`.
+    @ObservationIgnored var isPreservingRememberedChat = false
     @ObservationIgnored let quickReactionStore: any QuickReactionStoring
     @ObservationIgnored var mediaReferenceIndexes: [MediaReferenceCacheKey: MediaReferenceIndex] = [:]
     @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
