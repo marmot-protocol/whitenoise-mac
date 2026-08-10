@@ -42,6 +42,15 @@ nonisolated struct MarkdownDisplayDocument {
     /// children in one bubble.
     static let maxDisplayNodes = 256
 
+    /// Direct construction from an already-rendered block tree. Used only by the in-place mention
+    /// relabel (`MarkdownMentionRelabeling`), which rewrites runs of an existing document rather
+    /// than re-deriving one from the AST — there is no budget or depth to re-apply, both having
+    /// been enforced when this document was first built.
+    init(blocks: [MarkdownDisplayBlockNode], truncated: Bool) {
+        self.blocks = blocks
+        self.truncated = truncated
+    }
+
     init(
         document: MarkdownDocumentFfi,
         mentionNames: MarkdownMentionNames = [:]
@@ -503,18 +512,15 @@ nonisolated enum MarkdownDisplayInlineBuilder {
         intent: InlinePresentationIntent,
         mentionNames: MarkdownMentionNames
     ) -> AttributedString {
-        let shortReference = shortBech32(entity.bech32)
+        let shortReference = MarkdownMentionText.shortBech32(entity.bech32)
         let displayText: String
         let presentation: MarkdownDisplayLink.Presentation
         switch entity.hrp {
         case .npub, .nprofile:
             // A known group member renders as "@Display Name"; otherwise the truncated bech32
-            // keeps the reference legible and tappable.
-            if let name = PeerDisplayText.sanitize(mentionNames[entity.bech32]) {
-                displayText = "@\(name)"
-            } else {
-                displayText = "@\(shortReference)"
-            }
+            // keeps the reference legible and tappable. One shared rule with the in-place
+            // relabel, so a rename lands on exactly the text a re-projection would have produced.
+            displayText = MarkdownMentionText.label(forBech32: entity.bech32, name: mentionNames[entity.bech32])
             presentation = .mention
         case .note, .nevent, .naddr, .nrelay:
             displayText = shortReference
@@ -544,10 +550,5 @@ nonisolated enum MarkdownDisplayInlineBuilder {
             }
         }
         return attributed
-    }
-
-    private static func shortBech32(_ bech32: String) -> String {
-        guard bech32.count > 16 else { return bech32 }
-        return "\(bech32.prefix(10))...\(bech32.suffix(4))"
     }
 }
