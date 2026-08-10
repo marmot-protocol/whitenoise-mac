@@ -19,6 +19,21 @@ extension AccountItem {
     }
 }
 
+extension GroupMemberDetailsFfi {
+    /// The viewer's private nickname for this member, or nil where none applies.
+    ///
+    /// Keyed on `memberIdHex` — the member's pubkey — because that is what a nickname is stored
+    /// against everywhere else (`groupDetailsSnapshot`, `requestPeerProfileRefresh`). `account`
+    /// is the local account *label*, not an id, so it must never be used here.
+    ///
+    /// Self rows never take one: `ContactNicknames.owner` refuses to write a nickname for one of
+    /// this device's accounts, but an account added *after* someone nicknamed it still has the
+    /// old entry on file, and it must not surface as your own name.
+    nonisolated func nickname(from nicknames: ContactNicknames) -> String? {
+        isSelf ? nil : nicknames.nickname(forContactAccountIdHex: memberIdHex)
+    }
+}
+
 extension ChatSelfMembership {
     nonisolated init(_ membership: SelfMembershipFfi) {
         switch membership {

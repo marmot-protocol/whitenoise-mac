@@ -78,6 +78,73 @@ struct PureValueTests {
         )
     }
 
+    /// A nickname is what the picker inserts, so it has to canonicalize — but the published name
+    /// stays live too: a draft written before the nickname existed, or one where the sender typed
+    /// the name they see elsewhere, must still leave as an npub rather than as literal text.
+    @Test func nicknamedMemberCanonicalizesUnderEitherName() {
+        let candidates = [mentionCandidate(id: "alice", displayName: "Alice", npub: "npub1alice", nickname: "Mum")]
+
+        #expect(ComposerMentionCanonicalizer.canonicalize("Hi @Mum", candidates: candidates) == "Hi @npub1alice")
+        #expect(ComposerMentionCanonicalizer.canonicalize("Hi @Alice", candidates: candidates) == "Hi @npub1alice")
+    }
+
+    /// Nicknames are chosen by the viewer, so nothing stops one from colliding with another
+    /// member's published name. That is the same ambiguity two identical display names create,
+    /// and it has to be resolved the same way: refuse to guess, and let the picker disambiguate.
+    @Test func aNicknameCollidingWithAnotherMembersRealNameIsNotGuessed() {
+        let candidates = [
+            mentionCandidate(id: "alice", displayName: "Alice", npub: "npub1alice", nickname: "Bob"),
+            mentionCandidate(id: "bob", displayName: "Bob", npub: "npub1bob"),
+        ]
+
+        #expect(ComposerMentionCanonicalizer.canonicalize("Hi @Bob", candidates: candidates) == "Hi @Bob")
+        // The names that stayed unique still resolve.
+        #expect(ComposerMentionCanonicalizer.canonicalize("Hi @Alice", candidates: candidates) == "Hi @npub1alice")
+    }
+
+    @Test func nicknamedMentionCandidateIsFoundByEitherNameAndKeepsThePublishedOne() {
+        let nicknamed = mentionCandidate(id: "alice", displayName: "Alice", npub: "npub1alice", nickname: "Mum")
+
+        #expect(nicknamed.displayName == "Mum")
+        #expect(nicknamed.publishedDisplayName == "Alice")
+        #expect(nicknamed.searchableNames == ["Mum", "Alice"])
+        #expect(ComposerMentionQuery.filter([nicknamed], matching: "mum").map(\.id) == ["alice"])
+        #expect(ComposerMentionQuery.filter([nicknamed], matching: "alic").map(\.id) == ["alice"])
+        #expect(ComposerMentionQuery.filter([nicknamed], matching: "bob").isEmpty)
+
+        // No nickname means nothing is being overridden, so there is no second name to record.
+        let plain = mentionCandidate(id: "bob", displayName: "Bob", npub: "npub1bob")
+        #expect(plain.publishedDisplayName == nil)
+        #expect(plain.searchableNames == ["Bob"])
+    }
+
+    /// A nickname is the only name a member who published none has, so it must reach the mention
+    /// map — that member renders as truncated bech32 without it.
+    @Test func mentionNamesPreferNicknamesAndNameAnUnpublishedMember() {
+        let members = [
+            mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true),
+            mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice"),
+            mentionMember(id: "bob", displayName: "", npub: "npub1bob"),
+            mentionMember(id: "carol", displayName: "Carol", npub: "npub1carol"),
+        ]
+        let nicknames = ContactNicknames(
+            ownerAccountIdHex: "owner",
+            byContactIdHex: ["alice": "Mum", "bob": "Plumber", "self": "Not Me"]
+        )
+
+        let names = WorkspaceState.mentionNames(from: members, nicknames: nicknames)
+
+        #expect(names["npub1alice"] == "Mum")
+        #expect(names["npub1bob"] == "Plumber")
+        #expect(names["npub1carol"] == "Carol")
+        // A nickname on file for one of this device's own accounts is never your own label.
+        #expect(names["npub1self"] == "Local")
+        // Nothing published and nothing private stays unnamed, so the bech32 fallback survives.
+        #expect(
+            WorkspaceState.mentionNames(from: members, nicknames: .none)["npub1bob"] == nil
+        )
+    }
+
     @Test func ambiguousTypedMentionIsNotGuessedWithoutPickerSelection() {
         let candidates = [
             mentionCandidate(id: "first", displayName: "Alex", npub: "npub1qqqq"),
@@ -484,6 +551,92 @@ struct PureValueTests {
         #expect(state.mentionRosterBuildCount == 2)
         #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1bob"] == "Bob")
         #expect(state.mentionNamesBuildCount == 2)
+    }
+
+    /// Mention projections fold nicknames in, so they must notice a nickname write — but noticing
+    /// it may not cost anything on the read path, which the timeline hits on every window and
+    /// every keystroke. Exactly one rebuild per write, and none at all for a write that changed
+    /// nothing.
+    @MainActor
+    @Test func mentionProjectionsRebuildOncePerNicknameWrite() {
+        let account = AccountItem.samples[0]
+        let group = ChatItem.samples[0]
+        let state = WorkspaceState(
+            accounts: [account],
+            chatsByAccount: [account.id: [group]],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        state.activeAccountId = account.id
+        state.selection = .chat(group.id)
+        state.storeGroupMembers(
+            [
+                mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true),
+                mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice"),
+            ],
+            for: group.id
+        )
+
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Alice")
+        #expect(state.mentionRoster().map(\.displayName) == ["Alice"])
+        #expect(state.mentionNamesBuildCount == 1)
+        #expect(state.mentionRosterBuildCount == 1)
+
+        state.setContactNickname("Mum", forContactAccountIdHex: "alice")
+
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Mum")
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Mum")
+        #expect(state.mentionNamesBuildCount == 2)
+        #expect(state.mentionRoster().map(\.displayName) == ["Mum"])
+        #expect(state.mentionRoster().map(\.publishedDisplayName) == ["Alice"])
+        #expect(state.mentionRosterBuildCount == 2)
+
+        // Re-saving the same nickname is not a change, so nothing is invalidated.
+        state.setContactNickname("Mum", forContactAccountIdHex: "alice")
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Mum")
+        _ = state.mentionRoster()
+        #expect(state.mentionNamesBuildCount == 2)
+        #expect(state.mentionRosterBuildCount == 2)
+
+        // Clearing hands the label back to the published name, through the same one rebuild.
+        state.setContactNickname(nil, forContactAccountIdHex: "alice")
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Alice")
+        #expect(state.mentionRoster().map(\.displayName) == ["Alice"])
+        #expect(state.mentionNamesBuildCount == 3)
+        #expect(state.mentionRosterBuildCount == 3)
+    }
+
+    /// A nickname belongs to the account that set it. Two accounts sharing a conversation must
+    /// never read each other's private labels out of a projection cached under one group id.
+    @MainActor
+    @Test func mentionNamesAreScopedToTheAccountThatNicknamedTheContact() {
+        let owner = AccountItem.samples[0]
+        let other = AccountItem.samples[1]
+        let group = ChatItem.samples[0]
+        let state = WorkspaceState(
+            accounts: [owner, other],
+            chatsByAccount: [owner.id: [group], other.id: [group]],
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        state.activeAccountId = owner.id
+        state.selection = .chat(group.id)
+        state.storeGroupMembers(
+            [mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice")],
+            for: group.id
+        )
+
+        state.setContactNickname("Mum", forContactAccountIdHex: "alice")
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Mum")
+
+        state.activeAccountId = other.id
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Alice")
+        #expect(state.mentionRoster().map(\.displayName) == ["Alice"])
+
+        state.activeAccountId = owner.id
+        #expect(state.cachedMentionNames(groupIdHex: group.id)["npub1alice"] == "Mum")
     }
 
     @MainActor
@@ -4256,8 +4409,16 @@ private func invitePreviewChat(
     )
 }
 
-private func mentionCandidate(id: String, displayName: String, npub: String) -> ComposerMentionCandidate {
-    ComposerMentionCandidate(details: mentionMember(id: id, displayName: displayName, npub: npub))
+private func mentionCandidate(
+    id: String,
+    displayName: String,
+    npub: String,
+    nickname: String? = nil
+) -> ComposerMentionCandidate {
+    ComposerMentionCandidate(
+        details: mentionMember(id: id, displayName: displayName, npub: npub),
+        nickname: nickname
+    )
 }
 
 private func mentionMember(
