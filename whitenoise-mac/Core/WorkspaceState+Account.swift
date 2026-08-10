@@ -55,7 +55,6 @@ extension WorkspaceState {
             restoreOrSelectFirstAccount()
             await configureObservabilityRuntimeBestEffort()
             if accounts.isEmpty {
-                discardStartupChatRestoration()
                 phase = .onboarding
                 runtime.recordHostPerformance(
                     operation: .splashReady,
@@ -92,10 +91,22 @@ extension WorkspaceState {
             reselectActiveAccount()
             return
         }
-        switchActiveAccount(
-            account,
-            finalSelection: chatsByAccount[account.id]?.first.map { WorkspaceSelection.chat($0.id) }
-        )
+        switchActiveAccount(account, finalSelection: chatSelection(forSwitchTo: account))
+    }
+
+    /// Where the rail lands when the identity changes. The remembered conversation is looked up for
+    /// the account being switched *to*, so each identity returns to its own last chat instead of
+    /// inheriting whatever the outgoing account happened to have open.
+    ///
+    /// An account that remembers a conversation its cached rows cannot resolve yet lands on nothing:
+    /// selecting a substitute would immediately overwrite the memory through `selection`'s `didSet`,
+    /// so the decision is deferred to `selectInitialChatIfNeeded()` once the fresh snapshot arrives.
+    private func chatSelection(forSwitchTo account: AccountItem) -> WorkspaceSelection? {
+        if let remembered = rememberedChat(forAccount: account) {
+            return .chat(remembered.id)
+        }
+        guard !hasRememberedChat(forAccount: account) else { return nil }
+        return chatsByAccount[account.id]?.first.map { WorkspaceSelection.chat($0.id) }
     }
 
     /// Handles a rail tap on the avatar that is *already* active. Running the real switch here
@@ -114,13 +125,19 @@ extension WorkspaceState {
         }
         // Already looking at a conversation: leave every cache, listener, and selection alone.
         guard isShowingSettings || selection == nil else { return }
-        guard let chat = mostRecentChat(in: activeChats) else {
+        // The avatar is also the way back from Settings, which is where a settings-anchored account
+        // switch leaves the user — so this is the moment that switch's chat decision finally gets
+        // made, and it has to honor the same per-account memory the rail does. It asks without
+        // forgetting: a tap can land while the account's rows are still the stale cache, which is no
+        // basis for deciding a memory is dead.
+        let outcome = rememberedChatOutcomeForActiveAccount()
+        guard let chat = outcome.chat ?? mostRecentChat(in: activeChats) else {
             if isShowingSettings {
                 selection = nil
             }
             return
         }
-        selectChat(chat)
+        withRememberedChatPreserved(outcome.preservesMemory) { selectChat(chat) }
     }
 
     func selectAccountFromSettings(_ account: AccountItem) {
@@ -166,7 +183,6 @@ extension WorkspaceState {
         to account: AccountItem,
         preservingMessageCacheFor groupIdHex: String?
     ) {
-        discardStartupChatRestoration()
         dismissGlobalMessageSearch()
         invalidateSidebarMessageSearch(clearQuery: true)
         leaveActiveConversation()
