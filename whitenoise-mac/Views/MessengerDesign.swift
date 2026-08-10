@@ -23,7 +23,7 @@ struct AvatarView: View {
         let colors = AvatarPalette.colors(for: seed)
 
         return Text(DisplayText.initials(for: initials, fallback: seed))
-            .font(.system(size: size * 0.34, weight: .bold))
+            .wnFont(.custom(size: size * 0.34, weight: .bold))
             .foregroundStyle(colors.content)
             .frame(width: size, height: size)
             .background {
@@ -362,17 +362,19 @@ enum MessagesLayout {
     static let sidebarTitlebarTopPadding: CGFloat = 42
 }
 
-/// Semantic type ramp for the messenger chrome, so text stays on the system typeface at the
-/// platform's native sizes and tracks the user's text-size settings, instead of per-view
-/// hardcoded pixel sizes.
+/// Semantic type ramp for the messenger chrome, naming the roles the shell uses so a view
+/// asks for "the row title" rather than for a size. Each role resolves to a rung of the
+/// shared Manrope ramp (`WNTextStyle`), which is the Flutter client's ladder, so the two
+/// clients agree on sizes and weights. Rungs still scale with the reader's text-size
+/// setting, so naming a base size here does not freeze the rendered one.
 enum MessagesType {
-    static let paneTitle = Font.title2.weight(.semibold)
-    static let rowTitle = Font.body.weight(.semibold)
-    static let rowLabel = Font.body
-    static let preview = Font.callout
-    static let meta = Font.subheadline
-    static let sectionHeader = Font.subheadline.weight(.semibold)
-    static let badge = Font.subheadline.weight(.semibold)
+    static let paneTitle = WNTextStyle.semiBold18
+    static let rowTitle = WNTextStyle.semiBold14
+    static let rowLabel = WNTextStyle.medium14
+    static let preview = WNTextStyle.medium12
+    static let meta = WNTextStyle.medium12
+    static let sectionHeader = WNTextStyle.semiBold12
+    static let badge = WNTextStyle.semiBold12
 }
 
 struct MessagesSearchField: View {
@@ -385,12 +387,12 @@ struct MessagesSearchField: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
+                .wnFont(.semiBold12)
                 .foregroundStyle(WNColor.backgroundContentTertiary)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.callout)
+                .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentPrimary)
                 .focused($isFocused)
                 .accessibilityIdentifier(accessibilityIdentifier ?? "search.field")
@@ -401,7 +403,7 @@ struct MessagesSearchField: View {
                     isFocused = true
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
+                        .wnFont(.medium12)
                         .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
                 .buttonStyle(.plain)
@@ -500,7 +502,7 @@ struct MessagesSendButtonLabel: View {
                     .scaleEffect(0.72)
             } else {
                 Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
+                    .wnFont(.semiBold14)
                     .foregroundStyle(isFilled ? WNColor.fillContentPrimary : WNColor.fillContentDisabled)
             }
         }
@@ -797,7 +799,7 @@ struct GlassCircleCloseButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
+                .wnFont(.semiBold12)
                 .frame(width: 28, height: 28)
         }
         .nativeGlassCircleButtonStyle()

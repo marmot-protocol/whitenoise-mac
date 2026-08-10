@@ -43,7 +43,7 @@ struct SettingsAccountSwitcherCard: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(account.displayName)
-                            .font(.callout.weight(.semibold))
+                            .wnFont(.semiBold12)
                             .lineLimit(1)
                         CopyableKeyLabel(accountIdHex: account.accountIdHex, head: 8, tail: 6, showsCopyButton: false)
                     }
@@ -52,7 +52,7 @@ struct SettingsAccountSwitcherCard: View {
                         L10n.string("No account", locale: locale),
                         systemImage: "person.crop.circle.badge.exclamationmark"
                     )
-                    .font(.callout.weight(.semibold))
+                    .wnFont(.semiBold12)
                 }
 
                 Spacer(minLength: 0)
@@ -72,7 +72,7 @@ struct SettingsAccountSwitcherCard: View {
                     L10n.string("Switch Account", locale: locale),
                     systemImage: "arrow.up.arrow.down"
                 )
-                .font(.callout.weight(.semibold))
+                .wnFont(.semiBold12)
                 .frame(maxWidth: .infinity)
             }
             .nativeGlassButtonStyle()
@@ -188,9 +188,9 @@ struct AccountSwitcherPopover: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.string("Accounts", locale: locale))
-                    .font(.headline)
+                    .wnFont(.semiBold14)
                 Text(L10n.string("Manage the identities available on this Mac.", locale: locale))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -199,7 +199,7 @@ struct AccountSwitcherPopover: View {
 
             if workspace.accounts.isEmpty {
                 Text(L10n.string("No accounts", locale: locale))
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
@@ -266,11 +266,11 @@ struct AccountSwitcherRow: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(account.displayName)
-                            .font(.callout.weight(.semibold))
+                            .wnFont(.semiBold12)
                             .lineLimit(1)
 
                         Text(statusText)
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(
                                 account.signedOut
                                     ? WNColor.intentionWarningContent
@@ -284,7 +284,7 @@ struct AccountSwitcherRow: View {
 
                     if isActive {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.callout)
+                            .wnFont(.medium12)
                             .foregroundStyle(WNColor.intentionSuccessContent)
                             .accessibilityLabel(Text(L10n.string("Active", locale: locale)))
                     }
@@ -374,7 +374,7 @@ struct AddAccountSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .firstTextBaseline) {
                 Text(L10n.string("Add Account", locale: locale))
-                    .font(.title3.weight(.semibold))
+                    .wnFont(.semiBold16)
 
                 Spacer()
 

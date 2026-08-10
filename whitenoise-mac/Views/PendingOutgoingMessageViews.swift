@@ -112,7 +112,7 @@ private struct PendingOutgoingMessageCaption<Metadata: View>: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(caption)
-                .font(.system(size: 15.5))
+                .wnFont(.medium16)
                 .foregroundStyle(MessagesPalette.sentBubbleContent)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,7 +157,7 @@ private struct PendingOutgoingMessageMetadata: View {
             Image(systemName: isFailed ? "exclamationmark.circle.fill" : "clock")
                 .foregroundStyle(isFailed ? WNColor.backgroundContentDestructiveSecondary : tint)
         }
-        .font(.system(size: 10.5, weight: .medium))
+        .wnFont(.medium10)
         .foregroundStyle(tint)
     }
 
@@ -180,7 +180,7 @@ private struct PendingOutgoingMessageFailureActions: View {
             Button(L10n.string("Remove"), systemImage: "trash", action: onDiscard)
         }
         .buttonStyle(.link)
-        .font(.caption.weight(.medium))
+        .wnFont(.medium10)
         .labelStyle(.titleOnly)
     }
 }
@@ -278,14 +278,14 @@ private struct PendingOutgoingMediaTile: View {
                     .accessibilityLabel(attachment.fileName)
             } else {
                 Image(systemName: attachment.kind.systemImageName)
-                    .font(.system(size: 22, weight: .semibold))
+                    .wnFont(.semiBold24)
                     .foregroundStyle(WNColor.backgroundContentTertiary)
             }
 
             if hiddenCount > 0 {
                 WNColor.overlayTertiary
                 Text(verbatim: "+\(hiddenCount)")
-                    .font(.title2.bold())
+                    .wnFont(.bold18)
                     .foregroundStyle(WNColor.fillContentQuaternary)
             }
         }
@@ -334,7 +334,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
     private var voiceMessageRow: some View {
         HStack(spacing: 10) {
             Image(systemName: "mic.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .wnFont(.semiBold14)
 
             ComposerAudioWaveformView(
                 samples: attachment.waveformSamples,
@@ -345,7 +345,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
             .frame(height: 24)
 
             Text(MediaDurationLabel.string(for: attachment.durationSeconds ?? 0))
-                .font(.caption2.monospacedDigit().weight(.semibold))
+                .wnFont(.semiBold10.monospacedDigit())
                 .foregroundStyle(AttachmentRowPalette.detailContent)
         }
     }
@@ -353,15 +353,15 @@ private struct PendingOutgoingMediaAttachmentRow: View {
     private var fileRow: some View {
         HStack(spacing: 10) {
             Image(systemName: attachment.kind.systemImageName)
-                .font(.system(size: 16, weight: .semibold))
+                .wnFont(.semiBold16)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(attachment.fileName)
-                    .font(.system(size: 13, weight: .medium))
+                    .wnFont(.medium14)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Text(attachment.durationLabel ?? attachment.sizeLabel)
-                    .font(.caption2.monospacedDigit())
+                    .wnFont(.medium10.monospacedDigit())
                     .foregroundStyle(AttachmentRowPalette.detailContent)
             }
 

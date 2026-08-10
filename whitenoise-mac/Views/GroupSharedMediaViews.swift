@@ -104,7 +104,7 @@ struct GroupSharedMediaSection: View {
             Label(L10n.string("Shared media unavailable"), systemImage: "exclamationmark.triangle")
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             Text(error)
-                .font(.caption)
+                .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             Button(L10n.string("Retry")) {
                 Task { await workspace.loadSharedMedia(groupIdHex: groupIdHex) }
@@ -118,10 +118,10 @@ struct GroupSharedMediaSection: View {
             Spacer()
             VStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .font(.title2)
+                    .wnFont(.medium18)
                     .foregroundStyle(WNColor.backgroundContentTertiary)
                 Text(title)
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             Spacer()
@@ -188,7 +188,7 @@ private struct SharedMediaThumbnail: View {
             }
             if isVideo {
                 Image(systemName: "play.circle.fill")
-                    .font(.title2)
+                    .wnFont(.medium18)
                     .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.9))
                     .shadow(radius: 2)
             }
@@ -305,7 +305,7 @@ private struct SharedMediaImagePreviewView: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
+                    .wnFont(.medium18)
                     .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.9))
             }
             .buttonStyle(.plain)
@@ -324,14 +324,14 @@ private struct SharedMediaFileRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: item.attachment.kind.systemImageName)
-                .font(.title3)
+                .wnFont(.medium16)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.attachment.fileName)
                     .lineLimit(1)
                 Text(item.attachment.mediaType)
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }

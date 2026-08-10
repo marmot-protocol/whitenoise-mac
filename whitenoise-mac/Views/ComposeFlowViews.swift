@@ -85,7 +85,7 @@ struct NewChatPanelView: View {
 
                     if let lastError = workspace.lastError {
                         Text(lastError)
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentDestructive)
                             .padding(.horizontal, 12)
                             .padding(.top, 6)
@@ -142,7 +142,7 @@ struct NewChatPanelView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(L10n.string("Finding people from your groups..."))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(12)
@@ -242,7 +242,7 @@ struct ChooseMembersPanelView: View {
 
             HStack {
                 Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                 Spacer()
                 Button(L10n.string("Next")) {
@@ -321,7 +321,7 @@ struct NameGroupPanelView: View {
 
                     TextField(L10n.string("Group name (required)"), text: $workspace.newChatName)
                         .textFieldStyle(.plain)
-                        .font(MessagesType.rowLabel)
+                        .wnFont(MessagesType.rowLabel)
                         .focused($isNameFocused)
                         .onSubmit {
                             Task { await workspace.createGroupFromDraft() }
@@ -344,7 +344,7 @@ struct NameGroupPanelView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
-                            .font(MessagesType.sectionHeader)
+                            .wnFont(MessagesType.sectionHeader)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                         ForEach(workspace.newChatRecipients, id: \.accountIdHex) { member in
                             memberRow(member)
@@ -354,7 +354,7 @@ struct NameGroupPanelView: View {
 
                     if let lastError = workspace.lastError {
                         Text(lastError)
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentDestructive)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -397,7 +397,7 @@ struct NameGroupPanelView: View {
     private var groupAvatar: some View {
         if trimmedName.isEmpty {
             Image(systemName: "person.2.fill")
-                .font(.system(size: 30, weight: .semibold))
+                .wnFont(.semiBold32)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(width: 84, height: 84)
                 .background(Circle().fill(WNColor.fillSecondary))
@@ -410,7 +410,7 @@ struct NameGroupPanelView: View {
     private var disappearingRow: some View {
         HStack {
             Text(L10n.string("Disappearing messages"))
-                .font(MessagesType.rowLabel)
+                .wnFont(MessagesType.rowLabel)
             Spacer()
             Menu {
                 ForEach(DisappearingMessageOption.presets) { option in
@@ -446,10 +446,10 @@ struct NameGroupPanelView: View {
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(member.title)
-                    .font(MessagesType.rowLabel)
+                    .wnFont(MessagesType.rowLabel)
                     .lineLimit(1)
                 Text(shortKey(npub: member.npub, hex: member.accountIdHex))
-                    .font(MessagesType.meta)
+                    .wnFont(MessagesType.meta)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -562,7 +562,7 @@ private struct ComposePaneHeader: View {
         }
         .overlay {
             Text(title)
-                .font(MessagesType.paneTitle)
+                .wnFont(MessagesType.paneTitle)
                 .lineLimit(1)
         }
         .padding(.horizontal, 12)
@@ -576,7 +576,7 @@ private struct ComposeSectionHeader: View {
 
     var body: some View {
         Text(title)
-            .font(MessagesType.sectionHeader)
+            .wnFont(MessagesType.sectionHeader)
             .foregroundStyle(WNColor.backgroundContentSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
@@ -594,12 +594,12 @@ private struct ComposeActionRow: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
+                    .wnFont(.semiBold14)
                     .frame(width: 32, height: 32)
                     .background(Circle().fill(WNColor.fillSecondary))
                     .overlay(Circle().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
                 Text(title)
-                    .font(MessagesType.rowLabel)
+                    .wnFont(MessagesType.rowLabel)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
@@ -634,16 +634,16 @@ private struct ComposeContactRow: View {
                 )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(MessagesType.rowLabel)
+                        .wnFont(MessagesType.rowLabel)
                         .lineLimit(1)
                     Text(subtitle)
-                        .font(MessagesType.meta)
+                        .wnFont(MessagesType.meta)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if let provenance {
                         Text(provenance)
-                            .font(MessagesType.meta)
+                            .wnFont(MessagesType.meta)
                             .foregroundStyle(WNColor.backgroundContentTertiary)
                             .lineLimit(1)
                     }
@@ -654,7 +654,7 @@ private struct ComposeContactRow: View {
                         .controlSize(.small)
                 } else if let selection {
                     Image(systemName: selection ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 19))
+                        .wnFont(.medium20)
                         .foregroundStyle(
                             selection
                                 ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary)
@@ -705,7 +705,7 @@ private struct ComposeDiscoveryStatusRow: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(L10n.string("Searching your network..."))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(12)
@@ -714,7 +714,7 @@ private struct ComposeDiscoveryStatusRow: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                 Text(L10n.string("Search couldn't be completed."))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                 Button(L10n.string("Retry")) {
                     workspace.scheduleUserDiscovery()
@@ -727,7 +727,7 @@ private struct ComposeDiscoveryStatusRow: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                 Text(L10n.string("Some results may be missing."))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(12)
@@ -741,7 +741,7 @@ private struct ComposeResolvingRow: View {
             ProgressView()
                 .controlSize(.small)
             Text(L10n.string("Resolving..."))
-                .font(.callout)
+                .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
         }
         .padding(12)
@@ -754,10 +754,10 @@ private struct ComposeNoMatchesView: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 30))
+                .wnFont(.medium32)
                 .foregroundStyle(WNColor.backgroundContentTertiary)
             Text(L10n.string("No matches"))
-                .font(.callout)
+                .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             if let onPaste {
                 Button(L10n.string("Paste npub"), action: onPaste)
@@ -784,10 +784,10 @@ private struct MemberChip: View {
                     isSelected: false
                 )
                 Text(member.title)
-                    .font(MessagesType.preview)
+                    .wnFont(MessagesType.preview)
                     .lineLimit(1)
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .wnFont(.bold10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .padding(.leading, 4)

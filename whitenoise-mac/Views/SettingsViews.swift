@@ -85,7 +85,7 @@ struct GeneralSettingsView: View {
                 )
 
                 Text(L10n.string("Open the White Noise window automatically when you log in to your Mac."))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
 
                 launchAtLoginStatus
@@ -105,7 +105,7 @@ struct GeneralSettingsView: View {
                         "Return to the last conversation selected for this account, both on launch and when you switch accounts."
                     )
                 )
-                .font(.caption)
+                .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }
@@ -136,7 +136,7 @@ struct GeneralSettingsView: View {
                     L10n.string("White Noise needs approval in Login Items before it can open at login."),
                     systemImage: "exclamationmark.triangle"
                 )
-                .font(.caption)
+                .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
 
                 Button(L10n.string("Open Login Items Settings")) {
@@ -148,7 +148,7 @@ struct GeneralSettingsView: View {
                 L10n.string("macOS could not find White Noise's login item."),
                 systemImage: "exclamationmark.triangle"
             )
-            .font(.caption)
+            .wnFont(.medium10)
             .foregroundStyle(WNColor.backgroundContentSecondary)
         case .notRegistered, .enabled:
             EmptyView()
@@ -167,7 +167,7 @@ struct SettingsHeader: View {
                 if let backAction {
                     Button(action: backAction) {
                         Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .semibold))
+                            .wnFont(.semiBold14)
                             .frame(width: 28, height: 28)
                     }
                     .nativeGlassButtonStyle()
@@ -175,14 +175,14 @@ struct SettingsHeader: View {
                 }
 
                 Text(title)
-                    .font(.title2.weight(.semibold))
+                    .wnFont(.semiBold18)
 
                 Spacer()
             }
 
             if let subtitle {
                 Text(subtitle)
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
         }
@@ -327,7 +327,7 @@ struct PublicIdentityQRCodeButton: View {
             isPresented = true
         } label: {
             Image(systemName: "qrcode")
-                .font(.system(size: 14, weight: .semibold))
+                .wnFont(.semiBold14)
                 .frame(width: 24, height: 24)
         }
         .buttonStyle(.borderless)
@@ -349,10 +349,10 @@ struct PublicIdentityQRCodeSheet: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(displayName)
-                        .font(.title3.weight(.semibold))
+                        .wnFont(.semiBold16)
                         .lineLimit(1)
                     Text(L10n.string("Public identity"))
-                        .font(.callout)
+                        .wnFont(.medium12)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
@@ -548,7 +548,7 @@ struct SettingsErrorView: View {
     var body: some View {
         if let error {
             Text(error)
-                .font(.callout)
+                .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentDestructive)
                 .textSelection(.enabled)
         }
@@ -582,7 +582,7 @@ struct ProfileSettingsView: View {
                                 )
 
                                 Image(systemName: "camera.fill")
-                                    .font(.system(size: 9, weight: .semibold))
+                                    .wnFont(.semiBold10)
                                     .foregroundStyle(WNColor.fillContentQuaternary)
                                     .frame(width: 20, height: 20)
                                     .background(WNColor.overlayTertiary, in: Circle())
@@ -595,7 +595,7 @@ struct ProfileSettingsView: View {
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(profilePreviewName(fallback: account))
-                                .font(.headline)
+                                .wnFont(.semiBold14)
                                 .lineLimit(1)
                             CopyableKeyLabel(accountIdHex: account.accountIdHex)
                         }
@@ -681,9 +681,9 @@ struct ProfileImagePickerSheet: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L10n.string("Profile image"))
-                        .font(.headline)
+                        .wnFont(.semiBold14)
                     Text(L10n.string("Choose from your Mac or search the web"))
-                        .font(.caption)
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
@@ -738,7 +738,7 @@ struct ProfileImagePickerSheet: View {
                 Text(
                     L10n.string("Search terms are sent to Openverse. Selected images are copied to Blossom before use.")
                 )
-                .font(.caption)
+                .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -749,12 +749,12 @@ struct ProfileImagePickerSheet: View {
                     if workspace.profileImageResults.isEmpty {
                         VStack(spacing: 10) {
                             Image(systemName: "person.crop.circle.badge.plus")
-                                .font(.system(size: 28, weight: .light))
+                                .wnFont(.medium28)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                             Text(
                                 workspace.isSearchingProfileImages ? L10n.string("Searching") : L10n.string("No images")
                             )
-                            .font(.callout.weight(.medium))
+                            .wnFont(.medium12)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                         .frame(maxWidth: .infinity, minHeight: 300)
@@ -819,10 +819,10 @@ struct IdentityKeysSettingsView: View {
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(account.displayName)
-                                .font(.headline)
+                                .wnFont(.semiBold14)
                                 .lineLimit(1)
                             Text(accountSigningDescription(for: account))
-                                .font(.caption)
+                                .wnFont(.medium10)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                     }
@@ -946,7 +946,7 @@ struct PrivateKeyBackupSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(L10n.string("Back Up Private Key"))
-                    .font(.title3.weight(.semibold))
+                    .wnFont(.semiBold16)
                 Spacer()
                 Button {
                     dismiss()
@@ -962,7 +962,7 @@ struct PrivateKeyBackupSheet: View {
             switch mode {
             case .encrypted:
                 Text(L10n.string("Protect your key with a passphrase. You'll need it to restore the backup."))
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 SecureField(L10n.string("Passphrase"), text: $passphrase)
@@ -974,7 +974,7 @@ struct PrivateKeyBackupSheet: View {
                     ),
                     systemImage: "exclamationmark.triangle.fill"
                 )
-                .font(.callout)
+                .wnFont(.medium12)
                 .foregroundStyle(WNColor.intentionWarningContent)
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -1020,7 +1020,7 @@ struct PrivateKeyBackupSheet: View {
 
             if let error = workspace.lastError {
                 Text(error)
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentDestructive)
             }
         }
@@ -1051,7 +1051,7 @@ struct PrivateKeyBackupSheet: View {
             }
         } label: {
             Text(title)
-                .font(.callout.weight(.semibold))
+                .wnFont(.semiBold12)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .foregroundStyle(
@@ -1105,7 +1105,7 @@ struct CopyableKeyLabel: View {
             if showsCopyButton {
                 CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
                     Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 10))
+                        .wnFont(.medium10)
                         .foregroundStyle(
                             isConfirming ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary)
                 }
@@ -1146,7 +1146,7 @@ struct AppearanceSettingsView: View {
 
             Section(L10n.string("Quick reactions")) {
                 Text(L10n.string("Choose and order the six reactions shown in message actions."))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
 
                 ForEach(Array(workspace.quickReactions.enumerated()), id: \.offset) { index, emoji in
@@ -1155,7 +1155,7 @@ struct AppearanceSettingsView: View {
                             quickReactionBeingReplaced = index
                         } label: {
                             Text(emoji)
-                                .font(.system(size: 24))
+                                .wnFont(.medium24)
                                 .frame(width: 38, height: 32)
                                 .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8))
                         }
@@ -1254,7 +1254,7 @@ struct PrivacySecuritySettingsView: View {
                         "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
                     )
                 )
-                .font(.caption)
+                .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
@@ -1297,7 +1297,7 @@ struct PrivacySecuritySettingsView: View {
                             L10n.string("Record decrypted message content and full identifiers. ")
                                 + L10n.string("Leave off to keep sensitive data obfuscated.")
                         )
-                        .font(.caption)
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
@@ -1435,12 +1435,12 @@ struct AuditLogFileRow: View {
                     .truncationMode(.middle)
                 Spacer()
                 Text(byteCount(file.sizeBytes))
-                    .font(.caption.monospacedDigit())
+                    .wnFont(.medium10.monospacedDigit())
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             Text(details)
-                .font(.caption2)
+                .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .lineLimit(1)
 
@@ -1796,10 +1796,10 @@ struct RelayDiagnosticsView: View {
                 Image(systemName: settings.isComplete ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                     .foregroundStyle(settings.isComplete ? .green : .orange)
                 Text(L10n.string("Published Relay Lists"))
-                    .font(.callout.weight(.semibold))
+                    .wnFont(.semiBold12)
                 Spacer()
                 Text(settings.isComplete ? L10n.string("Complete") : L10n.string("Missing"))
-                    .font(.caption.weight(.semibold))
+                    .wnFont(.semiBold10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
@@ -1810,7 +1810,7 @@ struct RelayDiagnosticsView: View {
 
             if !settings.missing.isEmpty {
                 Text(String(format: L10n.string("Missing: %@"), settings.missing.joined(separator: ", ")))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.intentionWarningContent)
             }
         }
@@ -1827,7 +1827,7 @@ struct RelayDiagnosticsRow: View {
         DisclosureGroup {
             if relays.isEmpty {
                 Text(L10n.string("Not published"))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             } else {
                 ForEach(relays, id: \.self) { relay in
@@ -1841,7 +1841,7 @@ struct RelayDiagnosticsRow: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .frame(width: 18)
                 Text(title)
@@ -1851,14 +1851,14 @@ struct RelayDiagnosticsRow: View {
                 // family — the right weight for a count beside its own row title, and the same
                 // `500`/`400` ramp steps this already rendered at.
                 Text(verbatim: "\(relays.count)")
-                    .font(.caption.monospacedDigit())
+                    .wnFont(.medium10.monospacedDigit())
                     .foregroundStyle(WNColor.fillContentTertiary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
                     .background(WNColor.fillSecondary, in: Capsule())
                     .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
             }
-            .font(.callout)
+            .wnFont(.medium12)
         }
     }
 }
@@ -1932,7 +1932,7 @@ struct KeyPackageRow: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "key.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .wnFont(.semiBold16)
                     .foregroundStyle(WNColor.fillContentPrimary)
                     .frame(width: 30, height: 30)
                     .background {
@@ -1963,7 +1963,7 @@ struct KeyPackageRow: View {
                             )
                         }
                         Text(package.publishedLabel)
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
 
@@ -1973,7 +1973,7 @@ struct KeyPackageRow: View {
                         keyValue("KeyPackageRef", package.keyPackageRefHex)
                         keyValue(L10n.string("Slot"), package.keyPackageId)
                         Text(L10n.plural("%llu bytes", package.keyPackageBytes))
-                            .font(.caption.monospacedDigit())
+                            .wnFont(.medium10.monospacedDigit())
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
@@ -1992,7 +1992,7 @@ struct KeyPackageRow: View {
             if workspace.developerMode && !package.sourceRelays.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.string("Source relays"))
-                        .font(.caption.weight(.semibold))
+                        .wnFont(.semiBold10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                     ForEach(package.sourceRelays, id: \.self) { relay in
                         Text(relay)
@@ -2011,7 +2011,7 @@ struct KeyPackageRow: View {
 
     private func statusBadge(_ title: String, systemImage: String, tint: Color) -> some View {
         Label(title, systemImage: systemImage)
-            .font(.caption.weight(.semibold))
+            .wnFont(.semiBold10)
             .foregroundStyle(tint)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
@@ -2021,7 +2021,7 @@ struct KeyPackageRow: View {
     private func keyValue(_ title: String, _ value: String) -> some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .wnFont(.semiBold10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             Text(value.isEmpty ? L10n.string("Unknown") : DisplayText.short(value, head: 12, tail: 10))
                 .font(.system(.caption, design: .monospaced))
@@ -2039,7 +2039,7 @@ struct RelayRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: isInsecure ? "lock.open.trianglebadge.exclamationmark" : "network")
-                .font(.caption.weight(.semibold))
+                .wnFont(.semiBold10)
                 .foregroundStyle(isInsecure ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .frame(width: 20)
                 .help(
@@ -2058,7 +2058,7 @@ struct RelayRow: View {
                             ? "Insecure — cleartext ws:// (loopback only)"
                             : "Insecure — cleartext ws:// (public host)"
                     )
-                    .font(.caption2)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.intentionWarningContent)
                 }
             }

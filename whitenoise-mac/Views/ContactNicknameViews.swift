@@ -63,13 +63,13 @@ struct ContactNicknameRow: View {
                             PeerDisplayText.templateFragment(publishedName)
                         )
                     )
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(2)
                 }
 
                 Text(L10n.string("Only you see this on this device. It is never published."))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentTertiary)
             }
             .alert(

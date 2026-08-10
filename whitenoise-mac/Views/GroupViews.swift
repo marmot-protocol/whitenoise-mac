@@ -53,7 +53,7 @@ struct GroupDetailsSheet: View {
             durationSeconds: durationSeconds,
             fallback: snapshot?.memberCountLabel ?? "Group details"
         )
-        .font(.callout)
+        .wnFont(.medium12)
     }
 
     /// Prefill the custom-duration fields from the group's current timer, choosing the largest
@@ -72,7 +72,7 @@ struct GroupDetailsSheet: View {
     private func customDurationPopover(groupIdHex: String) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(L10n.string("Custom duration"))
-                .font(.headline)
+                .wnFont(.semiBold14)
             HStack(spacing: 8) {
                 // Closure-based stepper: no range, so no stride arithmetic to
                 // trap on; the parsed value saturates at the UInt64 bounds.
@@ -156,7 +156,7 @@ struct GroupDetailsSheet: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(workspace.groupDetailsSnapshot?.name ?? chat.title)
-                        .font(.title3.weight(.semibold))
+                        .wnFont(.semiBold16)
                         .lineLimit(1)
                     headerSubtitle
                 }
@@ -175,7 +175,7 @@ struct GroupDetailsSheet: View {
                         isAddMembersPresented = true
                     } label: {
                         Image(systemName: "person.badge.plus")
-                            .font(.system(size: 16, weight: .semibold))
+                            .wnFont(.semiBold16)
                             .frame(width: 30, height: 30)
                             .background { MessagesCircleControlBackground() }
                     }
@@ -198,7 +198,7 @@ struct GroupDetailsSheet: View {
                                         "Accept this invite to confirm membership, or decline it to remove the group from your chat list."
                                     )
                                 )
-                                .font(.callout)
+                                .wnFont(.medium12)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
 
@@ -237,10 +237,10 @@ struct GroupDetailsSheet: View {
                             Label {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(endedDescription)
-                                        .font(.callout.weight(.semibold))
+                                        .wnFont(.semiBold12)
 
                                     Text(ChatSelfMembership.endedHistoryExplanation)
-                                        .font(.callout)
+                                        .wnFont(.medium12)
                                         .foregroundStyle(WNColor.backgroundContentSecondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
@@ -339,18 +339,18 @@ struct GroupDetailsSheet: View {
 
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(commonGroup.title)
-                                                    .font(.callout.weight(.semibold))
+                                                    .wnFont(.semiBold12)
                                                     .foregroundStyle(WNColor.backgroundContentPrimary)
                                                     .lineLimit(1)
                                                 Text(commonGroup.subtitle)
-                                                    .font(.caption)
+                                                    .wnFont(.medium10)
                                                     .foregroundStyle(WNColor.backgroundContentSecondary)
                                                     .lineLimit(1)
                                             }
 
                                             Spacer()
                                             Image(systemName: "chevron.right")
-                                                .font(.caption.weight(.semibold))
+                                                .wnFont(.semiBold10)
                                                 .foregroundStyle(WNColor.backgroundContentTertiary)
                                         }
                                         .contentShape(Rectangle())
@@ -361,7 +361,7 @@ struct GroupDetailsSheet: View {
 
                             if workspace.commonGroupsLoadHadFailures {
                                 Text(L10n.string("Some groups could not be checked."))
-                                    .font(.caption)
+                                    .wnFont(.medium10)
                                     .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                         }
@@ -509,7 +509,7 @@ struct GroupDetailsSheet: View {
                         // cannot drift apart.
                         if let blocker = snapshot.leaveBlocker {
                             Text(blocker.message)
-                                .font(.callout)
+                                .wnFont(.medium12)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                         }
                     }
@@ -537,7 +537,7 @@ struct GroupDetailsSheet: View {
                                     }
                                 } else if let status = workspace.groupTranscriptExportStatus {
                                     Label(status, systemImage: "checkmark.circle")
-                                        .font(.callout)
+                                        .wnFont(.medium12)
                                         .foregroundStyle(WNColor.intentionSuccessContent)
                                 }
                             }
@@ -686,7 +686,7 @@ struct GroupDiagnosticsValueRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.callout.weight(.semibold))
+                    .wnFont(.semiBold12)
 
                 Text(displayValue)
                     .font(.system(.caption, design: .monospaced))
@@ -734,12 +734,12 @@ struct GroupMemberRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(member.displayName)
-                                .font(.callout.weight(.semibold))
+                                .wnFont(.semiBold12)
                                 .lineLimit(1)
 
                             if member.isAdmin {
                                 Text(L10n.string("Admin"))
-                                    .font(.caption2.weight(.semibold))
+                                    .wnFont(.semiBold10)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
                                     .background(.thinMaterial, in: Capsule())
@@ -747,13 +747,13 @@ struct GroupMemberRow: View {
 
                             if member.isSelf {
                                 Text(L10n.string("You"))
-                                    .font(.caption2.weight(.semibold))
+                                    .wnFont(.semiBold10)
                                     .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                         }
 
                         Text(member.detailLabel)
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .lineLimit(1)
                     }
@@ -857,10 +857,10 @@ struct ContactDetailsView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(contact.title)
-                        .font(.title3.weight(.semibold))
+                        .wnFont(.semiBold16)
                         .lineLimit(1)
                     Text(isSelf ? L10n.string("You") : L10n.string("Contact"))
-                        .font(.callout)
+                        .wnFont(.medium12)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
@@ -941,17 +941,17 @@ struct ContactDetailsView: View {
                                     )
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(commonGroup.title)
-                                            .font(.callout.weight(.semibold))
+                                            .wnFont(.semiBold12)
                                             .foregroundStyle(WNColor.backgroundContentPrimary)
                                             .lineLimit(1)
                                         Text(commonGroup.subtitle)
-                                            .font(.caption)
+                                            .wnFont(.medium10)
                                             .foregroundStyle(WNColor.backgroundContentSecondary)
                                             .lineLimit(1)
                                     }
                                     Spacer()
                                     Image(systemName: "chevron.right")
-                                        .font(.caption.weight(.semibold))
+                                        .wnFont(.semiBold10)
                                         .foregroundStyle(WNColor.backgroundContentTertiary)
                                 }
                                 .contentShape(Rectangle())
@@ -962,7 +962,7 @@ struct ContactDetailsView: View {
 
                     if workspace.commonGroupsLoadHadFailures {
                         Text(L10n.string("Some groups could not be checked."))
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
@@ -1089,10 +1089,10 @@ struct GroupImagePickerSheet: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(chat.title)
-                            .font(.headline)
+                            .wnFont(.semiBold14)
                             .lineLimit(1)
                         Text(L10n.string("Group image"))
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
 
@@ -1117,7 +1117,7 @@ struct GroupImagePickerSheet: View {
                         .disabled(workspace.hasInFlightGroupCommit)
 
                         Text(L10n.string("or search the web"))
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
 
                         Spacer()
@@ -1149,7 +1149,7 @@ struct GroupImagePickerSheet: View {
                     }
 
                     Text(L10n.string("Search terms are sent to Openverse."))
-                        .font(.caption)
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1173,13 +1173,13 @@ struct GroupImagePickerSheet: View {
                         if workspace.groupImageResults.isEmpty {
                             VStack(spacing: 10) {
                                 Image(systemName: "photo.on.rectangle.angled")
-                                    .font(.system(size: 28, weight: .light))
+                                    .wnFont(.medium28)
                                     .foregroundStyle(WNColor.backgroundContentSecondary)
                                 Text(
                                     workspace.isSearchingGroupImages
                                         ? L10n.string("Searching") : L10n.string("No images")
                                 )
-                                .font(.callout.weight(.medium))
+                                .wnFont(.medium12)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                             .frame(maxWidth: .infinity, minHeight: 300)
@@ -1238,12 +1238,12 @@ struct GroupImageResultTile: View {
                             .scaledToFill()
                     } placeholder: {
                         Image(systemName: "photo")
-                            .font(.system(size: 24, weight: .light))
+                            .wnFont(.medium24)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 } else {
                     Image(systemName: "photo")
-                        .font(.system(size: 24, weight: .light))
+                        .wnFont(.medium24)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
@@ -1251,13 +1251,13 @@ struct GroupImageResultTile: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             Text(result.title)
-                .font(.caption.weight(.semibold))
+                .wnFont(.semiBold10)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(result.creditLine)
-                .font(.caption2)
+                .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
