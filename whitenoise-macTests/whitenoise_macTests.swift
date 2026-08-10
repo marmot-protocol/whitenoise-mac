@@ -5443,6 +5443,39 @@ struct whitenoise_macTests {
         #expect(!chat.isNoLongerMember)
     }
 
+    /// A chat with no last message maps to an *empty* preview rather than a baked-in placeholder,
+    /// which is the signal `ChatItem.previewPlaceholder(locale:)` reads to decide whether the row
+    /// says "No messages yet" or explains an unanswered invite.
+    @Test func chatRowWithoutMessagesMapsToAnEmptyPreview() async throws {
+        let row = ChatListRowFfi(
+            groupIdHex: "invited-group",
+            archived: false,
+            pendingConfirmation: true,
+            title: "Planning",
+            groupName: "Planning",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: nil,
+            unreadCount: 0,
+            hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
+        )
+
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        #expect(chat.preview.isEmpty)
+        #expect(
+            chat.previewPlaceholder(locale: Locale(identifier: "en"))
+                == "You have been invited to a secure chat"
+        )
+    }
+
     @Test func pendingInviteChatCannotUseComposerUntilConfirmed() {
         let activeChat = ChatItem(
             id: "active-group",

@@ -84,7 +84,9 @@ extension ChatItem {
             title: title,
             publishedTitle: publishedTitle,
             subtitle: subtitle,
-            preview: preview?.text.isEmpty == false ? preview!.text : L10n.string("No messages yet"),
+            // Empty means "no last message"; `ChatItem.previewPlaceholder(locale:)` decides what
+            // the row says instead, since that answer is localized and invite-dependent.
+            preview: preview?.text ?? "",
             previewAttachmentKind: preview?.attachmentKind,
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
