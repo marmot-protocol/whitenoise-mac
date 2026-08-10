@@ -786,29 +786,69 @@ extension View {
     }
 }
 
-/// Shared 28×28 circular glass dismiss/back control for sheet and column chrome.
+/// Shared 28×28 circular dismiss/back control for sheet and column chrome.
+///
+/// Two appearances, because the two jobs are not the same weight. A **close** ✕ is the only
+/// control in its corner and takes the glass disc. A **back** ‹ is navigation sitting beside a
+/// title, and glass gives it the emphasis of a filled control — so it takes `outline` instead:
+/// `MessagesCircleControlBackground`, the `WnIconButton.outline` disc this app already draws for
+/// the composer and account-rail controls. That puts every back affordance on the secondary tier,
+/// matching the settings header's chevron and `WNSecondaryButtonStyle`.
+///
+/// Note that circle control still strokes `borderTertiary`, which is the same value as its own
+/// `fillSecondary` in Dark Aqua — so its ring is invisible there, exactly the defect
+/// `WNSecondaryButtonStyle` moved to `borderSecondary` to fix. The demotion from glass holds
+/// either way; raising that ring is a separate change because it also restyles the composer.
 struct GlassCircleCloseButton: View {
+    enum Appearance {
+        /// The glass disc. For a ✕ that dismisses.
+        case glass
+        /// The palette's outline circle. For a ‹ that navigates back.
+        case outline
+    }
+
     let symbol: String
     let helpText: String
+    let appearance: Appearance
     let action: () -> Void
 
     init(
         symbol: String = "xmark",
         help: String = "Close",
+        appearance: Appearance = .glass,
         action: @escaping () -> Void
     ) {
         self.symbol = symbol
         self.helpText = help
+        self.appearance = appearance
         self.action = action
     }
 
     var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .wnFont(.semiBold12)
-                .frame(width: 28, height: 28)
+        switch appearance {
+        case .glass:
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .wnFont(.semiBold12)
+                    .frame(width: 28, height: 28)
+            }
+            .nativeGlassCircleButtonStyle()
+            .help(L10n.string(helpText))
+
+        case .outline:
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .wnFont(.semiBold12)
+                    // Named rather than inherited: the glyph sits on `fillSecondary`, so it is
+                    // the `fill` family's content token that pairs with it. The app-wide default
+                    // is `backgroundContentPrimary`, which currently resolves to the same value —
+                    // true by coincidence, not by construction. See the pairing rule in `WNNSColor`.
+                    .foregroundStyle(WNColor.fillContentSecondary)
+                    .frame(width: 28, height: 28)
+                    .background { MessagesCircleControlBackground() }
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string(helpText))
         }
-        .nativeGlassCircleButtonStyle()
-        .help(L10n.string(helpText))
     }
 }

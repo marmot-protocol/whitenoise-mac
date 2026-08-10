@@ -75,7 +75,7 @@ struct SettingsAccountSwitcherCard: View {
                 .wnFont(.semiBold12)
                 .frame(maxWidth: .infinity)
             }
-            .nativeGlassButtonStyle()
+            .buttonStyle(.wnSecondary)
             .help(L10n.string("Switch Account", locale: locale))
             .popover(isPresented: $isSwitcherPresented, arrowEdge: .bottom) {
                 AccountSwitcherPopover(
@@ -417,7 +417,7 @@ struct AddAccountSheet: View {
                         systemImage: "plus.circle"
                     )
                 }
-                .nativeGlassButtonStyle()
+                .buttonStyle(.wnSecondary)
                 .disabled(isAuthenticationBlocked)
 
                 Spacer()
@@ -425,6 +425,7 @@ struct AddAccountSheet: View {
                 Button(L10n.string("Cancel", locale: locale)) {
                     cancel()
                 }
+                .buttonStyle(.wnSecondary)
                 .disabled(workspace.isAuthenticating)
             }
 
