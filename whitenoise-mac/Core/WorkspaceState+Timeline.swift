@@ -978,11 +978,12 @@ extension WorkspaceState {
         let text = canonicalizeMentions(in: draftText, selections: composerMentionSelections)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let mediaAttachments = pendingMediaAttachments
-        // `!isSending` is the reentrancy guard: `isSending` flips synchronously here,
-        // but the model only suspends (and `draftText` is only cleared) at the `await`
-        // below. Without this guard a second invocation delivered before SwiftUI
-        // re-renders the disabled send button (Return auto-repeat, double events)
-        // would still observe the old `draftText` and re-send the same message.
+        // `!isSending` is the reentrancy guard: `isSending` flips synchronously here, but an
+        // edit only restores its preserved draft at the `await` below. Without this guard a
+        // second invocation delivered before SwiftUI re-renders the disabled send button
+        // (Return auto-repeat, double events) would still observe the old `draftText` and
+        // re-send the same message. A new draft empties its composer synchronously
+        // (`sendNewDraftIfPossible`), so there the guard is the second line of defence.
         guard let client,
             let activeAccount,
             let selectedChat,
@@ -1035,30 +1036,48 @@ extension WorkspaceState {
         isSending = true
         defer { isSending = false }
 
+        if !mediaAttachments.isEmpty {
+            // Hand the send off and return. Staging started every upload the moment the file
+            // was attached, so most of the time the blobs are already on Blossom — but when
+            // they are not, the wait belongs to the message's bubble, not to the Send button
+            // (#710 blocked the button; this is the hybrid that does not).
+            handOffMediaSend(
+                mediaAttachments,
+                caption: text,
+                draftKey: draftKey,
+                account: activeAccount,
+                client: client
+            )
+            await deletePersistedComposerDraft(
+                for: draftKey,
+                accountRef: activeAccount.accountRef,
+                client: client
+            )
+            return
+        }
+
+        // Text empties the composer on hand-off too, before the publish rather than after it.
+        // Clearing only once `sendText`/`replyToMessage` returned meant the draft sat in the
+        // input for the whole relay round-trip — and since the message's own bubble appears
+        // from the local projection as soon as it is stored, the user saw the same text twice.
+        let restorePoint = ComposerSendSnapshot(
+            text: draftTextByConversation[draftKey] ?? "",
+            mentionSelections: composerMentionSelectionsByConversation[draftKey] ?? [],
+            replyContext: replyDraftContextByConversation[draftKey]
+        )
+        clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
+        await deletePersistedComposerDraft(
+            for: draftKey,
+            accountRef: activeAccount.accountRef,
+            client: client
+        )
+
         do {
-            if !mediaAttachments.isEmpty {
-                // Hand the send off and return. Staging started every upload the moment the file
-                // was attached, so most of the time the blobs are already on Blossom — but when
-                // they are not, the wait belongs to the message's bubble, not to the Send button
-                // (#710 blocked the button; this is the hybrid that does not).
-                handOffMediaSend(
-                    mediaAttachments,
-                    caption: text,
-                    draftKey: draftKey,
-                    account: activeAccount,
-                    client: client
-                )
-                await deletePersistedComposerDraft(
-                    for: draftKey,
-                    accountRef: activeAccount.accountRef,
-                    client: client
-                )
-                return
-            } else if let replyDraftContext {
+            if let replyContext = restorePoint.replyContext {
                 _ = try await client.replyToMessage(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: selectedChat.id,
-                    targetMessageId: replyDraftContext.targetMessageId,
+                    targetMessageId: replyContext.targetMessageId,
                     text: text
                 )
             } else {
@@ -1068,21 +1087,48 @@ extension WorkspaceState {
                     text: text
                 )
             }
-            clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
-            await deletePersistedComposerDraft(
-                for: draftKey,
-                accountRef: activeAccount.accountRef,
-                client: client
-            )
-            // One authoritative re-window so the user sees their just-sent message
-            // immediately, even if the live projection for it is momentarily in flight.
-            // The follow-on delivery-state transitions then arrive as projection deltas
-            // and are applied incrementally by `applyTimelineProjection` — no longer a
-            // full re-map per delivery.
-            await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
         } catch {
+            restoreComposerAfterFailedSend(restorePoint, for: draftKey)
             lastError = error.localizedDescription
+            return
         }
+        // One authoritative re-window so the user sees their just-sent message
+        // immediately, even if the live projection for it is momentarily in flight.
+        // The follow-on delivery-state transitions then arrive as projection deltas
+        // and are applied incrementally by `applyTimelineProjection` — no longer a
+        // full re-map per delivery.
+        await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
+    }
+
+    /// What a text send took out of the composer, kept only long enough to put it back if the
+    /// publish fails. Media sends have no equivalent: their attachments move into a pending
+    /// bubble that owns its own retry.
+    private struct ComposerSendSnapshot {
+        let text: String
+        let mentionSelections: [ComposerMentionSelection]
+        let replyContext: MessageReplyContext?
+    }
+
+    /// Returns a failed text send's draft to the composer it was sent from, so the relay being
+    /// unreachable costs a retry rather than the message.
+    ///
+    /// Skipped when that composer is no longer empty: the user started their next message during
+    /// the round-trip, and overwriting live typing is worse than losing the failed draft, which
+    /// `lastError` reports either way. Keyed by the captured `draftKey` for the same reason
+    /// `clearComposerAfterSend` is — the selection may have moved on.
+    private func restoreComposerAfterFailedSend(
+        _ snapshot: ComposerSendSnapshot,
+        for draftKey: ComposerDraftKey
+    ) {
+        guard (draftTextByConversation[draftKey] ?? "").isEmpty,
+            (pendingMediaAttachmentsByConversation[draftKey] ?? []).isEmpty
+        else { return }
+        draftTextByConversation[draftKey] = snapshot.text.isEmpty ? nil : snapshot.text
+        composerMentionSelectionsByConversation[draftKey] =
+            snapshot.mentionSelections.isEmpty ? nil : snapshot.mentionSelections
+        replyDraftContextByConversation[draftKey] = snapshot.replyContext
+        // Re-persist: the send already deleted the stored draft on the way out.
+        composerDraftDidChange(for: draftKey)
     }
 
     /// Moves a media draft out of the composer and into a pending outgoing message, then returns.
