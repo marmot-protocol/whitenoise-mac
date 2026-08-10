@@ -115,7 +115,7 @@ private struct WelcomeAuthView: View {
                     Task { await workspace.signUp() }
                 } label: {
                     Text(
-                        workspace.isAuthenticating && workspace.authenticationMode == .landing
+                        workspace.authenticationActivity == .signUp
                             ? L10n.string("Creating...")
                             : L10n.string("Create New Identity")
                     )
@@ -154,7 +154,11 @@ private struct WelcomeAuthView: View {
                         }
                         .disabled(workspace.isAuthenticating)
 
-                        Button(workspace.isAuthenticating ? L10n.string("Logging in...") : L10n.string("Log in")) {
+                        Button(
+                            workspace.authenticationActivity == .login
+                                ? L10n.string("Logging in...")
+                                : L10n.string("Log in")
+                        ) {
                             Task { await workspace.login() }
                         }
                         .nativeGlassProminentButtonStyle()
