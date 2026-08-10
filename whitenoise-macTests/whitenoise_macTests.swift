@@ -15883,6 +15883,140 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func textComposerEmptiesBeforeThePublishReturns() async throws {
+        // A plain text send must empty the composer on hand-off, exactly like the media path.
+        // Holding the text for the length of the relay round-trip left it sitting in the input
+        // beside the bubble it had already become — the same content visible twice.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.draftText = "Project notes"
+        runtime.messageActionGateEnabled = true
+        async let send: Void = state.sendDraft()
+        while !(state.isSending && runtime.didReachMessageActionGate) {
+            await Task.yield()
+        }
+
+        // The publish is still gated, but the input is already empty.
+        #expect(state.draftText.isEmpty)
+
+        runtime.releaseMessageActionGate()
+        await send
+
+        #expect(runtime.sentText == SentText(groupIdHex: "group", text: "Project notes"))
+        #expect(state.draftText.isEmpty)
+    }
+
+    @MainActor
+    @Test func replyComposerEmptiesBeforeThePublishReturns() async throws {
+        // Same hand-off for the reply path: the quoted-reply bar goes with the text.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.replyDraftContext = MessageReplyContext(
+            targetMessageId: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready."
+        )
+        state.draftText = "Looks good to me."
+        runtime.messageActionGateEnabled = true
+        async let send: Void = state.sendDraft()
+        while !(state.isSending && runtime.didReachMessageActionGate) {
+            await Task.yield()
+        }
+
+        #expect(state.draftText.isEmpty)
+        #expect(state.replyDraftContext == nil)
+
+        runtime.releaseMessageActionGate()
+        await send
+
+        #expect(
+            runtime.repliedMessage
+                == SentReply(groupIdHex: "group", targetMessageId: "parent", text: "Looks good to me.")
+        )
+        #expect(state.draftText.isEmpty)
+    }
+
+    @MainActor
+    @Test func failedTextSendPutsTheDraftBackInTheComposer() async throws {
+        // Emptying on hand-off must not cost the user their text when the publish fails: the
+        // draft, its mention markers and its reply context all come back for a retry.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let mentionSelections = [
+            ComposerMentionSelection(
+                range: NSRange(location: 0, length: 6),
+                displayText: "@Alice",
+                npub: "npub1alice"
+            )
+        ]
+        state.replyDraftContext = MessageReplyContext(
+            targetMessageId: "parent",
+            senderName: "Alice",
+            body: "The launch plan is ready."
+        )
+        state.draftText = "@Alice ping"
+        state.composerMentionSelections = mentionSelections
+        runtime.replyToMessageError = NSError(
+            domain: "test.reply",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "relay unreachable"]
+        )
+        await state.sendDraft()
+
+        #expect(state.draftText == "@Alice ping")
+        #expect(state.composerMentionSelections == mentionSelections)
+        #expect(state.replyDraftContext?.targetMessageId == "parent")
+        #expect(state.lastError == "relay unreachable")
+        // The restored draft is dirty again, so it will be persisted rather than left only in memory.
+        #expect(state.dirtyComposerDraftKeys.contains(draftKey))
+        #expect(state.canSend)
+    }
+
+    @MainActor
+    @Test func failedTextSendKeepsWhatTheUserTypedWhileItWasInFlight() async throws {
+        // The restore is a courtesy, not an overwrite. If the emptied composer already holds new
+        // text by the time the failure lands, that text wins — `lastError` reports the loss.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.draftText = "first message"
+        runtime.sendTextError = NSError(
+            domain: "test.send",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "relay unreachable"]
+        )
+        runtime.messageActionGateEnabled = true
+        async let send: Void = state.sendDraft()
+        while !(state.isSending && runtime.didReachMessageActionGate) {
+            await Task.yield()
+        }
+
+        // The user starts the next message while the first one is still in flight.
+        state.draftText = "second message"
+        runtime.releaseMessageActionGate()
+        await send
+
+        #expect(state.draftText == "second message")
+        #expect(state.lastError == "relay unreachable")
+    }
+
+    @MainActor
     @Test func sendIsAvailableAgainImmediatelyWhileTheAttachmentIsStillUploading() async throws {
         // The point of the hybrid: staging starts the upload, but a Send pressed before it lands
         // still goes through — the composer empties, the wait moves to a loading bubble, and the
@@ -16473,11 +16607,11 @@ struct whitenoise_macTests {
     @MainActor
     @Test func sendDraftDropsOverlappingDuplicateInvocation() async throws {
         // Issue #78: sendDraft() must guard against reentrancy. `isSending` flips synchronously,
-        // but the model only suspends (and draftText is only cleared) at the `await sendText(...)`.
-        // A second invocation delivered before SwiftUI re-renders the disabled send button
-        // (Return auto-repeat, double events) would otherwise observe the still-unchanged
-        // draftText and re-send the same message. Repro: hold the first send in-flight at the
-        // FFI gate, fire an overlapping second send, then release. Only one text must be sent.
+        // and the composer is emptied synchronously with it, so a second invocation delivered
+        // before SwiftUI re-renders the disabled send button (Return auto-repeat, double events)
+        // is dropped twice over — by `!isSending` and by the now-empty draft. Repro: hold the
+        // first send in-flight at the FFI gate, fire an overlapping second send, then release.
+        // Only one text must be sent.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -29305,9 +29439,11 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     // Issue #78 reentrancy-test support: count message-action FFI calls so a test can prove
     // an overlapping duplicate was dropped by the WorkspaceState guard before reaching the runtime.
     private(set) var sendTextCallCount = 0
+    var sendTextError: Error?
     private(set) var retryGroupConvergenceCallCount = 0
     var retryGroupConvergenceError: Error?
     private(set) var replyToMessageCallCount = 0
+    var replyToMessageError: Error?
     private(set) var reactToMessageCallCount = 0
     private(set) var deleteMessageCallCount = 0
     private(set) var editMessageCallCount = 0
@@ -31060,6 +31196,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         sendTextCallCount += 1
         sentText = SentText(groupIdHex: groupIdHex, text: text)
         await messageActionGate.passIfArmed()
+        if let sendTextError {
+            throw sendTextError
+        }
         return SendSummaryFfi(published: 1, messageIds: ["text"])
     }
 
@@ -31079,6 +31218,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         replyToMessageCallCount += 1
         repliedMessage = SentReply(groupIdHex: groupIdHex, targetMessageId: targetMessageId, text: text)
         await messageActionGate.passIfArmed()
+        if let replyToMessageError {
+            throw replyToMessageError
+        }
         return SendSummaryFfi(published: 1, messageIds: ["reply"])
     }
 
