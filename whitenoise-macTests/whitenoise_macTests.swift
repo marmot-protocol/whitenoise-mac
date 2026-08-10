@@ -585,6 +585,77 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func signUpMarksOnlyTheSignUpPathAsAuthenticating() async throws {
+        // Both authentication buttons used to read a single `isAuthenticating` bool, so creating
+        // an identity also put the "Log in" button into its "Logging in..." loading label. Only
+        // the running path reports progress; the other is disabled via `isAuthenticating`.
+        let created = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.authenticationActivity == nil)
+        #expect(!state.isAuthenticating)
+
+        runtime.createIdentityGateEnabled = true
+        async let pendingSignUp: Void = state.signUp()
+        while !runtime.didReachCreateIdentityGate {
+            await Task.yield()
+        }
+
+        #expect(state.authenticationActivity == .signUp)
+        #expect(state.authenticationActivity != .login)
+        #expect(state.isAuthenticating)
+
+        runtime.releaseCreateIdentityGate()
+        await pendingSignUp
+
+        #expect(state.authenticationActivity == nil)
+        #expect(!state.isAuthenticating)
+    }
+
+    @MainActor
+    @Test func loginMarksOnlyTheLoginPathAsAuthenticating() async throws {
+        let loggedIn = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: loggedIn)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1desktop"
+
+        runtime.loginGateEnabled = true
+        async let pendingLogin: Void = state.login()
+        while !runtime.didReachLoginGate {
+            await Task.yield()
+        }
+
+        #expect(state.authenticationActivity == .login)
+        #expect(state.authenticationActivity != .signUp)
+        #expect(state.isAuthenticating)
+
+        runtime.releaseLoginGate()
+        await pendingLogin
+
+        #expect(state.authenticationActivity == nil)
+        #expect(!state.isAuthenticating)
+    }
+
+    @MainActor
     @Test func bootstrapRunsSynchronousRuntimeReadsOffMainThread() async throws {
         // Regression for #17: WorkspaceState is @MainActor, but blocking sync FFI reads
         // (account listing/profile/name/npub plus settings probes) must not execute on
@@ -29706,6 +29777,24 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachCreateGroupGate: Bool {
         createGroupGate.didReach
     }
+    /// Hold `createIdentity` / `login` in flight so a test can observe which authentication
+    /// path is running while it runs — the state a progress label reads.
+    private let createIdentityGate = AsyncFfiGate()
+    var createIdentityGateEnabled: Bool {
+        get { createIdentityGate.isEnabled }
+        set { createIdentityGate.isEnabled = newValue }
+    }
+    var didReachCreateIdentityGate: Bool {
+        createIdentityGate.didReach
+    }
+    private let loginGate = AsyncFfiGate()
+    var loginGateEnabled: Bool {
+        get { loginGate.isEnabled }
+        set { loginGate.isEnabled = newValue }
+    }
+    var didReachLoginGate: Bool {
+        loginGate.didReach
+    }
     /// Issue #228 last-request-wins support for synchronous notification FFI reads: when armed,
     /// the first `notificationSettings` call blocks on the FFI queue until released, holding an
     /// older account's result while the test switches accounts and loads the newer snapshot.
@@ -30135,14 +30224,24 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func createIdentity(defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
         guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
+        await createIdentityGate.passIfArmed()
         addOrReplaceAccount(createdAccount)
         return createdAccount
     }
 
+    func releaseCreateIdentityGate() {
+        createIdentityGate.release()
+    }
+
     func login(identity: String, defaultRelays: [String], bootstrapRelays: [String]) async throws -> AccountSummaryFfi {
         guard let createdAccount else { throw FakeMarmotRuntimeError.missingCreatedAccount }
+        await loginGate.passIfArmed()
         addOrReplaceAccount(createdAccount)
         return createdAccount
+    }
+
+    func releaseLoginGate() {
+        loginGate.release()
     }
 
     /// Mirrors the real runtime: `login` / `createIdentity` add the account to

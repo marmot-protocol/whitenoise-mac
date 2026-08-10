@@ -921,6 +921,14 @@ final class WorkspaceState {
         case login
     }
 
+    /// Which authentication path is in flight, so only that path's button shows progress
+    /// while the others merely disable. A single `isAuthenticating` bool made "Log in" and
+    /// "Create identity" both read as loading whenever either one ran.
+    enum AuthenticationActivity: Equatable {
+        case login
+        case signUp
+    }
+
     struct ComposerDraftKey: Hashable {
         let accountId: String
         let chatId: String
@@ -1163,7 +1171,11 @@ final class WorkspaceState {
     var inFlightDeleteMessageIds = Set<String>()
     var authenticationMode: AuthenticationMode = .landing
     var loginIdentity = ""
-    var isAuthenticating = false
+    var authenticationActivity: AuthenticationActivity?
+    /// Any authentication in flight, whichever path it is. Controls used by *both* paths
+    /// (the nsec field, Cancel, the account switcher) disable on this; a button that owns
+    /// one path shows its progress label from `authenticationActivity` instead.
+    var isAuthenticating: Bool { authenticationActivity != nil }
     var profileDraft = ProfileDraft()
     var relaySettings = RelaySettingsSnapshot.defaults
     var selectedRelaySection: RelaySettingsSection = .nip65

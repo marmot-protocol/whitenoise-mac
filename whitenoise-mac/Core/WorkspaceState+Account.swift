@@ -314,8 +314,8 @@ extension WorkspaceState {
     func signUp() async {
         guard !isAuthenticating else { return }
         lastError = nil
-        isAuthenticating = true
-        defer { isAuthenticating = false }
+        authenticationActivity = .signUp
+        defer { authenticationActivity = nil }
 
         guard let client = await clientForAuthentication() else { return }
 
@@ -342,11 +342,11 @@ extension WorkspaceState {
         guard !identity.isEmpty else { return }
 
         lastError = nil
-        isAuthenticating = true
+        authenticationActivity = .login
         // Scrub the entered nsec (private key) on every exit path so it never
         // outlives the login call, including failures. See issue #32.
         defer {
-            isAuthenticating = false
+            authenticationActivity = nil
             clearEnteredLoginIdentity()
         }
 
@@ -899,7 +899,7 @@ extension WorkspaceState {
         isSending = false
         authenticationMode = .landing
         loginIdentity = ""
-        isAuthenticating = false
+        authenticationActivity = nil
         profileDraft = ProfileDraft()
         relaySettings = .defaults
         selectedRelaySection = .nip65

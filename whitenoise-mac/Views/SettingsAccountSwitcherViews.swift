@@ -397,7 +397,7 @@ struct AddAccountSheet: View {
                     Task { await addAccount { await workspace.login() } }
                 } label: {
                     Label(
-                        workspace.isAuthenticating
+                        workspace.authenticationActivity == .login
                             ? L10n.string("Logging in...", locale: locale)
                             : L10n.string("Log in with key", locale: locale),
                         systemImage: "key"
@@ -411,7 +411,7 @@ struct AddAccountSheet: View {
                     Task { await addAccount { await workspace.signUp() } }
                 } label: {
                     Label(
-                        workspace.isAuthenticating
+                        workspace.authenticationActivity == .signUp
                             ? L10n.string("Creating...", locale: locale)
                             : L10n.string("Create identity", locale: locale),
                         systemImage: "plus.circle"
