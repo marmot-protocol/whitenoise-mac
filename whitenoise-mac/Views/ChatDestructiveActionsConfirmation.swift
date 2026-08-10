@@ -2,9 +2,10 @@
 //  ChatDestructiveActionsConfirmation.swift
 //  whitenoise-mac
 //
-//  The single confirmation and reporting surface for the two destructive chat actions. Both the
-//  sidebar row context menu and the group-details inspector drive it through workspace state, so
-//  each action has exactly one dialog and one wording in the whole app.
+//  The single confirmation and reporting surface for the two destructive chat actions, plus the
+//  admin handoff a sole admin's leave routes through. Both the sidebar row context menu and the
+//  group-details inspector drive it through workspace state, so each action has exactly one dialog
+//  and one wording in the whole app.
 //
 //  It has to live on state rather than in a view for the same reason `messageDeletionConfirmation`
 //  does: a SwiftUI `contextMenu` closure is torn down when an item is chosen, so a dialog declared
@@ -39,6 +40,12 @@ private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
                 Button(L10n.string("Cancel"), role: .cancel) {}
             } message: { target in
                 Text(leaveMessage(target))
+            }
+            // A sheet rather than a confirmation dialog because this step asks for a choice from a
+            // roster, not a yes/no. It is attached here for the same reason the dialogs above are:
+            // the leave can start from a sidebar row whose menu is already torn down.
+            .sheet(item: $workspace.chatPendingAdminHandoff) { target in
+                ChatAdminHandoffSheet(target: target)
             }
             .confirmationDialog(
                 localDeleteTitle(workspace.chatPendingLocalDelete),

@@ -462,10 +462,10 @@ struct GroupDetailsSheet: View {
                             }
 
                             // Leave / Delete come from the same policy the sidebar row menu uses, so
-                            // the two surfaces cannot disagree on which is legal. Unlike a row, the
-                            // inspector holds full eligibility, so it can offer the local delete up
-                            // front when leaving is structurally impossible — the sole admin of a
-                            // chat can never leave it, and would otherwise be offered neither.
+                            // the two surfaces cannot disagree on which is legal. Membership is the
+                            // whole rule: a member is offered the leave even when eligibility will
+                            // block it, and `prepareSelectedChatLeave` either explains the block or —
+                            // for a sole admin — opens the successor picker that resolves it.
                             switch snapshot.destructiveAction {
                             case .leave:
                                 Button(role: .destructive) {
@@ -479,7 +479,8 @@ struct GroupDetailsSheet: View {
                                 }
                                 .disabled(
                                     workspace.leavingChatId != nil
-                                        || workspace.preparingChatLeaveId != nil)
+                                        || workspace.preparingChatLeaveId != nil
+                                        || workspace.handingOffAdminChatId != nil)
 
                             case .deleteLocally:
                                 Button(role: .destructive) {
@@ -505,10 +506,12 @@ struct GroupDetailsSheet: View {
                             Spacer()
                         }
 
-                        // Sourced from the shared blocker so the footer and the row menu's alert
-                        // cannot drift apart.
-                        if let blocker = snapshot.leaveBlocker {
-                            Text(blocker.message)
+                        // Sourced from the shared policy so the footer and the row menu's alert
+                        // cannot drift apart. `leaveGuidance` rather than `leaveBlocker` because the
+                        // sole admin of a group with someone to promote is not blocked — they are one
+                        // extra step from leaving, and the footer says which step.
+                        if let guidance = snapshot.leaveGuidance {
+                            Text(guidance.message)
                                 .wnFont(.medium12)
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                         }

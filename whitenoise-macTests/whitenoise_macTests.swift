@@ -21737,7 +21737,10 @@ struct whitenoise_macTests {
         isLastAdmin: Bool = false,
         leaveRequestPending: Bool = false,
         selfIsAdmin: Bool = false,
-        openingInspector: Bool = false
+        openingInspector: Bool = false,
+        // Empty by default, which is also the "nobody can be promoted" case the sole-admin dead end
+        // needs. Pass actions when the test is about who may take the admin role over.
+        memberActions: [GroupMemberActionStateFfi] = []
     ) async throws -> WorkspaceState {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -21751,7 +21754,7 @@ struct whitenoise_macTests {
                 canLeave: canLeave,
                 requiresSelfDemoteBeforeLeave: requiresSelfDemoteBeforeLeave,
                 leaveRequestPending: leaveRequestPending,
-                memberActions: []
+                memberActions: memberActions
             )
         )
         if openingInspector {
@@ -22361,14 +22364,170 @@ struct whitenoise_macTests {
 
         #expect(state.chatPendingLeave == nil)
         #expect(state.chatPendingLocalDelete == nil)
+        // No `memberActions`, so the core has named nobody this account may promote: the successor
+        // picker would be an empty list, and the honest answer is the blocker.
+        #expect(state.chatPendingAdminHandoff == nil)
         #expect(runtime.leaveGroupCallCount == 0)
         #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.promoteAdminDetailedCallCount == 0)
         #expect(runtime.locallyDeletedGroupIds.isEmpty)
         let alert = try #require(state.chatActionAlert)
         #expect(alert.message == ChatDestructiveActions.LeaveBlocker.lastAdmin.message)
         // The chat is still listed and still a member's chat — nothing was silently dropped.
         #expect(state.activeChats.contains { $0.id == chat.id })
         #expect(ChatDestructiveActions.action(for: chat) == .leave)
+    }
+
+    /// The sole admin of a group with someone who *can* take over gets the successor picker rather
+    /// than the dead end — and gets it before anything is committed, so cancelling costs nothing.
+    @MainActor
+    @Test func soleAdminLeaveOffersASuccessorPickerRatherThanADeadEnd() async throws {
+        let state = try await soleAdminWithSuccessorState()
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+
+        let handoff = try #require(state.chatPendingAdminHandoff)
+        #expect(handoff.groupIdHex == chat.id)
+        #expect(handoff.title == chat.title)
+        // Alice only: Bob carries no action state, so the core has not said he may be promoted.
+        #expect(handoff.candidates.map(\.npub) == ["npub1alyce"])
+        // A question, not a commit: nothing about the group has changed, and no blocker was reported.
+        #expect(state.chatActionAlert == nil)
+        #expect(state.chatPendingLeave == nil)
+        #expect(runtime.promoteAdminDetailedCallCount == 0)
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(state.activeChats.contains { $0.id == chat.id })
+    }
+
+    /// The point of the whole flow: one confirmation promotes the successor, steps this account down,
+    /// and removes it — in that order, because MIP-03 rejects any other.
+    @MainActor
+    @Test func confirmedHandoffPromotesTheSuccessorThenLeaves() async throws {
+        let state = try await soleAdminWithSuccessorState()
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+        let handoff = try #require(state.chatPendingAdminHandoff)
+        let successor = try #require(handoff.candidates.first)
+
+        await state.confirmChatAdminHandoff(handoff, successor: successor)
+
+        #expect(runtime.promotedAdminRef == "npub1alyce")
+        #expect(runtime.groupMutationOrder == ["promote", "selfDemote", "leave"])
+        #expect(runtime.leftGroupIdHex == chat.id)
+        #expect(state.chatActionAlert == nil)
+        // Every marker released, so neither the picker nor the leave can be re-offered as in flight.
+        #expect(state.chatPendingAdminHandoff == nil)
+        #expect(state.handingOffAdminChatId == nil)
+        #expect(state.leavingChatId == nil)
+        #expect(!state.hasInFlightGroupCommit)
+    }
+
+    /// A promotion that fails must leave the account exactly where it was — still admin, still a
+    /// member — and say so as its own failure. Reporting it as a failed *leave* would be a lie, and
+    /// carrying on to the removal would be the self-removal MIP-03 forbids.
+    @MainActor
+    @Test func failedHandoffNeverAttemptsTheLeaveItWouldHaveUnblocked() async throws {
+        let state = try await soleAdminWithSuccessorState()
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+        runtime.promoteAdminError = FakeMarmotRuntimeError.unused
+
+        await state.prepareChatLeave(for: chat)
+        let handoff = try #require(state.chatPendingAdminHandoff)
+
+        await state.confirmChatAdminHandoff(handoff, successor: try #require(handoff.candidates.first))
+
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(runtime.groupMutationOrder.isEmpty)
+        #expect(state.chatActionAlert == ChatActionAlert.adminHandoffFailed())
+        #expect(state.chatPendingAdminHandoff == nil)
+        #expect(state.handingOffAdminChatId == nil)
+        #expect(state.activeChats.contains { $0.id == chat.id })
+    }
+
+    /// The re-entrancy guard. `confirmChatAdminHandoff` finishes through `confirmChatLeave`, which
+    /// re-reads eligibility; a core that still calls this account the last admin after the promotion
+    /// committed must produce a report, not the picker the user just used — which would reopen
+    /// forever.
+    @MainActor
+    @Test func handoffWhoseLeaveStillReportsSoleAdminDoesNotReopenThePicker() async throws {
+        let state = try await soleAdminWithSuccessorState()
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+        runtime.keepsManagementStateAfterPromote = true
+
+        await state.prepareChatLeave(for: chat)
+        let handoff = try #require(state.chatPendingAdminHandoff)
+
+        await state.confirmChatAdminHandoff(handoff, successor: try #require(handoff.candidates.first))
+
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(state.chatPendingAdminHandoff == nil)
+        #expect(state.chatActionAlert?.message == ChatDestructiveActions.LeaveBlocker.lastAdmin.message)
+        #expect(state.handingOffAdminChatId == nil)
+    }
+
+    /// A handoff claims `leavingChatId` only once its promotion commits, so between the confirmation
+    /// and that commit the leave is in progress with none of the usual markers set. A second attempt
+    /// in that window must be ignored: it would otherwise resolve eligibility, still find the
+    /// sole-admin block, and report a blocker for a leave that is about to succeed.
+    @MainActor
+    @Test func leaveIsNotRePreparedWhileTheHandoffPromotionIsStillInFlight() async throws {
+        let state = try await soleAdminWithSuccessorState()
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+        let handoff = try #require(state.chatPendingAdminHandoff)
+        let successor = try #require(handoff.candidates.first)
+
+        runtime.groupMutationGateEnabled = true
+        async let handoffRun: Void = state.confirmChatAdminHandoff(handoff, successor: successor)
+        while !(state.handingOffAdminChatId == chat.id && runtime.didReachGroupMutationGate) {
+            await Task.yield()
+        }
+
+        await state.prepareChatLeave(for: chat)
+        #expect(state.chatActionAlert == nil)
+        #expect(state.chatPendingLeave == nil)
+        #expect(state.chatPendingAdminHandoff == nil)
+
+        runtime.releaseGroupMutationGate()
+        await handoffRun
+
+        // The one handoff still completes, and exactly once.
+        #expect(runtime.promoteAdminDetailedCallCount == 1)
+        #expect(runtime.groupMutationOrder == ["promote", "selfDemote", "leave"])
+        #expect(state.chatActionAlert == nil)
+    }
+
+    /// The sole admin of a fixture group in which Alice — and only Alice — may be promoted.
+    @MainActor
+    private func soleAdminWithSuccessorState() async throws -> WorkspaceState {
+        try await leavableChatState(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true,
+            selfIsAdmin: true,
+            memberActions: [
+                GroupMemberActionStateFfi(
+                    memberIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    isSelf: false,
+                    isAdmin: false,
+                    canRemove: true,
+                    canPromote: true,
+                    canDemote: false
+                )
+            ]
+        )
     }
 
     @MainActor
@@ -29553,6 +29712,11 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     /// Ordered log of the group mutations a leave can issue, so tests can assert that a
     /// self-demote precedes the leave it unblocks rather than merely accompanying it.
     private(set) var groupMutationOrder: [String] = []
+    var promoteAdminError: Error?
+    /// Suppresses the management-state recomputation a promotion normally triggers, so a test can
+    /// pose as a core that still reports this account as the blocked sole admin after the promote
+    /// committed.
+    var keepsManagementStateAfterPromote = false
     private(set) var acceptedInviteGroupIds: [String] = []
     private(set) var acceptGroupInviteCallCount = 0
     private(set) var declinedInviteGroupIds: [String] = []
@@ -30749,9 +30913,19 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     {
         promoteAdminDetailedCallCount += 1
         await groupMutationGate.passIfArmed()
+        if let promoteAdminError { throw promoteAdminError }
+        groupMutationOrder.append("promote")
         promotedAdminRef = memberRef
+        let managementStateBeforePromote = groupManagementStateById[groupIdHex]
         updateMember(groupIdHex: groupIdHex, matching: memberRef) { member in
             member.isAdmin = true
+        }
+        // `updateMember` recomputes the management state from the new admin set, so a second admin
+        // clears both `isLastAdmin` and the leave block — which is exactly what the
+        // hand-admin-over-then-leave flow depends on. This knob poses as a core that reports no
+        // change at all, so the leave that follows still sees the sole-admin block.
+        if keepsManagementStateAfterPromote, let managementStateBeforePromote {
+            groupManagementStateById[groupIdHex] = managementStateBeforePromote
         }
         return try groupMutationResult(groupIdHex: groupIdHex, messageId: "group-promote")
     }

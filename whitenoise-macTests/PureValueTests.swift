@@ -3860,15 +3860,105 @@ struct PureValueTests {
             ChatDestructiveActions.leaveBlocker(membership: .member, eligibility: lastAdmin)
                 == .lastAdmin
         )
-        // Leaving can never succeed here, and the answer is still Leave — reported as blocked, with
-        // the remedy named. It is deliberately *not* swapped for a local delete: the group has to
-        // learn that this account stopped reading, and only a leave tells them.
+        // The answer is still Leave, and it is deliberately *not* swapped for a local delete: the
+        // group has to learn that this account stopped reading, and only a leave tells them. What
+        // happens next depends on whether anyone can take the admin role over — see
+        // `soleAdminWithASuccessorIsGuidedToTheHandoffRatherThanBlocked`.
         #expect(
             ChatDestructiveActions.action(membership: .member, leaveRequestPending: false) == .leave
         )
         #expect(
             ChatActionAlert.leaveBlocked(.lastAdmin).message
-                == L10n.string("You're the only admin. Make another member an admin before you leave.")
+                == L10n.string(
+                    "You're the only admin, and there's no one here who can take over. Invite someone before you leave."
+                )
+        )
+    }
+
+    /// The reason this flow exists: a sole admin with a member who can take over is not blocked,
+    /// they are one step from leaving. Only the genuine dead end — nobody to promote — may be
+    /// reported as a blocker.
+    @Test func soleAdminWithASuccessorIsGuidedToTheHandoffRatherThanBlocked() {
+        let lastAdmin = leaveEligibility(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true
+        )
+
+        #expect(
+            ChatDestructiveActions.leaveGuidance(
+                membership: .member,
+                eligibility: lastAdmin,
+                hasAdminHandoffCandidate: true
+            ) == .adminHandoffRequired
+        )
+        #expect(
+            ChatDestructiveActions.leaveGuidance(
+                membership: .member,
+                eligibility: lastAdmin,
+                hasAdminHandoffCandidate: false
+            ) == .blocked(.lastAdmin)
+        )
+        // One promises the leave will happen, the other says it cannot — sharing wording would make
+        // the footer a lie in whichever case it was not written for.
+        #expect(
+            ChatDestructiveActions.LeaveGuidance.adminHandoffRequired.message
+                != ChatDestructiveActions.LeaveBlocker.lastAdmin.message
+        )
+    }
+
+    /// `.lastAdmin` is the only blocker a promotion resolves. A pending leave and a disabled group
+    /// are unaffected by who else could be made admin, and must never open the picker.
+    @Test func onlyTheSoleAdminBlockIsResolvedByHandingAdminOver() {
+        let pending = leaveEligibility(canLeave: false, leaveRequestPending: true, isLastAdmin: true)
+        let unavailable = leaveEligibility(canLeave: false, isLastAdmin: false)
+
+        for eligibility in [pending, unavailable] {
+            let blocker = ChatDestructiveActions.leaveBlocker(
+                membership: .member,
+                eligibility: eligibility
+            )
+            #expect(!ChatDestructiveActions.offersAdminHandoff(blocker, hasAdminHandoffCandidate: true))
+            #expect(
+                ChatDestructiveActions.leaveGuidance(
+                    membership: .member,
+                    eligibility: eligibility,
+                    hasAdminHandoffCandidate: true
+                ) == blocker.map(ChatDestructiveActions.LeaveGuidance.blocked)
+            )
+        }
+
+        // And a leave with nothing wrong with it needs no footer at all, candidates or not.
+        for hasCandidate in [false, true] {
+            #expect(
+                ChatDestructiveActions.leaveGuidance(
+                    membership: .member,
+                    eligibility: leaveEligibility(canLeave: true),
+                    hasAdminHandoffCandidate: hasCandidate
+                ) == nil
+            )
+        }
+    }
+
+    /// `canPromote` is the core's verdict on whether the promotion would commit, so it decides who
+    /// is offered. Self, existing admins, and anyone the core won't let this account promote are all
+    /// useless as successors — offering them would produce a picker whose choice fails.
+    @MainActor
+    @Test func adminHandoffCandidatesAreOnlyMembersThePromotionWouldActuallyWorkFor() {
+        let members = [
+            handoffMember(id: "self", isSelf: true, isAdmin: true, canPromote: true),
+            handoffMember(id: "already-admin", isAdmin: true, canPromote: true),
+            handoffMember(id: "not-promotable", canPromote: false),
+            handoffMember(id: "successor", canPromote: true),
+        ]
+
+        #expect(ChatDestructiveActions.adminHandoffCandidates(from: members).map(\.id) == ["successor"])
+        #expect(ChatDestructiveActions.adminHandoffCandidates(from: []).isEmpty)
+        // An admin alone in the group is the dead end the `.lastAdmin` blocker still reports.
+        #expect(
+            ChatDestructiveActions.adminHandoffCandidates(
+                from: [handoffMember(id: "self", isSelf: true, isAdmin: true, canPromote: true)]
+            ).isEmpty
         )
     }
 
@@ -4369,6 +4459,28 @@ private func leaveEligibility(
         requiresSelfDemoteBeforeLeave: requiresSelfDemoteBeforeLeave,
         leaveRequestPending: leaveRequestPending,
         isLastAdmin: isLastAdmin
+    )
+}
+
+@MainActor
+private func handoffMember(
+    id: String,
+    isSelf: Bool = false,
+    isAdmin: Bool = false,
+    canPromote: Bool = false
+) -> GroupMemberItem {
+    GroupMemberItem(
+        id: id,
+        displayName: id,
+        publishedDisplayName: nil,
+        npub: "npub1\(id)",
+        accountLabel: nil,
+        isLocal: isSelf,
+        isAdmin: isAdmin,
+        isSelf: isSelf,
+        canRemove: false,
+        canPromote: canPromote,
+        canDemote: isAdmin
     )
 }
 

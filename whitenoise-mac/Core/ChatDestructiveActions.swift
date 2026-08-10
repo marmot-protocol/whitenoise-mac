@@ -74,6 +74,22 @@ extension GroupDetailsSnapshot {
     var leaveBlocker: ChatDestructiveActions.LeaveBlocker? {
         ChatDestructiveActions.leaveBlocker(membership: selfMembership, eligibility: leaveEligibility)
     }
+
+    /// The members this account may hand the admin role to on its way out.
+    var adminHandoffCandidates: [GroupMemberItem] {
+        ChatDestructiveActions.adminHandoffCandidates(from: members)
+    }
+
+    /// What the inspector says beneath the leave button. Prefers the handoff hint over the raw
+    /// `.lastAdmin` blocker, so a sole admin with someone to promote is told leaving *will* work
+    /// rather than that it won't.
+    var leaveGuidance: ChatDestructiveActions.LeaveGuidance? {
+        ChatDestructiveActions.leaveGuidance(
+            membership: selfMembership,
+            eligibility: leaveEligibility,
+            hasAdminHandoffCandidate: !adminHandoffCandidates.isEmpty
+        )
+    }
 }
 
 /// Chat awaiting a leave confirmation. `requiresSelfDemote` is captured at preparation time so the
@@ -83,6 +99,22 @@ nonisolated struct ChatLeaveTarget: Equatable, Identifiable {
     let groupIdHex: String
     let title: String
     let requiresSelfDemote: Bool
+
+    var id: String { groupIdHex }
+}
+
+/// Chat awaiting the user's choice of a successor admin, because the account leaving it is the
+/// group's only admin.
+///
+/// The candidate roster is resolved once, when the picker opens, and carried here rather than
+/// re-derived by the sheet: the sheet is presented from `ContentView` and may outlive the selection
+/// of the chat it belongs to, so it cannot read `groupDetailsSnapshot`.
+struct ChatAdminHandoffTarget: Equatable, Identifiable {
+    let groupIdHex: String
+    let title: String
+    /// Never empty — a target with no candidate is the genuine dead end, reported as the
+    /// `.lastAdmin` blocker instead of opening a picker with nothing in it.
+    let candidates: [GroupMemberItem]
 
     var id: String { groupIdHex }
 }
@@ -116,12 +148,24 @@ nonisolated struct ChatActionAlert: Equatable, Identifiable {
         )
     }
 
+    /// The admin handoff a leave depends on failed, so the leave was never attempted. Reported
+    /// separately from `leaveFailed()` because the two leave the group in different states: this one
+    /// left the account exactly where it was, still the sole admin.
+    static func adminHandoffFailed() -> ChatActionAlert {
+        ChatActionAlert(
+            title: L10n.string("Couldn't hand over admin"),
+            message: L10n.string("Try again.")
+        )
+    }
+
     /// Reports why a leave is unavailable, and nothing more.
     ///
     /// Deliberately offers no local-delete alternative: dropping the local copy while still a
     /// member would leave the rest of the group sending messages to someone who can never read
-    /// them, with nothing on the wire to say so. The remedy the message names — promote another
-    /// member to admin, then leave — keeps the group informed.
+    /// them, with nothing on the wire to say so.
+    ///
+    /// Only reached for blockers the app cannot resolve on the user's behalf. A sole admin with a
+    /// promotable member never lands here — that case opens the successor picker instead.
     static func leaveBlocked(_ blocker: ChatDestructiveActions.LeaveBlocker) -> ChatActionAlert {
         ChatActionAlert(
             title: L10n.string("Couldn't leave chat"),
@@ -186,8 +230,13 @@ nonisolated enum ChatDestructiveActions {
         /// `MarmotKitError.LeaveAlreadyRequested`.
         case pending
         /// The account is the group's only admin. MIP-03 §149/§150 forbids an admin self-removal
-        /// that would deplete the admin set, so no sequence of actions lets this account leave —
-        /// another member must be promoted to admin first.
+        /// that would deplete the admin set, so leaving requires promoting another member first.
+        ///
+        /// As a *blocker* this is the dead end only: the app resolves the ordinary case itself by
+        /// offering the successor picker (`LeaveGuidance.adminHandoffRequired`), so this reaches the
+        /// user only when there is nobody to promote — an admin alone in the group, or one whose
+        /// only companions the core refuses to let it promote. Hence the wording, which asks for a
+        /// member rather than for a promotion.
         case lastAdmin
         /// Ordinary group actions are disabled (the group is disbanding, or its lifecycle is
         /// terminal). Reachable from remote admin action even though this app never initiates a
@@ -201,12 +250,35 @@ nonisolated enum ChatDestructiveActions {
                     "Your leave request is pending. This conversation will update when the group commits it."
                 )
             case .lastAdmin:
-                return L10n.string("You're the only admin. Make another member an admin before you leave.")
+                return L10n.string(
+                    "You're the only admin, and there's no one here who can take over. Invite someone before you leave."
+                )
             case .unavailable:
                 return L10n.string("Leaving isn't available for this chat right now.")
             }
         }
 
+    }
+
+    /// What a surface says about leaving beyond offering the button — the inspector's footer today.
+    ///
+    /// Distinguishing the two `.lastAdmin` outcomes is the whole point: a sole admin with a
+    /// promotable member is not blocked, they are one extra step away, and telling them "you can't
+    /// leave" would be wrong.
+    enum LeaveGuidance: Equatable {
+        /// Leaving cannot proceed, for a reason no action in this app resolves.
+        case blocked(LeaveBlocker)
+        /// Leaving works, but routes through the successor picker first.
+        case adminHandoffRequired
+
+        var message: String {
+            switch self {
+            case .blocked(let blocker):
+                return blocker.message
+            case .adminHandoffRequired:
+                return L10n.string("You're the only admin. You'll pick who takes over before you leave.")
+            }
+        }
     }
 
     /// Which destructive action a surface may offer, from membership alone.
@@ -270,5 +342,46 @@ nonisolated enum ChatDestructiveActions {
         if eligibility.leaveRequestPending { return .pending }
         if canLeave(eligibility) { return nil }
         return eligibility.isLastAdmin ? .lastAdmin : .unavailable
+    }
+
+    /// Whether the `.lastAdmin` block is the resolvable kind — the one the successor picker exists
+    /// for. `false` for every other blocker, including a `.lastAdmin` with nobody to promote.
+    static func offersAdminHandoff(
+        _ blocker: LeaveBlocker?,
+        hasAdminHandoffCandidate: Bool
+    ) -> Bool {
+        blocker == .lastAdmin && hasAdminHandoffCandidate
+    }
+
+    /// The blocker a surface should explain, refined by whether the app can resolve it in-flow.
+    /// `nil` when leaving is plain and needs no explanation.
+    static func leaveGuidance(
+        membership: ChatSelfMembership,
+        eligibility: ChatLeaveEligibility,
+        hasAdminHandoffCandidate: Bool
+    ) -> LeaveGuidance? {
+        guard let blocker = leaveBlocker(membership: membership, eligibility: eligibility) else {
+            return nil
+        }
+        if offersAdminHandoff(blocker, hasAdminHandoffCandidate: hasAdminHandoffCandidate) {
+            return .adminHandoffRequired
+        }
+        return .blocked(blocker)
+    }
+}
+
+extension ChatDestructiveActions {
+    /// The members a departing last admin may hand the admin role to.
+    ///
+    /// `canPromote` is the core's own verdict on whether the promotion would commit, so it — not the
+    /// app's reading of the roster — decides who is offered. A member who is already an admin is
+    /// excluded because promoting them changes nothing, and self for the obvious reason. An empty
+    /// result means the `.lastAdmin` block is a genuine dead end.
+    ///
+    /// `@MainActor` rather than `nonisolated` like the rest of this policy: the target builds with
+    /// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, which isolates `GroupMemberItem`'s members.
+    @MainActor
+    static func adminHandoffCandidates(from members: [GroupMemberItem]) -> [GroupMemberItem] {
+        members.filter { !$0.isSelf && !$0.isAdmin && $0.canPromote }
     }
 }
