@@ -41,7 +41,7 @@ private struct MessageEditHistoryView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(L10n.string("Edit history"))
-                    .font(.headline)
+                    .wnFont(.semiBold14)
                 Spacer()
                 GlassCircleCloseButton { dismiss() }
             }
@@ -55,7 +55,7 @@ private struct MessageEditHistoryView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if versions.isEmpty {
                         Text(L10n.string("No earlier versions."))
-                            .font(.callout)
+                            .wnFont(.medium12)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .padding(.top, 8)
                     }
@@ -78,16 +78,16 @@ private struct MessageEditHistoryView: View {
                         ? L10n.string("Original")
                         : (isLatest ? L10n.string("Current") : L10n.string("Edited"))
                 )
-                .font(.caption.weight(.semibold))
+                .wnFont(.semiBold10)
                 .foregroundStyle(
                     isLatest ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary)
                 Spacer()
                 Text(DisplayText.messageTimestamp(for: version.date))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             Text(version.text)
-                .font(.body)
+                .wnFont(.medium14)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)

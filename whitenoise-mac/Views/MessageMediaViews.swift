@@ -92,7 +92,7 @@ struct ConversationMessageRow: View {
             let isSelected = workspace.selectedTimelineMessageIds.contains(message.id)
             HStack(alignment: .center, spacing: 8) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20, weight: .medium))
+                    .wnFont(.medium20)
                     .foregroundStyle(
                         isSelected ? WNColor.backgroundContentPrimary : WNColor.backgroundContentTertiary
                     )
@@ -150,16 +150,16 @@ struct TimelineNoticeRow: View {
             VStack(spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: message.presentation.systemImage)
-                        .font(.system(size: 12, weight: .semibold))
+                        .wnFont(.semiBold12)
                         .symbolRenderingMode(.hierarchical)
 
                     Text(message.body)
-                        .font(.caption.weight(.medium))
+                        .wnFont(.medium10)
                         .lineLimit(3)
                         .multilineTextAlignment(.center)
 
                     Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-                        .font(.caption2.monospacedDigit())
+                        .wnFont(.medium10.monospacedDigit())
                         .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
 
@@ -221,7 +221,7 @@ struct MessageBubble: View {
                         Task { await workspace.showContactDetails(for: message) }
                     } label: {
                         Text(message.senderName)
-                            .font(.caption.weight(.medium))
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .padding(.horizontal, 4)
                     }
@@ -231,7 +231,7 @@ struct MessageBubble: View {
                     )
                 } else {
                     Text(message.senderName)
-                        .font(.caption.weight(.medium))
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .padding(.horizontal, 4)
                 }
@@ -414,7 +414,7 @@ struct MessageBubble: View {
     private func stickerContent(_ emoji: String) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
             Text(verbatim: emoji)
-                .font(.system(size: 56))
+                .wnFont(.medium60)
                 .lineLimit(1)
                 .padding(.horizontal, 4)
 
@@ -449,7 +449,7 @@ struct MessageBubble: View {
                     message: message,
                     trailingMetadata: showsInlineMetadata ? inlineMetadataSpacer : nil
                 )
-                .font(.system(size: 15.5))
+                .wnFont(.medium16)
                 .foregroundStyle(MessagesPalette.bubbleContent(isOutgoing: message.isOutgoing))
                 // Links take `intentionInfoContent` — the palette's one blue outside the accent
                 // sets, and the same token the other clients use for a link inside a bubble. Its
@@ -507,18 +507,18 @@ struct MessageBubble: View {
         if message.isEdited {
             result =
                 result
-                + Text(L10n.string("Edited")).font(.system(size: 10.5, weight: .medium))
+                + Text(L10n.string("Edited")).wnFont(.medium10)
                 + Text(verbatim: " ")
         }
         result =
             result
             + Text(message.timeLabel(at: timestampReferenceDate, locale: timestampLocale))
-            .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+            .wnFont(.medium10.monospacedDigit())
         if let systemImage = Self.deliveryMarkerSystemImage(for: deliveryIndicator) {
             result =
                 result + Text(verbatim: " ")
                 + Text(Image(systemName: systemImage))
-                .font(.system(size: 10.5, weight: .medium))
+                .wnFont(.medium10)
         }
         return result.foregroundColor(.clear)
     }
@@ -567,7 +567,7 @@ struct MessageBubble: View {
                             ? WNColor.backgroundContentDestructiveSecondary : metadataColor)
             }
         }
-        .font(.system(size: 10.5, weight: .medium))
+        .wnFont(.medium10)
         .foregroundStyle(metadataColor)
         .accessibilityLabel(
             message.metadataLabel(
@@ -887,7 +887,7 @@ struct MessageVisualMediaTile: View {
                 // dark in both.
                 WNColor.overlayTertiary
                 Text(verbatim: "+\(hiddenCount)")
-                    .font(.title2.weight(.bold))
+                    .wnFont(.bold18)
                     .foregroundStyle(WNColor.fillContentQuaternary)
             }
         }
@@ -964,7 +964,7 @@ struct MessageVisualMediaTile: View {
                     .controlSize(.small)
             } else {
                 Image(systemName: systemImage)
-                    .font(.system(size: 22, weight: .semibold))
+                    .wnFont(.semiBold24)
                     .foregroundStyle(WNColor.backgroundContentTertiary)
             }
         }
@@ -1130,16 +1130,16 @@ struct MessageAttachmentStatusRow: View {
                         .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
                 } else {
                     Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .semibold))
+                        .wnFont(.semiBold14)
                 }
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .wnFont(.semiBold10)
                     .lineLimit(1)
                 Text(detail)
-                    .font(.caption2)
+                    .wnFont(.medium10)
                     .foregroundStyle(AttachmentRowPalette.detailContent)
                     .lineLimit(1)
             }
@@ -1148,7 +1148,7 @@ struct MessageAttachmentStatusRow: View {
             if let retryAction {
                 Button(action: retryAction) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .semibold))
+                        .wnFont(.semiBold14)
                 }
                 .buttonStyle(.plain)
                 .help(L10n.string("Retry"))
@@ -1196,7 +1196,7 @@ struct MessageAudioAttachmentPlayer: View {
                 Task { await togglePlayback() }
             } label: {
                 Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
-                    .font(.system(size: 13, weight: .bold))
+                    .wnFont(.bold14)
                     .frame(width: 30, height: 30)
                     .background {
                         Circle()
@@ -1208,7 +1208,7 @@ struct MessageAudioAttachmentPlayer: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(download.fileName.nilIfBlank ?? fallbackFileName)
-                    .font(.caption.weight(.semibold))
+                    .wnFont(.semiBold10)
                     .lineLimit(1)
 
                 HStack(spacing: 8) {
@@ -1221,7 +1221,7 @@ struct MessageAudioAttachmentPlayer: View {
                     .frame(height: 24)
 
                     Text(durationLabel)
-                        .font(.caption2.monospacedDigit())
+                        .wnFont(.medium10.monospacedDigit())
                         .foregroundStyle(AttachmentRowPalette.detailContent)
                         .lineLimit(1)
                 }
@@ -1430,7 +1430,7 @@ struct MessageVideoAttachmentPlayer: View {
         ZStack {
             WNColor.overlayTertiary
             Image(systemName: didFail ? "arrow.clockwise" : "play.fill")
-                .font(.system(size: 24, weight: .bold))
+                .wnFont(.bold24)
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .frame(width: 48, height: 48)
                 .background(WNColor.overlayTertiary, in: Circle())
@@ -1438,7 +1438,7 @@ struct MessageVideoAttachmentPlayer: View {
             VStack {
                 Spacer()
                 Text(download.fileName.nilIfBlank ?? attachment.fileName)
-                    .font(.caption2.weight(.semibold))
+                    .wnFont(.semiBold10)
                     .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.86))
                     .lineLimit(1)
                     .padding(.horizontal, 8)
@@ -1642,7 +1642,7 @@ struct MessageImageGalleryOverlay: View {
                 VStack {
                     HStack(spacing: 12) {
                         Text(selectedAttachment.fileName)
-                            .font(.callout.weight(.semibold))
+                            .wnFont(.semiBold12)
                             .foregroundStyle(WNColor.fillContentQuaternary)
                             .lineLimit(1)
 
@@ -1650,13 +1650,13 @@ struct MessageImageGalleryOverlay: View {
 
                         if canNavigate {
                             Text(verbatim: "\(selectedIndex + 1) / \(presentation.imageAttachments.count)")
-                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .wnFont(.semiBold10.monospacedDigit())
                                 .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
                         }
 
                         Button(action: onClose) {
                             Image(systemName: "xmark")
-                                .font(.system(size: 15, weight: .bold))
+                                .wnFont(.bold16)
                                 .frame(width: 34, height: 34)
                                 .background(
                                     WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
@@ -1718,7 +1718,7 @@ struct MessageImageGalleryOverlay: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 26, weight: .bold))
+                .wnFont(.bold28)
                 .frame(width: 54, height: 54)
                 .background(
                     WNColor.fillContentQuaternary.opacity(isEnabled ? 0.16 : 0.06), in: Circle())
@@ -1747,9 +1747,9 @@ struct MessageImageGalleryContent: View {
             case .failed:
                 VStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
-                        .font(.title2)
+                        .wnFont(.medium18)
                     Text(L10n.string("Image unavailable"))
-                        .font(.callout.weight(.semibold))
+                        .wnFont(.semiBold12)
                     Button {
                         Task { await workspace.loadMediaAttachment(attachment, for: message) }
                     } label: {
@@ -1791,7 +1791,7 @@ struct DownsampledMessageGalleryImage: View {
                     .accessibilityLabel(attachment.fileName)
             } placeholder: {
                 Text(L10n.string("Image unavailable"))
-                    .font(.callout.weight(.semibold))
+                    .wnFont(.semiBold12)
                     .foregroundStyle(WNColor.fillContentQuaternary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -1891,7 +1891,7 @@ struct MessageInlineActionIcon: View {
 
     var body: some View {
         Image(systemName: systemName)
-            .font(.system(size: 18, weight: .medium))
+            .wnFont(.medium18)
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(
                 isHovering ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
@@ -1945,7 +1945,7 @@ struct MessageEmojiPickerPopover: View {
         HStack(spacing: 4) {
             QuickReactionButtons(emojis: workspace.quickReactions, onPick: onPick) { emoji in
                 Text(emoji)
-                    .font(.system(size: 22))
+                    .wnFont(.medium24)
                     .frame(width: 40, height: 40)
                     .contentShape(Circle())
             }
@@ -1955,7 +1955,7 @@ struct MessageEmojiPickerPopover: View {
                 isFullPickerPresented = true
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .bold))
+                    .wnFont(.bold14)
                     .foregroundStyle(WNColor.fillContentTertiary)
                     .frame(width: 32, height: 32)
                     .background(WNColor.fillSecondary, in: Circle())
@@ -2143,12 +2143,12 @@ struct MessageReplyContextView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.senderName)
-                        .font(.caption.weight(.semibold))
+                        .wnFont(.semiBold10)
                         .foregroundStyle(WNColor.backgroundContentTertiary)
                         .lineLimit(1)
 
                     Text(context.body)
-                        .font(.caption)
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -2183,7 +2183,7 @@ struct TimelineDayHeaderView: View {
         HStack {
             Spacer(minLength: 24)
             Text(title)
-                .font(.caption.weight(.semibold))
+                .wnFont(.semiBold10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)

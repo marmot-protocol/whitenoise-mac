@@ -85,7 +85,7 @@ struct ComposerMessageInputView: View {
 
             if text.isEmpty {
                 Text(placeholder)
-                    .font(.body)
+                    .wnFont(.medium14)
                     .foregroundStyle(WNColor.backgroundContentTertiary)
                     .padding(.top, 1)
                     .allowsHitTesting(false)
@@ -150,14 +150,14 @@ private struct ComposerMentionRow: View {
                 )
                 VStack(alignment: .leading, spacing: 1) {
                     Text(candidate.displayName)
-                        .font(.callout.weight(.medium))
+                        .wnFont(.medium12)
                         .foregroundStyle(WNColor.backgroundContentPrimary)
                         .lineLimit(1)
                     // Under a private nickname, who the person actually publishes as says more
                     // about which of two similarly-nicknamed contacts this is than their npub.
                     if let subtitle = candidate.publishedDisplayName ?? shortNpub {
                         Text(subtitle)
-                            .font(.caption)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .lineLimit(1)
                     }
@@ -215,11 +215,19 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     let onPasteMedia: ([OutgoingMediaPasteboardAttachment]) -> Void
     let onSend: () -> Void
 
+    /// The rung the composer is set at.
+    static let typingStyle = WNTextStyle.medium14
+
+    /// What a mention token is set in — the Bold face at the typing rung's own size, so a token
+    /// and the words around it stay on one baseline and one measure however that rung moves.
+    static let mentionStyle = WNTextStyle.custom(size: typingStyle.size, weight: .bold)
+
     /// Attributes typed text should carry when it is not part of a mention token. Reapplied after a
     /// mention is inserted so the token's chip and identity markers cannot bleed into what follows.
     static var plainTypingAttributes: [NSAttributedString.Key: Any] {
         [
-            .font: NSFont.preferredFont(forTextStyle: .body),
+            .font: WNNSFont.font(for: Self.typingStyle),
+            .kern: Self.typingStyle.tracking,
             .foregroundColor: WNNSColor.backgroundContentPrimary,
         ]
     }
@@ -251,7 +259,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
         textView.isRichText = false
         textView.importsGraphics = false
         textView.allowsUndo = true
-        textView.font = .preferredFont(forTextStyle: .body)
+        textView.font = WNNSFont.font(for: Self.typingStyle)
         textView.textColor = WNNSColor.backgroundContentPrimary
         textView.insertionPointColor = WNNSColor.backgroundContentPrimary
         // Plain text is the baseline; only a mention marker adds attributes on top of it.
@@ -285,7 +293,7 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
 
         guard let textView = scrollView.documentView as? ComposerPasteInterceptingTextView else { return }
         configureHandlers(for: textView, coordinator: context.coordinator)
-        textView.font = .preferredFont(forTextStyle: .body)
+        textView.font = WNNSFont.font(for: Self.typingStyle)
         if textView.string != text {
             textView.string = text
         }
@@ -527,7 +535,7 @@ enum ComposerMentionMarkerStore {
         )
         storage.addAttribute(
             .font,
-            value: NSFont.boldSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize),
+            value: WNNSFont.font(for: ComposerMessageTextViewRepresentable.mentionStyle),
             range: selection.range
         )
     }
@@ -718,7 +726,7 @@ struct PendingMediaDraftStrip: View {
                                 onRemove(attachment.id)
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 18, weight: .semibold))
+                                    .wnFont(.semiBold18)
                                     .symbolRenderingMode(.palette)
                                     // Two-layer glyph: the inner disc is the surface it is
                                     // punched out of, the ring is content on that surface.
@@ -827,7 +835,7 @@ struct PendingMediaDraftTile: View {
     private var audioPreview: some View {
         HStack(spacing: 8) {
             Image(systemName: "mic.fill")
-                .font(.system(size: 15, weight: .semibold))
+                .wnFont(.semiBold16)
                 .foregroundStyle(WNColor.backgroundContentPrimary)
                 .frame(width: 20)
 
@@ -841,7 +849,7 @@ struct PendingMediaDraftTile: View {
                 .frame(height: 24)
 
                 Text(attachment.durationLabel ?? attachment.sizeLabel)
-                    .font(.caption2.monospacedDigit().weight(.medium))
+                    .wnFont(.medium10.monospacedDigit())
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
@@ -852,9 +860,9 @@ struct PendingMediaDraftTile: View {
     private var filePreview: some View {
         VStack(spacing: 5) {
             Image(systemName: attachment.kind.systemImageName)
-                .font(.system(size: 18, weight: .semibold))
+                .wnFont(.semiBold18)
             Text(attachment.fileName)
-                .font(.caption2.weight(.medium))
+                .wnFont(.medium10)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
         }
@@ -864,7 +872,7 @@ struct PendingMediaDraftTile: View {
 
     private func iconPreview(systemName: String) -> some View {
         Image(systemName: systemName)
-            .font(.system(size: 20, weight: .semibold))
+            .wnFont(.semiBold20)
             .foregroundStyle(WNColor.backgroundContentSecondary)
     }
 }
@@ -892,7 +900,7 @@ private struct PendingMediaUploadStatusBadge: View {
         case .failed:
             Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetry)
                 .labelStyle(.iconOnly)
-                .font(.system(size: 12, weight: .bold))
+                .wnFont(.bold12)
                 .foregroundStyle(WNColor.fillContentQuaternary)
                 .buttonStyle(.plain)
                 .frame(width: 24, height: 24)
@@ -949,7 +957,7 @@ struct VoiceRecordingComposerView: View {
             .frame(height: 30)
 
             Text(Self.durationLabel(durationSeconds))
-                .font(.caption.monospacedDigit().weight(.semibold))
+                .wnFont(.semiBold10.monospacedDigit())
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(minWidth: 44, alignment: .trailing)
 
@@ -959,7 +967,7 @@ struct VoiceRecordingComposerView: View {
             // this hands off to, and that is where the destructive color belongs.
             Button(action: onStop) {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 12, weight: .bold))
+                    .wnFont(.bold12)
                     .foregroundStyle(WNColor.fillContentPrimary)
                     .frame(width: 30, height: 30)
                     .background(WNColor.fillPrimary, in: .circle)
@@ -1020,7 +1028,7 @@ struct VoiceMessageDraftComposerView: View {
                 Task { await togglePlayback() }
             } label: {
                 Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
-                    .font(.system(size: 13, weight: .bold))
+                    .wnFont(.bold14)
                     .frame(width: 30, height: 30)
                     .background {
                         MessagesCircleControlBackground()
@@ -1045,7 +1053,7 @@ struct VoiceMessageDraftComposerView: View {
             .frame(height: 30)
 
             Text(MediaDurationLabel.string(for: isPlaying ? elapsedSeconds : (attachment.durationSeconds ?? 0)))
-                .font(.caption.monospacedDigit().weight(.semibold))
+                .wnFont(.semiBold10.monospacedDigit())
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(minWidth: 44, alignment: .trailing)
 
@@ -1053,7 +1061,7 @@ struct VoiceMessageDraftComposerView: View {
             // for — throw it away or send it — belong next to each other, past the recording.
             Button(action: discard) {
                 Image(systemName: "trash")
-                    .font(.system(size: 14, weight: .semibold))
+                    .wnFont(.semiBold14)
                     .foregroundStyle(WNColor.backgroundContentDestructive)
                     .frame(width: 30, height: 30)
                     .background {
@@ -1068,7 +1076,7 @@ struct VoiceMessageDraftComposerView: View {
             if uploadState == .failed {
                 Button(L10n.string("Retry upload"), systemImage: "arrow.clockwise", action: onRetryUpload)
                     .labelStyle(.iconOnly)
-                    .font(.system(size: 13, weight: .bold))
+                    .wnFont(.bold14)
                     .foregroundStyle(WNColor.fillContentQuaternary)
                     .buttonStyle(.plain)
                     .frame(width: 30, height: 30)
@@ -1327,7 +1335,7 @@ struct TimelineInitialLoadingView: View {
             ProgressView()
                 .controlSize(.regular)
             Text(L10n.string("Loading messages..."))
-                .font(.callout)
+                .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
         }
         .frame(maxWidth: .infinity)
@@ -1365,12 +1373,12 @@ struct ReplyComposerContextView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: L10n.string("Replying to %@"), context.senderName))
-                    .font(.caption.weight(.semibold))
+                    .wnFont(.semiBold10)
                     .foregroundStyle(MessagesPalette.sentBubble)
                     .lineLimit(1)
 
                 Text(context.body)
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -1380,7 +1388,7 @@ struct ReplyComposerContextView: View {
 
             Button(action: cancel) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
+                    .wnFont(.bold12)
                     .frame(width: 40, height: 40)
                     .contentShape(Circle())
             }
@@ -1402,14 +1410,14 @@ struct EditComposerContextView: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "pencil")
-                .font(.system(size: 12, weight: .semibold))
+                .wnFont(.semiBold12)
                 .foregroundStyle(MessagesPalette.sentBubble)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.string("Editing message"))
-                    .font(.caption.weight(.semibold))
+                    .wnFont(.semiBold10)
                 Text(context.originalBody)
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
@@ -1431,15 +1439,15 @@ struct MembershipEndedComposerNotice: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: membership.endedSymbolName ?? "")
-                .font(.system(size: 13, weight: .semibold))
+                .wnFont(.semiBold14)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(membership.endedDescription ?? "")
-                    .font(.callout.weight(.semibold))
+                    .wnFont(.semiBold12)
 
                 Text(ChatSelfMembership.endedHistoryExplanation)
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
@@ -1461,16 +1469,16 @@ struct PendingGroupInviteComposerNotice: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .wnFont(.semiBold14)
                     .foregroundStyle(WNColor.intentionInfoContent)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(inviteMessage)
-                        .font(.callout.weight(.semibold))
+                        .wnFont(.semiBold12)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Text(L10n.string("If you decline, this chat will be removed from your chat list."))
-                        .font(.caption)
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1621,7 +1629,7 @@ struct ConversationHeader: View {
             durationSeconds: metadata?.disappearingMessageSecs,
             fallback: metadata?.subtitle ?? chat.subtitle
         )
-        .font(.caption)
+        .wnFont(.medium10)
         .lineLimit(1)
     }
 
@@ -1634,7 +1642,7 @@ struct ConversationHeader: View {
                     workspace.cancelMessageSelection()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .bold))
+                        .wnFont(.bold14)
                         .frame(width: 40, height: 40)
                         .background { MessagesCircleControlBackground() }
                 }
@@ -1647,7 +1655,7 @@ struct ConversationHeader: View {
                         workspace.selectedTimelineMessageIds.count
                     )
                 )
-                .font(.system(size: 15, weight: .semibold))
+                .wnFont(.semiBold16)
 
                 Spacer()
             } else {
@@ -1668,7 +1676,7 @@ struct ConversationHeader: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(chat.title)
-                                .font(.system(size: 15, weight: .semibold))
+                                .wnFont(.semiBold16)
                                 .lineLimit(1)
                                 .foregroundStyle(WNColor.backgroundContentPrimary)
 
@@ -1690,7 +1698,7 @@ struct ConversationHeader: View {
                         workspace.showGroupImagePicker(for: chat)
                     } label: {
                         Image(systemName: "photo.badge.plus")
-                            .font(.system(size: 15, weight: .semibold))
+                            .wnFont(.semiBold16)
                             .frame(width: 34, height: 34)
                             .background {
                                 MessagesCircleControlBackground()
@@ -1729,7 +1737,7 @@ struct MessageSelectionToolbar: View {
                     workspace.selectedTimelineMessageIds.count
                 )
             )
-            .font(.callout.weight(.semibold))
+            .wnFont(.semiBold12)
 
             Spacer()
 
@@ -1763,7 +1771,7 @@ struct MessageInfoSheet: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 Text(L10n.string("Message Info"))
-                    .font(.title3.weight(.semibold))
+                    .wnFont(.semiBold16)
                 Spacer()
                 Button {
                     workspace.messageInfoTarget = nil
@@ -1821,7 +1829,7 @@ struct MessageForwardSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text(L10n.string("Forward To"))
-                    .font(.title3.weight(.semibold))
+                    .wnFont(.semiBold16)
                 Spacer()
                 Button {
                     workspace.cancelForwarding()

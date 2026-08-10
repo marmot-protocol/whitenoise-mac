@@ -30,7 +30,7 @@ struct MarkdownMessageView: View {
                 }
                 if document.truncated {
                     Text(L10n.string("… (message truncated)"))
-                        .font(.caption2)
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
@@ -67,8 +67,7 @@ private struct MarkdownBlockView: View {
 
         case .heading(let level, let text):
             MarkdownInlineText(text: text)
-                .font(Self.headingFont(for: level))
-                .fontWeight(.semibold)
+                .wnFont(Self.headingStyle(for: level))
 
         case .thematicBreak:
             Divider().padding(.vertical, 2)
@@ -100,12 +99,16 @@ private struct MarkdownBlockView: View {
         }
     }
 
-    private static func headingFont(for level: UInt8) -> Font {
+    /// Headings carry their weight in the rung itself. Manrope ships as three separate
+    /// faces rather than as a weight axis, so stacking `.fontWeight(.semibold)` on top of
+    /// a rung would ask the renderer to synthesize an emboldened Medium instead of using
+    /// the SemiBold face that is already in the bundle.
+    private static func headingStyle(for level: UInt8) -> WNTextStyle {
         switch level {
-        case 1: return .title2
-        case 2: return .title3
-        case 3: return .headline
-        default: return .body
+        case 1: return .semiBold18
+        case 2: return .semiBold16
+        case 3: return .semiBold14
+        default: return .semiBold14
         }
     }
 }
@@ -189,7 +192,7 @@ private struct MarkdownListView: View {
                 .foregroundStyle(
                     checked ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary
                 )
-                .font(.callout)
+                .wnFont(.medium12)
         case .text(let text):
             Text(text).foregroundStyle(WNColor.backgroundContentSecondary)
         }
@@ -204,7 +207,7 @@ private struct MarkdownTableView: View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 4) {
             GridRow {
                 ForEach(header) { cell in
-                    MarkdownInlineText(text: cell.text).fontWeight(.semibold)
+                    MarkdownInlineText(text: cell.text).wnFont(.semiBold16)
                 }
             }
             Divider()
