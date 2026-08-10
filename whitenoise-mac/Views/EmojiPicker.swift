@@ -295,7 +295,7 @@ struct ChatEmojiPicker: View {
                         onPick(entry.emoji)
                     } label: {
                         Text(entry.emoji)
-                            .font(.system(size: 25))
+                            .wnFont(.medium24)
                             .frame(maxWidth: .infinity, minHeight: 36)
                             .contentShape(Rectangle())
                     }
@@ -307,7 +307,7 @@ struct ChatEmojiPicker: View {
             }
         } header: {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .wnFont(.semiBold10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
@@ -349,7 +349,7 @@ struct ChatEmojiPicker: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .semibold))
+                .wnFont(.semiBold14)
                 .foregroundStyle(
                     selected ? WNColor.fillContentSecondary : WNColor.fillContentTertiary
                 )

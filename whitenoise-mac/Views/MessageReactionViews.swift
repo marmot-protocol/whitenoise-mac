@@ -52,11 +52,11 @@ struct MessageReactionChips: View {
                 Text(emojis)
                 if totalCount > 1 {
                     Text(verbatim: "\(totalCount)")
-                        .font(.caption2.weight(.semibold))
+                        .wnFont(.semiBold10)
                         .foregroundStyle(isOwn ? colors.contentSelected : colors.content)
                 }
             }
-            .font(.footnote)
+            .wnFont(.medium10)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(
@@ -130,9 +130,9 @@ struct MessageReactionDetailsView: View {
             HStack(spacing: 5) {
                 Text(label)
                 Text(verbatim: "\(count)")
-                    .font(.caption.weight(.semibold))
+                    .wnFont(.semiBold10)
             }
-            .font(.subheadline.weight(.semibold))
+            .wnFont(.semiBold12)
             // The viewer's filter pills are buttons on a `background*` surface, so they take the
             // fill/fill-content pairs: `fillPrimary` when active, `fillSecondary` at rest.
             .foregroundStyle(isSelected ? WNColor.fillContentPrimary : WNColor.fillContentSecondary)
@@ -210,17 +210,17 @@ struct MessageReactionDetailsView: View {
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.reactor.isSelf ? L10n.string("You") : row.reactor.name)
-                    .font(.callout.weight(.medium))
+                    .wnFont(.medium12)
                     .lineLimit(1)
                 if canRemove {
                     Text(L10n.string("Tap to remove"))
-                        .font(.caption2)
+                        .wnFont(.medium10)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
             }
             Spacer(minLength: 8)
             Text(row.emoji)
-                .font(.title3)
+                .wnFont(.medium16)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)

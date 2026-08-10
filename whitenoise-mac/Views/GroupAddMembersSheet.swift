@@ -26,7 +26,7 @@ struct GroupAddMembersSheet: View {
             entryField
             if let resolveError {
                 Text(resolveError)
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentDestructive)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -43,7 +43,7 @@ struct GroupAddMembersSheet: View {
     private var header: some View {
         HStack {
             Text(L10n.string("Add members"))
-                .font(.headline)
+                .wnFont(.semiBold14)
             Spacer()
             Button(L10n.string("Cancel")) { dismiss() }
                 .buttonStyle(.plain)
@@ -76,10 +76,10 @@ struct GroupAddMembersSheet: View {
         if staged.isEmpty {
             VStack(spacing: 6) {
                 Image(systemName: "person.2")
-                    .font(.title)
+                    .wnFont(.medium24)
                     .foregroundStyle(WNColor.backgroundContentTertiary)
                 Text(L10n.string("No one added yet"))
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -109,10 +109,10 @@ struct GroupAddMembersSheet: View {
             )
             VStack(alignment: .leading, spacing: 1) {
                 Text(recipient.title)
-                    .font(.callout.weight(.medium))
+                    .wnFont(.medium12)
                     .lineLimit(1)
                 Text(DisplayText.short(recipient.npub))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }

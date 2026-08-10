@@ -13,11 +13,11 @@ import SwiftUI
 
 struct UnreadCountBadge: View {
     let count: Int
-    var font: Font = .caption2.weight(.bold)
+    var textStyle: WNTextStyle = .bold10
 
     var body: some View {
         Text(verbatim: count > 99 ? "99+" : "\(count)")
-            .font(font)
+            .wnFont(textStyle)
             // `fillInfo` + `fillContentInfo`: a white count on a blue pill in both appearances.
             // Deliberately *not* `fillPrimary`, which this used to take — that token is already the
             // sent bubble, the send button and the selected row, so an unread count drawn in it read
@@ -43,7 +43,7 @@ struct AccountRailView: View {
                 workspace.toggleChatList()
             } label: {
                 Image(systemName: workspace.isChatListVisible ? "sidebar.leading" : "sidebar.right")
-                    .font(.system(size: 16, weight: .semibold))
+                    .wnFont(.semiBold16)
                     .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
                     .background {
                         MessagesCircleControlBackground(isSelected: workspace.isChatListVisible)
@@ -67,7 +67,7 @@ struct AccountRailView: View {
                 workspace.showSettings()
             } label: {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 17, weight: .semibold))
+                    .wnFont(.semiBold18)
                     .frame(width: MessagesLayout.accountRailControlSize, height: MessagesLayout.accountRailControlSize)
                     .background {
                         MessagesCircleControlBackground(isSelected: isSettingsSelected)
@@ -149,7 +149,7 @@ private struct AccountRailAvatar: View {
     private var badge: some View {
         if account.signedOut {
             Image(systemName: "pause.circle.fill")
-                .font(.system(size: 15))
+                .wnFont(.medium16)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 // Punched out of the rail behind it, so it takes the rail's own surface rather
                 // than the system window color.
@@ -192,13 +192,13 @@ struct ChatListDrawerView: View {
                 VStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Text(filter.title)
-                            .font(MessagesType.paneTitle)
+                            .wnFont(MessagesType.paneTitle)
                         Spacer()
                         Button {
                             workspace.presentGlobalMessageSearch()
                         } label: {
                             Image(systemName: "text.magnifyingglass")
-                                .font(.system(size: 14, weight: .semibold))
+                                .wnFont(.semiBold14)
                                 .frame(width: 34, height: 34)
                                 .background {
                                     MessagesCircleControlBackground()
@@ -211,7 +211,7 @@ struct ChatListDrawerView: View {
                                 workspace.showNewChat()
                             } label: {
                                 Image(systemName: "square.and.pencil")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .wnFont(.semiBold14)
                                     .frame(width: 34, height: 34)
                                     .background {
                                         MessagesCircleControlBackground()
@@ -317,7 +317,7 @@ private struct ChatListFilterMenu: View {
             isFilterPickerPresented = true
         } label: {
             Image(systemName: "line.3.horizontal.decrease")
-                .font(.system(size: 16, weight: .semibold))
+                .wnFont(.semiBold16)
                 .frame(width: 34, height: 34)
                 .background {
                     MessagesCircleControlBackground(isSelected: workspace.chatListFilter != .active)
@@ -552,7 +552,7 @@ struct SettingsListDrawerView: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
                 Text(L10n.string("Settings", locale: locale))
-                    .font(.title2.weight(.semibold))
+                    .wnFont(.semiBold18)
 
                 SettingsAccountSwitcherCard()
             }
@@ -599,7 +599,7 @@ struct SettingsSidebarRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: page.systemImage)
-                .font(.system(size: 15, weight: .semibold))
+                .wnFont(.semiBold16)
                 .foregroundStyle(
                     isSelected
                         ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
@@ -608,10 +608,10 @@ struct SettingsSidebarRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(page.title(in: locale))
-                    .font(.callout.weight(.semibold))
+                    .wnFont(.semiBold12)
                     .foregroundStyle(WNColor.backgroundContentPrimary)
                 Text(page.sidebarSubtitle(in: locale))
-                    .font(.caption)
+                    .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .lineLimit(1)
             }
@@ -650,7 +650,7 @@ struct ChatRowContent: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(chat.title)
-                        .font(MessagesType.rowTitle)
+                        .wnFont(MessagesType.rowTitle)
                         .lineLimit(1)
                     // Precedence lives in `ChatRowStatus` so the badge and the row's
                     // destructive menu item are decided by one rule.
@@ -668,13 +668,13 @@ struct ChatRowContent: View {
                     }
                     if isPinned {
                         Image(systemName: "pin.fill")
-                            .font(.caption2)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .accessibilityLabel(L10n.string("Pinned"))
                     }
                     if chat.muted {
                         Image(systemName: "bell.slash.fill")
-                            .font(.caption2)
+                            .wnFont(.medium10)
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                             .accessibilityLabel(L10n.string("Muted"))
                     }
@@ -686,12 +686,12 @@ struct ChatRowContent: View {
                         locale: locale
                     )
                     .equatable()
-                    .font(MessagesType.meta)
+                    .wnFont(MessagesType.meta)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
                     previewText
-                        .font(MessagesType.preview)
+                        .wnFont(MessagesType.preview)
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -709,14 +709,14 @@ struct ChatRowContent: View {
                         // neutral fill would read as a different kind of thing than the other.
                         if chat.hasMention {
                             Image(systemName: "at")
-                                .font(.caption2.weight(.bold))
+                                .wnFont(.bold10)
                                 .foregroundStyle(WNColor.fillContentInfo)
                                 .frame(width: 18, height: 18)
                                 .background(Circle().fill(WNColor.fillInfo))
                                 .help(L10n.string("You were mentioned"))
                         }
                         if chat.unreadCount > 0 {
-                            UnreadCountBadge(count: chat.unreadCount, font: MessagesType.badge)
+                            UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
                         } else {
                             Circle()
                                 .fill(WNColor.fillInfo)
@@ -749,9 +749,12 @@ struct ChatRowContent: View {
             // preview font and secondary style along with the words.
             return Text(Image(systemName: kind.systemImageName)) + Text(verbatim: " ") + Text(chat.preview)
         }
-        return Text(verbatim: "\(searchResult.senderName): ").bold()
+        // The emphasised runs name the Bold rung outright instead of taking `.bold()`: Manrope
+        // ships as three separate faces, so asking for a bolder version of the row's Medium
+        // would synthesize one rather than reach for the Bold already in the bundle.
+        return Text(verbatim: "\(searchResult.senderName): ").wnFont(.bold12)
             + Text(searchResult.snippet.leading)
-            + Text(searchResult.snippet.match).bold()
+            + Text(searchResult.snippet.match).wnFont(.bold12)
             .foregroundColor(WNColor.intentionInfoContent)
             + Text(searchResult.snippet.trailing)
     }
@@ -823,7 +826,7 @@ private struct ChatTimestampText: View, Equatable {
 struct PendingInviteBadge: View {
     var body: some View {
         Image(systemName: "plus")
-            .font(.caption2.weight(.bold))
+            .wnFont(.bold10)
             .foregroundStyle(WNColor.fillContentInfo)
             .frame(width: 18, height: 18)
             .background(Circle().fill(WNColor.fillInfo))
@@ -835,7 +838,7 @@ struct PendingInviteBadge: View {
 struct LeavingGroupBadge: View {
     var body: some View {
         Label(L10n.string("Leaving"), systemImage: "hourglass")
-            .font(.caption2.weight(.semibold))
+            .wnFont(.semiBold10)
             .labelStyle(.titleAndIcon)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -856,7 +859,7 @@ struct MembershipEndedBadge: View {
             membership.sidebarBadgeLabel ?? "",
             systemImage: membership.endedSymbolName ?? ""
         )
-        .font(.caption2.weight(.semibold))
+        .wnFont(.semiBold10)
         .labelStyle(.titleAndIcon)
         .padding(.horizontal, 6)
         .padding(.vertical, 2)

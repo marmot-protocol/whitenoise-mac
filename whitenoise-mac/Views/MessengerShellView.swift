@@ -66,7 +66,7 @@ private struct BackgroundStatusBanner: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(WNColor.intentionWarningContent)
                 Text(status)
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentPrimary)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
@@ -75,7 +75,7 @@ private struct BackgroundStatusBanner: View {
                     workspace.clearBackgroundStatus()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
+                        .wnFont(.semiBold12)
                 }
                 .buttonStyle(.plain)
                 .help(L10n.string("Dismiss"))
@@ -168,7 +168,7 @@ private struct WelcomeAuthView: View {
 
             if let lastError = workspace.lastError {
                 Text(lastError)
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentDestructive)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 460)
@@ -239,7 +239,7 @@ private struct SignedOutAccountsView: View {
 
             VStack(spacing: 5) {
                 Text(L10n.string("Choose an account"))
-                    .font(.title2.weight(.semibold))
+                    .wnFont(.semiBold18)
                 Text(L10n.string("Sign in to continue with an account stored on this Mac."))
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
@@ -259,14 +259,14 @@ private struct SignedOutAccountsView: View {
                             )
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(account.displayName)
-                                    .font(.headline)
+                                    .wnFont(.semiBold14)
                                 Text(DisplayText.short(account.npub ?? account.accountIdHex))
                                     .font(.caption.monospaced())
                                     .foregroundStyle(WNColor.backgroundContentSecondary)
                             }
                             Spacer(minLength: 20)
                             Text(L10n.string("Sign In"))
-                                .font(.callout.weight(.semibold))
+                                .wnFont(.semiBold12)
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity)
@@ -287,7 +287,7 @@ private struct SignedOutAccountsView: View {
 
             if let lastError = workspace.lastError {
                 Text(lastError)
-                    .font(.callout)
+                    .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentDestructive)
                     .multilineTextAlignment(.center)
             }
@@ -600,7 +600,7 @@ private struct ConversationView: View {
                                 Task { await jumpToNewest(using: proxy) }
                             } label: {
                                 Image(systemName: "arrow.down")
-                                    .font(.system(size: 14, weight: .bold))
+                                    .wnFont(.bold14)
                                     .frame(width: 40, height: 40)
                                     .background(.regularMaterial, in: Circle())
                                     .overlay {
@@ -807,7 +807,7 @@ private struct ConversationView: View {
                         isComposerEmojiPickerPresented.toggle()
                     } label: {
                         Image(systemName: "face.smiling")
-                            .font(.system(size: 17, weight: .medium))
+                            .wnFont(.medium18)
                             .frame(width: 30, height: 30)
                             .background {
                                 MessagesCircleControlBackground()
@@ -827,7 +827,7 @@ private struct ConversationView: View {
                         isFileImporterPresented = true
                     } label: {
                         Image(systemName: "paperclip")
-                            .font(.system(size: 18, weight: .medium))
+                            .wnFont(.medium18)
                             .frame(width: 30, height: 30)
                             .background {
                                 MessagesCircleControlBackground()
@@ -881,7 +881,7 @@ private struct ConversationView: View {
                         workspace.cancelEditingMessage()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
+                            .wnFont(.bold14)
                             .frame(width: 32, height: 32)
                             .background {
                                 MessagesCircleControlBackground()
@@ -895,7 +895,7 @@ private struct ConversationView: View {
                         Task { await workspace.toggleVoiceRecording() }
                     } label: {
                         Image(systemName: "mic.fill")
-                            .font(.system(size: 14, weight: .semibold))
+                            .wnFont(.semiBold14)
                             .frame(width: 32, height: 32)
                             .background {
                                 MessagesCircleControlBackground()
@@ -1036,7 +1036,7 @@ private struct StartupView: View {
         VStack(spacing: 12) {
             ProgressView()
             Text(L10n.string("Starting Marmot"))
-                .font(.callout)
+                .wnFont(.medium12)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
