@@ -188,63 +188,13 @@ struct ChatListDrawerView: View {
                 let filter = workspace.chatListFilter
                 let isShowingArchived = filter == .archived
                 let visibleChats = visibleChats(for: filter)
+                let isCollapsed = workspace.isChatListCollapsed
 
-                VStack(spacing: 10) {
-                    HStack(spacing: 8) {
-                        Text(filter.title)
-                            .wnFont(MessagesType.paneTitle)
-                        Spacer()
-                        Button {
-                            workspace.presentGlobalMessageSearch()
-                        } label: {
-                            Image(systemName: "text.magnifyingglass")
-                                .wnFont(.semiBold14)
-                                .frame(width: 34, height: 34)
-                                .background {
-                                    MessagesCircleControlBackground()
-                                }
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.string("Search all messages"))
-                        if !isShowingArchived {
-                            Button {
-                                workspace.showNewChat()
-                            } label: {
-                                Image(systemName: "square.and.pencil")
-                                    .wnFont(.semiBold14)
-                                    .frame(width: 34, height: 34)
-                                    .background {
-                                        MessagesCircleControlBackground()
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .keyboardShortcut("n", modifiers: .command)
-                            .help(L10n.string("New chat"))
-                        }
-                    }
-
-                    HStack(spacing: 8) {
-                        MessagesSearchField(
-                            text: $workspace.searchText,
-                            accessibilityIdentifier: "chat.search",
-                            placeholder: L10n.string("Search all messages")
-                        )
-                        .frame(maxWidth: .infinity)
-                        .onChange(of: workspace.searchText) { _, _ in
-                            workspace.scheduleSidebarMessageSearch()
-                        }
-
-                        if workspace.isSearchingSidebarMessages {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-
-                        ChatListFilterMenu()
-                    }
+                if isCollapsed {
+                    CollapsedChatListHeader(isShowingArchived: isShowingArchived)
+                } else {
+                    ChatListHeader(filter: filter, isShowingArchived: isShowingArchived)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
-                .padding(.bottom, 12)
 
                 GlassSeparator(axis: .horizontal)
 
@@ -254,6 +204,7 @@ struct ChatListDrawerView: View {
                             ChatSidebarRow(
                                 chat: chat,
                                 isArchived: isShowingArchived,
+                                isCollapsed: isCollapsed,
                                 searchResult: workspace.sidebarMessageSearchResult(for: chat)
                             )
                         }
@@ -263,7 +214,10 @@ struct ChatListDrawerView: View {
                 }
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
-                    if visibleChats.isEmpty {
+                    // `ContentUnavailableView` needs room for an icon over two lines of prose;
+                    // in the collapsed rail it would render as a column of hyphenated fragments.
+                    // An empty rail is legible on its own, and widening it brings the wording back.
+                    if visibleChats.isEmpty, !isCollapsed {
                         if workspace.isSearchingSidebarMessages {
                             ProgressView()
                                 .controlSize(.small)
@@ -305,6 +259,121 @@ extension ChatListDrawerView {
             chats = workspace.archivedChats
         }
         return workspace.sidebarSearchFilteredChats(chats)
+    }
+}
+
+private struct ChatListHeader: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let filter: ChatListFilter
+    let isShowingArchived: Bool
+
+    var body: some View {
+        @Bindable var workspace = workspace
+
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Text(filter.title)
+                    .wnFont(MessagesType.paneTitle)
+                Spacer()
+                Button {
+                    workspace.presentGlobalMessageSearch()
+                } label: {
+                    Image(systemName: "text.magnifyingglass")
+                        .wnFont(.semiBold14)
+                        .frame(width: 34, height: 34)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Search all messages"))
+                if !isShowingArchived {
+                    Button {
+                        workspace.showNewChat()
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .wnFont(.semiBold14)
+                            .frame(width: 34, height: 34)
+                            .background {
+                                MessagesCircleControlBackground()
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help(L10n.string("New chat"))
+                }
+            }
+
+            HStack(spacing: 8) {
+                MessagesSearchField(
+                    text: $workspace.searchText,
+                    accessibilityIdentifier: "chat.search",
+                    placeholder: L10n.string("Search all messages")
+                )
+                .frame(maxWidth: .infinity)
+                .onChange(of: workspace.searchText) { _, _ in
+                    workspace.scheduleSidebarMessageSearch()
+                }
+
+                if workspace.isSearchingSidebarMessages {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                ChatListFilterMenu()
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+        .padding(.bottom, 12)
+    }
+}
+
+/// Header for the avatar-only rail: the pane title and the row-filtering search field have no
+/// room, so what is left is the three controls that still make sense at 84pt, stacked. Global
+/// search stays reachable (it opens its own sheet), which is why dropping the inline field is
+/// survivable — and `resizeChatListDrawer` clears any query on the way in, so the rail can
+/// never show a silently filtered list.
+private struct CollapsedChatListHeader: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let isShowingArchived: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Button {
+                workspace.presentGlobalMessageSearch()
+            } label: {
+                Image(systemName: "text.magnifyingglass")
+                    .wnFont(.semiBold14)
+                    .frame(width: 34, height: 34)
+                    .background {
+                        MessagesCircleControlBackground()
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string("Search all messages"))
+
+            if !isShowingArchived {
+                Button {
+                    workspace.showNewChat()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .wnFont(.semiBold14)
+                        .frame(width: 34, height: 34)
+                        .background {
+                            MessagesCircleControlBackground()
+                        }
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("n", modifiers: .command)
+                .help(L10n.string("New chat"))
+            }
+
+            ChatListFilterMenu()
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+        .padding(.bottom, 12)
     }
 }
 
@@ -391,18 +460,26 @@ private struct ChatSidebarRow: View {
     @Environment(WorkspaceState.self) private var workspace
     let chat: ChatItem
     let isArchived: Bool
+    let isCollapsed: Bool
     let searchResult: GlobalMessageSearchResult?
 
     var body: some View {
         Button {
             workspace.selectChat(chat)
         } label: {
-            ChatRowContent(
-                chat: chat,
-                isSelected: workspace.selection == .chat(chat.id),
-                isPinned: !isArchived && workspace.isChatPinned(chat),
-                searchResult: searchResult
-            )
+            if isCollapsed {
+                CollapsedChatRowContent(
+                    chat: chat,
+                    isSelected: workspace.selection == .chat(chat.id)
+                )
+            } else {
+                ChatRowContent(
+                    chat: chat,
+                    isSelected: workspace.selection == .chat(chat.id),
+                    isPinned: !isArchived && workspace.isChatPinned(chat),
+                    searchResult: searchResult
+                )
+            }
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(isArchived ? "chat.archived.row.\(chat.id)" : "chat.row.\(chat.id)")
@@ -643,7 +720,7 @@ struct ChatRowContent: View {
                 initials: chat.title,
                 sanitizedPictureURL: chat.sanitizedPictureURL,
                 localImagePayload: chat.groupImagePayload,
-                size: 46,
+                size: MessagesLayout.chatRowAvatarSize,
                 isSelected: false
             )
 
@@ -757,6 +834,82 @@ struct ChatRowContent: View {
             + Text(searchResult.snippet.match).wnFont(.bold12)
             .foregroundColor(WNColor.intentionInfoContent)
             + Text(searchResult.snippet.trailing)
+    }
+}
+
+/// The chat row at the drawer's narrowest width: the avatar, and the one badge that says
+/// something is waiting on the reader.
+///
+/// This exists so the drawer never has to render a *truncated* row. Title, timestamp and
+/// preview are dropped wholesale rather than clipped — a group name cut mid-word tells the
+/// reader less than the avatar already does, and `ChatListWidthPolicy` snaps past the widths
+/// where that would be the only option.
+///
+/// Everything the row stops showing in words it still says on hover: the title, and "Muted"
+/// when the chat is, in the same `title — state` form the account rail uses.
+struct CollapsedChatRowContent: View {
+    let chat: ChatItem
+    let isSelected: Bool
+
+    private var rowStatus: ChatRowStatus? { ChatRowStatus.status(for: chat) }
+
+    private var hoverDescription: String {
+        chat.muted ? "\(chat.title) — \(L10n.string("Muted"))" : chat.title
+    }
+
+    var body: some View {
+        ProfileImageAvatarView(
+            seed: chat.avatarSeed,
+            initials: chat.title,
+            sanitizedPictureURL: chat.sanitizedPictureURL,
+            localImagePayload: chat.groupImagePayload,
+            size: MessagesLayout.chatRowAvatarSize,
+            isSelected: false
+        )
+        .overlay(alignment: .topTrailing) {
+            // Nudged onto the avatar's corner rather than centred over its face, the way the
+            // account rail places its own badge. The row's padding leaves room for it, so
+            // nothing is clipped.
+            badge
+                .offset(x: 3, y: -3)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background {
+            MessagesSidebarRowBackground(isSelected: isSelected)
+        }
+        .contentShape(.rect)
+        .help(hoverDescription)
+        .accessibilityLabel(hoverDescription)
+    }
+
+    /// One badge, in the rail's single badge slot, so it has to be the most urgent claim on the
+    /// reader rather than all of them: an unanswered invite, then a mention (which the bare count
+    /// beside it would not distinguish from ordinary traffic), then the count, then the
+    /// manually-marked-unread dot. The expanded row, which has the width for it, still shows the
+    /// mention pill and the count together.
+    @ViewBuilder
+    private var badge: some View {
+        if rowStatus == .pendingInvite {
+            PendingInviteBadge()
+        } else if chat.hasUnread {
+            if chat.hasMention {
+                Image(systemName: "at")
+                    .wnFont(.bold10)
+                    .foregroundStyle(WNColor.fillContentInfo)
+                    .frame(width: 18, height: 18)
+                    .background(Circle().fill(WNColor.fillInfo))
+                    .accessibilityLabel(L10n.string("You were mentioned"))
+            } else if chat.unreadCount > 0 {
+                UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
+            } else {
+                Circle()
+                    .fill(WNColor.fillInfo)
+                    .frame(width: 9, height: 9)
+                    .accessibilityLabel(L10n.string("Marked unread"))
+            }
+        }
     }
 }
 
