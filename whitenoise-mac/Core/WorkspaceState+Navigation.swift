@@ -114,4 +114,57 @@ extension WorkspaceState {
     func toggleChatList() {
         isChatListVisible.toggle()
     }
+
+    /// Whether the drawer is currently the chat list rather than the settings list or the
+    /// compose flow. Only the chat list has an avatar-only form, so this gates collapsing.
+    var isChatListDrawerShowingChats: Bool {
+        if case .settings = selection { return false }
+        return !isNewChatComposerVisible
+    }
+
+    /// The width the drawer should render at. Equals `chatListWidth` while the chat list is
+    /// showing; a settings or compose pane is floored to the narrowest full width, since
+    /// neither has anything to show inside an avatar-only rail. Visiting one of those panes
+    /// deliberately does *not* rewrite `chatListWidth`, so a collapsed chat list is still
+    /// collapsed when the user comes back to it.
+    var chatListDrawerWidth: CGFloat {
+        isChatListDrawerShowingChats
+            ? chatListWidth
+            : max(chatListWidth, ChatListWidthPolicy.minimumExpandedWidth)
+    }
+
+    /// True when the drawer is rendering as an avatar-only rail.
+    var isChatListCollapsed: Bool {
+        ChatListWidthPolicy.isCollapsed(width: chatListDrawerWidth)
+    }
+
+    /// Commits a drag on the drawer's resize handle. `proposedWidth` is the raw dragged
+    /// width; `ChatListWidthPolicy` decides which allowed width that lands on.
+    func resizeChatListDrawer(toProposedWidth proposedWidth: CGFloat) {
+        let resolved = ChatListWidthPolicy.resolve(
+            proposedWidth: proposedWidth,
+            allowsCollapse: isChatListDrawerShowingChats
+        )
+        guard resolved != chatListWidth else { return }
+        let wasCollapsed = isChatListCollapsed
+        chatListWidth = resolved
+        // A row-filtering query the user can no longer see or clear is worse than no
+        // query: the collapsed rail shows a silently short list with no search field to
+        // explain it. Collapsing therefore releases the sidebar search.
+        if !wasCollapsed, isChatListCollapsed, !searchText.isEmpty {
+            invalidateSidebarMessageSearch(clearQuery: true)
+        }
+    }
+
+    /// Keyboard/VoiceOver equivalent of dragging the handle, so the drawer width is not
+    /// reachable by pointer alone.
+    func stepChatListDrawerWidth(_ step: ChatListWidthPolicy.Step) {
+        resizeChatListDrawer(
+            toProposedWidth: ChatListWidthPolicy.stepped(
+                from: chatListDrawerWidth,
+                toward: step,
+                allowsCollapse: isChatListDrawerShowingChats
+            )
+        )
+    }
 }

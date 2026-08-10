@@ -1103,6 +1103,15 @@ final class WorkspaceState {
     var chatActionAlert: ChatActionAlert?
     var mutatingChatPreferenceIds: Set<String> = []
     var isChatListVisible = true
+    /// The user's chosen drawer width, always one of the widths `ChatListWidthPolicy`
+    /// allows. Read `chatListDrawerWidth` for what to actually render — a pane with no
+    /// avatar-only form is floored to the narrowest full width without overwriting the
+    /// preference stored here.
+    var chatListWidth: CGFloat {
+        didSet {
+            UserDefaults.standard.set(Double(chatListWidth), forKey: Self.chatListWidthKey)
+        }
+    }
     var draftText: String {
         get {
             guard let selectedComposerDraftKey else { return "" }
@@ -1747,6 +1756,7 @@ final class WorkspaceState {
     static let appearancePreferenceKey = "whitenoise.mac.appearancePreference"
     static let notificationPreviewModeKey = "whitenoise.mac.notificationPreviewMode"
     static let loadRemoteImagesKey = "whitenoise.mac.loadRemoteImages"
+    static let chatListWidthKey = "whitenoise.mac.chatListWidth"
     static let deliveredNotificationKeyLimit = 256
     static let timelinePageLimit: UInt32 = 100
     /// Upper bound on the materialized live window, matching the runtime's
@@ -2051,6 +2061,9 @@ final class WorkspaceState {
         // Defaults to false: bool(forKey:) returns false when the key is absent, which is the
         // privacy-preserving default (remote peer images are not fetched until the user opts in).
         self.loadRemoteImages = UserDefaults.standard.bool(forKey: Self.loadRemoteImagesKey)
+        self.chatListWidth = ChatListWidthPolicy.restored(
+            storedWidth: UserDefaults.standard.object(forKey: Self.chatListWidthKey) as? Double
+        )
         let storedAppearance = UserDefaults.standard.string(forKey: Self.appearancePreferenceKey)
         self.appearancePreference = storedAppearance.flatMap(AppearancePreference.init(rawValue:)) ?? .system
         let storedPreviewMode = UserDefaults.standard.string(forKey: Self.notificationPreviewModeKey)

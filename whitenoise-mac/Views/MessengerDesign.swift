@@ -360,6 +360,12 @@ enum MessagesLayout {
     static let accountRailAvatarSize: CGFloat = 46
     static let accountRailAvatarFrameSize: CGFloat = 58
     static let sidebarTitlebarTopPadding: CGFloat = 42
+    static let chatRowAvatarSize: CGFloat = 46
+    /// Grab width of the drawer's resize handle. The divider itself stays 1pt in layout —
+    /// the grab area is an overlay, so widening it never opens a gutter between the drawer
+    /// and the detail pane; it only reaches a few points into each.
+    static let chatListResizeGrabWidth: CGFloat = 11
+    static let chatListResizeGrabberHeight: CGFloat = 34
 }
 
 /// Semantic type ramp for the messenger chrome, naming the roles the shell uses so a view

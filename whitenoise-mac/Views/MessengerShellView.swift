@@ -23,11 +23,22 @@ struct MessengerShellView: View {
                     Group {
                         if workspace.isChatListVisible {
                             ChatListDrawerView()
-                                .frame(width: 300, alignment: .leading)
+                                // Deliberately un-animated: the width is dragged, so animating
+                                // it would re-wrap the non-lazy transcript on every frame of the
+                                // drag *and* again through the collapse snap — the same layout
+                                // storm the `isChatListVisible` transition below is scoped away
+                                // from. The snap is a single jump instead.
+                                .frame(width: workspace.chatListDrawerWidth, alignment: .leading)
                                 .transition(.move(edge: .leading).combined(with: .opacity))
 
-                            GlassSeparator()
+                            ChatListResizeHandle()
                                 .transition(.opacity)
+                                // The handle's grab area is an overlay reaching a few points
+                                // into both neighbours, and later siblings in an `HStack` are
+                                // hit-tested first — without this the detail pane would swallow
+                                // the right half of the strip and the divider would only be
+                                // grabbable from the drawer side.
+                                .zIndex(1)
                         }
                     }
                     // Scope the sidebar transition to the drawer. The detail pane
