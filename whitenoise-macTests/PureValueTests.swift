@@ -1399,6 +1399,65 @@ struct PureValueTests {
             ]))
     }
 
+    /// An edited row carries no Markdown — `applyingEdit` drops it and resolves the mention into
+    /// plain text from the base's `mentionNames` — so relabeling only the base would leave the
+    /// bubble on the old label until the next full recomputation.
+    @MainActor
+    @Test func relabelingAMentionRerendersEditedRowsFromTheirBase() async throws {
+        let npub = "npub1alyce"
+        let store = MessageTimelineStore.loaded(with: [
+            MessageItem(
+                id: "target",
+                senderAccountIdHex: "alice",
+                senderName: "alice",
+                body: "ping @\(npub)",
+                contentMarkdown: MarkdownDocumentFfi(
+                    blocks: [
+                        .paragraph(inlines: [
+                            .text(content: "ping "),
+                            .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: npub)),
+                        ])
+                    ],
+                    truncated: false
+                ),
+                mentionNames: [npub: "Alice"],
+                sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+                timelineAt: 1_800_000_000,
+                isOutgoing: false
+            )
+        ])
+        // The edit republishes the same mention token, so the label the row shows comes purely
+        // from the map the base carries.
+        let applied = store.applyProjection(
+            upserts: [],
+            removals: [],
+            editMutations: [
+                editUpsert(
+                    makeEditOverlay(editId: "edit-1", plaintext: "ping @\(npub) again", timelineAt: 1_800_000_060)
+                )
+            ],
+            anchoredToNewest: true,
+            windowLimit: 10
+        )
+        #expect(applied.didChange)
+        #expect(store.lookup["target"]?.body == "ping @Alice again")
+        #expect(store.lookup["target"]?.isEdited == true)
+
+        #expect(store.relabelMention(bech32: npub, name: "Mum"))
+        #expect(store.lookup["target"]?.body == "ping @Mum again")
+        #expect(store.displayItems.first?.message.body == "ping @Mum again")
+        // Still an edit, still rendered from the same base.
+        #expect(store.lookup["target"]?.isEdited == true)
+
+        // Clearing drops the entry, so the edited row's plain text falls back to the raw token —
+        // exactly what `applyingEdit` produces from an empty map, which is the parity that matters.
+        #expect(store.relabelMention(bech32: npub, name: nil))
+        #expect(store.lookup["target"]?.body == "ping @\(npub) again")
+
+        // And re-applying the same label is reported as no change rather than churning the row.
+        #expect(!store.relabelMention(bech32: npub, name: nil))
+    }
+
     @MainActor
     @Test func messageTimelineStoreAppliesEditOverlaysToTargets() async throws {
         // Regression for whitenoise-mac#419: standalone edit overlays patch materialized targets,
@@ -3143,6 +3202,60 @@ struct PureValueTests {
         #expect(items.last?.blocks.isEmpty == false)
     }
 
+    /// The in-place mention relabel has to reach every inline run in the tree, not just the
+    /// top-level paragraph a one-line message renders as — a mention inside a quote, a list item,
+    /// or a table cell is the same person under the same label.
+    @Test func mentionRelabelRewritesEveryNestedRunAndLeavesOtherReferencesAlone() async throws {
+        let alice = "npub1alyce"
+        let note = "note1someeventreference0000"
+        let mention: MarkdownInlineFfi = .nostrMention(
+            entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: alice)
+        )
+        let paragraph: MarkdownBlockFfi = .paragraph(inlines: [.text(content: "hi "), mention])
+        let document = MarkdownDisplayDocument(
+            document: MarkdownDocumentFfi(
+                blocks: [
+                    paragraph,
+                    .heading(level: 2, inlines: [mention]),
+                    .blockQuote(blocks: [paragraph], blankLinesBefore: Data([0])),
+                    .listBlock(
+                        kind: .bullet(marker: "-"),
+                        tight: true,
+                        items: [MarkdownListItemFfi(blocks: [paragraph], checked: nil)]
+                    ),
+                    .table(
+                        alignments: [.left],
+                        header: [MarkdownTableCellFfi(inlines: [mention])],
+                        rows: [[MarkdownTableCellFfi(inlines: [mention])]]
+                    ),
+                    .paragraph(inlines: [
+                        .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .note, bech32: note))
+                    ]),
+                ],
+                truncated: false
+            ),
+            mentionNames: [alice: "Alice"]
+        )
+        #expect(markdownDisplayText(document).contains("@Alice"))
+
+        let relabeled = try #require(document.relabelingMention(bech32: alice, name: "Mum"))
+        let text = markdownDisplayText(relabeled)
+        #expect(!text.contains("@Alice"))
+        // One run each in the paragraph, heading, quote, list item, table header, and table body.
+        #expect(text.components(separatedBy: "@Mum").count - 1 == 6)
+        // An unrelated reference keeps its own rendering, and the document's own flags survive.
+        #expect(text.contains(MarkdownMentionText.shortBech32(note)))
+        #expect(relabeled.truncated == document.truncated)
+        #expect(relabeled.blocks.map(\.id) == document.blocks.map(\.id))
+
+        // Clearing the label falls back to the truncated reference, and a document that never
+        // mentions this person is reported as unchanged rather than copied.
+        let cleared = try #require(relabeled.relabelingMention(bech32: alice, name: nil))
+        #expect(markdownDisplayText(cleared).contains("@\(MarkdownMentionText.shortBech32(alice))"))
+        #expect(cleared.relabelingMention(bech32: "npub1nobody", name: "Nobody") == nil)
+        #expect(relabeled.relabelingMention(bech32: alice, name: "Mum") == nil)
+    }
+
     @Test func normalMarkdownTableIsNotTruncatedByDisplayBudget() async throws {
         let document = wideMarkdownTable(columns: 4, rows: 3)
         let display = MarkdownDisplayDocument(document: document)
@@ -4482,6 +4595,37 @@ private func longMarkdownList(itemCount: Int) -> MarkdownDocumentFfi {
         ],
         truncated: false
     )
+}
+
+/// Every inline run in a rendered document, flattened, so a relabel can be asserted across nested
+/// block kinds without reaching into each case at the call site.
+private func markdownDisplayText(_ document: MarkdownDisplayDocument) -> String {
+    func text(of blocks: [MarkdownDisplayBlockNode]) -> String {
+        blocks.map { text(of: $0.block) }.joined(separator: "\n")
+    }
+
+    func text(of block: MarkdownDisplayBlock) -> String {
+        switch block {
+        case .paragraph(let value):
+            return String(value.characters)
+        case .heading(_, let value):
+            return String(value.characters)
+        case .blockQuote(let inner):
+            return text(of: inner)
+        case .list(let items):
+            return items.map { text(of: $0.blocks) }.joined(separator: "\n")
+        case .table(let header, let rows):
+            let headerText = header.map { String($0.text.characters) }
+            let rowText = rows.flatMap { $0.cells.map { String($0.text.characters) } }
+            return (headerText + rowText).joined(separator: "\n")
+        case .codeBlock(let value), .mathBlock(let value):
+            return value
+        case .thematicBreak:
+            return ""
+        }
+    }
+
+    return text(of: document.blocks)
 }
 
 private func markdownDisplayNodeCount(_ document: MarkdownDisplayDocument) -> Int {

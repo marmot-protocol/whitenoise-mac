@@ -538,6 +538,42 @@ final class MessageTimelineStore {
         return true
     }
 
+    /// Rewrites every mention of one person in this materialized window, the counterpart of
+    /// `relabelSender` for the labels baked into a bubble's body. Rows that do not mention them
+    /// are skipped without allocating, so the cost is proportional to the mentions actually on
+    /// screen rather than to the window size.
+    ///
+    /// Both the rendered rows and the pre-edit bases are relabeled: an edited row renders from its
+    /// base, and a base left with the stale label would resurface it on the next recompute.
+    ///
+    /// An edited row cannot be relabeled directly — it carries no Markdown (`applyingEdit` drops
+    /// it) and resolves its mentions into plain text from the base's `mentionNames` — so the rows
+    /// whose base changed are re-rendered through the ordinary edit-overlay path afterwards.
+    /// Without that, an edited bubble kept the old label until the next full recomputation.
+    @discardableResult
+    func relabelMention(bech32: String, name: String?) -> Bool {
+        var didChange = false
+        for index in messages.indices {
+            guard let relabeled = messages[index].applyingMentionLabel(bech32: bech32, name: name) else { continue }
+            messages[index] = relabeled
+            lookup[relabeled.id] = relabeled
+            didChange = true
+        }
+        var relabeledBaseIds: Set<String> = []
+        for (id, base) in baseMessagesById {
+            guard let relabeled = base.applyingMentionLabel(bech32: bech32, name: name) else { continue }
+            baseMessagesById[id] = relabeled
+            relabeledBaseIds.insert(id)
+            didChange = true
+        }
+        if recomputeRenderedMessages(withIds: relabeledBaseIds) {
+            didChange = true
+        }
+        guard didChange else { return false }
+        rebuildDisplayItems()
+        return true
+    }
+
     private func relabelReplyQuotes(ofSender accountIdHex: String) -> Bool {
         var didChange = false
         for index in messages.indices {
@@ -624,6 +660,27 @@ final class MessageTimelineStore {
             didChange = true
         }
         lastRenderEditCandidateVisitCount = candidateVisitCount
+        return didChange
+    }
+
+    /// Re-renders only the rows whose base was just mutated, through the same edit-overlay path
+    /// `recomputeAllRenderedMessages` uses, so a targeted base mutation can never leave a rendered
+    /// row derived from the old base. Visiting only the changed ids keeps the cost proportional to
+    /// the mutation instead of to the window, and rows that render identically are left untouched.
+    ///
+    /// `lastRenderEditCandidateVisitCount` is deliberately not written here: it reports the most
+    /// recent *full* render pass, and a partial count would misreport it.
+    private func recomputeRenderedMessages(withIds ids: Set<String>) -> Bool {
+        guard !ids.isEmpty else { return false }
+        var didChange = false
+        for id in ids {
+            guard let index = indexById[id], let base = baseMessagesById[id] else { continue }
+            let rendered = renderedMessage(from: base).message
+            guard messages[index] != rendered else { continue }
+            messages[index] = rendered
+            lookup[id] = rendered
+            didChange = true
+        }
         return didChange
     }
 
@@ -1007,10 +1064,6 @@ final class WorkspaceState {
     var contactNicknamesByOwner: [String: [String: String]] = [:]
     @ObservationIgnored var contactNicknameRevision: UInt64 = 0
     @ObservationIgnored var cachedContactNicknames: NicknameStamped<ContactNicknames>?
-    /// Replays the open transcript after a nickname write so mention tokens already baked into
-    /// rendered bubbles pick up the new label. Held only so tests can await it — a replay that
-    /// outlives its conversation re-checks the account and subscription before applying anything.
-    @ObservationIgnored var contactNicknameMentionReplayTask: Task<Void, Never>?
     @ObservationIgnored let chatRestorationStore: any ChatRestorationStoring
     /// Set only for the duration of an automatic selection made past a preserved memory. See
     /// `withRememberedChatPreserved(_:_:)`.

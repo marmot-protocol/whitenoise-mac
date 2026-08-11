@@ -145,7 +145,7 @@ extension WorkspaceState {
         relabelTimelineSenders(accountIdHex: contact, nickname: nickname)
         relabelComposeContacts(accountIdHex: contact, nickname: nickname)
         relabelContactDetailsTarget(accountIdHex: contact, nickname: nickname)
-        replayTimelineForMentionsOf(contactAccountIdHex: contact)
+        relabelTimelineMentions(ofContactAccountIdHex: contact)
 
         if nickname == nil {
             // Clearing a nickname hands the label back to whatever the peer published, so this
@@ -234,27 +234,44 @@ extension WorkspaceState {
     }
 
     /// A mention token is baked into the bubble's rendered Markdown when the window is projected,
-    /// so — unlike a sender label — it cannot be patched into rows already on screen: the source
-    /// AST the attributed string came from is not retained. Replay the open window instead, the
-    /// same in-memory snapshot replay a late-arriving profile uses.
+    /// so a rename has to reach rows already on screen. It is rewritten in place, exactly as a
+    /// sender label is: each mention run carries the `nostr:` link the projection gave it, so the
+    /// person a run names is recoverable from the rendered string without the source AST.
     ///
-    /// Gated on the contact being in this conversation's roster, so renaming someone the open
-    /// chat could not possibly mention costs one roster scan rather than a transcript re-map.
-    /// Other conversations need nothing here: their `mentionNamesCache` entry is stamped with the
-    /// nickname set, so whenever one is next projected it resolves against the new label. The
-    /// same is true of chat-list previews, which re-resolve on their next row update.
-    private func replayTimelineForMentionsOf(contactAccountIdHex contact: String) {
-        guard let client, let account = activeAccount,
-            let groupIdHex = activeTimelineGroupId,
-            selectedChat?.id == groupIdHex,
-            let members = groupMemberDetailsCache[groupIdHex],
-            members.contains(where: { ContactNicknames.normalizedHex($0.memberIdHex) == contact })
-        else { return }
-
-        // Not cancelling any in-flight replay: a second rename's replay reads the same post-write
-        // state, so the two can only agree, and cancelling one mid-snapshot would drop a repaint.
-        contactNicknameMentionReplayTask = Task { [weak self] in
-            await self?.replaySelectedTimelineWindow(account: account, client: client)
+    /// This deliberately does *not* replay the window. A replay depends on a live timeline
+    /// subscription that can hand back a snapshot — state that is routinely absent while the
+    /// transcript is still on screen (between a listener teardown and its next subscribe, during
+    /// a reconnect, or whenever the runtime has no materialized window to snapshot) — and in every
+    /// such case the rename silently did nothing until the conversation was re-selected. Rewriting
+    /// the runs depends on nothing but the rows themselves, is synchronous with the gesture, and
+    /// costs less than the re-map a replay performed: no snapshot, no FFI, no re-parse, and no
+    /// work at all for bubbles that never mention the renamed person.
+    ///
+    /// Every materialized window is relabeled, not just the selected chat's, for the reason
+    /// `relabelTimelineSenders` does the same: a background window would otherwise keep the stale
+    /// label until it is next projected. Chat-list previews re-resolve on their next row update,
+    /// and every other group's `mentionNamesCache` entry is stamped with the nickname set, so it
+    /// rebuilds against the new label whenever it is next read.
+    private func relabelTimelineMentions(ofContactAccountIdHex contact: String) {
+        var didChangeSelectedChat = false
+        for (groupIdHex, store) in messageTimelineStores {
+            // The label is resolved through the same projection this window was built from, over
+            // the same roster entry, so an in-place relabel and the next re-projection cannot
+            // disagree. Without a roster there is no npub to relabel by and no published name to
+            // fall back to, which is also the state in which the mention is already rendering as
+            // truncated bech32 — nothing to do until enrichment warms the roster again.
+            guard let members = groupMemberDetailsCache[groupIdHex],
+                let member = members.first(where: { ContactNicknames.normalizedHex($0.memberIdHex) == contact }),
+                !member.npub.isEmpty
+            else { continue }
+            let label = Self.mentionNames(from: [member], nicknames: activeContactNicknames)[member.npub]
+            guard store.relabelMention(bech32: member.npub, name: label) else { continue }
+            if case .chat(let selectedGroupIdHex) = selection, selectedGroupIdHex == groupIdHex {
+                didChangeSelectedChat = true
+            }
+        }
+        if didChangeSelectedChat {
+            selectedChatRevision &+= 1
         }
     }
 

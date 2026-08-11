@@ -2001,8 +2001,12 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// Pre-rendered Markdown display model for the message body. The Marmot core supplies
     /// parsed tokens; `MessageItem` converts them once so SwiftUI body/layout passes do not
     /// rebuild attributed strings or enumerated block arrays while scrolling.
-    let contentMarkdown: MarkdownDisplayDocument?
-    let mentionNames: MarkdownMentionNames
+    /// `var` for the same reason `senderName` is: the label a mention resolves to can change under
+    /// a materialized row (the viewer sets or clears a private nickname), and rewriting the runs
+    /// that name that person is far cheaper than re-projecting the window — see
+    /// `applyingMentionLabel(bech32:name:)`.
+    var contentMarkdown: MarkdownDisplayDocument?
+    var mentionNames: MarkdownMentionNames
     let trimmedBody: String
     let sentAt: Date
     let timelineAt: UInt64
@@ -2035,6 +2039,23 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             copy.publishedSenderName = nil
         }
         return copy == self ? nil : copy
+    }
+
+    /// Relabels this row's mentions of one person — `bech32` is the npub the mention travels as,
+    /// `name` the label it should now read as (nil restores the truncated-bech32 fallback).
+    ///
+    /// Returns nil when this row does not mention them, so a rename touches only the bubbles that
+    /// actually name the renamed person instead of re-rendering the window. The rewrite works off
+    /// the `nostr:` link the projection put on every mention run, so it also upgrades a mention
+    /// that was rendered before the roster was known and is still showing truncated bech32.
+    nonisolated func applyingMentionLabel(bech32: String, name: String?) -> MessageItem? {
+        guard let relabeled = contentMarkdown?.relabelingMention(bech32: bech32, name: name) else { return nil }
+        var copy = self
+        copy.contentMarkdown = relabeled
+        // Kept in step with the rendered runs: `mentionNames` is what equality compares, and it is
+        // what the next projection of this window will be built from.
+        copy.mentionNames[bech32] = name
+        return copy
     }
 
     /// Relabels the sender of the message this row quotes. A quote stores a resolved name rather
