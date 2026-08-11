@@ -152,11 +152,13 @@ extension WorkspaceState {
             // runs on the main actor, leaving non-selected direct chats on their raw fallback.
             startChatListListener(account: activeAccount, subscription: subscription)
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
-            await applyChatRows(rows, account: activeAccount)
+            await applyChatRows(rows, account: activeAccount, refreshingAccountUnreadSummary: false)
 
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             await selectInitialChatIfNeeded()
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
+            // Unconditional, unlike the row-gated refreshes: a reload is the one point that also
+            // re-reads the *other* accounts' totals, which no row delta of ours can move.
             await refreshAccountUnreadSummary()
         } catch is CancellationError {
             return
@@ -265,7 +267,14 @@ extension WorkspaceState {
         }
     }
 
-    func applyChatRows(_ rows: [ChatListRowFfi], account: AccountItem) async {
+    /// - Parameter refreshingAccountUnreadSummary: whether this pass owns the unread-summary
+    ///   refresh. A full reload runs its own unconditional refresh right after (the one moment
+    ///   background accounts' totals are re-read), so it opts out rather than query twice.
+    func applyChatRows(
+        _ rows: [ChatListRowFfi],
+        account: AccountItem,
+        refreshingAccountUnreadSummary: Bool = true
+    ) async {
         guard activeAccountId == account.id else { return }
 
         let activeRows = rows.filter { !$0.archived }
@@ -312,6 +321,9 @@ extension WorkspaceState {
         cancelVoiceRecordingIfSelectedMembershipEnded()
         ensureSelectedMessageTimelineStore()
         startChatListEnrichment(rows: rows, account: account)
+        if refreshingAccountUnreadSummary {
+            await refreshAccountUnreadSummaryIfChatRowsMovedIt()
+        }
     }
 
     /// A membership flip to left/removed swaps the selected chat's composer (its recording
@@ -339,6 +351,9 @@ extension WorkspaceState {
         case .removeRow(trigger: _, let groupIdHex):
             removeChat(groupIdHex: groupIdHex, account: account)
             removeArchivedChatFromList(chatId: groupIdHex, forAccountId: account.id)
+            // A removed chat takes its unread messages with it, so the avatar badge has to drop
+            // them too — `removeChat` is synchronous and has no other summary hook.
+            await refreshAccountUnreadSummaryIfChatRowsMovedIt()
         case .snapshot(let trigger, let rows):
             for row in rows {
                 invalidateGroupMemberDetailsCacheIfNeeded(trigger: trigger, groupIdHex: row.groupIdHex)
@@ -376,6 +391,7 @@ extension WorkspaceState {
             if shouldEnrich {
                 startChatListEnrichment(rows: [row], account: account, replacingCurrent: false)
             }
+            await refreshAccountUnreadSummaryIfChatRowsMovedIt()
             return
         }
 
@@ -411,6 +427,10 @@ extension WorkspaceState {
             readStateMetadataEnrichmentAttempts.insert(row.groupIdHex)
             await enrichChatRows([row], account: account)
         }
+        // The read-state fast path lands here: a marker advance clears the row's unread count, and
+        // the avatar badge above the chat list has to follow it down rather than wait for the next
+        // reload or account switch.
+        await refreshAccountUnreadSummaryIfChatRowsMovedIt()
     }
 
     func moveChatToArchived(row: ChatListRowFfi, account: AccountItem) {
