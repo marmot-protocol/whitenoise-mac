@@ -1514,7 +1514,11 @@ extension WorkspaceState {
         _ details: GroupDetailsFfi,
         managementState: GroupManagementStateFfi
     ) {
-        storeGroupMembers(details.members, for: details.group.groupIdHex)
+        storeGroupMembers(
+            details.members,
+            welcomerAccountIdHex: details.group.welcomerAccountIdHex,
+            for: details.group.groupIdHex
+        )
         let snapshot = groupDetailsSnapshot(from: details, managementState: managementState)
         groupDetailsSnapshot = snapshot
         groupProfileDraftName = snapshot.name
@@ -1599,12 +1603,18 @@ extension WorkspaceState {
             && groupImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
     }
 
-    func storeGroupMembers(_ members: [GroupMemberDetailsFfi], for groupIdHex: String) {
+    func storeGroupMembers(
+        _ members: [GroupMemberDetailsFfi],
+        welcomerAccountIdHex: String?,
+        for groupIdHex: String
+    ) {
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
         groupMemberDetailsLookups[groupIdHex] = nil
         mentionRosterCache[groupIdHex] = nil
         mentionNamesCache[groupIdHex] = nil
         groupMemberDetailsCache[groupIdHex] = members
+        groupWelcomerCache[groupIdHex] =
+            welcomerAccountIdHex?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
         // Every roster the app learns about flows through here, including the one chat-list
         // enrichment fetches for a freshly received invite. The welcoming account is always
         // a member of the group it invited us to, so this covers the inviter too — the
@@ -1618,6 +1628,7 @@ extension WorkspaceState {
         // peer recovery scan run again for it.
         unrecoverableDirectPeerGroupIds.remove(groupIdHex)
         groupMemberDetailsCache[groupIdHex] = nil
+        groupWelcomerCache[groupIdHex] = nil
         mentionRosterCache[groupIdHex] = nil
         mentionNamesCache[groupIdHex] = nil
         groupMemberDetailsLookups[groupIdHex]?.task.cancel()
@@ -1628,6 +1639,7 @@ extension WorkspaceState {
     func clearGroupMemberCache() {
         unrecoverableDirectPeerGroupIds.removeAll()
         groupMemberDetailsCache.removeAll()
+        groupWelcomerCache.removeAll()
         mentionRosterCache.removeAll()
         mentionNamesCache.removeAll()
         for lookup in groupMemberDetailsLookups.values {
@@ -1646,32 +1658,84 @@ extension WorkspaceState {
             return cached
         }
         if let lookup = groupMemberDetailsLookups[groupIdHex] {
-            return await lookup.task.value
+            return await lookup.task.value?.members
         }
 
         nextGroupMemberDetailsLookupToken += 1
         let token = nextGroupMemberDetailsLookupToken
         let accountRef = account.accountRef
-        let task = Task { () -> [GroupMemberDetailsFfi]? in
-            guard
-                let details = try? await client.groupDetails(
-                    accountRef: accountRef,
-                    groupIdHex: groupIdHex
-                )
-            else {
-                return nil
-            }
-            return details.members
+        let task = Task { () -> GroupDetailsFfi? in
+            try? await client.groupDetails(
+                accountRef: accountRef,
+                groupIdHex: groupIdHex
+            )
         }
         groupMemberDetailsLookups[groupIdHex] = GroupMemberDetailsLookup(token: token, task: task)
 
-        let members = await task.value
+        let details = await task.value
         if groupMemberDetailsLookups[groupIdHex]?.token == token {
             groupMemberDetailsLookups[groupIdHex] = nil
-            if activeAccountId == account.id, let members {
-                storeGroupMembers(members, for: groupIdHex)
+            if activeAccountId == account.id, let details {
+                storeGroupMembers(
+                    details.members,
+                    welcomerAccountIdHex: details.group.welcomerAccountIdHex,
+                    for: groupIdHex
+                )
             }
         }
-        return members
+        return details?.members
+    }
+
+    /// The account that sent the welcome for `groupIdHex`, once the app has read that group's
+    /// record — `nil` while the roster has not been fetched, and for a group whose local record
+    /// records no welcome sender (one this account created, or one joined before MDK kept it).
+    func inviterAccountIdHex(forGroupIdHex groupIdHex: String) -> String? {
+        groupWelcomerCache[groupIdHex]
+    }
+
+    /// What to call the inviter, resolved through the same precedence every other peer label
+    /// uses: private nickname, then published profile, then the roster entry, then the directory.
+    ///
+    /// `nil` covers both "nobody is recorded as having invited this account" and "someone is,
+    /// but no name for them has arrived yet" — the caller has better fallbacks for a name than
+    /// this does (a direct chat's title is the peer, resolved through the chat-list pipeline),
+    /// and `inviterIdentifierLabel` is the last resort under all of them.
+    func inviterDisplayName(forGroupIdHex groupIdHex: String) -> String? {
+        guard let accountIdHex = inviterAccountIdHex(forGroupIdHex: groupIdHex) else { return nil }
+        if accountIdHex == activeAccount?.accountIdHex { return activeAccount?.displayName }
+
+        if let nickname = contactNickname(forContactAccountIdHex: accountIdHex) {
+            return nickname
+        }
+        let member = groupMemberDetailsCache[groupIdHex]?.first { $0.memberIdHex == accountIdHex }
+        let resolved = peerProfileFFICache[accountIdHex]?.resolved
+        return firstNonBlank([
+            PeerDisplayText.sanitize(resolved?.profileDisplayName),
+            PeerDisplayText.sanitize(resolved?.profileName),
+            member.flatMap { PeerDisplayText.sanitize($0.displayName) },
+            member.flatMap { PeerDisplayText.sanitize($0.account) },
+            PeerDisplayText.sanitize(resolved?.directoryDisplayName),
+        ])
+    }
+
+    /// The shortened npub (or account id) of a known inviter nobody has published a name for.
+    /// Naming them by identifier still tells the user this invite came from a specific account,
+    /// and the profile replaces it in place once it resolves.
+    func inviterIdentifierLabel(forGroupIdHex groupIdHex: String) -> String? {
+        guard let accountIdHex = inviterAccountIdHex(forGroupIdHex: groupIdHex) else { return nil }
+        let member = groupMemberDetailsCache[groupIdHex]?.first { $0.memberIdHex == accountIdHex }
+        return member.map { DisplayText.short($0.npub, head: 12, tail: 8) }
+            ?? DisplayText.short(accountIdHex)
+    }
+
+    /// Fetches the roster — and with it the inviter — for a chat whose invite prompt is on
+    /// screen. The chat list enriches every row it projects, so this normally finds the cache
+    /// already warm; it exists because the invite prompt replaces the composer, which is what
+    /// otherwise pulls a roster in (`ensureMentionRosterLoaded`).
+    func ensureGroupInviterLoaded(forGroupIdHex groupIdHex: String) {
+        guard groupMemberDetailsCache[groupIdHex] == nil,
+            let client, let activeAccount
+        else { return }
+        Task { _ = await cachedGroupMembers(groupIdHex: groupIdHex, account: activeAccount, client: client) }
     }
 }
