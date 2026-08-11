@@ -542,6 +542,15 @@ struct MessageBubble: View {
         message.deliveryIndicator(at: deliveryClock)
     }
 
+    /// Hover text for the failure glyph. The bubble keeps the message's own text now, so this
+    /// glyph is the only visible thing saying the send failed — the tooltip carries the reason
+    /// ("Did not reach group" vs. "Not delivered") that the old tombstone body spelled out.
+    /// Empty in every other state, which shows no tooltip.
+    private var deliveryFailureHelp: String {
+        guard deliveryIndicator == .failed else { return "" }
+        return message.statusLabel(for: .failed) ?? ""
+    }
+
     /// The timestamp/delivery footer. One token in both directions, as on the other clients:
     /// `backgroundContentTertiary` is the neutral `400`/`500` step, which is the only rung that
     /// clears the sent bubble and the received bubble in both appearances.
@@ -564,7 +573,9 @@ struct MessageBubble: View {
                     // metadata's own tint next to the timestamp.
                     .foregroundStyle(
                         deliveryIndicator == .failed
-                            ? WNColor.backgroundContentDestructiveSecondary : metadataColor)
+                            ? WNColor.backgroundContentDestructiveSecondary : metadataColor
+                    )
+                    .help(deliveryFailureHelp)
             }
         }
         .wnFont(.medium10)

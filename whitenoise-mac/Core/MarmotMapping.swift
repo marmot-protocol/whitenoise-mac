@@ -174,7 +174,6 @@ extension ChatItem {
             plaintext: preview.plaintext,
             tags: [],
             deleted: preview.deleted,
-            invalidationStatus: nil,
             hasMediaAttachments: false
         )
         let sourceTextIsEmpty = preview.plaintext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -394,7 +393,6 @@ nonisolated extension MessageItem {
                 plaintext: plaintext,
                 tags: record.tags,
                 deleted: record.deleted,
-                invalidationStatus: record.invalidationStatus,
                 hasMediaAttachments: !mediaAttachments.isEmpty
             )
 
@@ -425,7 +423,6 @@ nonisolated extension MessageItem {
                     document: record.contentTokens,
                     displayedBody: body,
                     deleted: record.deleted,
-                    invalidationStatus: record.invalidationStatus,
                     presentation: presentation
                 ),
             mentionNames: mentionNames,
@@ -911,14 +908,16 @@ nonisolated extension MessageItem {
     /// The Markdown document to render in a chat bubble, or `nil` when the bubble
     /// should fall back to plain text — system rows, deleted messages, or content
     /// the core parsed into no blocks (e.g. media-only / empty plaintext).
+    ///
+    /// An invalidated row is *not* excluded: it still shows its own content, so it renders with
+    /// the same formatting it would have had on delivery.
     fileprivate static func renderableMarkdown(
         document: MarkdownDocumentFfi,
         displayedBody: String,
         deleted: Bool,
-        invalidationStatus: String?,
         presentation: MessagePresentation
     ) -> MarkdownDocumentFfi? {
-        guard presentation.isChatBubble, !deleted, invalidationStatus == nil, !document.blocks.isEmpty else {
+        guard presentation.isChatBubble, !deleted, !document.blocks.isEmpty else {
             return nil
         }
         // Fast path: an unstyled single-paragraph message renders identically to the plain
@@ -955,18 +954,18 @@ nonisolated extension MessageItem {
         return parsedText == displayedBody
     }
 
+    /// Invalidation deliberately has no say here. A message that lost convergence keeps its own
+    /// text — replacing it with a tombstone threw away the one thing the reader wants, which was
+    /// *what* failed to send. The failure is carried by the bubble's delivery footer instead
+    /// (`deliveryIndicator(at:)` → `.failed`), matching the iOS client. Deletion still tombstones:
+    /// there the content is genuinely retracted rather than merely undelivered.
     static func displayText(
         presentation: MessagePresentation,
         plaintext: String,
         tags: [MessageTagFfi],
         deleted: Bool,
-        invalidationStatus: String? = nil,
         hasMediaAttachments: Bool = false
     ) -> String {
-        if invalidationStatus != nil {
-            return L10n.string("Message did not reach the group")
-        }
-
         if deleted {
             return L10n.string("Message deleted")
         }
