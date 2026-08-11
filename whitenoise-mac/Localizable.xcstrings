@@ -20594,65 +20594,6 @@
         }
       }
     },
-    "Full Data Logging": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vollständige Datenprotokollierung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registro completo de datos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Journalisation complète des données"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registrazione completa dei dati"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registro completo de dados"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Полное журналирование данных"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tam veri kaydı"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完整数据日志"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完整資料日誌"
-          }
-        }
-      }
-    },
     "General": {
       "extractionState": "manual",
       "localizations": {
@@ -24785,65 +24726,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "離開群組"
-          }
-        }
-      }
-    },
-    "Leave off to keep sensitive data obfuscated.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lass die Option aus, damit sensible Daten verschleiert bleiben."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déjalo desactivado para mantener ofuscados los datos sensibles."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laissez cette option désactivée pour que les données sensibles restent masquées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lascia l’opzione disattivata per mantenere offuscati i dati sensibili."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deixe desativado para manter os dados sensíveis ofuscados."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оставьте выключенным, чтобы конфиденциальные данные оставались скрытыми."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hassas verilerin gizli kalması için kapalı bırakın."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保持关闭可使敏感数据保持模糊处理。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保持關閉可使敏感資料保持模糊處理。"
           }
         }
       }
@@ -38798,65 +38680,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "收件者"
-          }
-        }
-      }
-    },
-    "Record decrypted message content and full identifiers. ": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entschlüsselten Nachrichteninhalt und vollständige Kennungen aufzeichnen. "
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registrar el contenido descifrado de los mensajes y los identificadores completos. "
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enregistrer le contenu déchiffré des messages et les identifiants complets. "
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registra il contenuto decrittografato dei messaggi e gli identificatori completi. "
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Registrar o conteúdo descriptografado das mensagens e os identificadores completos. "
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Записывать расшифрованное содержимое сообщений и полные идентификаторы. "
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Şifresi çözülmüş mesaj içeriğini ve tam tanımlayıcıları kaydet. "
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "记录已解密的消息内容和完整标识符。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "記錄已解密的訊息內容和完整識別碼。"
           }
         }
       }
