@@ -141,7 +141,7 @@ struct GroupDetailsSheet: View {
                 // Leading, like the compose pane and the settings header: this pane slides
                 // in over the transcript, so the chevron is a back control and reads as one
                 // only on the side you came from.
-                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat") {
+                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back to chat", appearance: .outline) {
                     workspace.closeGroupDetails()
                 }
 
@@ -215,7 +215,7 @@ struct GroupDetailsSheet: View {
                                     .nativeGlassProminentButtonStyle()
                                     .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
 
-                                    Button(role: .destructive) {
+                                    Button {
                                         Task { await workspace.declineSelectedGroupInvite() }
                                     } label: {
                                         Label(
@@ -224,6 +224,7 @@ struct GroupDetailsSheet: View {
                                             systemImage: "xmark.circle"
                                         )
                                     }
+                                    .buttonStyle(.wnSecondary)
                                     .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
 
                                     Spacer()
@@ -285,6 +286,7 @@ struct GroupDetailsSheet: View {
                                 } label: {
                                     Label(L10n.string("Search Web Image"), systemImage: "photo.badge.plus")
                                 }
+                                .buttonStyle(.wnSecondary)
                                 .disabled(workspace.hasInFlightGroupCommit)
                             }
 
@@ -435,6 +437,7 @@ struct GroupDetailsSheet: View {
                             } label: {
                                 Label(L10n.string("Delete expired now"), systemImage: "trash")
                             }
+                            .buttonStyle(.wnSecondary)
                             .disabled(workspace.isSecureDeletingExpired)
                             .help(L10n.string("Securely prune already-expired messages on this device"))
                         }
@@ -442,7 +445,11 @@ struct GroupDetailsSheet: View {
 
                     Section(L10n.string("Group Actions")) {
                         HStack(spacing: 10) {
-                            Button(role: snapshot.archived ? nil : .destructive) {
+                            // Archiving is reversible and the other clients draw it as `outline`
+                            // rather than `destructive` (`group_info_screen.dart`), so it takes the
+                            // secondary style in both directions instead of turning red to archive
+                            // and plain to unarchive.
+                            Button {
                                 showArchiveConfirmation = true
                             } label: {
                                 Label(
@@ -450,14 +457,20 @@ struct GroupDetailsSheet: View {
                                     systemImage: snapshot.archived ? "tray.and.arrow.up" : "archivebox"
                                 )
                             }
+                            .buttonStyle(.wnSecondary)
                             .disabled(workspace.isArchivingGroup)
 
                             if snapshot.isSelfAdmin {
-                                Button(role: .destructive) {
+                                // `group_member_screen.dart` builds "remove admin role" as
+                                // `outline`, keeping `destructive` for removing someone from the
+                                // group. Giving up your own admin rights is reversible by another
+                                // admin, so it follows that split rather than reading as a deletion.
+                                Button {
                                     showSelfDemoteConfirmation = true
                                 } label: {
                                     Label(L10n.string("Step Down as Admin"), systemImage: "star.slash")
                                 }
+                                .buttonStyle(.wnSecondary)
                                 .disabled(workspace.hasInFlightGroupCommit || snapshot.isLastAdmin)
                             }
 
@@ -706,7 +719,7 @@ struct GroupDiagnosticsValueRow: View {
                     Image(systemName: "doc.on.doc")
                         .frame(width: 24, height: 24)
                 }
-                .nativeGlassButtonStyle()
+                .buttonStyle(.wnSecondary)
                 .help(String(format: L10n.string("Copy %@"), title))
             }
         }
@@ -846,7 +859,7 @@ struct ContactDetailsView: View {
             HStack(spacing: 12) {
                 // Leading back control, matching GroupDetailsSheet: both panes slide in
                 // over the transcript and return to it.
-                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back") {
+                GlassCircleCloseButton(symbol: "chevron.backward", help: "Back", appearance: .outline) {
                     workspace.closeContactDetails()
                 }
 
@@ -911,6 +924,7 @@ struct ContactDetailsView: View {
                     } label: {
                         Label(L10n.string("Copy Public Key"), systemImage: "doc.on.doc")
                     }
+                    .buttonStyle(.wnSecondary)
 
                     SettingsErrorView(error: workspace.lastError)
                 }
@@ -1049,6 +1063,7 @@ private struct ContactFollowControl: View {
                         .frame(maxWidth: .infinity)
                     }
                 }
+                .buttonStyle(.wnSecondary)
                 .disabled(workspace.isTogglingFollow)
                 .accessibilityLabel(isFollowing ? L10n.string("Unfollow") : L10n.string("Follow"))
                 .accessibilityIdentifier("contact.details.follow")
@@ -1060,6 +1075,7 @@ private struct ContactFollowControl: View {
                     Label(L10n.string("Retry"), systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.wnSecondary)
                 .help(L10n.string("Couldn't check whether you follow this person."))
                 .accessibilityIdentifier("contact.details.follow.retry")
             }

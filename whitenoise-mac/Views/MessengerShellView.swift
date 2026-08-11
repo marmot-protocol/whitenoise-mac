@@ -163,6 +163,7 @@ private struct WelcomeAuthView: View {
                         Button(L10n.string("Cancel")) {
                             workspace.cancelLogin()
                         }
+                        .buttonStyle(.wnSecondary)
                         .disabled(workspace.isAuthenticating)
 
                         Button(
@@ -297,7 +298,7 @@ private struct SignedOutAccountsView: View {
             Button(L10n.string("Use another account")) {
                 workspace.showAccountOnboarding()
             }
-            .nativeGlassButtonStyle()
+            .buttonStyle(.wnSecondary)
             .disabled(workspace.isSigningOutAccount)
 
             if let lastError = workspace.lastError {

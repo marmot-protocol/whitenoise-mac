@@ -142,6 +142,7 @@ struct GeneralSettingsView: View {
                 Button(L10n.string("Open Login Items Settings")) {
                     launchAtLogin.openSystemSettings()
                 }
+                .buttonStyle(.wnSecondary)
             }
         case .notFound:
             Label(
@@ -170,7 +171,7 @@ struct SettingsHeader: View {
                             .wnFont(.semiBold14)
                             .frame(width: 28, height: 28)
                     }
-                    .nativeGlassButtonStyle()
+                    .buttonStyle(.wnSecondary)
                     .help(L10n.string("Back to settings"))
                 }
 
@@ -395,7 +396,7 @@ struct PublicIdentityQRCodeSheet: View {
                         systemImage: isConfirming ? "checkmark" : "doc.on.doc"
                     )
                 }
-                .nativeGlassButtonStyle()
+                .buttonStyle(.wnSecondary)
 
                 Spacer()
 
@@ -705,6 +706,7 @@ struct ProfileImagePickerSheet: View {
                     } label: {
                         Label(L10n.string("Choose from Mac"), systemImage: "photo.badge.plus")
                     }
+                    .buttonStyle(.wnSecondary)
                     .disabled(workspace.isUploadingProfileImage)
 
                     Spacer()
@@ -873,6 +875,7 @@ struct IdentityKeysSettingsView: View {
                     } label: {
                         Label(L10n.string("Back Up Private Key…"), systemImage: "key")
                     }
+                    .buttonStyle(.wnSecondary)
                     .disabled(!account.localSigning)
                     .help(
                         account.localSigning
@@ -889,13 +892,17 @@ struct IdentityKeysSettingsView: View {
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                    Button(role: .destructive) {
+                    Button {
                         showRemoveAccountConfirmation = true
                     } label: {
                         Label(
                             workspace.isRemovingAccount ? L10n.string("Removing...") : L10n.string("Remove Account"),
                             systemImage: "person.crop.circle.badge.minus")
                     }
+                    // Outline rather than red by explicit request, and with no destructive
+                    // `role` to contradict that. The confirmation dialog this opens is
+                    // system-rendered, so the irreversible step is still the one drawn in red.
+                    .buttonStyle(.wnSecondary)
                     .disabled(workspace.isAccountMutationInProgress)
                 }
             } else {
@@ -1202,6 +1209,7 @@ struct AppearanceSettingsView: View {
                 Button(L10n.string("Restore defaults")) {
                     workspace.restoreDefaultQuickReactions()
                 }
+                .buttonStyle(.wnSecondary)
                 .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
             }
         }
@@ -1305,6 +1313,7 @@ struct PrivacySecuritySettingsView: View {
                     } label: {
                         Label(L10n.string("Refresh"), systemImage: "arrow.clockwise")
                     }
+                    .buttonStyle(.wnSecondary)
                     .disabled(workspace.isLoadingAuditLogFiles)
                 }
 
@@ -1494,12 +1503,14 @@ struct NotificationsSettingsView: View {
                     } label: {
                         Label(L10n.string("Allow Notifications"), systemImage: "checkmark.circle")
                     }
+                    .buttonStyle(.wnSecondary)
                 } else if workspace.notificationAuthorizationStatus == .denied {
                     Button {
                         workspace.openSystemNotificationSettings()
                     } label: {
                         Label(L10n.string("Open System Settings"), systemImage: "gear")
                     }
+                    .buttonStyle(.wnSecondary)
                 }
             }
 
@@ -1562,7 +1573,7 @@ struct StorageSettingsView: View {
                 .foregroundStyle(WNColor.backgroundContentSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-                Button(role: .destructive) {
+                Button {
                     showClearConfirmation = true
                 } label: {
                     HStack(spacing: 8) {
@@ -1576,6 +1587,10 @@ struct StorageSettingsView: View {
                         )
                     }
                 }
+                // Outline rather than red by explicit request, and with no destructive `role`
+                // to contradict that. The confirmation dialog it opens is system-rendered, so the
+                // irreversible step is still the one drawn in red.
+                .buttonStyle(.wnSecondary)
                 .disabled(
                     workspace.isClearingMediaCache
                         || workspace.isLoadingMediaCacheFootprint
@@ -1659,6 +1674,7 @@ struct DeveloperModeSettingsView: View {
                 } label: {
                     Label(L10n.string("Open Storage Folder"), systemImage: "folder")
                 }
+                .buttonStyle(.wnSecondary)
             }
 
             Section(L10n.string("Diagnostics")) {
@@ -1731,6 +1747,7 @@ struct RelaySettingsView: View {
                     } label: {
                         Label(L10n.string("Add"), systemImage: "plus")
                     }
+                    .buttonStyle(.wnSecondary)
                     .help(L10n.string("Add relay"))
                 }
             }
@@ -1752,6 +1769,7 @@ struct RelaySettingsView: View {
                     } label: {
                         Label(L10n.string("Restore defaults"), systemImage: "arrow.counterclockwise")
                     }
+                    .buttonStyle(.wnSecondary)
                     .disabled(workspace.isSavingRelays)
 
                     if workspace.isLoadingSettings {
@@ -1871,6 +1889,7 @@ struct KeyPackageSettingsView: View {
                                 ? L10n.string("Republishing...") : L10n.string("Republish latest"),
                             systemImage: "arrow.triangle.2.circlepath")
                     }
+                    .buttonStyle(.wnSecondary)
                     .disabled(workspace.isRepublishingKeyPackage || workspace.activeAccount == nil)
 
                     if workspace.isLoadingSettings {

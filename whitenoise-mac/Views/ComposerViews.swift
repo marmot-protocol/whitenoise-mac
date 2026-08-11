@@ -1504,7 +1504,10 @@ struct PendingGroupInviteComposerNotice: View {
                 .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
                 .help(L10n.string("Accept invite"))
 
-                Button(role: .destructive) {
+                // No destructive `role`: `chat_invite_screen.dart` builds Decline as `outline`,
+                // and the group-details Decline already dropped it. Marking it destructive while
+                // rendering it secondary is a trap — see `WNSecondaryButtonStyle`.
+                Button {
                     Task { await workspace.declineGroupInvite(for: chat) }
                 } label: {
                     HStack(spacing: 8) {
@@ -1519,7 +1522,7 @@ struct PendingGroupInviteComposerNotice: View {
                     .frame(maxWidth: .infinity, minHeight: 40)
                 }
                 .controlSize(.large)
-                .nativeGlassButtonStyle()
+                .buttonStyle(.wnSecondary)
                 .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
                 .help(L10n.string("Decline invite"))
             }

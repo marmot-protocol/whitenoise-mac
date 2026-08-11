@@ -557,7 +557,7 @@ private struct ComposePaneHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            GlassCircleCloseButton(symbol: "chevron.backward", help: "Back", action: onBack)
+            GlassCircleCloseButton(symbol: "chevron.backward", help: "Back", appearance: .outline, action: onBack)
             Spacer()
         }
         .overlay {
