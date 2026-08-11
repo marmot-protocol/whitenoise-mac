@@ -601,6 +601,9 @@ nonisolated extension MessageItem {
             return String(format: L10n.string("%@ added %@"), actorName, subjectName)
         }
         if let subjectStartName {
+            if event.subjectAccountIdHex == activeAccountIdHex {
+                return L10n.string("You were added")
+            }
             return String(format: L10n.string("%@ was added"), subjectStartName)
         }
         if let actorName {
@@ -643,6 +646,9 @@ nonisolated extension MessageItem {
             return String(format: L10n.string("%@ removed %@"), actorName, subjectName)
         }
         if let subjectStartName {
+            if event.subjectAccountIdHex == activeAccountIdHex {
+                return L10n.string("You were removed")
+            }
             return String(format: L10n.string("%@ was removed"), subjectStartName)
         }
         if let actorName {
@@ -748,6 +754,9 @@ nonisolated extension MessageItem {
             return String(format: L10n.string("%@ removed %@ as admin"), actorName, subjectName)
         }
         if let subjectStartName {
+            if event.subjectAccountIdHex == activeAccountIdHex {
+                return L10n.string("You are no longer an admin")
+            }
             return String(format: L10n.string("%@ is no longer an admin"), subjectStartName)
         }
         if let actorName {
