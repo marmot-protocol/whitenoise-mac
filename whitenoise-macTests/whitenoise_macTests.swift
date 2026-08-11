@@ -14190,10 +14190,9 @@ struct whitenoise_macTests {
     }
 
     /// A mention is baked into the bubble's attributed string when the window is projected, so
-    /// nicknaming someone the open conversation mentions cannot be patched in the way a sender
-    /// label can — it needs the window replayed. Every earlier message has to change, including
-    /// ones no live delta would ever revisit, and clearing the nickname has to give the published
-    /// name back.
+    /// nicknaming someone the open conversation mentions has to reach rows already on screen.
+    /// Every earlier message has to change, including ones no live delta would ever revisit, and
+    /// clearing the nickname has to give the published name back.
     @MainActor
     @Test func nicknamingAMentionedMemberRepaintsTheOpenTranscript() async throws {
         let account = AccountSummaryFfi(
@@ -14245,7 +14244,9 @@ struct whitenoise_macTests {
             },
             groupIdHex: "direct-group"
         )
-        let state = WorkspaceState(clientFactory: { runtime })
+        let nicknames = isolatedContactNicknameStore()
+        defer { try? FileManager.default.removeItem(at: nicknames.directoryURL) }
+        let state = WorkspaceState(contactNicknameStore: nicknames.store, clientFactory: { runtime })
 
         await state.bootstrap()
         await state.loadMessages(groupIdHex: "direct-group")
@@ -14260,16 +14261,178 @@ struct whitenoise_macTests {
         let projectedIds = (state.messagesByChat["direct-group"] ?? []).map(\.id)
 
         state.setContactNickname("Mum", forContactAccountIdHex: aliceId)
-        await state.contactNicknameMentionReplayTask?.value
 
         #expect(renderedMentions() == Array(repeating: "ping @Mum", count: 3))
-        // Replayed, not reloaded: the same rows in the same order.
+        // Relabeled, not reloaded: the same rows in the same order.
         #expect((state.messagesByChat["direct-group"] ?? []).map(\.id) == projectedIds)
 
         state.setContactNickname(nil, forContactAccountIdHex: aliceId)
-        await state.contactNicknameMentionReplayTask?.value
 
         #expect(renderedMentions() == Array(repeating: "ping @Alice Cooper", count: 3))
+    }
+
+    /// The regression behind "I renamed a member, came back to the chat, and the old mentions still
+    /// showed the old name; it only fixed itself after I navigated away and back".
+    ///
+    /// A rename must reach the mentions in a materialized window with no live timeline
+    /// subscription to snapshot — the state between a listener teardown and its next subscribe,
+    /// during a reconnect, or whenever the runtime has no window to hand back. The transcript is
+    /// still on screen throughout, and re-selecting the conversation (which re-projects from
+    /// scratch) is exactly the workaround this test forbids. It also has to be free of FFI: the
+    /// rows are rewritten in place, not re-fetched.
+    @MainActor
+    @Test func nicknamingAMentionedGroupMemberRelabelsWithoutReplayingTheWindow() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let mentionTokens = MarkdownDocumentFfi(
+            blocks: [
+                .paragraph(inlines: [
+                    .text(content: "ping "),
+                    .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: "npub1alyce")),
+                ])
+            ],
+            truncated: false
+        )
+        let baseTime: UInt64 = 1_700_000_000
+        runtime.installMessages(
+            (0..<3).map { index in
+                appMessage(
+                    id: "message-\(index)",
+                    groupIdHex: "group",
+                    sender: bobId,
+                    plaintext: "ping @npub1alyce",
+                    contentTokens: mentionTokens,
+                    kind: 9,
+                    recordedAt: baseTime + UInt64(index)
+                )
+            },
+            groupIdHex: "group"
+        )
+        let nicknames = isolatedContactNicknameStore()
+        defer { try? FileManager.default.removeItem(at: nicknames.directoryURL) }
+        let state = WorkspaceState(contactNicknameStore: nicknames.store, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "group")
+
+        func renderedMentions() -> [String] {
+            (state.messagesByChat["group"] ?? []).map { message in
+                message.contentMarkdown?.inlineParagraph.map { String($0.characters) } ?? ""
+            }
+        }
+
+        #expect(renderedMentions() == Array(repeating: "ping @Alice", count: 3))
+        let projectedIds = (state.messagesByChat["group"] ?? []).map(\.id)
+
+        // The transcript stays on screen, but there is no subscription left to snapshot.
+        state.stopTimelineListener()
+        #expect(state.activeTimelineSubscription == nil)
+        runtime.clearSyncCallThreadRecords()
+        runtime.clearTimelineMessageQueries()
+        let buildsBefore = state.messageTimelineStores["group"]?.displayItemsBuildCount ?? 0
+
+        state.setContactNickname("Mum", forContactAccountIdHex: aliceId)
+
+        // Landed on the gesture, with no window fetched and no re-anchoring of the window.
+        #expect(renderedMentions() == Array(repeating: "ping @Mum", count: 3))
+        #expect((state.messagesByChat["group"] ?? []).map(\.id) == projectedIds)
+        #expect(runtime.syncCallThreadRecord("timelineMessagesSubscription.snapshot").isEmpty)
+        #expect(runtime.timelineMessageQueries.isEmpty)
+        #expect(state.messageTimelineStores["group"]?.displayItemsBuildCount == buildsBefore + 1)
+
+        // The mention keeps everything the projection gave it besides the label: it is still a
+        // tappable `nostr:` reference to the same person, still emphasized, still accented.
+        let relabeled = try #require((state.messagesByChat["group"] ?? []).first?.contentMarkdown?.inlineParagraph)
+        let mentionRun = relabeled.runs.first { $0.link != nil }
+        #expect(mentionRun?.link == MarkdownLinkPolicy.nostrURL(for: "npub1alyce"))
+        #expect(mentionRun?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
+        #expect(mentionRun?.foregroundColor == MentionTextPalette.foreground(forNpub: "npub1alyce"))
+
+        // Renaming somebody this conversation neither mentions nor lists must not touch a row.
+        let buildsAfterRename = state.messageTimelineStores["group"]?.displayItemsBuildCount ?? 0
+        state.setContactNickname("Carol", forContactAccountIdHex: String(repeating: "c0", count: 32))
+        #expect(state.messageTimelineStores["group"]?.displayItemsBuildCount == buildsAfterRename)
+
+        // Renaming the *sender* relabels their name above the bubble (`relabelTimelineSenders`)
+        // and must leave the mention inside it alone.
+        state.setContactNickname("Bobby", forContactAccountIdHex: bobId)
+        #expect(renderedMentions() == Array(repeating: "ping @Mum", count: 3))
+        #expect((state.messagesByChat["group"] ?? []).allSatisfy { $0.senderName == "Bobby" })
+
+        // Clearing hands the label back to the name the member published.
+        state.setContactNickname(nil, forContactAccountIdHex: aliceId)
+        #expect(renderedMentions() == Array(repeating: "ping @Alice", count: 3))
+    }
+
+    /// The in-place relabel has to agree with what a full re-projection of the same window would
+    /// produce, or the label would flip back on the next delta. Renaming with no subscription and
+    /// then re-projecting the window must land on the same text.
+    @MainActor
+    @Test func mentionRelabelMatchesTheNextReprojectionOfTheWindow() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let bobId = "bob1234567890bob1234567890bob1234567890bob1234567890bob1"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let mentionTokens = MarkdownDocumentFfi(
+            blocks: [
+                .paragraph(inlines: [
+                    .text(content: "ping "),
+                    .nostrMention(entity: MarkdownNostrEntityFfi(hrp: .npub, bech32: "npub1alyce")),
+                ])
+            ],
+            truncated: false
+        )
+        runtime.installMessages(
+            [
+                appMessage(
+                    id: "message-0",
+                    groupIdHex: "group",
+                    sender: bobId,
+                    plaintext: "ping @npub1alyce",
+                    contentTokens: mentionTokens,
+                    kind: 9,
+                    recordedAt: 1_700_000_000
+                )
+            ],
+            groupIdHex: "group"
+        )
+        let nicknames = isolatedContactNicknameStore()
+        defer { try? FileManager.default.removeItem(at: nicknames.directoryURL) }
+        let state = WorkspaceState(contactNicknameStore: nicknames.store, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadMessages(groupIdHex: "group")
+
+        func renderedMention() -> String? {
+            (state.messagesByChat["group"] ?? []).first?.contentMarkdown?.inlineParagraph
+                .map { String($0.characters) }
+        }
+
+        state.stopTimelineListener()
+        state.setContactNickname("Mum", forContactAccountIdHex: aliceId)
+        let afterRelabel = renderedMention()
+        #expect(afterRelabel == "ping @Mum")
+
+        await state.loadMessages(groupIdHex: "group")
+        #expect(renderedMention() == afterRelabel)
     }
 
     @MainActor
@@ -33277,6 +33440,22 @@ private func firstParagraph(in blocks: [MarkdownDisplayBlockNode]) -> Attributed
         }
     }
     return nil
+}
+
+/// A nickname store rooted in a directory of this test's own.
+///
+/// `bootstrap()` creates a real `ContactNicknameFileStore` under the Marmot storage root when none
+/// is injected, and the fake runtime's root is a fixed path shared by every test — so a test that
+/// writes a nickname and does not inject a store persists it for whatever runs next, which then
+/// reads it back through `loadContactNicknames()`. That is invisible until the suite happens to
+/// order a nickname-writing test ahead of one asserting a published name (it broke
+/// `steadyStatePeerProfileRefreshMakesNoRequestsAcrossWindowsAndDeltas`, which expected
+/// "Alice Cooper" and got "Mum"). Injecting a per-test directory makes the test hermetic in both
+/// directions rather than relying on it to clear up after itself.
+private func isolatedContactNicknameStore() -> (store: ContactNicknameFileStore, directoryURL: URL) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("whitenoise-nicknames-\(UUID().uuidString)", isDirectory: true)
+    return (ContactNicknameFileStore(directoryURL: directory), directory)
 }
 
 private func restoreDefault(_ value: Any?, forKey key: String) {
