@@ -521,6 +521,12 @@ extension WorkspaceState {
         timelinePagingByChat.removeAll()
         clearConversationMetadata()
         accountUnreadByIdHex.removeAll()
+        // The recorded signal describes counts that no longer exist; keeping it could suppress
+        // the refresh that repopulates the badges after the next account takes over. Bumping the
+        // generation also drops any answer still in flight, which would otherwise repopulate the
+        // badges the teardown just cleared.
+        lastSummarizedAccountUnread = nil
+        accountUnreadSummaryGeneration &+= 1
         // Read markers are keyed by groupIdHex; leaving them behind both retains a
         // record of which messages the signed-out identity read and lets a recurring
         // group id suppress the first legitimate read-mark advance after re-login. The
@@ -657,16 +663,77 @@ extension WorkspaceState {
 
     /// Refresh per-account unread totals without loading each account's full session.
     func refreshAccountUnreadSummary() async {
+        await refreshAccountUnreadSummary(reflecting: currentAccountUnreadSignal())
+    }
+
+    /// Re-run the summary only when the active account's own chat rows have moved its unread total.
+    ///
+    /// The avatar badge reads `accountUnreadByIdHex`, which comes from a different backend query
+    /// than the chat-list subscription feeding the rows. Reading a chat updates the rows live but
+    /// left the summary at its pre-read value, so the active account's avatar kept a badge for
+    /// messages it had already read until the next full reload or account switch (the only two
+    /// callers of the summary). Gating on the row-derived signal keeps the badge honest without
+    /// putting an FFI query on every read-marker advance.
+    func refreshAccountUnreadSummaryIfChatRowsMovedIt() async {
+        let signal = currentAccountUnreadSignal()
+        guard signal != lastSummarizedAccountUnread else { return }
+        await refreshAccountUnreadSummary(reflecting: signal)
+    }
+
+    private func refreshAccountUnreadSummary(reflecting signal: AccountUnreadSignal?) async {
         guard let client else { return }
+        // Two refreshes can be in flight at once (a read-marker advance and a chat-list reload
+        // race routinely), and the FFI answers in whatever order it finishes. Only the newest
+        // request for the still-active account may commit: a late answer landing last would
+        // restore a pre-read total and — because committing also records its signal — leave the
+        // gate suppressing the very refresh that would correct it.
+        accountUnreadSummaryGeneration &+= 1
+        let generation = accountUnreadSummaryGeneration
+        let requestedAccountId = activeAccountId
         do {
             let rows = try await runOffMain { try client.accountUnreadSummary() }
+            guard accountUnreadSummaryGeneration == generation, activeAccountId == requestedAccountId else {
+                return
+            }
             accountUnreadByIdHex = Dictionary(
                 rows.map { ($0.accountIdHex, Int(clamping: $0.unreadCount)) },
                 uniquingKeysWith: { lhs, _ in lhs }
             )
+            // Record the signal captured before the query, not the current one: rows that changed
+            // while it was in flight are not reflected in these totals and must still trigger a
+            // follow-up refresh.
+            lastSummarizedAccountUnread = signal
         } catch {
-            // Unread badges are best-effort; leave the prior values on failure.
+            // Unread badges are best-effort; leave the prior values — and the prior signal, so the
+            // next row change retries — on failure.
         }
+    }
+
+    /// The active account's aggregate unread state as its own loaded chat rows report it.
+    ///
+    /// This is never what the badge displays (that stays the backend summary, which is the only
+    /// value comparable across accounts); it is the cheap local signal for noticing that the
+    /// displayed summary went stale.
+    func currentAccountUnreadSignal() -> AccountUnreadSignal? {
+        guard let activeAccountId else { return nil }
+        // Archived chats carry unread counts too, and the chat-list subscription loads them in the
+        // same snapshot, so a signal built from the active list alone would miss their changes.
+        let chats = (chatsByAccount[activeAccountId] ?? []) + (archivedChatsByAccount[activeAccountId] ?? [])
+        var totalUnreadCount = 0
+        var unreadChatCount = 0
+        for chat in chats {
+            // A change signal, not a displayed count: wrapping addition keeps a pathological
+            // row total (rows clamp to `Int.max`) from trapping here.
+            totalUnreadCount &+= chat.unreadCount
+            if chat.hasUnread {
+                unreadChatCount += 1
+            }
+        }
+        return AccountUnreadSignal(
+            accountId: activeAccountId,
+            totalUnreadCount: totalUnreadCount,
+            unreadChatCount: unreadChatCount
+        )
     }
 
     /// Aggregate unread count for an account's avatar badge in the switcher.
@@ -870,6 +937,8 @@ extension WorkspaceState {
         clearConversationMetadata()
         clearSharedMedia()
         accountUnreadByIdHex.removeAll()
+        lastSummarizedAccountUnread = nil
+        accountUnreadSummaryGeneration &+= 1
         // "Delete All Local Data" must also evict decoded peer/group avatars held in the
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.

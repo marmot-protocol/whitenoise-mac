@@ -1313,6 +1313,11 @@ final class WorkspaceState {
     }
     /// Per-account unread totals keyed by `accountIdHex`, for switcher avatar badges.
     var accountUnreadByIdHex: [String: Int] = [:]
+    /// The active account's row-derived unread signal at the time `accountUnreadByIdHex` was
+    /// last refreshed, so the summary is only re-queried once the rows actually move it.
+    @ObservationIgnored var lastSummarizedAccountUnread: AccountUnreadSignal?
+    /// Bumped per summary request so only the newest one may commit its answer.
+    @ObservationIgnored var accountUnreadSummaryGeneration: UInt64 = 0
     var isSavingRelays = false
     var isPublishingKeyPackage = false
     var isRepublishingKeyPackage = false
