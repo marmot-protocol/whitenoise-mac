@@ -115,10 +115,16 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// Deliberately *not* pre-filled with a "No messages yet" placeholder: what an empty chat
     /// says depends on why it is empty — an unanswered invite explains itself here — and the
     /// answer is localized, so it is resolved at render time by `previewPlaceholder(locale:)`.
-    let preview: String
+    ///
+    /// `private(set)` so the only in-place writer is `relabelingPreviewSender` below, which
+    /// recomposes the attribution prefix from `previewAttribution`.
+    private(set) var preview: String
     /// Set when the last message carries attachments, so the row can mark the preview with a
     /// media glyph. Travels with `preview` — anything that carries one forward carries both.
     let previewAttachmentKind: ChatPreviewAttachmentKind?
+    /// The parts `preview` was composed from, set only when the line is attributed to another
+    /// account. Travels with `preview` for the same reason `previewAttachmentKind` does.
+    let previewAttribution: ChatPreviewAttribution?
     let updatedAt: Date?
     let avatarSeed: String
     /// `private(set)` so the only in-place writer is `replacingPeerPresentation` below, which
@@ -195,6 +201,38 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         return avatarSeed
     }
 
+    /// A chat row's last-message line with the sender it is attributed to, or the line alone when
+    /// nobody's name precedes it.
+    ///
+    /// The name is bidi-isolated so a peer-controlled display name cannot reorder the message text
+    /// that follows it. An empty name means "unattributed" — a member who published no name and
+    /// carries no nickname has nothing to put here.
+    nonisolated static func attributedPreviewText(body: String, senderName: String?) -> String {
+        guard let senderName, !senderName.isEmpty else { return body }
+        return "\(PeerDisplayText.templateFragment(senderName)): \(body)"
+    }
+
+    /// A copy whose last-message attribution reflects `nickname`, or `self` when this row's
+    /// preview is not attributed to that account.
+    ///
+    /// Recomposing the line beats re-projecting the row: a nickname write must not put chat-list
+    /// enrichment (roster + profile FFI) back on a user gesture. Rows the nickname does not touch
+    /// return unchanged so an unrelated contact's rename never churns the chat-list generation.
+    nonisolated func relabelingPreviewSender(accountIdHex: String, nickname: String?) -> ChatItem {
+        guard let previewAttribution,
+            ContactNicknames.normalizedHex(previewAttribution.senderAccountIdHex) == accountIdHex
+        else { return self }
+
+        let text = Self.attributedPreviewText(
+            body: previewAttribution.body,
+            senderName: nickname ?? previewAttribution.publishedSenderName
+        )
+        guard text != preview else { return self }
+        var copy = self
+        copy.preview = text
+        return copy
+    }
+
     /// A copy whose title reflects `nickname`, leaving every other field identical.
     ///
     /// Applying a private nickname must not re-run chat-list enrichment, so a nickname write
@@ -255,6 +293,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         subtitle: String,
         preview: String,
         previewAttachmentKind: ChatPreviewAttachmentKind? = nil,
+        previewAttribution: ChatPreviewAttribution? = nil,
         updatedAt: Date?,
         avatarSeed: String,
         pictureURL: String?,
@@ -280,6 +319,7 @@ nonisolated struct ChatItem: Identifiable, Hashable {
         self.subtitle = subtitle
         self.preview = preview
         self.previewAttachmentKind = previewAttachmentKind
+        self.previewAttribution = previewAttribution
         self.updatedAt = updatedAt
         self.avatarSeed = avatarSeed
         self.pictureURL = pictureURL
@@ -312,6 +352,21 @@ nonisolated enum ChatMessageDeliveryState: Hashable, Sendable {
     case pending
     case delivered
     case failed
+}
+
+/// Who a chat row's last-message line is attributed to, kept alongside the composed `preview` so
+/// a nickname write can recompose the prefix in place.
+///
+/// Present whenever the last message came from *another* account — including one that published no
+/// name, since nicknaming them is exactly what gives that line a prefix. Your own messages read
+/// "You:" in every language, which no private label can change, so they never carry one.
+nonisolated struct ChatPreviewAttribution: Hashable, Sendable {
+    let senderAccountIdHex: String
+    /// The name that sender publishes — what the prefix falls back to with no nickname on file,
+    /// and what clearing one restores. `nil` for a member who published none.
+    let publishedSenderName: String?
+    /// The last-message line without its attribution prefix.
+    let body: String
 }
 
 /// Which attachment glyph a chat row draws ahead of its last-message preview.

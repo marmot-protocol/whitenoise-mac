@@ -54,7 +54,8 @@ extension ChatItem {
         directPeer: ChatPeerProfile? = nil,
         groupAvatarURL: String? = nil,
         groupImagePayload: DownloadedMediaPayload? = nil,
-        mentionNames: MarkdownMentionNames = [:]
+        mentionNames: MarkdownMentionNames = [:],
+        lastSenderNickname: String? = nil
     ) {
         let groupName = PeerDisplayText.sanitize(row.groupName) ?? ""
         let peerName = PeerDisplayText.sanitize(directPeer?.displayName)
@@ -76,7 +77,12 @@ extension ChatItem {
             )
         }
         let preview = row.lastMessage.map {
-            ChatItem.previewProjection(for: $0, activeAccountIdHex: activeAccountIdHex, mentionNames: mentionNames)
+            ChatItem.previewProjection(
+                for: $0,
+                activeAccountIdHex: activeAccountIdHex,
+                mentionNames: mentionNames,
+                senderNickname: lastSenderNickname
+            )
         }
         // MDK owns durable chat ordering. `updatedAt` includes maintenance-only
         // writes and must not make a conversation jump in the sidebar.
@@ -103,6 +109,7 @@ extension ChatItem {
             // the row says instead, since that answer is localized and invite-dependent.
             preview: preview?.text ?? "",
             previewAttachmentKind: preview?.attachmentKind,
+            previewAttribution: preview?.attribution,
             updatedAt: updatedAt,
             avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
             pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
@@ -148,12 +155,14 @@ extension ChatItem {
     private struct PreviewProjection {
         let text: String
         var attachmentKind: ChatPreviewAttachmentKind?
+        var attribution: ChatPreviewAttribution?
     }
 
     private static func previewProjection(
         for preview: ChatListMessagePreviewFfi,
         activeAccountIdHex: String?,
-        mentionNames: MarkdownMentionNames = [:]
+        mentionNames: MarkdownMentionNames = [:],
+        senderNickname: String? = nil
     ) -> PreviewProjection {
         if preview.deleted {
             return PreviewProjection(text: L10n.string("Message deleted"))
@@ -192,17 +201,35 @@ extension ChatItem {
                 ? ChatPreviewAttachmentKind(preview.attachmentKind)
                 : nil
         }
-        guard presentation.isChatBubble,
-            preview.sender != activeAccountIdHex,
-            let senderName = PeerDisplayText.sanitize(preview.senderDisplayName),
-            !senderName.isEmpty
-        else {
+        guard presentation.isChatBubble else {
             return PreviewProjection(text: body, attachmentKind: attachmentKind)
         }
 
+        // Your own last word is attributed to you, the way the other clients do it, so a row you
+        // spoke in last does not read as though the peer did. Localized as a whole template
+        // because the separator is not ": " in every language.
+        if let activeAccountIdHex, !activeAccountIdHex.isEmpty, preview.sender == activeAccountIdHex {
+            return PreviewProjection(
+                text: String(format: L10n.string("You: %@"), body),
+                attachmentKind: attachmentKind
+            )
+        }
+
+        // A private nickname outranks the published name here exactly as it does in the row title —
+        // the last sender is the same person under the same label.
+        let publishedSenderName = PeerDisplayText.sanitize(preview.senderDisplayName)
         return PreviewProjection(
-            text: "\(PeerDisplayText.templateFragment(senderName)): \(body)",
-            attachmentKind: attachmentKind
+            text: attributedPreviewText(body: body, senderName: senderNickname ?? publishedSenderName),
+            attachmentKind: attachmentKind,
+            // Only a sender the row can name is relabelable; an unidentified one still gets
+            // whatever name came with the preview, it just cannot be renamed in place.
+            attribution: preview.sender.nilIfBlank.map { sender in
+                ChatPreviewAttribution(
+                    senderAccountIdHex: sender,
+                    publishedSenderName: publishedSenderName,
+                    body: body
+                )
+            }
         )
     }
 
