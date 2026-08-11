@@ -4,7 +4,7 @@ import Security
 
 // The project defaults to `@MainActor` isolation, but every MarmotRuntime method is a
 // thread-safe bridge into the Rust core. Marking the protocol `nonisolated` lets these
-// calls run off the main thread (see WorkspaceState.runOffMain) instead of blocking the UI.
+// calls run off the main thread (see FFIExecutor.run) instead of blocking the UI.
 nonisolated protocol MarmotRuntime: Sendable {
     var storageRootPath: String { get }
 
