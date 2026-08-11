@@ -1038,7 +1038,6 @@ struct MessageMediaAttachmentView: View {
         case .audio:
             MessageAudioAttachmentPlayer(
                 download: download,
-                fallbackFileName: attachment.fileName,
                 isOutgoing: isOutgoing
             )
         case .video:
@@ -1174,7 +1173,6 @@ final class MessageAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
 
 struct MessageAudioAttachmentPlayer: View {
     let download: MessageMediaDownload
-    let fallbackFileName: String
     let isOutgoing: Bool
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
@@ -1206,25 +1204,23 @@ struct MessageAudioAttachmentPlayer: View {
             .buttonStyle(.plain)
             .help(isPlaying || isPreparingPlayback ? L10n.string("Stop") : L10n.string("Play"))
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(download.fileName.nilIfBlank ?? fallbackFileName)
-                    .wnFont(.semiBold10)
+            // No file name: an audio attachment is almost always a voice recording whose
+            // name the sender never chose, so it is noise next to the waveform. The composer
+            // preview and the pending-outgoing row already omit it, and so does iOS — the
+            // waveform takes the full row width with the duration beneath it.
+            VStack(alignment: .leading, spacing: 5) {
+                ComposerAudioWaveformView(
+                    bars: visibleWaveformBars,
+                    progress: playbackProgress,
+                    barColor: AttachmentRowPalette.waveformBar(isOutgoing: isOutgoing),
+                    playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: isOutgoing)
+                )
+                .frame(height: 24)
+
+                Text(durationLabel)
+                    .wnFont(.medium10.monospacedDigit())
+                    .foregroundStyle(AttachmentRowPalette.detailContent)
                     .lineLimit(1)
-
-                HStack(spacing: 8) {
-                    ComposerAudioWaveformView(
-                        bars: visibleWaveformBars,
-                        progress: playbackProgress,
-                        barColor: AttachmentRowPalette.waveformBar(isOutgoing: isOutgoing),
-                        playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: isOutgoing)
-                    )
-                    .frame(height: 24)
-
-                    Text(durationLabel)
-                        .wnFont(.medium10.monospacedDigit())
-                        .foregroundStyle(AttachmentRowPalette.detailContent)
-                        .lineLimit(1)
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
