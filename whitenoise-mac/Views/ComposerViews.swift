@@ -523,14 +523,12 @@ enum ComposerMentionMarkerStore {
         guard isExact(selection, in: textView.string), let storage = textView.textStorage else { return }
         storage.addAttribute(.composerMentionNpub, value: selection.npub, range: selection.range)
         storage.addAttribute(.composerMentionDisplayText, value: selection.displayText, range: selection.range)
-        // The same treatment a rendered mention gets — bold, in the mentioned person's accent — so
-        // a token looks the same while you are typing it as it will once it is sent. See
-        // `MentionTextPalette`; where the accent cannot be derived the token stays bold on the
-        // field's own content color.
+        // The same treatment a rendered mention gets — bold, in the app's one blue — so a token
+        // looks the same while you are typing it as it will once it is sent. See
+        // `MentionTextPalette`.
         storage.addAttribute(
             .foregroundColor,
-            value: MentionTextPalette.nsForeground(forNpub: selection.npub)
-                ?? MentionTextPalette.composerFallbackForeground,
+            value: MentionTextPalette.nsForeground,
             range: selection.range
         )
         storage.addAttribute(
