@@ -1148,6 +1148,14 @@ final class WorkspaceState {
     /// a view because a SwiftUI `contextMenu` closure is torn down on selection and so cannot host
     /// the dialog itself — the same reason `messagePendingDeletion` lives here.
     var chatPendingLeave: ChatLeaveTarget?
+    /// Chat awaiting the user's choice of a successor admin before its leave can run, or `nil`.
+    /// Lives here for the same reason `chatPendingLeave` does — the sidebar row menu that starts the
+    /// leave cannot host the picker.
+    var chatPendingAdminHandoff: ChatAdminHandoffTarget?
+    /// Group currently promoting a successor admin on the way out, or `nil`. Per-chat like
+    /// `leavingChatId`, and doubles as the re-entrancy guard that keeps a handoff whose leave still
+    /// reports `.lastAdmin` from re-opening the picker it came from.
+    var handingOffAdminChatId: String?
     /// Chat awaiting the user's local-delete confirmation, or `nil`.
     var chatPendingLocalDelete: ChatLocalDeleteTarget?
     /// Outcome of a chat-list-initiated destructive action that needs reporting, or `nil`.

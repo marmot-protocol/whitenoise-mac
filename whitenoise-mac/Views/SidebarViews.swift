@@ -605,7 +605,10 @@ private struct ChatSidebarRowMenuItems: View {
                         systemImage: "rectangle.portrait.and.arrow.right"
                     )
                 }
-                .disabled(workspace.leavingChatId != nil || workspace.preparingChatLeaveId != nil)
+                .disabled(
+                    workspace.leavingChatId != nil
+                        || workspace.preparingChatLeaveId != nil
+                        || workspace.handingOffAdminChatId != nil)
 
             case .deleteLocally:
                 Button(role: .destructive) {

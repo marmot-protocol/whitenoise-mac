@@ -715,7 +715,14 @@ extension WorkspaceState {
             let activeAccount,
             leavingChatId == nil,
             preparingChatLeaveId == nil,
-            chatPendingLeave == nil
+            chatPendingLeave == nil,
+            chatPendingAdminHandoff == nil,
+            // A handoff already running *is* a leave in progress, but it does not claim
+            // `leavingChatId` until its promotion commits. Without this, a second tap in that window
+            // resolves eligibility, still finds the sole-admin block, and — because the re-entrancy
+            // guard correctly declines to reopen the picker — reports a blocker for a leave that is
+            // in fact about to succeed.
+            handingOffAdminChatId == nil
         else { return }
 
         preparingChatLeaveId = groupIdHex
@@ -735,7 +742,7 @@ extension WorkspaceState {
             await presentChatLeaveDecision(
                 groupIdHex: groupIdHex,
                 title: title,
-                eligibility: ChatLeaveEligibility(state)
+                state: state
             )
         } catch {
             guard activeAccountId == accountId else { return }
@@ -745,16 +752,20 @@ extension WorkspaceState {
 
     /// Turn resolved eligibility into either a confirmation dialog or a blocker report. Shared by
     /// both phases so the confirm path re-applies exactly the checks the prepare path applied.
+    ///
+    /// Takes the whole `GroupManagementStateFfi` rather than the projected `ChatLeaveEligibility`
+    /// because the sole-admin branch needs its `memberActions` to know who may be promoted.
     private func presentChatLeaveDecision(
         groupIdHex: String,
         title: String,
-        eligibility: ChatLeaveEligibility
+        state: GroupManagementStateFfi
     ) async {
         // Both callers only reach here after their surface decided the action was `.leave`, which
         // already implies an active membership — so `.member` is the right assumption rather than a
         // re-lookup. If the account was in fact removed in the meantime, the core reports
         // `canLeave: false` with `isLastAdmin: false`, which lands on `.unavailable`; the next chat
         // -list reload then flips the row to `.deleteLocally` on its own.
+        let eligibility = ChatLeaveEligibility(state)
         guard
             let blocker = ChatDestructiveActions.leaveBlocker(
                 membership: .member,
@@ -769,19 +780,125 @@ extension WorkspaceState {
             return
         }
 
-        await reportLeaveBlocker(blocker)
+        await reportLeaveBlocker(blocker, groupIdHex: groupIdHex, title: title, state: state)
     }
 
     /// Both phases resolve the same blocker and must react to it identically, so they share this.
-    private func reportLeaveBlocker(_ blocker: ChatDestructiveActions.LeaveBlocker) async {
+    private func reportLeaveBlocker(
+        _ blocker: ChatDestructiveActions.LeaveBlocker,
+        groupIdHex: String,
+        title: String,
+        state: GroupManagementStateFfi
+    ) async {
         switch blocker {
         case .pending:
             // Already leaving: no dialog and no error — refresh so the row shows its
             // `LeavingGroupBadge` instead.
             await reloadChats(forceFreshSnapshot: true)
-        case .lastAdmin, .unavailable:
+        case .lastAdmin:
+            // The one blocker the app can clear on the user's behalf: offer the successor picker,
+            // and only report the dead end when there is nobody to hand admin to.
+            //
+            // `handingOffAdminChatId` is the re-entrancy guard. `confirmChatAdminHandoff` runs the
+            // leave through `confirmChatLeave`, which re-reads eligibility; if the promotion
+            // committed but the core still reports this account as the last admin, reopening the
+            // picker the user just used would loop. Report the blocker instead.
+            if handingOffAdminChatId != groupIdHex,
+                await presentChatAdminHandoff(groupIdHex: groupIdHex, title: title, state: state)
+            {
+                return
+            }
+            chatActionAlert = .leaveBlocked(blocker)
+        case .unavailable:
             chatActionAlert = .leaveBlocked(blocker)
         }
+    }
+
+    /// Open the successor picker for a sole admin who wants to leave. Returns false when the roster
+    /// is unreadable or holds nobody this account may promote, leaving the caller to report the
+    /// blocker.
+    ///
+    /// The roster comes from a fresh `groupDetails` read rather than from `groupDetailsSnapshot`: the
+    /// leave can be started from a sidebar row while an entirely different chat is open, and the
+    /// promotion has to name a member of *this* group.
+    private func presentChatAdminHandoff(
+        groupIdHex: String,
+        title: String,
+        state: GroupManagementStateFfi
+    ) async -> Bool {
+        guard let client, let activeAccount else { return false }
+        let accountId = activeAccount.id
+        guard
+            let details = try? await client.groupDetails(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex
+            ),
+            activeAccountId == accountId
+        else { return false }
+
+        // Reuses the one roster projection the inspector uses, so the picker shows the same
+        // nicknames, avatars and admin badges as the member list — and reads `canPromote` from the
+        // same `memberActions` the core just returned.
+        let members = groupDetailsSnapshot(from: details, managementState: state).members
+        let candidates = ChatDestructiveActions.adminHandoffCandidates(from: members)
+        guard !candidates.isEmpty else { return false }
+
+        chatPendingAdminHandoff = ChatAdminHandoffTarget(
+            groupIdHex: groupIdHex,
+            title: title,
+            candidates: candidates
+        )
+        return true
+    }
+
+    /// Promote `successor`, then run the leave the promotion unblocked.
+    ///
+    /// The two halves are deliberately sequential and not merged into one core call: the promotion
+    /// is its own group commit, and if it fails the account must be left exactly where it was —
+    /// still admin, still a member — rather than half-way out. The leave itself goes through
+    /// `confirmChatLeave`, which re-reads eligibility and owns the self-demote-then-remove sequence,
+    /// so this method adds no second copy of that logic.
+    func confirmChatAdminHandoff(_ target: ChatAdminHandoffTarget, successor: GroupMemberItem) async {
+        guard let client,
+            let activeAccount,
+            leavingChatId == nil,
+            handingOffAdminChatId == nil
+        else { return }
+
+        chatPendingAdminHandoff = nil
+        let accountId = activeAccount.id
+        let groupIdHex = target.groupIdHex
+        handingOffAdminChatId = groupIdHex
+        defer {
+            if handingOffAdminChatId == groupIdHex {
+                handingOffAdminChatId = nil
+            }
+        }
+
+        do {
+            let result = try await client.promoteAdminDetailed(
+                accountRef: activeAccount.accountRef,
+                groupIdHex: groupIdHex,
+                memberRef: successor.npub
+            )
+            guard activeAccountId == accountId else { return }
+            // The returned details describe `groupIdHex`, which is not necessarily the chat on
+            // screen — so they may only be applied when it is. Otherwise just drop the stale roster
+            // so the next reader refetches.
+            if selectedChat?.id == groupIdHex {
+                applyGroupMutationResult(result)
+            } else {
+                invalidateGroupMembers(for: groupIdHex)
+            }
+        } catch {
+            guard activeAccountId == accountId else { return }
+            chatActionAlert = .adminHandoffFailed()
+            return
+        }
+
+        await confirmChatLeave(
+            ChatLeaveTarget(groupIdHex: groupIdHex, title: target.title, requiresSelfDemote: true)
+        )
     }
 
     func confirmChatLeave(_ target: ChatLeaveTarget) async {
@@ -819,7 +936,12 @@ extension WorkspaceState {
                 membership: .member,
                 eligibility: eligibility
             ) {
-                await reportLeaveBlocker(blocker)
+                await reportLeaveBlocker(
+                    blocker,
+                    groupIdHex: groupIdHex,
+                    title: target.title,
+                    state: state
+                )
                 return
             }
 
@@ -895,6 +1017,7 @@ extension WorkspaceState {
 
     func clearPendingChatDestructiveActions() {
         chatPendingLeave = nil
+        chatPendingAdminHandoff = nil
         chatPendingLocalDelete = nil
         chatActionAlert = nil
         preparingChatLeaveId = nil
@@ -1303,6 +1426,10 @@ extension WorkspaceState {
             || isUpdatingDisappearingMessages
             || isLeavingGroup
             || isSavingGroupImage
+            // A successor promotion is a group commit like any other. Included even though the
+            // handoff may target a chat other than the one on screen, matching `isLeavingGroup`,
+            // which is likewise cross-chat: the inspector's exclusion is intentionally coarse.
+            || handingOffAdminChatId != nil
     }
 
     func mutateGroupMember(_ member: GroupMemberItem, action: GroupMemberMutationAction) async {
