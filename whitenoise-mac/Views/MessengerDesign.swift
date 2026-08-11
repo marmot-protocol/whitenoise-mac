@@ -166,8 +166,9 @@ nonisolated enum AvatarPalette {
         return AvatarColorSet(accents[index])
     }
 
-    /// The whole accent set at `index`, for the callers that need a token the three avatar ones do
-    /// not carry. A mention takes `contentSecondary`; see `MentionTextPalette`.
+    /// The whole accent set at `index`, for the callers that need a rung the three avatar ones do
+    /// not carry, and the only way to enumerate the ramps from outside — which is what the palette
+    /// tests walk to hold every accent to the same contrast floor.
     static func accent(at index: Int) -> WNAccentColorSet {
         accents[index]
     }
@@ -184,37 +185,10 @@ nonisolated enum AvatarPalette {
         guard let first = seed.first, first.isASCII, let nibble = first.hexDigitValue else { return nil }
         return nibble % accents.count
     }
-
-    /// The same mapping for an `npub1…`, without decoding it.
-    ///
-    /// Message bodies carry mentions as bech32, and the accent has to be chosen while the body's
-    /// attributed string is built — off the main actor, with no `Marmot` client in reach, so
-    /// `hexPubkeyFromNpub` (which the other clients call here) is not available.
-    ///
-    /// It is not needed. `accentIndex(for:)` reads exactly one hex digit, and that digit is
-    /// recoverable from the bech32 directly: a bech32 payload is the byte string regrouped into
-    /// 5-bit characters, most significant bits first, so the first data character holds the top
-    /// *five* bits of byte 0 while the first hex digit is its top *four*. Dropping the low bit
-    /// converts between them.
-    ///
-    /// Returns `nil` for anything that is not a plain `npub1…`. `nprofile` in particular is
-    /// TLV-encoded rather than a bare key, so its first data character is a record tag and means
-    /// nothing here — the other clients also restrict the per-user color to `npub` for this reason.
-    static func accentIndex(forNpub npub: String) -> Int? {
-        let prefix = "npub1"
-        guard npub.hasPrefix(prefix),
-            let firstDataCharacter = npub.dropFirst(prefix.count).first,
-            let fiveBitValue = bech32Alphabet.firstIndex(of: firstDataCharacter)
-        else { return nil }
-        return (fiveBitValue >> 1) % accents.count
-    }
-
-    /// The BIP-173 bech32 character set, where a character's index *is* its 5-bit value.
-    private static let bech32Alphabet = Array("qpzry9x8gf2tvdw0s3jn54khce6mua7l")
 }
 
 /// The three tokens an avatar needs from its accent ramp. Mirrors the other clients'
-/// `AvatarColorSet` minus `contentSecondary`, which feeds mentions rather than avatars — reach for
+/// `AvatarColorSet` minus `contentSecondary`, the `500` step no avatar draws — reach for
 /// `WNAccentColors` directly if you need that one.
 nonisolated struct AvatarColorSet {
     let fill: Color
@@ -314,44 +288,40 @@ nonisolated enum AttachmentRowPalette {
     static let detailContent = WNColor.backgroundContentTertiary
 }
 
-/// How an `@mention` is set off from the text around it: **bold, in the mentioned person's own
-/// accent**, with no background chip and no decoration — the same treatment the other clients give
-/// it.
+/// How an `@mention` is set off from the text around it: **bold, in the app's one blue**, with no
+/// background chip and no decoration.
 ///
-/// The color is `accent.contentSecondary`, the `500` step of that person's accent ramp, and the
-/// choice of step is the whole trick. `500` is the one rung of each ramp that is neither the light
-/// surface (`50`) nor the dark one (`950`), so a single value stays legible on every fill a mention
-/// can land on — the sent bubble, the received bubble, an agent row, the composer — in both
-/// appearances, without the mention having to know which of them it is on. That is why this replaced
-/// a background chip: a chip has to be picked per fill, and there is no fill-independent chip.
+/// The color is `intentionInfoContent`, which resolves to the same `blue600`/`blue500` pair the
+/// unread count badge and the pending-invite `+` are drawn in, so every tag in the app carries the
+/// same signal. It replaced the mentioned person's own accent — the `500` step of their avatar ramp
+/// — which drew a tag in amber or orange often enough to read as a warning rather than as a name.
 ///
-/// A mention whose accent cannot be determined (an `nprofile`, which is TLV-encoded rather than a
-/// bare key) stays bold and keeps the surrounding foreground, so it is still marked as a mention but
-/// does not claim to identify a specific person with a color that would be wrong.
+/// One color for every mention also settles the case a per-person accent could not: an `nprofile`
+/// is TLV-encoded rather than a bare key, so no accent could be derived from it and such a mention
+/// used to stay uncolored. Blue identifies a tag, not a person, so it applies to those too.
+///
+/// The token is dynamic rather than one pinned step because both bubble fills cross over with the
+/// appearance, and the pair happens to fall on the right side of each: in Aqua, `blue600` clears
+/// both the near-black sent bubble (3.83) and the light received one (4.74); in Dark Aqua,
+/// `blue500` clears the white sent bubble (3.68) and the dark received one (4.11). A single pinned
+/// step cannot beat that floor — `blue500` everywhere drops to 3.37 on the light received bubble,
+/// `blue600` everywhere to 2.93 on the dark one.
+///
+/// A deliberate divergence from the other clients, which still draw a mention in the mentioned
+/// person's `contentSecondary`; it follows the same divergence `fillInfo` already carries, so the
+/// unread badge and the tag stay one signal on this platform.
 ///
 /// `nonisolated` because a message's attributed string is built off-main while mapping a timeline
 /// window (whitenoise-mac#285), so this must be reachable from outside the main actor.
 nonisolated enum MentionTextPalette {
-    /// The accent color for a mention written as `npub1…`, or `nil` when the reference is not a
-    /// bare public key and no person-specific color can honestly be applied.
-    static func foreground(forNpub npub: String) -> Color? {
-        AvatarPalette.accentIndex(forNpub: npub).map { AvatarPalette.accent(at: $0).contentSecondary }
-    }
+    /// The color of a rendered mention, whatever it references and whichever bubble it lands in.
+    static let foreground = WNColor.intentionInfoContent
 
-    /// AppKit twin, for the composer's `NSTextView` draft tokens. Reads the accent's own
-    /// dynamic `NSColor` rather than converting the SwiftUI one back: `NSColor(someColor)` can
-    /// bake in whichever appearance was current when it ran, which would freeze a draft token's
-    /// color at the appearance the composer first drew under.
-    static func nsForeground(forNpub npub: String) -> NSColor? {
-        AvatarPalette.accentIndex(forNpub: npub).map {
-            AvatarPalette.accent(at: $0).nsContentSecondary
-        }
-    }
-
-    /// The composer draft's fallback for a token whose accent is unknown. The draft sits on
-    /// `backgroundPrimary`, so it takes that surface's primary content color; a rendered message
-    /// body instead inherits whatever its bubble already set.
-    static let composerFallbackForeground = WNNSColor.backgroundContentPrimary
+    /// AppKit twin, for the composer's `NSTextView` draft tokens. Reads the dynamic `NSColor`
+    /// rather than converting the SwiftUI one back: `NSColor(someColor)` can bake in whichever
+    /// appearance was current when it ran, which would freeze a draft token's color at the
+    /// appearance the composer first drew under.
+    static let nsForeground = WNNSColor.intentionInfoContent
 }
 
 enum MessagesLayout {
