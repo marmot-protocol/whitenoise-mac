@@ -5847,11 +5847,11 @@ struct whitenoise_macTests {
         #expect(!structured.supportsInlineMetadata)
     }
 
-    /// A mention is colored by *who it mentions*, not by which bubble it lands in — that is the
-    /// property that let the fill-dependent chip go away. The row's attributed string is built once
-    /// here, off-main and never rewritten during a body pass, so this also pins that a sent and a
+    /// A mention is colored by the palette, not by which bubble it lands in — that is the property
+    /// that let the fill-dependent chip go away. The row's attributed string is built once here,
+    /// off-main and never rewritten during a body pass, so this also pins that a sent and a
     /// received copy of the same mention come out identical.
-    @Test func mentionTakesTheMentionedAccentRegardlessOfBubbleDirection() {
+    @Test func mentionTakesTheMentionColorRegardlessOfBubbleDirection() {
         let npub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
         let tokens = MarkdownDocumentFfi(
             blocks: [
@@ -5874,11 +5874,9 @@ struct whitenoise_macTests {
             .contentMarkdown?.inlineParagraph?.runs.first
         }
 
-        let accent = MentionTextPalette.foreground(forNpub: npub)
-        #expect(accent != nil)
         for isOutgoing in [true, false] {
             let run = mentionRun(isOutgoing: isOutgoing)
-            #expect(run?.foregroundColor == accent)
+            #expect(run?.foregroundColor == MentionTextPalette.foreground)
             #expect(run?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
             // No background chip in either direction; the chip is what used to have to know the
             // fill, and reintroducing one is the regression this guards.
@@ -14351,12 +14349,12 @@ struct whitenoise_macTests {
         #expect(state.messageTimelineStores["group"]?.displayItemsBuildCount == buildsBefore + 1)
 
         // The mention keeps everything the projection gave it besides the label: it is still a
-        // tappable `nostr:` reference to the same person, still emphasized, still accented.
+        // tappable `nostr:` reference to the same person, still emphasized, still colored.
         let relabeled = try #require((state.messagesByChat["group"] ?? []).first?.contentMarkdown?.inlineParagraph)
         let mentionRun = relabeled.runs.first { $0.link != nil }
         #expect(mentionRun?.link == MarkdownLinkPolicy.nostrURL(for: "npub1alyce"))
         #expect(mentionRun?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
-        #expect(mentionRun?.foregroundColor == MentionTextPalette.foreground(forNpub: "npub1alyce"))
+        #expect(mentionRun?.foregroundColor == MentionTextPalette.foreground)
 
         // Renaming somebody this conversation neither mentions nor lists must not touch a row.
         let buildsAfterRename = state.messageTimelineStores["group"]?.displayItemsBuildCount ?? 0

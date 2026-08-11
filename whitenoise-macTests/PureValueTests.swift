@@ -3004,24 +3004,23 @@ struct PureValueTests {
         #expect(links(in: mention).map(\.absoluteString) == ["nostr:\(npub)"])
         #expect(underlineStyles(in: mention) == [nil])
 
-        // A mention is bold, in the mentioned person's accent, and carries no background chip.
-        // Asserted against `MentionTextPalette` rather than "it differs from the body" so a
-        // mention that quietly stopped identifying anyone fails here.
+        // A mention is bold, in `MentionTextPalette.foreground`, and carries no background chip.
+        // Asserted against the palette rather than "it differs from the body" so a mention that
+        // quietly stopped being marked at all fails here.
         #expect(mention.runs.allSatisfy { $0.backgroundColor == nil })
         #expect(
             mention.runs.first?.inlinePresentationIntent?.contains(.stronglyEmphasized) == true)
-        #expect(mention.runs.first?.foregroundColor == MentionTextPalette.foreground(forNpub: npub))
+        #expect(mention.runs.first?.foregroundColor == MentionTextPalette.foreground)
 
-        // An `nprofile` is TLV-encoded rather than a bare key, so no accent can be derived from
-        // it. It stays bold but inherits the surrounding foreground instead of claiming to
-        // identify someone with a color that would be wrong.
+        // An `nprofile` is TLV-encoded rather than a bare key, so it identifies no one this side
+        // of a lookup — which no longer matters, because the color marks a tag rather than the
+        // person tagged. It takes the same blue as any other mention.
         let nprofile = "nprofile1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
         let nprofileMention = MarkdownDisplayInlineBuilder.attributedString(
             from: [.nostrMention(entity: MarkdownNostrEntityFfi(hrp: .nprofile, bech32: nprofile))],
             remainingDepth: 32
         )
-        #expect(MentionTextPalette.foreground(forNpub: nprofile) == nil)
-        #expect(nprofileMention.runs.first?.foregroundColor == nil)
+        #expect(nprofileMention.runs.first?.foregroundColor == MentionTextPalette.foreground)
         #expect(
             nprofileMention.runs.first?.inlinePresentationIntent?.contains(.stronglyEmphasized)
                 == true)

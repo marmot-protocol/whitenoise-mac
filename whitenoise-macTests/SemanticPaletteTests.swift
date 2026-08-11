@@ -223,104 +223,44 @@ struct SemanticPaletteTests {
         }
     }
 
-    /// `contentSecondary` is the `500` step, and a mention is drawn in it on top of whichever
-    /// bubble it lands in. The property that makes that possible is that `500` is
-    /// **appearance-invariant** — the same value in Aqua and Dark Aqua — while `fill` and
-    /// `contentPrimary` both cross over between them. A mention therefore needs to know neither
-    /// which bubble it is on nor which appearance is current, which is what let the
-    /// fill-dependent chip go away.
+    /// A mention is one color for everybody — the blue the unread badge and the pending-invite `+`
+    /// already carry — so the first half of this pins the two together. They are separate tokens
+    /// (`intentionInfoContent` and `fillInfo`) that happen to resolve alike, and a tag that
+    /// quietly stopped matching the badge is the regression worth catching.
     ///
-    /// Note what is *not* claimed: that `500` maximizes contrast. It does not. Against the light
-    /// received bubble a bright ramp like lime lands at 1.81, and `lime900` would in fact do
-    /// better there — the other clients draw the `500` step anyway, and this port follows them.
-    /// The floor below is the inherited one, and it is asserted so that reaching for `50` or
-    /// `950` here (which collapses to ~1.05 against one bubble or the other) still fails.
-    @Test func accentContentSecondaryIsAppearanceInvariantAndClearsBothBubbles() throws {
-        let bubbles = [
-            ("sent", WNNSColor.fillPrimary),
-            ("received", WNNSColor.backgroundMessageIncoming),
+    /// The second half is what a per-person accent used to buy: a mention lands on the sent
+    /// bubble, the received bubble and the composer without knowing which, and both bubble fills
+    /// cross over between the appearances. This token crosses over too, and the right way round —
+    /// the darker `600` step falls in Aqua, where the sent bubble is near-black, and the brighter
+    /// `500` in Dark Aqua, where it is white. The floor is 3:1, the WCAG threshold for the bold
+    /// weight a mention is always drawn at; pinning the token to a single step fails it (`blue600`
+    /// everywhere lands at 2.93 on the dark received bubble).
+    @Test func mentionColorIsTheUnreadBlueAndClearsEverySurfaceItLandsOn() throws {
+        let surfaces = [
+            ("sent bubble", WNNSColor.fillPrimary),
+            ("received bubble", WNNSColor.backgroundMessageIncoming),
+            ("composer", WNNSColor.backgroundPrimary),
         ]
-        let accents = Self.allAccents
-        // A zero `accentCount` would make every loop below vacuous, so the suite would report full
-        // coverage of the accents while asserting nothing about any of them.
-        #expect(!accents.isEmpty, "AvatarPalette exposes no accents")
-
-        for (name, accent) in accents {
-            let resolved = try Self.appearances().map { appearance in
-                try Self.resolvedHex(accent.nsContentSecondary, in: appearance)
-            }
-            #expect(
-                resolved[0] == resolved[1],
-                """
-                accent \(name).contentSecondary differs between appearances \
-                (\(resolved[0]) / \(resolved[1])) — a mention would need to know which \
-                appearance it is drawn in, which is the coupling this token exists to avoid
-                """
-            )
-            // The two steps it must not be replaced with do cross over, which is why they
-            // cannot serve here.
-            let fillHexes = try Self.appearances().map {
-                try Self.resolvedHex(accent.nsFill, in: $0)
-            }
-            #expect(fillHexes[0] != fillHexes[1], "accent \(name).fill should invert")
-        }
 
         for appearance in try Self.appearances() {
-            for (bubbleName, bubble) in bubbles {
-                for (name, accent) in accents {
-                    let ratio = try Self.contrast(
-                        bubble, accent.nsContentSecondary, in: appearance)
-                    #expect(
-                        ratio >= 1.6,
-                        """
-                        mention accent \(name) on the \(bubbleName) bubble is \(ratio) \
-                        in \(appearance.name.rawValue)
-                        """
-                    )
-                }
+            let mention = try Self.resolvedHex(MentionTextPalette.nsForeground, in: appearance)
+            let badge = try Self.resolvedHex(WNNSColor.fillInfo, in: appearance)
+            #expect(
+                mention == badge,
+                """
+                the mention color (\(mention)) and the unread badge (\(badge)) have drifted \
+                apart in \(appearance.name.rawValue)
+                """
+            )
+
+            for (surfaceName, surface) in surfaces {
+                let ratio = try Self.contrast(surface, MentionTextPalette.nsForeground, in: appearance)
+                #expect(
+                    ratio >= 3,
+                    "mention on the \(surfaceName) is \(ratio) in \(appearance.name.rawValue)"
+                )
             }
         }
-    }
-
-    // MARK: - Avatar keying
-
-    /// A mention carries the bech32, not the hex, so its accent is recovered from the first bech32
-    /// data character. It has to agree with what the seed mapping would have said about the decoded
-    /// key — `AvatarPaletteTests` covers that mapping itself; this covers only the bech32 shortcut.
-    @Test func npubAccentAgreesWithTheDecodedHexAccent() throws {
-        // The all-zero key: every data character is `q` (5-bit value 0), and the hex is `0000…`,
-        // so both paths must land on the same accent.
-        let zeroKeyNpub = "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0l5v8"
-        #expect(
-            AvatarPalette.accentIndex(forNpub: zeroKeyNpub)
-                == AvatarPalette.accentIndex(for: String(repeating: "0", count: 64)))
-
-        // The derivation is `first 5-bit value >> 1`, so each pair of adjacent bech32 characters
-        // collapses onto one hex digit. `q`/`p` are values 0 and 1 → digit 0; `z`/`r` are 2 and 3 →
-        // digit 1; `l` is the last character in the set, value 31 → digit 15.
-        #expect(AvatarPalette.accentIndex(forNpub: "npub1q") == AvatarPalette.accentIndex(for: "0"))
-        #expect(AvatarPalette.accentIndex(forNpub: "npub1p") == AvatarPalette.accentIndex(for: "0"))
-        #expect(AvatarPalette.accentIndex(forNpub: "npub1z") == AvatarPalette.accentIndex(for: "1"))
-        #expect(AvatarPalette.accentIndex(forNpub: "npub1r") == AvatarPalette.accentIndex(for: "1"))
-        #expect(AvatarPalette.accentIndex(forNpub: "npub1l") == AvatarPalette.accentIndex(for: "f"))
-
-        // Only a bare public key. `nprofile` is TLV-encoded, so its first data character is a record
-        // tag rather than the top of a key, and guessing from it would produce a color that
-        // disagrees with every other client.
-        #expect(AvatarPalette.accentIndex(forNpub: "nprofile1qqqqqq") == nil)
-        #expect(AvatarPalette.accentIndex(forNpub: "note1qqqqqq") == nil)
-        #expect(AvatarPalette.accentIndex(forNpub: "npub1") == nil)
-        #expect(AvatarPalette.accentIndex(forNpub: "") == nil)
-        // `b` is not in the bech32 set (it excludes `1`, `b`, `i`, and `o`).
-        #expect(AvatarPalette.accentIndex(forNpub: "npub1b") == nil)
-
-        // And a mention actually resolves to that accent's `contentSecondary`. `try` rather than
-        // `try?`: with an optional index a missing accent would compare `nil == nil` and pass,
-        // which is the one outcome this assertion exists to catch.
-        let index = try #require(AvatarPalette.accentIndex(forNpub: zeroKeyNpub))
-        #expect(
-            MentionTextPalette.foreground(forNpub: zeroKeyNpub)
-                == AvatarPalette.accent(at: index).contentSecondary)
     }
 
     // MARK: - Reactions

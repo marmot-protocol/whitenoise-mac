@@ -536,18 +536,13 @@ nonisolated enum MarkdownDisplayInlineBuilder {
                 MarkdownDisplayLink(url: $0, presentation: presentation)
             }
         )
-        // A mention is set off by weight plus the mentioned person's own accent — the same
-        // treatment the other clients give it, and the reason it needs no knowledge of the fill
-        // it lands on. See `MentionTextPalette`.
-        //
-        // The accent is only applied when it can be derived honestly; where it cannot, the
-        // mention stays bold and inherits the bubble's foreground, which also keeps a linked
-        // `nprofile` reference visible on both sent and received.
+        // A mention is set off by weight plus the app's one blue — the same signal the unread
+        // badge and the pending-invite `+` carry, and the reason it needs no knowledge of the
+        // fill it lands on. It applies to every mention, an `nprofile` included: the color marks
+        // a tag rather than identifying which person is tagged. See `MentionTextPalette`.
         if presentation == .mention {
             attributed.inlinePresentationIntent = intent.union(.stronglyEmphasized)
-            if let accent = MentionTextPalette.foreground(forNpub: entity.bech32) {
-                attributed.foregroundColor = accent
-            }
+            attributed.foregroundColor = MentionTextPalette.foreground
         }
         return attributed
     }
