@@ -10778,6 +10778,65 @@
         }
       }
     },
+    "Choose a new admin": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuen Admin auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un nuevo administrador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un nouvel administrateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli un nuovo amministratore"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha um novo administrador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите нового администратора"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bir yönetici seç"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择新管理员"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇新管理員"
+          }
+        }
+      }
+    },
     "Choose an account": {
       "comment": "A heading for the user to choose an account.",
       "extractionState": "manual",
@@ -13028,6 +13087,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法下載此影片。"
+          }
+        }
+      }
+    },
+    "Couldn't hand over admin": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admin-Rolle konnte nicht übergeben werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo transferir la administración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de transférer le rôle d’administrateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile trasferire il ruolo di amministratore"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível transferir a administração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось передать права администратора"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yöneticilik devredilemedi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法移交管理员"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法移交管理員"
           }
         }
       }
@@ -27212,6 +27330,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "設為管理員"
+          }
+        }
+      }
+    },
+    "Make Admin & Leave": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Admin machen und verlassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombrar administrador y salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nommer administrateur et quitter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nomina amministratore ed esci"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tornar administrador e sair"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назначить и выйти"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yönetici yap ve çık"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设为管理员并退出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設為管理員並退出"
           }
         }
       }
@@ -54533,61 +54710,179 @@
         }
       }
     },
-    "You're the only admin. Make another member an admin before you leave.": {
+    "You're the only admin of “%@”. Pick who takes over, and you'll leave once they're admin.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du bist der einzige Admin. Mache ein anderes Mitglied zum Admin, bevor du die Gruppe verlässt."
+            "value": "Du bist der einzige Admin von „%@“. Wähle aus, wer übernimmt – du verlässt den Chat, sobald diese Person Admin ist."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eres el único administrador. Nombra administrador a otro miembro antes de salir."
+            "value": "Eres el único administrador de «%@». Elige quién toma el relevo y saldrás en cuanto esa persona sea administradora."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous êtes le seul administrateur. Faites d’un autre membre un administrateur avant de partir."
+            "value": "Vous êtes le seul administrateur de « %@ ». Choisissez qui prend le relais : vous quitterez la discussion dès que cette personne sera administratrice."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sei l'unico amministratore. Rendi un altro membro un amministratore prima di andartene."
+            "value": "Sei l'unico amministratore di «%@». Scegli chi prende il tuo posto: uscirai appena sarà amministratore."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Você é o único administrador. Torne outro membro um administrador antes de sair."
+            "value": "Você é o único administrador de “%@”. Escolha quem vai assumir e você sairá assim que essa pessoa for administradora."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ты единственный администратор. Прежде чем уйти, сделайте другого участника администратором."
+            "value": "Вы единственный администратор «%@». Выберите, кто примет эту роль, — вы выйдете, как только он станет администратором."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tek yönetici sensin. Ayrılmadan önce başka bir üyeyi yönetici yapın."
+            "value": "“%@” sohbetinin tek yöneticisisin. Devralacak kişiyi seç; o yönetici olur olmaz sohbetten çıkacaksın."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您是唯一的管理员。在您离开之前让另一位成员成为管理员。"
+            "value": "你是“%@”的唯一管理员。选择接手的人，对方成为管理员后你就会退出。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您是唯一的管理員。在您離開之前讓另一位成員成為管理員。"
+            "value": "你是「%@」的唯一管理員。選擇接手的人，對方成為管理員後你就會退出。"
+          }
+        }
+      }
+    },
+    "You're the only admin, and there's no one here who can take over. Invite someone before you leave.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist der einzige Admin, und hier ist niemand, der übernehmen kann. Lade jemanden ein, bevor du gehst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eres el único administrador y no hay nadie que pueda tomar el relevo. Invita a alguien antes de salir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes le seul administrateur et personne ici ne peut prendre le relais. Invitez quelqu’un avant de partir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sei l'unico amministratore e qui non c'è nessuno che possa prendere il tuo posto. Invita qualcuno prima di uscire."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você é o único administrador e não há ninguém aqui que possa assumir. Convide alguém antes de sair."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы единственный администратор, и передать эту роль здесь некому. Пригласите кого-нибудь, прежде чем выйти."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek yöneticisin ve burada devralabilecek kimse yok. Çıkmadan önce birini davet et."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是唯一的管理员，这里没有人可以接手。退出前请先邀请他人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是唯一的管理員，這裡沒有人可以接手。退出前請先邀請他人。"
+          }
+        }
+      }
+    },
+    "You're the only admin. You'll pick who takes over before you leave.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist der einzige Admin. Vor dem Verlassen wählst du aus, wer übernimmt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eres el único administrador. Antes de salir, elegirás quién toma el relevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes le seul administrateur. Avant de quitter, vous choisirez qui prend le relais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sei l'unico amministratore. Prima di uscire scegli chi prende il tuo posto."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você é o único administrador. Antes de sair, você escolherá quem vai assumir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы единственный администратор. Перед выходом вы выберете, кто примет эту роль."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek yöneticisin. Çıkmadan önce devralacak kişiyi seçeceksin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是唯一的管理员。退出前你需要选择接手的人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是唯一的管理員。退出前你需要選擇接手的人。"
           }
         }
       }
