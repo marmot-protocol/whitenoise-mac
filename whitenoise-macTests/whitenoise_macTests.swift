@@ -2289,6 +2289,199 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func readingTheActiveAccountsChatsClearsItsAvatarUnreadBadge() async throws {
+        // The rail avatar badge reads the per-account summary, which used to be re-queried only on
+        // sign-in/out and full chat-list reloads. Reading a chat reaches the app as a live row
+        // delta, so the active account's avatar kept a badge for messages it had already read
+        // until the next account switch.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        runtime.accountUnreadSummaryRows = [
+            AccountUnreadFfi(
+                accountIdHex: account.accountIdHex,
+                unreadCount: 5,
+                unreadConversations: 1,
+                hasUnread: true
+            )
+        ]
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.chatListEnrichmentTask?.value
+        let activeAccount = try #require(state.activeAccount)
+        let chat = try #require(state.activeChats.first)
+
+        await state.applyChatListSubscriptionUpdate(
+            .row(
+                trigger: .unreadChanged,
+                row: chatListRow(
+                    groupIdHex: chat.id,
+                    title: "Test Group",
+                    preview: "Unread message",
+                    sender: account.accountIdHex,
+                    timelineAt: 1_700_000_100,
+                    unreadCount: 5,
+                    hasUnread: true
+                )
+            ),
+            account: activeAccount
+        )
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 5)
+
+        // The user opens the chat: the read marker commits and the backend stops reporting unread.
+        runtime.accountUnreadSummaryRows = [
+            AccountUnreadFfi(
+                accountIdHex: account.accountIdHex,
+                unreadCount: 0,
+                unreadConversations: 0,
+                hasUnread: false
+            )
+        ]
+        await state.applyChatListSubscriptionUpdate(
+            .row(
+                trigger: .unreadChanged,
+                row: chatListRow(
+                    groupIdHex: chat.id,
+                    title: "Test Group",
+                    preview: "Unread message",
+                    sender: account.accountIdHex,
+                    timelineAt: 1_700_000_100
+                )
+            ),
+            account: activeAccount
+        )
+
+        #expect(state.activeChats.first?.unreadCount == 0)
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+    }
+
+    @MainActor
+    @Test func chatRowDeltasThatLeaveUnreadAloneDoNotRequeryTheAccountUnreadSummary() async throws {
+        // The badge follows the rows, but a summary query per row delta would put an FFI call on
+        // every read-marker advance and every incoming preview. Only a moved unread total re-queries.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 3)
+        ]
+        let (state, account) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 3)
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 3)
+        let queriesSoFar = runtime.accountUnreadSummaryCallCount
+
+        // A newer message on a row that stays just as unread.
+        await state.applyChatRow(
+            unreadBadgeFixtureRow(timelineAt: 1_700_000_100, unreadCount: 3),
+            account: account,
+            shouldEnrich: false
+        )
+        #expect(state.activeChats.first?.updatedAt == Date(timeIntervalSince1970: 1_700_000_100))
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar)
+
+        // The same row, now read: the badge has to follow it down, so this one does query.
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        await state.applyChatRow(
+            unreadBadgeFixtureRow(timelineAt: 1_700_000_200, unreadCount: 0),
+            account: account,
+            shouldEnrich: false
+        )
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar + 1)
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+    }
+
+    @MainActor
+    @Test func aLateAccountUnreadSummaryAnswerDoesNotRestoreTheClearedBadge() async throws {
+        // A read-marker advance and a chat-list reload race routinely, so two summary queries can
+        // be in flight and answer out of order. A late pre-read answer landing last must not put
+        // the badge back — nor record its signal, which would leave the row gate suppressing the
+        // refresh that would correct it.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 5)
+        ]
+        let (state, account) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 5)
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 5)
+
+        // Park the older query inside the FFI, still holding the pre-read total of 5.
+        runtime.accountUnreadSummaryGateEnabled = true
+        let staleRefresh = Task { await state.refreshAccountUnreadSummary() }
+        #expect(await waitFor { runtime.didReachAccountUnreadSummaryGate })
+
+        // The chat is read: the row delta gates a newer query, which answers first with nothing
+        // unread while the older one is still parked.
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        await state.applyChatRow(
+            unreadBadgeFixtureRow(timelineAt: 1_700_000_100, unreadCount: 0),
+            account: account,
+            shouldEnrich: false
+        )
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+
+        runtime.releaseAccountUnreadSummaryGate()
+        await staleRefresh.value
+
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+        #expect(state.lastSummarizedAccountUnread?.totalUnreadCount == 0)
+    }
+
+    @MainActor
+    @Test func anAccountUnreadSummaryAnswerForASupersededAccountIsDiscarded() async throws {
+        // The totals are keyed by account, but the recorded signal is not: committing an answer
+        // requested by a since-replaced active account would file its counts under the new
+        // account's signal and suppress that account's next refresh.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 5)
+        ]
+        let (state, account) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 5)
+
+        runtime.accountUnreadSummaryGateEnabled = true
+        let supersededRefresh = Task { await state.refreshAccountUnreadSummary() }
+        #expect(await waitFor { runtime.didReachAccountUnreadSummaryGate })
+
+        // The user switches accounts while the query is still off-main.
+        state.activeAccountId = "some-other-account"
+        runtime.releaseAccountUnreadSummaryGate()
+        await supersededRefresh.value
+
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+        #expect(state.lastSummarizedAccountUnread == nil)
+    }
+
+    @MainActor
+    @Test func aChatListReloadIssuesASingleAccountUnreadSummaryQuery() async throws {
+        // The reload owns one unconditional refresh — the only pass that also re-reads background
+        // accounts' totals — so the snapshot it applies must not gate a second query of its own.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.installGroup(messageGroup())
+        // The selected chat's read-state row is the one other caller that would apply a chat row
+        // during the reload, and it answers off-main; withholding it keeps the queries counted here
+        // attributable to the reload alone.
+        runtime.initializeChatReadStateReturnsRow = false
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        // Seeded unread with a recorded signal to match, so the reload's all-read snapshot moves
+        // the signal and would gate a refresh of its own on top of the reload's own query.
+        let (state, account) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 5)
+        state.lastSummarizedAccountUnread = state.currentAccountUnreadSignal()
+        state.reloadChatsGeneration = 41
+        let queriesSoFar = runtime.accountUnreadSummaryCallCount
+
+        await state.performChatListReload(accountId: account.id, generation: 41)
+
+        #expect(state.activeChats.first?.unreadCount == 0)
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar + 1)
+    }
+
+    @MainActor
     @Test func resetActiveAccountUIStateClearsReadMarkersAndDeliveredNotificationKeys() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
@@ -31431,6 +31624,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func initializeChatReadState(accountRef: String, groupIdHex: String) throws -> ChatListRowFfi? {
         recordSyncCall("initializeChatReadState")
+        guard initializeChatReadStateReturnsRow else { return nil }
         return groups.first(where: { $0.groupIdHex == groupIdHex }).map(chatListRow(for:))
     }
 
@@ -31721,6 +31915,23 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         secureDeleteExpiredGate.didReach
     }
     var accountUnreadSummaryRows: [AccountUnreadFfi] = []
+    var accountUnreadSummaryCallCount = 0
+    /// Withholds the selected chat's read-state row, so a test can keep the timeline's off-main
+    /// `applyChatRow` out of a window where it counts chat-list work.
+    var initializeChatReadStateReturnsRow = true
+    private let accountUnreadSummaryGate = BlockingFfiGate()
+    /// Parks the first summary query off-main so a later one can overtake it.
+    var accountUnreadSummaryGateEnabled: Bool {
+        get { accountUnreadSummaryGate.isEnabled }
+        set { accountUnreadSummaryGate.isEnabled = newValue }
+    }
+    var didReachAccountUnreadSummaryGate: Bool {
+        accountUnreadSummaryGate.didReach
+    }
+
+    func releaseAccountUnreadSummaryGate() {
+        accountUnreadSummaryGate.release()
+    }
 
     func parseMarkdown(text: String) -> MarkdownDocumentFfi {
         parseMarkdownCallCount += 1
@@ -31728,7 +31939,12 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func accountUnreadSummary() throws -> [AccountUnreadFfi] {
-        accountUnreadSummaryRows
+        accountUnreadSummaryCallCount += 1
+        // Snapshot before parking, the way the real query answers from the store as it stood when
+        // the call was made: a gated call must come back with stale totals, not fresh ones.
+        let rows = accountUnreadSummaryRows
+        accountUnreadSummaryGate.passIfArmed()
+        return rows
     }
 
     func signOut(accountRef: String, deleteKeyPackages: Bool) async throws -> SignOutOutcomeFfi {
@@ -32743,7 +32959,9 @@ private func chatListRow(
     selfMembership: SelfMembershipFfi = .member,
     attachmentKind: ChatListAttachmentKindFfi? = nil,
     attachmentCount: UInt32 = 0,
-    deleted: Bool = false
+    deleted: Bool = false,
+    unreadCount: UInt64 = 0,
+    hasUnread: Bool = false
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
@@ -32766,8 +32984,8 @@ private func chatListRow(
             attachmentCount: attachmentCount,
             deliveryState: .notApplicable
         ),
-        unreadCount: 0,
-        hasUnread: false,
+        unreadCount: unreadCount,
+        hasUnread: hasUnread,
         unreadMentionCount: 0,
         unreadMention: false,
         firstUnreadMessageIdHex: nil,
@@ -33087,6 +33305,65 @@ private func notificationUpdate(
         reactedToPreview: nil,
         timestampMs: 1_700_000_000_000,
         isFromSelf: isFromSelf
+    )
+}
+
+private let unreadBadgeFixtureAccountIdHex =
+    "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+/// A workspace wired to a runtime and one seeded chat, deliberately **without** `bootstrap()`.
+///
+/// Tests that count summary queries or park one mid-flight cannot bootstrap: it returns while the
+/// chat-list enrichment task it spawned is still running (and, with messages installed, timeline
+/// work too), and that task re-upserts rows from the bootstrap snapshot. Either lands inside the
+/// measurement window on a loaded machine — which is how the count guard here failed in CI while
+/// passing 25 runs in a row locally.
+@MainActor
+private func unreadBadgeFixture(
+    runtime: FakeMarmotRuntime,
+    seededUnreadCount: Int
+) -> (state: WorkspaceState, account: AccountItem) {
+    let account = AccountItem(
+        id: "Desktop Account",
+        accountRef: "Desktop Account",
+        displayName: "Desktop Account",
+        accountIdHex: unreadBadgeFixtureAccountIdHex
+    )
+    let chat = chatListOrderingTestItem(
+        id: "group",
+        title: "Test Group",
+        updatedAt: 1_700_000_000,
+        unreadCount: seededUnreadCount
+    )
+    let state = WorkspaceState(
+        accounts: [account],
+        chatsByAccount: [account.id: [chat]],
+        clientFactory: { runtime }
+    )
+    state.client = runtime
+    state.activeAccountId = account.id
+    return (state, account)
+}
+
+/// A delta for the fixture's seeded chat, carrying only a fresh timestamp and unread count.
+private func unreadBadgeFixtureRow(timelineAt: UInt64, unreadCount: UInt64) -> ChatListRowFfi {
+    chatListRow(
+        groupIdHex: "group",
+        title: "Test Group",
+        preview: "A newer message",
+        sender: unreadBadgeFixtureAccountIdHex,
+        timelineAt: timelineAt,
+        unreadCount: unreadCount,
+        hasUnread: unreadCount > 0
+    )
+}
+
+private func unreadSummaryRow(accountIdHex: String, unreadCount: UInt64) -> AccountUnreadFfi {
+    AccountUnreadFfi(
+        accountIdHex: accountIdHex,
+        unreadCount: unreadCount,
+        unreadConversations: unreadCount > 0 ? 1 : 0,
+        hasUnread: unreadCount > 0
     )
 }
 
