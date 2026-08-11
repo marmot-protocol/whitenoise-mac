@@ -92,7 +92,7 @@ extension WorkspaceState {
             var resolvedIds: [String] = []
             // `refreshProfile` is an async FFI call that suspends rather than blocking, so
             // a small fan-out here does not stall the main actor. The local re-resolution
-            // it triggers still funnels through the serialized `ffiQueue`.
+            // it triggers still funnels through the shared `FFIExecutor.queue`.
             await withTaskGroup(of: (String, Bool).self) { group in
                 for accountIdHex in batch {
                     group.addTask { @MainActor in
@@ -232,7 +232,7 @@ extension WorkspaceState {
         guard let client else { return MarmotClient.seedRelays }
 
         let accountRelays =
-            (try? await runOffMain { try client.accountRelayLists(accountRef: account.accountRef) })?
+            (try? await FFIExecutor.run { try client.accountRelayLists(accountRef: account.accountRef) })?
             .nip65.relays ?? []
 
         var relays: [String] = []
@@ -350,7 +350,7 @@ extension WorkspaceState {
             selectedChat?.id == groupIdHex
         else { return }
 
-        guard let page = try? await runOffMain({ subscription.snapshot() }) else { return }
+        guard let page = try? await FFIExecutor.run({ subscription.snapshot() }) else { return }
         guard activeAccountId == account.id,
             activeTimelineSubscription === subscription,
             selectedChat?.id == groupIdHex

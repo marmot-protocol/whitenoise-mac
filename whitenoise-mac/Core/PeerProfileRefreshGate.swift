@@ -38,7 +38,7 @@ nonisolated struct PeerProfileRefreshGate: Sendable {
     /// the id at the bottom of the 2s/4s ladder — 3 relay round-trips per peer per ~66s, for
     /// the life of the process. The timeline and chat-list paths request every sender and
     /// every roster member they see, so an unresolvable 50-member group sustained ~150
-    /// round-trips a minute forever, each also taking a slot on the serialized `ffiQueue`
+    /// round-trips a minute forever, each also taking a slot on the shared `FFIExecutor.queue`
     /// that the transcript projection needs. Escalating instead keeps the responsive first
     /// minute and turns the steady state into a trickle.
     static let repeatedFailureCooldowns: [TimeInterval] = [60, 300, 1800]

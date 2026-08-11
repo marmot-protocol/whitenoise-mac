@@ -131,13 +131,13 @@ extension WorkspaceState {
         let fallbackName = activeAccount.displayName
         let pictureURL = activeAccount.pictureURL
 
-        // `runOffMain` is not cancellation-aware, so an A→B switch during any of the FFI awaits below
+        // `FFIExecutor.run` is not cancellation-aware, so an A→B switch during any of the FFI awaits below
         // leaves account A's load resuming and writing `profileDraft` / `relaySettings` — and, via the
         // live `activeAccountId`, clobbering account B's `accounts[]` entry. Re-check after every await
         // before writing (mirroring `loadKeyPackages` / `saveProfile`) so a stale load can't leak
         // account A's metadata onto B.
         do {
-            let profile = try await runOffMain {
+            let profile = try await FFIExecutor.run {
                 try client.userProfile(accountIdHex: accountIdHex)
             }
             guard !Task.isCancelled, activeAccountId == accountId else { return }
@@ -149,7 +149,7 @@ extension WorkspaceState {
             lastError = error.localizedDescription
             profileDraft = ProfileDraft(fallbackName: fallbackName)
             let displayName =
-                (try? await runOffMain {
+                (try? await FFIExecutor.run {
                     client.displayName(accountIdHex: accountIdHex)
                 }) ?? nil
             guard !Task.isCancelled, activeAccountId == accountId else { return }
@@ -162,7 +162,7 @@ extension WorkspaceState {
         }
 
         do {
-            let lists = try await runOffMain {
+            let lists = try await FFIExecutor.run {
                 try client.accountRelayLists(accountRef: accountRef)
             }
             guard !Task.isCancelled, activeAccountId == accountId else { return }
@@ -290,7 +290,7 @@ extension WorkspaceState {
         }
 
         do {
-            let settings = try await runOffMain {
+            let settings = try await FFIExecutor.run {
                 try client.setLocalNotificationsEnabled(
                     accountRef: accountRef,
                     enabled: enabled
@@ -622,7 +622,7 @@ extension WorkspaceState {
         let generation = beginNotificationSettingsOperation()
 
         do {
-            let settings = try await runOffMain {
+            let settings = try await FFIExecutor.run {
                 try client.notificationSettings(accountRef: accountRef)
             }
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
@@ -688,7 +688,7 @@ extension WorkspaceState {
         else { return }
 
         do {
-            let (telemetry, auditLog) = try await runOffMain {
+            let (telemetry, auditLog) = try await FFIExecutor.run {
                 (
                     try client.relayTelemetrySettings(),
                     try client.auditLogSettings()
@@ -735,7 +735,7 @@ extension WorkspaceState {
 
         do {
             try await configureObservabilityRuntime()
-            let current = try await runOffMain {
+            let current = try await FFIExecutor.run {
                 try client.relayTelemetrySettings()
             }
             let settings = RelayTelemetrySettingsFfi(
@@ -800,7 +800,7 @@ extension WorkspaceState {
         repeat {
             shouldReloadAuditLogFilesAfterCurrentLoad = false
             do {
-                auditLogFiles = try await runOffMain {
+                auditLogFiles = try await FFIExecutor.run {
                     try client.auditLogFiles()
                 }
             } catch {

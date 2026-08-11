@@ -23,7 +23,7 @@ extension WorkspaceState {
         lastError = nil
         // Wipe any decrypted/plaintext media scratch left by a prior session before the
         // UI can surface new media or prepare outgoing attachments.
-        try? await runOffMain {
+        try? await FFIExecutor.run {
             MediaPlaybackTempStore.purge()
             OutgoingMediaMetadataTempStore.purge()
         }
@@ -48,7 +48,7 @@ extension WorkspaceState {
             loadPinnedChats()
             loadContactNicknames()
             loadRememberedDirectPeers()
-            let summaries = try await runOffMain {
+            let summaries = try await FFIExecutor.run {
                 try runtime.listAccounts()
             }
             accounts = try await accountItems(from: summaries, client: runtime)
@@ -383,7 +383,7 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         lastError = nil
         do {
-            return try await runOffMain { try client.revealNsec(accountRef: accountRef) }
+            return try await FFIExecutor.run { try client.revealNsec(accountRef: accountRef) }
         } catch {
             lastError = error.localizedDescription
             return nil
@@ -397,7 +397,7 @@ extension WorkspaceState {
         let accountRef = activeAccount.accountRef
         lastError = nil
         do {
-            return try await runOffMain {
+            return try await FFIExecutor.run {
                 try client.exportEncryptedSecretKey(accountRef: accountRef, passphrase: passphrase)
             }
         } catch {
@@ -691,7 +691,7 @@ extension WorkspaceState {
         let generation = accountUnreadSummaryGeneration
         let requestedAccountId = activeAccountId
         do {
-            let rows = try await runOffMain { try client.accountUnreadSummary() }
+            let rows = try await FFIExecutor.run { try client.accountUnreadSummary() }
             guard accountUnreadSummaryGeneration == generation, activeAccountId == requestedAccountId else {
                 return
             }
@@ -764,7 +764,7 @@ extension WorkspaceState {
         // outside it, so purge those before the potentially throwing Marmot deletion.
         // The encrypted media cache stays until the delete succeeds — on a pre-shutdown failure
         // the recovered session must keep its cached media intact and decryptable.
-        try? await runOffMain {
+        try? await FFIExecutor.run {
             MediaPlaybackTempStore.purge()
             OutgoingMediaMetadataTempStore.purge()
         }
@@ -1006,7 +1006,7 @@ extension WorkspaceState {
     }
 
     func accountItemsFromRuntime(client: any MarmotRuntime) async throws -> [AccountItem] {
-        let summaries = try await runOffMain {
+        let summaries = try await FFIExecutor.run {
             try client.listAccounts()
         }
         return try await accountItems(from: summaries, client: client)
@@ -1016,7 +1016,7 @@ extension WorkspaceState {
         from summaries: [AccountSummaryFfi],
         client: any MarmotRuntime
     ) async throws -> [AccountItem] {
-        try await runOffMain {
+        try await FFIExecutor.run {
             summaries.map { summary in
                 let resolved = Self.resolvedAccountFFI(from: summary, client: client)
                 return Self.accountItem(from: summary, resolved: resolved)

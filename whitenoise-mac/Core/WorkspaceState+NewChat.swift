@@ -65,7 +65,7 @@ extension WorkspaceState {
     func resolveNewChatRecipient(for query: String) async throws -> NewChatRecipient? {
         guard let client else { return nil }
         let memberRef = try await memberRefCandidate(for: query)
-        let member = try await runOffMain {
+        let member = try await FFIExecutor.run {
             try client.normalizeMemberRef(memberRef: memberRef)
         }
         // Seed relays alone miss a recipient published only to their own NIP-65 write
@@ -73,7 +73,7 @@ extension WorkspaceState {
         let relays = await peerProfileLookupRelaysForActiveAccount()
         try? await client.refreshProfile(accountIdHex: member.accountIdHex, relays: relays)
         peerProfileFFICache[member.accountIdHex] = nil
-        let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
+        let resolved = try? await FFIExecutor.run { () -> ResolvedPeerFFI in
             let profile = try? client.userProfile(accountIdHex: member.accountIdHex)
             return ResolvedPeerFFI(
                 profileDisplayName: profile?.displayName,
@@ -498,7 +498,7 @@ extension WorkspaceState {
         // `displayName` and `npub` are cached, network-free lookups, so the whole batch
         // fits in one hop off the main thread.
         let resolved =
-            (try? await runOffMain {
+            (try? await FFIExecutor.run {
                 missing.map { hex in
                     ResolvedFollowContact(
                         accountIdHex: hex,

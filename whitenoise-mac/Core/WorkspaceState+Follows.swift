@@ -99,7 +99,7 @@ extension WorkspaceState {
 
         for attempt in 1...Self.followStatusAttemptLimit {
             do {
-                let isFollowing = try await runOffMain {
+                let isFollowing = try await FFIExecutor.run {
                     try client.isFollowing(accountRef: accountRef, userRef: hex)
                 }
                 guard followStatusGeneration == generation, activeAccountId == accountId else { return }
@@ -134,7 +134,7 @@ extension WorkspaceState {
         let epoch = followCacheEpoch
         let accountRef = activeAccount.accountRef
         do {
-            let follows = try await runOffMain {
+            let follows = try await FFIExecutor.run {
                 try client.accountFollows(accountRef: accountRef)
             }
             guard followListGeneration == generation, activeAccountId == accountId else { return false }
