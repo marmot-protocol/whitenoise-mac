@@ -1062,6 +1062,96 @@ struct PureValueTests {
         )
     }
 
+    /// A row whose last word was yours has to say so, in both a group and a DM — otherwise your
+    /// own message reads as though the other side sent it.
+    @Test func chatRowAttributesYourOwnLastMessageToYou() async throws {
+        let selfIdHex = String(repeating: "5", count: 64)
+        func chat(groupName: String, plaintext: String, sender: String) -> ChatItem {
+            ChatItem(
+                row: chatRow(groupName: groupName, sender: sender, senderDisplayName: "Alice", plaintext: plaintext),
+                activeAccountIdHex: selfIdHex
+            )
+        }
+
+        let ownGroupMessage = chat(groupName: "Planning", plaintext: "On my way", sender: selfIdHex)
+        #expect(ownGroupMessage.preview == String(format: L10n.string("You: %@"), "On my way"))
+        // Nothing to relabel: "You" is not a name a nickname can override.
+        #expect(ownGroupMessage.previewAttribution == nil)
+
+        let ownDirectMessage = ChatItem(
+            row: chatRow(groupName: "", sender: selfIdHex, senderDisplayName: "Alice", plaintext: "On my way"),
+            activeAccountIdHex: selfIdHex,
+            directPeer: ChatPeerProfile(accountIdHex: aliceIdHex, displayName: "Alice", pictureURL: nil)
+        )
+        #expect(ownDirectMessage.isDirect)
+        #expect(ownDirectMessage.preview == String(format: L10n.string("You: %@"), "On my way"))
+
+        // The attribution wraps whatever the line resolved to, media wording included.
+        let ownAttachment = chat(groupName: "Planning", plaintext: "", sender: selfIdHex)
+        #expect(ownAttachment.preview == String(format: L10n.string("You: %@"), L10n.string("Attachment")))
+
+        // Someone else's message keeps its own name, and stays relabelable.
+        let peerMessage = chat(groupName: "Planning", plaintext: "On my way", sender: aliceIdHex)
+        #expect(peerMessage.preview == "\(bidiIsolated("Alice")): On my way")
+        #expect(peerMessage.previewAttribution?.senderAccountIdHex == aliceIdHex)
+        #expect(peerMessage.previewAttribution?.publishedSenderName == "Alice")
+        #expect(peerMessage.previewAttribution?.body == "On my way")
+
+        // With no account resolved yet, no message can be claimed as your own.
+        let unattributed = ChatItem(
+            row: chatRow(groupName: "Planning", sender: selfIdHex, senderDisplayName: "Alice", plaintext: "Hi"),
+            activeAccountIdHex: nil
+        )
+        #expect(unattributed.preview == "\(bidiIsolated("Alice")): Hi")
+    }
+
+    /// The preview's author is the same person as the row title and the sender label, so the
+    /// viewer's private label has to reach it too.
+    @Test func chatRowLastSenderPrefixPrefersTheNickname() async throws {
+        let row = chatRow(groupName: "Planning", sender: aliceIdHex, senderDisplayName: "Alice", plaintext: "Hi")
+
+        let nicknamed = ChatItem(row: row, activeAccountIdHex: "self", lastSenderNickname: "Mum")
+        #expect(nicknamed.preview == "\(bidiIsolated("Mum")): Hi")
+        // The published name is recorded so clearing the nickname restores it.
+        #expect(nicknamed.previewAttribution?.publishedSenderName == "Alice")
+
+        // A member who published no name has nothing to prefix with — until they are nicknamed.
+        let anonymous = chatRow(groupName: "Planning", sender: aliceIdHex, senderDisplayName: nil, plaintext: "Hi")
+        #expect(ChatItem(row: anonymous, activeAccountIdHex: "self").preview == "Hi")
+        #expect(
+            ChatItem(row: anonymous, activeAccountIdHex: "self", lastSenderNickname: "Mum").preview
+                == "\(bidiIsolated("Mum")): Hi"
+        )
+    }
+
+    /// Relabeling recomposes the line from the parts it was built from, so a rename lands without
+    /// re-running chat-list enrichment — and touches nothing else on the row.
+    @Test func chatRowPreviewRelabelsOnlyItsOwnLastSender() async throws {
+        let row = chatRow(groupName: "Planning", sender: aliceIdHex, senderDisplayName: "Alice", plaintext: "Hi")
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        let renamed = chat.relabelingPreviewSender(accountIdHex: aliceIdHex, nickname: "Mum")
+        #expect(renamed.preview == "\(bidiIsolated("Mum")): Hi")
+        #expect(renamed.previewAttribution == chat.previewAttribution)
+        #expect(renamed.title == chat.title)
+        #expect(renamed.unreadCount == chat.unreadCount)
+
+        // Clearing hands the line back to the published name, exactly as `applyingNickname` does.
+        #expect(renamed.relabelingPreviewSender(accountIdHex: aliceIdHex, nickname: nil) == chat)
+
+        // Another contact's rename must leave the row untouched, so the chat-list generation and
+        // the memoized sidebar filter never churn for it.
+        #expect(chat.relabelingPreviewSender(accountIdHex: String(repeating: "b", count: 64), nickname: "Dad") == chat)
+        #expect(chat.relabelingPreviewSender(accountIdHex: aliceIdHex, nickname: "Alice") == chat)
+
+        // A row with no attributed sender has nothing to recompose.
+        let own = ChatItem(
+            row: chatRow(groupName: "Planning", sender: "self", senderDisplayName: "You", plaintext: "Hi"),
+            activeAccountIdHex: "self"
+        )
+        #expect(own.relabelingPreviewSender(accountIdHex: "self", nickname: "Me") == own)
+    }
+
     @Test func chatListRowClampsOversizedUnreadCounts() async throws {
         // Regression for whitenoise-mac#242: unread counts cross the FFI boundary as
         // UInt64, and Int(value) traps above Int.max while mapping the chat list.
@@ -4431,6 +4521,51 @@ struct PureValueTests {
 /// 64-char hex built from a short seed, so tests read as `hex("a")` rather than a wall of digits.
 private func hex(_ seed: String) -> String {
     String((seed + String(repeating: "0", count: 64)).prefix(64))
+}
+
+/// The peer whose messages the chat-row preview tests attribute.
+private let aliceIdHex = hex("a11ce")
+
+/// A display name as a template composes it: bidi-isolated so peer-controlled text cannot
+/// reorder what follows it.
+private func bidiIsolated(_ text: String) -> String {
+    "\u{2068}\(text)\u{2069}"
+}
+
+private func chatRow(
+    groupName: String,
+    sender: String,
+    senderDisplayName: String?,
+    plaintext: String
+) -> ChatListRowFfi {
+    ChatListRowFfi(
+        groupIdHex: "group",
+        archived: false,
+        pendingConfirmation: false,
+        title: groupName.isEmpty ? "Alice" : groupName,
+        groupName: groupName,
+        avatarUrl: nil,
+        avatar: nil,
+        lastMessage: ChatListMessagePreviewFfi(
+            messageIdHex: "message-1",
+            sender: sender,
+            senderDisplayName: senderDisplayName,
+            plaintext: plaintext,
+            contentTokens: MarkdownDocumentFfi(blocks: [], truncated: false),
+            kind: 9,
+            timelineAt: 1_700_000_000,
+            deleted: false
+        ),
+        unreadCount: 0,
+        hasUnread: false,
+        unreadMentionCount: 0,
+        unreadMention: false,
+        firstUnreadMessageIdHex: nil,
+        lastReadMessageIdHex: nil,
+        lastReadTimelineAt: nil,
+        updatedAt: 1_700_000_000,
+        selfMembership: .member
+    )
 }
 
 private func discoveryProfile(displayName: String? = nil, picture: String? = nil) -> UserProfileMetadataFfi {

@@ -52,6 +52,9 @@ extension WorkspaceState {
             byContactIdHex: contactNicknamesByOwner[owner] ?? [:]
         )
         cachedContactNicknames = NicknameStamped(stamp: stamp, value: value)
+        #if DEBUG
+            contactNicknameSnapshotBuildCount += 1
+        #endif
         return value
     }
 
@@ -141,7 +144,7 @@ extension WorkspaceState {
         else { return }
         let nickname = activeContactNicknames.nickname(forContactAccountIdHex: contact)
 
-        relabelDirectChats(forAccountId: accountId, peerAccountIdHex: contact, nickname: nickname)
+        relabelChatRows(forAccountId: accountId, contactAccountIdHex: contact, nickname: nickname)
         relabelTimelineSenders(accountIdHex: contact, nickname: nickname)
         relabelComposeContacts(accountIdHex: contact, nickname: nickname)
         relabelContactDetailsTarget(accountIdHex: contact, nickname: nickname)
@@ -188,19 +191,31 @@ extension WorkspaceState {
         }
     }
 
-    /// Retitle the direct chats whose peer is this contact. `avatarSeed` is the peer's account
-    /// hex for a direct chat, so this touches exactly those rows and never a group.
-    private func relabelDirectChats(forAccountId accountId: String, peerAccountIdHex: String, nickname: String?) {
+    /// Retitle the direct chats whose peer is this contact, and re-attribute any row whose
+    /// last-message preview names them.
+    ///
+    /// Both in one pass over each list: a rename touches the title of the DM with that person and
+    /// the "Name: message" line of every chat they last spoke in, and splitting them would walk the
+    /// chat list twice and bump its generation twice. The title match is on `avatarSeed`, which
+    /// carries the peer's account hex for a direct chat, so it never catches a group; the preview
+    /// match is on the last sender, which can be any row.
+    private func relabelChatRows(forAccountId accountId: String, contactAccountIdHex: String, nickname: String?) {
         // Returns nil when nothing moved, so an unrelated contact's nickname never churns the
         // chat-list generation (and with it the memoized sidebar filter).
         let relabeled: ([ChatItem]) -> [ChatItem]? = { chats in
             var next = chats
             var didChange = false
             for index in next.indices {
-                guard next[index].isDirect,
-                    ContactNicknames.normalizedHex(next[index].avatarSeed) == peerAccountIdHex
-                else { continue }
-                let candidate = next[index].applyingNickname(nickname)
+                var candidate = next[index]
+                if candidate.isDirect,
+                    ContactNicknames.normalizedHex(candidate.avatarSeed) == contactAccountIdHex
+                {
+                    candidate = candidate.applyingNickname(nickname)
+                }
+                candidate = candidate.relabelingPreviewSender(
+                    accountIdHex: contactAccountIdHex,
+                    nickname: nickname
+                )
                 guard candidate != next[index] else { continue }
                 next[index] = candidate
                 didChange = true
@@ -249,9 +264,11 @@ extension WorkspaceState {
     ///
     /// Every materialized window is relabeled, not just the selected chat's, for the reason
     /// `relabelTimelineSenders` does the same: a background window would otherwise keep the stale
-    /// label until it is next projected. Chat-list previews re-resolve on their next row update,
-    /// and every other group's `mentionNamesCache` entry is stamped with the nickname set, so it
-    /// rebuilds against the new label whenever it is next read.
+    /// label until it is next projected. A chat-list preview's mention tokens are baked the same
+    /// way and re-resolve on the row's next update — its attribution prefix, the part of that line
+    /// a rename is visibly about, is patched immediately by `relabelChatRows` — and every other
+    /// group's `mentionNamesCache` entry is stamped with the nickname set, so it rebuilds against
+    /// the new label whenever it is next read.
     private func relabelTimelineMentions(ofContactAccountIdHex contact: String) {
         var didChangeSelectedChat = false
         for (groupIdHex, store) in messageTimelineStores {

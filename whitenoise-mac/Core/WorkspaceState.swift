@@ -191,6 +191,7 @@ nonisolated struct ChatListOrdering {
             subtitle: current.subtitle,
             preview: chat.preview,
             previewAttachmentKind: chat.previewAttachmentKind,
+            previewAttribution: chat.previewAttribution,
             updatedAt: chat.updatedAt,
             avatarSeed: current.avatarSeed,
             pictureURL: current.pictureURL,
@@ -1726,6 +1727,10 @@ final class WorkspaceState {
         @ObservationIgnored var mentionRosterBuildCount = 0
         /// Test-only instrumentation for verifying timeline mention-name projections are reused.
         @ObservationIgnored var mentionNamesBuildCount = 0
+        /// Test-only instrumentation for verifying the nickname snapshot is reused across a
+        /// chat-list projection: every row's preview attribution resolves through it, so a
+        /// per-row rebuild would put a map reduction on the chat-list hot path.
+        @ObservationIgnored var contactNicknameSnapshotBuildCount = 0
 
         /// Test-only instrumentation: the number of times `messageSenderProfiles` had to fetch the
         /// group member list to build the sender-name fallback map. In the all-resolved steady

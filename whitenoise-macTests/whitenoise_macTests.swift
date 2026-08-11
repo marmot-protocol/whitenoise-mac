@@ -1936,6 +1936,216 @@ struct whitenoise_macTests {
         #expect(state.contactNickname(forContactAccountIdHex: contact) == nil)
     }
 
+    /// A rename has to reach the "Name: message" line of every chat that person last spoke in —
+    /// including groups, which carry no nicknamed title to relabel — and it has to land on the
+    /// gesture rather than waiting for that chat's next message.
+    @MainActor
+    @Test func settingANicknameReattributesChatRowPreviews() async throws {
+        let account = desktopAccount()
+        let contact = String(repeating: "2", count: 64)
+        let other = String(repeating: "3", count: 64)
+        func row(id: String, title: String, sender: String, senderName: String, body: String) -> ChatItem {
+            ChatItem(
+                id: id,
+                title: title,
+                subtitle: "Group message",
+                preview: "\(isolated(senderName)): \(body)",
+                previewAttribution: ChatPreviewAttribution(
+                    senderAccountIdHex: sender,
+                    publishedSenderName: senderName,
+                    body: body
+                ),
+                updatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                avatarSeed: id,
+                pictureURL: nil,
+                unreadCount: 0
+            )
+        }
+        let group = row(id: "group", title: "Book club", sender: contact, senderName: "Alice", body: "Hey")
+        let otherGroup = row(id: "other-group", title: "Climbing", sender: other, senderName: "Bob", body: "Yo")
+        let archived = row(id: "archived", title: "Old crew", sender: contact, senderName: "Alice", body: "Bye")
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-nickname-preview-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let state = WorkspaceState(
+            accounts: [AccountItem(summary: account)],
+            chatsByAccount: [account.label: [group, otherGroup]],
+            contactNicknameStore: ContactNicknameFileStore(directoryURL: directory),
+            clientFactory: { FakeMarmotRuntime(accounts: [account]) }
+        )
+        state.activeAccountId = account.label
+        state.setArchivedChats([archived], forAccountId: account.label)
+
+        state.setContactNickname("Mum", forContactAccountIdHex: contact)
+
+        #expect(state.chatItem(accountId: account.label, chatId: "group")?.preview == "\(isolated("Mum")): Hey")
+        let relabeledArchive = state.archivedChatItem(accountId: account.label, chatId: "archived")
+        #expect(relabeledArchive?.preview == "\(isolated("Mum")): Bye")
+        // Another contact's row must not churn — the chat-list generation and the memoized
+        // sidebar filter both key off these values.
+        #expect(state.chatItem(accountId: account.label, chatId: "other-group") == otherGroup)
+
+        state.setContactNickname(nil, forContactAccountIdHex: contact)
+
+        #expect(state.chatItem(accountId: account.label, chatId: "group") == group)
+        #expect(state.archivedChatItem(accountId: account.label, chatId: "archived") == archived)
+    }
+
+    /// The nickname also has to be folded in when the row is *projected*, not just patched onto
+    /// rows already on screen — otherwise the next message in that chat brings the published name
+    /// back.
+    @MainActor
+    @Test func projectedChatRowAttributesItsLastSenderByNickname() async throws {
+        let account = desktopAccount()
+        let contact = String(repeating: "2", count: 64)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-nickname-projection-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = ContactNicknameFileStore(directoryURL: directory)
+        let state = WorkspaceState(
+            accounts: [AccountItem(summary: account)],
+            contactNicknameStore: store,
+            clientFactory: { FakeMarmotRuntime(accounts: [account]) }
+        )
+        state.activeAccountId = account.label
+        let activeAccount = try #require(state.activeAccount)
+
+        let peerRow = ChatListRowFfi(
+            groupIdHex: "group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Book club",
+            groupName: "Book club",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "message-1",
+                sender: contact,
+                senderDisplayName: "Alice",
+                plaintext: "Hey",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                timelineAt: 1_700_000_000,
+                deleted: false
+            ),
+            unreadCount: 0,
+            hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 1_700_000_000,
+            selfMembership: .member
+        )
+
+        #expect(state.baseChatItem(from: peerRow, account: activeAccount).preview == "\(isolated("Alice")): Hey")
+
+        state.setContactNickname("Mum", forContactAccountIdHex: contact)
+
+        let projected = state.baseChatItem(from: peerRow, account: activeAccount)
+        #expect(projected.preview == "\(isolated("Mum")): Hey")
+        #expect(projected.previewAttribution?.publishedSenderName == "Alice")
+        // An account added *after* someone nicknamed it still has that entry on file. It must
+        // never surface as your own name: the row still reads "You".
+        try store.write([contact: "Mum", account.accountIdHex: "Me"], forOwnerAccountIdHex: account.accountIdHex)
+        state.loadContactNicknames()
+        let ownRow = ChatListRowFfi(
+            groupIdHex: "group",
+            archived: false,
+            pendingConfirmation: false,
+            title: "Book club",
+            groupName: "Book club",
+            avatarUrl: nil,
+            avatar: nil,
+            lastMessage: ChatListMessagePreviewFfi(
+                messageIdHex: "message-2",
+                sender: account.accountIdHex,
+                senderDisplayName: "Desktop",
+                plaintext: "On my way",
+                contentTokens: emptyMarkdownDocument(),
+                kind: 9,
+                timelineAt: 1_700_000_001,
+                deleted: false
+            ),
+            unreadCount: 0,
+            hasUnread: false,
+            unreadMentionCount: 0,
+            unreadMention: false,
+            firstUnreadMessageIdHex: nil,
+            lastReadMessageIdHex: nil,
+            lastReadTimelineAt: nil,
+            updatedAt: 1_700_000_001,
+            selfMembership: .member
+        )
+
+        #expect(
+            state.baseChatItem(from: ownRow, account: activeAccount).preview
+                == String(format: L10n.string("You: %@"), "On my way")
+        )
+        #expect(state.baseChatItem(from: peerRow, account: activeAccount).preview == "\(isolated("Mum")): Hey")
+    }
+
+    /// Every row's preview attribution resolves against the nickname map, and a chat-list snapshot
+    /// projects hundreds of rows at once. The snapshot behind that lookup must be built once per
+    /// nickname revision, not once per row.
+    @MainActor
+    @Test func projectingManyChatRowsBuildsTheNicknameSnapshotOnce() async throws {
+        let account = desktopAccount()
+        let contact = String(repeating: "2", count: 64)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-nickname-cost-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let state = WorkspaceState(
+            accounts: [AccountItem(summary: account)],
+            contactNicknameStore: ContactNicknameFileStore(directoryURL: directory),
+            clientFactory: { FakeMarmotRuntime(accounts: [account]) }
+        )
+        state.activeAccountId = account.label
+        let activeAccount = try #require(state.activeAccount)
+        state.setContactNickname("Mum", forContactAccountIdHex: contact)
+
+        let rows = (0..<200).map { index in
+            ChatListRowFfi(
+                groupIdHex: "group-\(index)",
+                archived: false,
+                pendingConfirmation: false,
+                title: "Book club \(index)",
+                groupName: "Book club \(index)",
+                avatarUrl: nil,
+                avatar: nil,
+                lastMessage: ChatListMessagePreviewFfi(
+                    messageIdHex: "message-\(index)",
+                    sender: contact,
+                    senderDisplayName: "Alice",
+                    plaintext: "Hey",
+                    contentTokens: emptyMarkdownDocument(),
+                    kind: 9,
+                    timelineAt: 1_700_000_000,
+                    deleted: false
+                ),
+                unreadCount: 0,
+                hasUnread: false,
+                unreadMentionCount: 0,
+                unreadMention: false,
+                firstUnreadMessageIdHex: nil,
+                lastReadMessageIdHex: nil,
+                lastReadTimelineAt: nil,
+                updatedAt: 1_700_000_000,
+                selfMembership: .member
+            )
+        }
+
+        let baseline = state.contactNicknameSnapshotBuildCount
+        let projected = rows.map { state.baseChatItem(from: $0, account: activeAccount) }
+
+        #expect(projected.allSatisfy { $0.preview == "\(isolated("Mum")): Hey" })
+        #expect(state.contactNicknameSnapshotBuildCount == baseline)
+    }
+
     @MainActor
     @Test func ownAccountsCannotBeNicknamed() async throws {
         let account = desktopAccount()

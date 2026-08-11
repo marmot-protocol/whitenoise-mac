@@ -526,8 +526,24 @@ extension WorkspaceState {
             // The no-enrich fast path (e.g. a live `newLastMessage`) can't fetch the roster, but a
             // recently viewed group usually has it cached — resolve preview mentions when so, which
             // covers the just-sent-message case; otherwise the reference keeps its bech32 form.
-            mentionNames: cachedMentionNames(groupIdHex: row.groupIdHex)
+            mentionNames: cachedMentionNames(groupIdHex: row.groupIdHex),
+            lastSenderNickname: lastMessageSenderNickname(in: row, account: account)
         )
+    }
+
+    /// The viewer's private label for whoever sent this row's last message, for the preview's
+    /// attribution prefix.
+    ///
+    /// This runs once per row on every chat-list snapshot and delta, so it stays two reads in the
+    /// common case: `contactNicknames(forOwnerAccountIdHex:)` returns a memo stamped with the
+    /// nickname revision, and `nickname(forContactAccountIdHex:)` short-circuits on an account that
+    /// has nicknamed nobody. No FFI, no roster.
+    func lastMessageSenderNickname(in row: ChatListRowFfi, account: AccountItem) -> String? {
+        guard let sender = row.lastMessage?.sender.nilIfBlank, sender != account.accountIdHex else { return nil }
+        // Scoped to the row's own account, not the active one: a delta can still land for a
+        // background account, and private labels are per-account.
+        return contactNicknames(forOwnerAccountIdHex: account.accountIdHex)
+            .nickname(forContactAccountIdHex: sender)
     }
 
     func startChatListEnrichment(
@@ -636,6 +652,7 @@ extension WorkspaceState {
             subtitle: enrichedItem.subtitle,
             preview: current.preview,
             previewAttachmentKind: current.previewAttachmentKind,
+            previewAttribution: current.previewAttribution,
             updatedAt: current.updatedAt,
             avatarSeed: enrichedItem.avatarSeed,
             pictureURL: enrichedItem.pictureURL ?? current.pictureURL,
@@ -736,7 +753,8 @@ extension WorkspaceState {
             directPeer: directPeer,
             groupAvatarURL: groupAvatarURL,
             groupImagePayload: groupImagePayload,
-            mentionNames: mentionNames
+            mentionNames: mentionNames,
+            lastSenderNickname: lastMessageSenderNickname(in: row, account: account)
         )
     }
 
