@@ -116,7 +116,7 @@ extension WorkspaceState {
         }
         do {
             let accountRef = activeAccount.accountRef
-            if let row = try await runOffMain({
+            if let row = try await FFIExecutor.run({
                 try client.initializeChatReadState(accountRef: accountRef, groupIdHex: groupIdHex)
             }) {
                 guard
@@ -146,7 +146,7 @@ extension WorkspaceState {
                 selectedChat?.id == groupIdHex
             else { return }
 
-            let snapshot = try await runOffMain { subscription.snapshot() }
+            let snapshot = try await FFIExecutor.run { subscription.snapshot() }
             guard canContinueTimelineLoad(generation: generation, accountId: accountId, groupIdHex: groupIdHex),
                 selectedChat?.id == groupIdHex
             else { return }
@@ -1277,7 +1277,7 @@ extension WorkspaceState {
                         selectedChat?.id == groupIdHex,
                         !Task.isCancelled
                     else { break }
-                    let page = try await runOffMain { subscription.snapshot() }
+                    let page = try await FFIExecutor.run { subscription.snapshot() }
                     guard activeAccountId == account.id,
                         selectedChat?.id == groupIdHex,
                         !Task.isCancelled
@@ -1418,7 +1418,7 @@ extension WorkspaceState {
         )
         let pageLimit = Self.timelinePageLimit
         do {
-            let page = try await runOffMain {
+            let page = try await FFIExecutor.run {
                 try client.timelineMessages(
                     accountRef: account.accountRef,
                     query: TimelineMessageQueryFfi(
@@ -1536,7 +1536,7 @@ extension WorkspaceState {
         do {
             let accountRef = account.accountRef
             let messageId = latest.id
-            let row = try await runOffMain({
+            let row = try await FFIExecutor.run({
                 try client.markTimelineMessageRead(
                     accountRef: accountRef,
                     groupIdHex: groupIdHex,

@@ -26,7 +26,7 @@ extension WorkspaceState {
         mutatingChatPreferenceIds.insert(chat.id)
         defer { mutatingChatPreferenceIds.remove(chat.id) }
         do {
-            let row = try await runOffMain {
+            let row = try await FFIExecutor.run {
                 try client.setChatManuallyUnread(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: chat.id,
@@ -54,7 +54,7 @@ extension WorkspaceState {
         mutatingChatPreferenceIds.insert(chat.id)
         defer { mutatingChatPreferenceIds.remove(chat.id) }
         do {
-            _ = try await runOffMain {
+            _ = try await FFIExecutor.run {
                 try client.setChatMuted(
                     accountRef: activeAccount.accountRef,
                     groupIdHex: chat.id,
@@ -75,7 +75,7 @@ extension WorkspaceState {
         mutatingChatPreferenceIds.insert(chat.id)
         defer { mutatingChatPreferenceIds.remove(chat.id) }
         do {
-            _ = try await runOffMain {
+            _ = try await FFIExecutor.run {
                 try client.clearChatMuted(accountRef: activeAccount.accountRef, groupIdHex: chat.id)
             }
             guard activeAccountId == accountId else { return }
@@ -143,7 +143,7 @@ extension WorkspaceState {
             )
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
 
-            let rows = try await runOffMain { subscription.snapshot() }
+            let rows = try await FFIExecutor.run { subscription.snapshot() }
             guard canContinueChatListReload(generation: generation, accountId: accountId) else { return }
             // Start the listener before applying the snapshot rows. `startChatListListener`
             // tears down the previous listener (which cancels any in-flight enrichment), so it
@@ -229,7 +229,7 @@ extension WorkspaceState {
                         includeArchived: true
                     )
                     guard activeAccountId == account.id, !Task.isCancelled else { break }
-                    let rows = try await runOffMain { subscription.snapshot() }
+                    let rows = try await FFIExecutor.run { subscription.snapshot() }
                     guard activeAccountId == account.id, !Task.isCancelled else { break }
                     await applyChatRows(rows, account: account)
                 }
@@ -959,7 +959,7 @@ extension WorkspaceState {
             // The newest message is this account's own (or there is none), so page back through
             // the transcript for the newest message that is not.
             let accountRef = activeAccount.accountRef
-            memberId = try? await runOffMain { () -> String? in
+            memberId = try? await FFIExecutor.run { () -> String? in
                 let page = try client.timelineMessages(
                     accountRef: accountRef,
                     query: TimelineMessageQueryFfi(
@@ -1028,7 +1028,7 @@ extension WorkspaceState {
             return cached.resolved
         }
 
-        let resolved = try? await runOffMain { () -> ResolvedPeerFFI in
+        let resolved = try? await FFIExecutor.run { () -> ResolvedPeerFFI in
             let profile = try? client.userProfile(accountIdHex: accountIdHex)
             return ResolvedPeerFFI(
                 profileDisplayName: profile?.displayName,
@@ -1092,7 +1092,7 @@ extension WorkspaceState {
         }
         if !unresolvedIds.isEmpty {
             let resolved =
-                (try? await runOffMain { () -> [String: ResolvedPeerFFI] in
+                (try? await FFIExecutor.run { () -> [String: ResolvedPeerFFI] in
                     var output: [String: ResolvedPeerFFI] = [:]
                     for senderId in unresolvedIds {
                         let profile = try? client.userProfile(accountIdHex: senderId)

@@ -63,7 +63,7 @@ extension WorkspaceState {
 
     /// `NSApplication.willTerminateNotification` cannot await an asynchronous task. Perform the
     /// final small local-database flush synchronously so edits inside the debounce window survive
-    /// an ordinary app quit. Interactive saves continue to use `runOffMain`.
+    /// an ordinary app quit. Interactive saves continue to use `FFIExecutor.run`.
     func flushComposerDraftPersistenceSynchronouslyForTermination() {
         guard let client else { return }
         for task in composerDraftPersistenceTasks.values {
@@ -112,7 +112,7 @@ extension WorkspaceState {
         let startingGeneration = composerDraftMutationGenerations[key] ?? 0
         restoredComposerDraftKeys.insert(key)
         do {
-            let storedDraft = try await runOffMain {
+            let storedDraft = try await FFIExecutor.run {
                 try client.messageDraft(accountRef: account.accountRef, groupIdHex: groupIdHex)
             }
 
@@ -225,7 +225,7 @@ extension WorkspaceState {
         dirtyComposerDraftKeys.insert(key)
         restoredComposerDraftKeys.insert(key)
         do {
-            try await runOffMain {
+            try await FFIExecutor.run {
                 try client.deleteMessageDraft(accountRef: accountRef, groupIdHex: key.chatId)
             }
             guard composerDraftMutationGenerations[key] == generation else { return }
@@ -285,11 +285,11 @@ extension WorkspaceState {
         let snapshot = composerDraftPersistenceSnapshot(for: key)
         do {
             if snapshot.isEmpty {
-                try await runOffMain {
+                try await FFIExecutor.run {
                     try client.deleteMessageDraft(accountRef: account.accountRef, groupIdHex: key.chatId)
                 }
             } else {
-                _ = try await runOffMain {
+                _ = try await FFIExecutor.run {
                     try client.saveMessageDraft(
                         accountRef: account.accountRef,
                         groupIdHex: key.chatId,

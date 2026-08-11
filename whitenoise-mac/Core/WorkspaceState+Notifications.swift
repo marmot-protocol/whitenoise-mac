@@ -174,7 +174,7 @@ extension WorkspaceState {
     func fetchNotificationSettings(for update: NotificationUpdateFfi) async -> NotificationSettingsFfi? {
         guard let client else { return nil }
         let accountRef = update.accountRef
-        return try? await runOffMain({
+        return try? await FFIExecutor.run({
             try client.notificationSettings(accountRef: accountRef)
         })
     }

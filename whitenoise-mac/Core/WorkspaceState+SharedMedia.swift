@@ -42,7 +42,7 @@ extension WorkspaceState {
         let accountId = activeAccount.id
         let accountRef = activeAccount.accountRef
         do {
-            let projection = try await runOffMain {
+            let projection = try await FFIExecutor.run {
                 let records = try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
                 return GroupSharedMediaProjection(records: records)
             }

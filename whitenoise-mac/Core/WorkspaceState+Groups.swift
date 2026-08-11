@@ -372,7 +372,7 @@ extension WorkspaceState {
         do {
             // Pagination, bounded disk spooling, and event-by-event JSON encoding all block.
             // Keep the complete export off the main thread so the save sheet remains responsive.
-            let export = try await runOffMainCancellable { checkCancellation in
+            let export = try await FFIExecutor.runCancellable { checkCancellation in
                 try ConversationTranscriptExport.export(
                     client: client,
                     accountRef: accountRef,
@@ -467,7 +467,7 @@ extension WorkspaceState {
 
         do {
             let memberRef = try await memberRefCandidate(for: query)
-            let normalized = try await runOffMain {
+            let normalized = try await FFIExecutor.run {
                 try client.normalizeMemberRef(memberRef: memberRef)
             }
             guard

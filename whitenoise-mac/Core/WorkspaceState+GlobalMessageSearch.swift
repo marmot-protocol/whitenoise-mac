@@ -398,7 +398,7 @@ extension WorkspaceState {
             do {
                 try await Task.sleep(for: .milliseconds(250))
                 guard let self else { return }
-                let results = try await self.runOffMainCancellable { checkCancellation in
+                let results = try await FFIExecutor.runCancellable { checkCancellation in
                     try GlobalMessageSearchEngine.search(
                         client: client,
                         accountRef: account.accountRef,
@@ -470,7 +470,7 @@ extension WorkspaceState {
             do {
                 try await Task.sleep(for: .milliseconds(250))
                 guard let self else { return }
-                let results = try await self.runOffMainCancellable { checkCancellation in
+                let results = try await FFIExecutor.runCancellable { checkCancellation in
                     try GlobalMessageSearchEngine.searchLatestByChat(
                         client: client,
                         accountRef: account.accountRef,

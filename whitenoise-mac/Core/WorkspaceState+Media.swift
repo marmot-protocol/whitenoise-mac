@@ -1168,7 +1168,7 @@ extension WorkspaceState {
             mediaReferenceIndexGeneration &+= 1
             let generation = mediaReferenceIndexGeneration
             let task = Task.detached(priority: .userInitiated) { [client, accountRef, groupIdHex] in
-                let records = try await WorkspaceState.runFFI {
+                let records = try await FFIExecutor.run {
                     try client.listMedia(accountRef: accountRef, groupIdHex: groupIdHex, limit: nil)
                 }
                 return MediaReferenceIndex(records: records)
