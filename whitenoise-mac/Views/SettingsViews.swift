@@ -1283,26 +1283,6 @@ struct PrivacySecuritySettingsView: View {
                 }
                 .disabled(workspace.isSavingPrivacySecurity)
 
-                Toggle(
-                    isOn: Binding(
-                        get: { workspace.privacySecuritySettings.auditFullDataLogging },
-                        set: { enabled in
-                            Task { await workspace.setAuditFullDataLogging(enabled) }
-                        }
-                    )
-                ) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Label(L10n.string("Full Data Logging"), systemImage: "eye.trianglebadge.exclamationmark")
-                        Text(
-                            L10n.string("Record decrypted message content and full identifiers. ")
-                                + L10n.string("Leave off to keep sensitive data obfuscated.")
-                        )
-                        .wnFont(.medium10)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
-                }
-                .disabled(workspace.isSavingPrivacySecurity || !workspace.privacySecuritySettings.auditLoggingEnabled)
-
                 if workspace.isSavingPrivacySecurity {
                     HStack(spacing: 10) {
                         ProgressView()

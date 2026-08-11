@@ -27081,6 +27081,36 @@ struct whitenoise_macTests {
         #expect(runtime.storedAuditLogSettings.enabled)
         #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
         #expect(state.privacySecuritySettings.auditLoggingEnabled)
+        // macOS never requests sensitive capture: the persisted posture stays obfuscated.
+        #expect(runtime.storedAuditLogSettings.dataMode == .obfuscatedSensitiveData)
+    }
+
+    @MainActor
+    @Test func enablingAuditLoggingDowngradesAFullDataPostureToObfuscated() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        // A core that already carries the sensitive posture -- set by another client,
+        // or left behind by an older build of this app.
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .fullData)
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(telemetryToken: "otlp-token", auditToken: "audit-token")
+            },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.setAuditLoggingEnabled(true)
+
+        #expect(runtime.storedAuditLogSettings.enabled)
+        #expect(runtime.storedAuditLogSettings.dataMode == .obfuscatedSensitiveData)
+        #expect(state.privacySecuritySettings.auditLoggingEnabled)
+
+        await state.setAuditLoggingEnabled(false)
+
+        #expect(!runtime.storedAuditLogSettings.enabled)
+        #expect(runtime.storedAuditLogSettings.dataMode == .obfuscatedSensitiveData)
+        #expect(!state.privacySecuritySettings.auditLoggingEnabled)
     }
 
     @MainActor
@@ -27120,7 +27150,6 @@ struct whitenoise_macTests {
         #expect(state.privacySecuritySettings.relayTelemetryEnabled)
         #expect(state.privacySecuritySettings.relayTelemetryIntervalSeconds == 120)
         #expect(state.privacySecuritySettings.auditLoggingEnabled)
-        #expect(state.privacySecuritySettings.auditFullDataLogging)
         #expect(state.auditLogFiles.map(\.path) == ["/tmp/audit-1.jsonl"])
         #expect(state.lastError == "Observability configuration failed.")
     }

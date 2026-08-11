@@ -2819,10 +2819,10 @@ enum NotificationPreviewMode: String, CaseIterable, Identifiable {
 struct PrivacySecuritySettingsSnapshot: Equatable {
     var relayTelemetryEnabled: Bool
     var relayTelemetryIntervalSeconds: UInt64
+    /// Audit logging is a single on/off choice on macOS. Records are always written
+    /// with `AuditDataModeFfi.obfuscatedSensitiveData`; this client never asks the
+    /// core for the full-data posture.
     var auditLoggingEnabled: Bool
-    /// When true the audit log records decrypted content and full identifiers
-    /// (`AuditDataModeFfi.fullData`); otherwise identifiers are obfuscated/hashed.
-    var auditFullDataLogging: Bool
     var telemetryCredentialsAvailable: Bool
     var auditLogCredentialsAvailable: Bool
 
@@ -2830,7 +2830,6 @@ struct PrivacySecuritySettingsSnapshot: Equatable {
         relayTelemetryEnabled: false,
         relayTelemetryIntervalSeconds: 60,
         auditLoggingEnabled: false,
-        auditFullDataLogging: false,
         telemetryCredentialsAvailable: false,
         auditLogCredentialsAvailable: false
     )
