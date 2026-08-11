@@ -46,7 +46,7 @@ struct GroupAddMembersSheet: View {
                 .wnFont(.semiBold14)
             Spacer()
             Button(L10n.string("Cancel")) { dismiss() }
-                .buttonStyle(.plain)
+                .buttonStyle(.wnSecondary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
