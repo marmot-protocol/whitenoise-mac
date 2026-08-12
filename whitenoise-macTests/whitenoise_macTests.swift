@@ -7340,6 +7340,77 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func timelineMappingKeepsVerbAgreementForActorlessSelfSystemEvents() async throws {
+        let bob = String(repeating: "b", count: 64)
+        let profiles = [bob: ChatPeerProfile(accountIdHex: bob, displayName: "Bob", pictureURL: nil)]
+
+        func selfEvent(_ id: String, systemType: String, text: String, recordedAt: UInt64)
+            -> TimelineMessageRecordFfi
+        {
+            timelineMessage(
+                id: id,
+                groupIdHex: "group",
+                sender: "",
+                plaintext: "",
+                kind: 1210,
+                recordedAt: recordedAt,
+                groupSystem: groupSystemEvent(
+                    systemType: systemType,
+                    text: text,
+                    actorAccountIdHex: nil,
+                    subjectAccountIdHex: bob
+                )
+            )
+        }
+
+        let page = TimelinePageFfi(
+            messages: [
+                selfEvent("added", systemType: "member_added", text: "Member added", recordedAt: 1),
+                selfEvent(
+                    "removed",
+                    systemType: "member_removed",
+                    text: "Member removed",
+                    recordedAt: 2
+                ),
+                selfEvent(
+                    "demoted",
+                    systemType: "admin_removed",
+                    text: "Admin removed",
+                    recordedAt: 3
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        // Without an actor the subject is the sentence subject, so "You" must take a
+        // second-person verb: "You was removed" is what these events used to read.
+        let localMessages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: bob,
+            senderProfiles: profiles
+        )
+        #expect(
+            localMessages.map(\.body) == [
+                "You were added",
+                "You were removed",
+                "You are no longer an admin",
+            ])
+
+        let remoteMessages = MessageItem.timeline(
+            from: page,
+            activeAccountIdHex: String(repeating: "a", count: 64),
+            senderProfiles: profiles
+        )
+        #expect(
+            remoteMessages.map(\.body) == [
+                "\(isolated("Bob")) was added",
+                "\(isolated("Bob")) was removed",
+                "\(isolated("Bob")) is no longer an admin",
+            ])
+    }
+
+    @MainActor
     @Test func mediaOnlyTimelineMessageMapsAttachmentWithoutUnsupportedText() async throws {
         let reference = mediaAttachmentReference(mediaType: "image/png", fileName: "photo.png")
         let page = TimelinePageFfi(
