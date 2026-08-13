@@ -4012,11 +4012,27 @@ struct PureValueTests {
         )
     }
 
-    /// The load-bearing invariant: **no leave eligibility, however bad, ever produces a local
-    /// delete for someone the group still counts as a member.** Deleting locally while a member
-    /// would strand every later message the group sends, with nothing on the wire to say so, so
-    /// membership alone decides — across the whole eligibility cross product.
-    @Test func noEligibilityStateOffersLocalDeleteWhileStillAMember() {
+    /// The load-bearing invariant: **no leave eligibility, however bad, produces a local delete for
+    /// someone the group still counts as a member — while anyone else is still in the group.**
+    /// Deleting locally with others present would strand every later message they send, with nothing
+    /// on the wire to say so, so eligibility never decides it.
+    ///
+    /// Crosses both forms over the whole eligibility product: the membership-only one, which is all a
+    /// sidebar row can evaluate and which never yields a delete for a member at all, and the
+    /// roster-aware one, held here to a roster with a second member present. The single shape allowed
+    /// to deviate — nobody left in the group — is pinned in
+    /// `soleRemainingMemberBlockedAsLastAdminIsOfferedTheLocalDelete`, and the reason it is safe there
+    /// is exactly the reason it is forbidden here.
+    @MainActor
+    @Test func noEligibilityStateOffersLocalDeleteWhileOthersRemainInTheGroup() {
+        let othersPresent = ChatDestructiveActions.lastAdminResolution(
+            members: [
+                handoffMember(id: "self", isSelf: true, isAdmin: true),
+                handoffMember(id: "still-here", canPromote: false),
+            ]
+        )
+        #expect(othersPresent == .blocked)
+
         for pending in [false, true] {
             for canLeave in [false, true] {
                 for requiresSelfDemote in [false, true] {
@@ -4034,11 +4050,22 @@ struct PureValueTests {
                         #expect(action != .deleteLocally)
                         // Blocked or not, a member is only ever offered the leave.
                         #expect(action == (pending ? nil : .leave))
-                        // And the blocker only ever explains itself — it carries no delete.
-                        if let blocker = ChatDestructiveActions.leaveBlocker(
+
+                        let blocker = ChatDestructiveActions.leaveBlocker(
                             membership: .member,
                             eligibility: eligibility
-                        ) {
+                        )
+                        // Same answer from the roster-aware form while someone else is present.
+                        #expect(
+                            ChatDestructiveActions.action(
+                                membership: .member,
+                                leaveRequestPending: pending,
+                                leaveBlocker: blocker,
+                                lastAdminResolution: othersPresent
+                            ) == action
+                        )
+                        // And the blocker only ever explains itself — it carries no delete.
+                        if let blocker {
                             #expect(!ChatActionAlert.leaveBlocked(blocker).message.isEmpty)
                         }
                     }
@@ -4062,10 +4089,11 @@ struct PureValueTests {
             ChatDestructiveActions.leaveBlocker(membership: .member, eligibility: lastAdmin)
                 == .lastAdmin
         )
-        // The answer is still Leave, and it is deliberately *not* swapped for a local delete: the
-        // group has to learn that this account stopped reading, and only a leave tells them. What
-        // happens next depends on whether anyone can take the admin role over — see
-        // `soleAdminWithASuccessorIsGuidedToTheHandoffRatherThanBlocked`.
+        // From membership alone the answer is still Leave, and deliberately *not* a local delete:
+        // the group has to learn that this account stopped reading, and only a leave tells them.
+        // What happens next depends on who is left — a successor to promote
+        // (`soleAdminWithASuccessorIsGuidedToTheHandoffRatherThanBlocked`), nobody at all
+        // (`soleRemainingMemberBlockedAsLastAdminIsOfferedTheLocalDelete`), or this dead end.
         #expect(
             ChatDestructiveActions.action(membership: .member, leaveRequestPending: false) == .leave
         )
@@ -4091,14 +4119,14 @@ struct PureValueTests {
             ChatDestructiveActions.leaveGuidance(
                 membership: .member,
                 eligibility: lastAdmin,
-                hasAdminHandoffCandidate: true
+                lastAdminResolution: .handOffAdmin
             ) == .adminHandoffRequired
         )
         #expect(
             ChatDestructiveActions.leaveGuidance(
                 membership: .member,
                 eligibility: lastAdmin,
-                hasAdminHandoffCandidate: false
+                lastAdminResolution: .blocked
             ) == .blocked(.lastAdmin)
         )
         // One promises the leave will happen, the other says it cannot — sharing wording would make
@@ -4115,31 +4143,127 @@ struct PureValueTests {
         let pending = leaveEligibility(canLeave: false, leaveRequestPending: true, isLastAdmin: true)
         let unavailable = leaveEligibility(canLeave: false, isLastAdmin: false)
 
+        // No roster answer may soften either one — not the successor that resolves `.lastAdmin`, and
+        // not the empty group that redirects it to a local delete.
         for eligibility in [pending, unavailable] {
             let blocker = ChatDestructiveActions.leaveBlocker(
                 membership: .member,
                 eligibility: eligibility
             )
-            #expect(!ChatDestructiveActions.offersAdminHandoff(blocker, hasAdminHandoffCandidate: true))
-            #expect(
-                ChatDestructiveActions.leaveGuidance(
-                    membership: .member,
-                    eligibility: eligibility,
-                    hasAdminHandoffCandidate: true
-                ) == blocker.map(ChatDestructiveActions.LeaveGuidance.blocked)
-            )
+            for resolution: ChatDestructiveActions.LastAdminResolution in [
+                .handOffAdmin, .deleteLocally, .blocked,
+            ] {
+                #expect(
+                    ChatDestructiveActions.leaveGuidance(
+                        membership: .member,
+                        eligibility: eligibility,
+                        lastAdminResolution: resolution
+                    ) == blocker.map(ChatDestructiveActions.LeaveGuidance.blocked)
+                )
+                #expect(
+                    ChatDestructiveActions.action(
+                        membership: .member,
+                        leaveRequestPending: eligibility.leaveRequestPending,
+                        leaveBlocker: blocker,
+                        lastAdminResolution: resolution
+                    ) != .deleteLocally
+                )
+            }
         }
 
-        // And a leave with nothing wrong with it needs no footer at all, candidates or not.
-        for hasCandidate in [false, true] {
+        // And a leave with nothing wrong with it needs no footer at all, whoever is in the roster.
+        for resolution: ChatDestructiveActions.LastAdminResolution in [
+            .handOffAdmin, .deleteLocally, .blocked,
+        ] {
             #expect(
                 ChatDestructiveActions.leaveGuidance(
                     membership: .member,
                     eligibility: leaveEligibility(canLeave: true),
-                    hasAdminHandoffCandidate: hasCandidate
+                    lastAdminResolution: resolution
                 ) == nil
             )
         }
+    }
+
+    /// The dead end this flow used to produce: alone in a chat, blocked for being the last admin,
+    /// and advised to invite someone before leaving. There is nobody to invite and nobody to hand the
+    /// role to, so the leave can never happen — the local delete is the only way to close the chat,
+    /// and it is safe precisely because there is no one left to strand.
+    @MainActor
+    @Test func soleRemainingMemberBlockedAsLastAdminIsOfferedTheLocalDelete() {
+        let alone = [handoffMember(id: "self", isSelf: true, isAdmin: true, canPromote: true)]
+        #expect(ChatDestructiveActions.isSoleRemainingMember(alone))
+        #expect(ChatDestructiveActions.lastAdminResolution(members: alone) == .deleteLocally)
+
+        let lastAdmin = leaveEligibility(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true
+        )
+        #expect(
+            ChatDestructiveActions.leaveGuidance(
+                membership: .member,
+                eligibility: lastAdmin,
+                lastAdminResolution: .deleteLocally
+            ) == .localDeleteInstead
+        )
+        #expect(
+            ChatDestructiveActions.action(
+                membership: .member,
+                leaveRequestPending: false,
+                leaveBlocker: .lastAdmin,
+                lastAdminResolution: .deleteLocally
+            ) == .deleteLocally
+        )
+        // Its own wording: neither the handoff promise nor the "invite someone" dead end applies.
+        let message = ChatDestructiveActions.LeaveGuidance.localDeleteInstead.message
+        #expect(message != ChatDestructiveActions.LeaveGuidance.adminHandoffRequired.message)
+        #expect(message != ChatDestructiveActions.LeaveBlocker.lastAdmin.message)
+        #expect(
+            message
+                == L10n.string(
+                    "You're the only one left in this chat, so there's no one to hand admin to. Remove it from this device to close it out."
+                )
+        )
+    }
+
+    /// The line the escape must not cross. "Nobody to promote" and "nobody left at all" are
+    /// different facts, and only the second one makes a local delete safe: a sole admin whose
+    /// companions the core refuses to promote is just as stuck, but deleting locally there would
+    /// strand the members still in the group — the exact harm the membership rule exists to prevent.
+    @MainActor
+    @Test func soleAdminWithUnpromotableCompanionsStaysBlockedRatherThanDeleting() {
+        let stuckWithOthers = [
+            handoffMember(id: "self", isSelf: true, isAdmin: true, canPromote: true),
+            handoffMember(id: "not-promotable", canPromote: false),
+        ]
+        #expect(!ChatDestructiveActions.isSoleRemainingMember(stuckWithOthers))
+        #expect(ChatDestructiveActions.adminHandoffCandidates(from: stuckWithOthers).isEmpty)
+        #expect(ChatDestructiveActions.lastAdminResolution(members: stuckWithOthers) == .blocked)
+        #expect(
+            ChatDestructiveActions.action(
+                membership: .member,
+                leaveRequestPending: false,
+                leaveBlocker: .lastAdmin,
+                lastAdminResolution: .blocked
+            ) == .leave
+        )
+
+        // A successor keeps precedence over both: it is the only resolution that puts the departure
+        // on the wire, so it is never traded for a local delete.
+        let withSuccessor = [
+            handoffMember(id: "self", isSelf: true, isAdmin: true, canPromote: true),
+            handoffMember(id: "successor", canPromote: true),
+        ]
+        #expect(ChatDestructiveActions.lastAdminResolution(members: withSuccessor) == .handOffAdmin)
+        #expect(
+            ChatDestructiveActions.action(
+                membership: .member,
+                leaveRequestPending: false,
+                leaveBlocker: .lastAdmin,
+                lastAdminResolution: .handOffAdmin
+            ) == .leave
+        )
     }
 
     /// `canPromote` is the core's verdict on whether the promotion would commit, so it decides who

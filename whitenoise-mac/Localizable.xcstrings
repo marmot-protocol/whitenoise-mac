@@ -54828,6 +54828,65 @@
         }
       }
     },
+    "You're the only one left in this chat, so there's no one to hand admin to. Remove it from this device to close it out.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist die letzte Person in diesem Chat, es gibt also niemanden, der die Adminrolle übernehmen könnte. Entferne ihn von diesem Gerät, um ihn abzuschließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eres la única persona que queda en este chat, así que no hay a quién pasarle la administración. Quítalo de este dispositivo para cerrarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes la seule personne restante dans ce chat, il n'y a donc personne à qui confier le rôle d'administrateur. Retirez-le de cet appareil pour le clôturer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sei l'unica persona rimasta in questa chat, quindi non c'è nessuno a cui passare il ruolo di amministratore. Rimuovila da questo dispositivo per chiuderla."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você é a única pessoa que restou neste bate-papo, então não há ninguém para assumir a administração. Remova-o deste dispositivo para encerrá-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы единственный участник, оставшийся в этом чате, поэтому передать роль администратора некому. Удалите его с этого устройства, чтобы закрыть."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbette kalan tek kişisin, bu yüzden yöneticiliği devredebileceğin kimse yok. Kapatmak için bu cihazdan kaldır."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是此聊天中剩下的唯一成员，没有人可以接手管理员。将其从此设备移除即可关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是此聊天中剩下的唯一成員，沒有人可以接手管理員。將其從此裝置移除即可關閉。"
+          }
+        }
+      }
+    },
     "You: %@": {
       "extractionState": "manual",
       "localizations": {

@@ -796,16 +796,9 @@ extension WorkspaceState {
             // `LeavingGroupBadge` instead.
             await reloadChats(forceFreshSnapshot: true)
         case .lastAdmin:
-            // The one blocker the app can clear on the user's behalf: offer the successor picker,
-            // and only report the dead end when there is nobody to hand admin to.
-            //
-            // `handingOffAdminChatId` is the re-entrancy guard. `confirmChatAdminHandoff` runs the
-            // leave through `confirmChatLeave`, which re-reads eligibility; if the promotion
-            // committed but the core still reports this account as the last admin, reopening the
-            // picker the user just used would loop. Report the blocker instead.
-            if handingOffAdminChatId != groupIdHex,
-                await presentChatAdminHandoff(groupIdHex: groupIdHex, title: title, state: state)
-            {
+            // The one blocker the app can clear on the user's behalf — in one of two ways, decided
+            // by who is left in the group. Only the genuine dead end falls through to the alert.
+            if await resolveLastAdminLeaveBlock(groupIdHex: groupIdHex, title: title, state: state) {
                 return
             }
             chatActionAlert = .leaveBlocked(blocker)
@@ -814,14 +807,23 @@ extension WorkspaceState {
         }
     }
 
-    /// Open the successor picker for a sole admin who wants to leave. Returns false when the roster
-    /// is unreadable or holds nobody this account may promote, leaving the caller to report the
-    /// blocker.
+    /// Clear a sole-admin leave block using the group's roster, or report that it cannot be cleared.
+    /// Returns false only for the genuine dead end — an unreadable roster, or members present whom
+    /// the core refuses to let this account promote — leaving the caller to report the blocker.
+    ///
+    /// Which of the two resolutions applies is `ChatDestructiveActions`' decision, not this method's:
+    ///
+    /// * **A successor exists** → open the picker; the leave runs once the promotion commits.
+    /// * **Nobody else is in the group** → offer the local delete. Leaving is normally the only way
+    ///   out of a group *because the others have to learn this account stopped reading*; with nobody
+    ///   left there is no one to tell, and no leave the core will accept either. This is the only
+    ///   case in the app where a member is offered a local delete — see
+    ///   `ChatDestructiveActions.action(membership:leaveRequestPending:leaveBlocker:lastAdminResolution:)`.
     ///
     /// The roster comes from a fresh `groupDetails` read rather than from `groupDetailsSnapshot`: the
-    /// leave can be started from a sidebar row while an entirely different chat is open, and the
-    /// promotion has to name a member of *this* group.
-    private func presentChatAdminHandoff(
+    /// leave can be started from a sidebar row while an entirely different chat is open, so both
+    /// resolutions have to be about *this* group.
+    private func resolveLastAdminLeaveBlock(
         groupIdHex: String,
         title: String,
         state: GroupManagementStateFfi
@@ -840,15 +842,32 @@ extension WorkspaceState {
         // nicknames, avatars and admin badges as the member list — and reads `canPromote` from the
         // same `memberActions` the core just returned.
         let members = groupDetailsSnapshot(from: details, managementState: state).members
-        let candidates = ChatDestructiveActions.adminHandoffCandidates(from: members)
-        guard !candidates.isEmpty else { return false }
 
-        chatPendingAdminHandoff = ChatAdminHandoffTarget(
-            groupIdHex: groupIdHex,
-            title: title,
-            candidates: candidates
-        )
-        return true
+        switch ChatDestructiveActions.lastAdminResolution(members: members) {
+        case .handOffAdmin:
+            // `handingOffAdminChatId` is the re-entrancy guard. `confirmChatAdminHandoff` runs the
+            // leave through `confirmChatLeave`, which re-reads eligibility; if the promotion
+            // committed but the core still reports this account as the last admin, reopening the
+            // picker the user just used would loop. Report the blocker instead.
+            guard handingOffAdminChatId != groupIdHex else { return false }
+            chatPendingAdminHandoff = ChatAdminHandoffTarget(
+                groupIdHex: groupIdHex,
+                title: title,
+                candidates: ChatDestructiveActions.adminHandoffCandidates(from: members)
+            )
+            return true
+
+        case .deleteLocally:
+            // True even if the request is dropped by its own re-entrancy guard (a local delete
+            // already confirming or running). The resolution was still correct, and a suppressed
+            // duplicate dialog is far better than falling through to a `.lastAdmin` alert telling
+            // someone alone in a chat to invite a member — which is the bug this branch removes.
+            requestChatLocalDelete(groupIdHex: groupIdHex, title: title)
+            return true
+
+        case .blocked:
+            return false
+        }
     }
 
     /// Promote `successor`, then run the leave the promotion unblocked.
