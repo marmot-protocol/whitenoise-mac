@@ -6462,8 +6462,52 @@ struct whitenoise_macTests {
         #expect(messages[0].contentMarkdown == nil)
         #expect(messages[1].body == "\\*")
         #expect(messages[1].contentMarkdown != nil)
-        #expect(messages[2].body == "Message did not reach the group")
-        #expect(messages[2].contentMarkdown == nil)
+        // An invalidated row keeps its own text and its own formatting — the failure is carried
+        // by the delivery footer, not by replacing the body.
+        #expect(messages[2].body == "**Failed**")
+        #expect(messages[2].contentMarkdown != nil)
+    }
+
+    /// whitenoise-mac: a message that lost convergence used to be replaced by a
+    /// "Message did not reach the group" tombstone, throwing away the one thing the reader
+    /// needs — what it was that failed to send. It now renders like the iOS client: the real
+    /// content, marked failed by the footer's error glyph.
+    @MainActor
+    @Test func invalidatedMessagesKeepTheirContentAndFailInTheFooter() async throws {
+        let page = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "outgoing-invalidated",
+                    groupIdHex: "group",
+                    sender: "self",
+                    plaintext: "Meet at seven",
+                    recordedAt: 1_800_000_000,
+                    invalidationStatus: "LosingBranch"
+                ),
+                timelineMessage(
+                    id: "incoming-invalidated",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    plaintext: "Bring the keys",
+                    recordedAt: 1_800_000_001,
+                    invalidationStatus: "LosingBranch"
+                ),
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+
+        let messages = MessageItem.timeline(from: page, activeAccountIdHex: "self")
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+        #expect(messages.map(\.body) == ["Meet at seven", "Bring the keys"])
+        // Both directions fail on sight: convergence has already decided, so neither waits out
+        // the pending-delivery grace window.
+        #expect(messages.allSatisfy { $0.deliveryIndicator(at: sentAt) == .failed })
+        #expect(messages.allSatisfy { $0.statusLabel(for: .failed) == "Did not reach group" })
+        // Convergence-lost content stays read-only — reacting to or replying to a message the
+        // group never accepted would address a branch that no longer exists.
+        #expect(messages.allSatisfy { !$0.supportsChatActions })
     }
 
     @MainActor
@@ -7038,7 +7082,7 @@ struct whitenoise_macTests {
         let failed = MessageItem(
             id: "failed",
             senderName: "Jeff",
-            body: "Message did not reach the group",
+            body: "Lost the branch",
             sentAt: sentAt,
             invalidationStatus: "signature-check-failed",
             isOutgoing: true
@@ -18062,7 +18106,7 @@ struct whitenoise_macTests {
             of: MessageItem(
                 id: "failed",
                 senderName: "Alice",
-                body: "Message did not reach the group",
+                body: "Lost the branch",
                 sentAt: sentAt,
                 invalidationStatus: "signature-check-failed",
                 isOutgoing: true
