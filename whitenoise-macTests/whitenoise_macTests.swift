@@ -6072,12 +6072,20 @@ struct whitenoise_macTests {
             isOutgoing: true
         )
 
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let failed = sentAt.addingTimeInterval(MessageItem.pendingDeliveryGrace + 1)
+
         #expect(pending.isPendingDelivery)
-        #expect(pending.canRetryDelivery)
+        #expect(pending.canRetryDelivery(at: failed))
         #expect(pending.statusLabel == "Not delivered")
         #expect(!delivered.isPendingDelivery)
-        #expect(!delivered.canRetryDelivery)
+        #expect(!delivered.canRetryDelivery(at: failed))
         #expect(delivered.statusLabel == "Sent")
+
+        // Retry is withheld while the bubble still reads "Sending": offering it there asks the
+        // user to re-drive a first attempt the app has just told them is still going out.
+        #expect(pending.deliveryIndicator(at: sentAt.addingTimeInterval(1)) == .sending)
+        #expect(!pending.canRetryDelivery(at: sentAt.addingTimeInterval(1)))
     }
 
     @MainActor
@@ -17502,6 +17510,9 @@ struct whitenoise_macTests {
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
 
+        // Sent far enough back that the row has already stopped reading as "Sending" — retry is
+        // gated on the grace window having passed, so a fixed literal date would decide the
+        // outcome by whichever side of it the test host's clock happens to be on.
         let pending = MessageItem(
             id: "pending",
             groupIdHex: "direct-group",
@@ -17509,7 +17520,7 @@ struct whitenoise_macTests {
             senderAccountIdHex: account.accountIdHex,
             senderName: "Desktop Account",
             body: "Do not duplicate me",
-            sentAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sentAt: .now.addingTimeInterval(-(MessageItem.pendingDeliveryGrace + 1)),
             isOutgoing: true
         )
         await state.retryDelivery(of: pending)
@@ -17517,6 +17528,133 @@ struct whitenoise_macTests {
         #expect(runtime.retryGroupConvergenceCallCount == 1)
         #expect(runtime.retriedGroupIdHex == "direct-group")
         #expect(runtime.sendTextCallCount == 0)
+        #expect(state.inFlightMessageRetryScopes.isEmpty)
+    }
+
+    @MainActor
+    @Test func retryDeliveryIsRefusedWhileTheSendIsStillInsideItsGraceWindow() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        // A send this young still shows the clock glyph, so neither the bubble's recovery row nor
+        // the context menu offers Retry — and the workspace refuses it if one somehow fires.
+        let justSent = MessageItem(
+            id: "just-sent",
+            groupIdHex: "direct-group",
+            sourceMessageIdHex: nil,
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "Still on its way",
+            sentAt: .now,
+            isOutgoing: true
+        )
+        await state.retryDelivery(of: justSent)
+
+        #expect(runtime.retryGroupConvergenceCallCount == 0)
+    }
+
+    @MainActor
+    @Test func retryDeliveryMarksTheConversationRetryingWhileTheConvergenceRuns() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            directGroup(),
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+            otherDisplayName: "Alice",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let pending = MessageItem(
+            id: "pending",
+            groupIdHex: "direct-group",
+            sourceMessageIdHex: nil,
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "Say something while I work",
+            sentAt: .now.addingTimeInterval(-(MessageItem.pendingDeliveryGrace + 1)),
+            isOutgoing: true
+        )
+
+        #expect(MessageRowAction.all(for: pending, workspace: state).contains { $0.kind == .retry })
+
+        // Hold the convergence at the FFI gate: this is the window the bubble spends showing
+        // "Retrying…" instead of its Retry/Delete row, and it is the only feedback the click gets.
+        runtime.messageActionGateEnabled = true
+        let retry = Task { await state.retryDelivery(of: pending) }
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+
+        #expect(state.isRetryingDelivery(of: pending))
+
+        // The context menu and hover overflow drop Retry for that window too, rather than offering
+        // a click `retryDelivery` would refuse.
+        #expect(!MessageRowAction.all(for: pending, workspace: state).contains { $0.kind == .retry })
+
+        // Group-scoped, like the core call it wraps: a second failed row in the same chat is being
+        // carried by this same retry and says so.
+        let sibling = MessageItem(
+            id: "sibling",
+            groupIdHex: "direct-group",
+            sourceMessageIdHex: nil,
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "Me too",
+            sentAt: .now.addingTimeInterval(-(MessageItem.pendingDeliveryGrace + 1)),
+            isOutgoing: true
+        )
+        #expect(state.isRetryingDelivery(of: sibling))
+
+        // A second click during that window must not mint a second convergence.
+        await state.retryDelivery(of: sibling)
+        #expect(runtime.retryGroupConvergenceCallCount == 1)
+
+        runtime.releaseMessageActionGate()
+        await retry.value
+
+        #expect(!state.isRetryingDelivery(of: pending))
+        #expect(runtime.retryGroupConvergenceCallCount == 1)
+        // Retry comes back once the window closes — the in-flight scope was what withheld it, not
+        // the row losing its claim to a retry.
+        #expect(MessageRowAction.all(for: pending, workspace: state).contains { $0.kind == .retry })
     }
 
     @MainActor
