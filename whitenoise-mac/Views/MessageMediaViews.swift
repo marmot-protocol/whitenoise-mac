@@ -608,6 +608,17 @@ private extension View {
             }
     }
 
+    /// The circular well behind an audio row's control. Shared by the placeholder's spinner and
+    /// retry icon and by the player's play/stop icon, so a finished download swaps the glyph
+    /// without moving anything around it.
+    func audioRowControlChrome(isOutgoing: Bool) -> some View {
+        frame(width: 30, height: 30)
+            .background {
+                Circle()
+                    .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
+            }
+    }
+
     func autoDownloadMediaAttachment(
         _ downloadState: MediaDownloadStateStore,
         attachment: MessageMediaAttachment,
@@ -983,24 +994,42 @@ struct MessageMediaAttachmentView: View {
         Group {
             switch downloadState.state {
             case .idle, .loading:
-                MessageAttachmentStatusRow(
-                    systemImage: "arrow.down.circle",
-                    title: attachment.fileName,
-                    detail: attachment.mediaType,
-                    isOutgoing: isOutgoing,
-                    isLoading: true
-                )
+                // Audio keeps the player's shell while it downloads so the row does not reflow
+                // when the payload lands; every other kind still names the file it is fetching.
+                if attachment.kind == .audio {
+                    MessageAudioAttachmentPlaceholder(
+                        isOutgoing: isOutgoing,
+                        accessibilityLabel: attachment.previewLabel
+                    )
+                } else {
+                    MessageAttachmentStatusRow(
+                        systemImage: "arrow.down.circle",
+                        title: attachment.fileName,
+                        detail: attachment.mediaType,
+                        isOutgoing: isOutgoing,
+                        isLoading: true
+                    )
+                }
             case .loaded(let download):
                 loadedContent(download)
             case .failed:
-                MessageAttachmentStatusRow(
-                    systemImage: "exclamationmark.triangle",
-                    title: attachment.fileName,
-                    detail: L10n.string("Attachment unavailable"),
-                    isOutgoing: isOutgoing,
-                    isLoading: false
-                ) {
-                    Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                if attachment.kind == .audio {
+                    MessageAudioAttachmentPlaceholder(
+                        isOutgoing: isOutgoing,
+                        accessibilityLabel: L10n.string("Attachment unavailable")
+                    ) {
+                        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                    }
+                } else {
+                    MessageAttachmentStatusRow(
+                        systemImage: "exclamationmark.triangle",
+                        title: attachment.fileName,
+                        detail: L10n.string("Attachment unavailable"),
+                        isOutgoing: isOutgoing,
+                        isLoading: false
+                    ) {
+                        Task { await workspace.loadMediaAttachment(attachment, for: message) }
+                    }
                 }
             }
         }
@@ -1038,7 +1067,6 @@ struct MessageMediaAttachmentView: View {
         case .audio:
             MessageAudioAttachmentPlayer(
                 download: download,
-                fallbackFileName: attachment.fileName,
                 isOutgoing: isOutgoing
             )
         case .video:
@@ -1158,6 +1186,84 @@ struct MessageAttachmentStatusRow: View {
     }
 }
 
+/// The geometry every audio attachment row shares, whatever its download state: a circular
+/// control, then the waveform with the duration beneath it.
+///
+/// The placeholder and the loaded player both render through this so the row cannot reflow as a
+/// download finishes — only the control's glyph changes. Nothing here shows the file name; an
+/// audio attachment is almost always a voice recording whose name the sender never chose.
+struct MessageAudioRow<Control: View>: View {
+    let bars: [ComposerAudioWaveformBar]
+    let progress: CGFloat
+    let durationLabel: String
+    let isOutgoing: Bool
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        HStack(spacing: 10) {
+            control
+
+            VStack(alignment: .leading, spacing: 5) {
+                ComposerAudioWaveformView(
+                    bars: bars,
+                    progress: progress,
+                    barColor: AttachmentRowPalette.waveformBar(isOutgoing: isOutgoing),
+                    playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: isOutgoing)
+                )
+                .frame(height: 24)
+
+                Text(durationLabel)
+                    .wnFont(.medium10.monospacedDigit())
+                    .foregroundStyle(AttachmentRowPalette.detailContent)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .attachmentRowChrome(isOutgoing: isOutgoing)
+    }
+}
+
+/// An audio attachment whose payload has not arrived yet.
+///
+/// It stands in for `MessageAudioAttachmentPlayer` at exactly the same size, showing the same
+/// flat fallback bars the player itself starts with and a `--:--` duration, because neither the
+/// real waveform nor the real duration is known before the download — the mac's imeta reference
+/// carries only `dim` and `thumbhash`. Audio deliberately does not fall back to
+/// `MessageAttachmentStatusRow`: that row leads with the file name and the raw media type, which
+/// is the wrong thing to show for a voice message and reflows the bubble once playback is ready.
+struct MessageAudioAttachmentPlaceholder: View {
+    let isOutgoing: Bool
+    let accessibilityLabel: String
+    /// `nil` while the download is still in flight; set once it has failed and can be retried.
+    var retryAction: (() -> Void)?
+
+    var body: some View {
+        MessageAudioRow(
+            bars: ComposerAudioWaveformPresentation.fallbackPlaybackBars,
+            progress: 0,
+            durationLabel: MediaDurationLabel.placeholder,
+            isOutgoing: isOutgoing
+        ) {
+            if let retryAction {
+                Button(action: retryAction) {
+                    Image(systemName: "arrow.clockwise")
+                        .wnFont(.bold14)
+                        .audioRowControlChrome(isOutgoing: isOutgoing)
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Retry download"))
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
+                    .audioRowControlChrome(isOutgoing: isOutgoing)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
+    }
+}
+
 struct PreparedMessageAudioPlayer: @unchecked Sendable {
     let player: AVAudioPlayer
 }
@@ -1174,7 +1280,6 @@ final class MessageAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
 
 struct MessageAudioAttachmentPlayer: View {
     let download: MessageMediaDownload
-    let fallbackFileName: String
     let isOutgoing: Bool
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
@@ -1191,44 +1296,22 @@ struct MessageAudioAttachmentPlayer: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        MessageAudioRow(
+            bars: visibleWaveformBars,
+            progress: playbackProgress,
+            durationLabel: durationLabel,
+            isOutgoing: isOutgoing
+        ) {
             Button {
                 Task { await togglePlayback() }
             } label: {
                 Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
                     .wnFont(.bold14)
-                    .frame(width: 30, height: 30)
-                    .background {
-                        Circle()
-                            .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
-                    }
+                    .audioRowControlChrome(isOutgoing: isOutgoing)
             }
             .buttonStyle(.plain)
             .help(isPlaying || isPreparingPlayback ? L10n.string("Stop") : L10n.string("Play"))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(download.fileName.nilIfBlank ?? fallbackFileName)
-                    .wnFont(.semiBold10)
-                    .lineLimit(1)
-
-                HStack(spacing: 8) {
-                    ComposerAudioWaveformView(
-                        bars: visibleWaveformBars,
-                        progress: playbackProgress,
-                        barColor: AttachmentRowPalette.waveformBar(isOutgoing: isOutgoing),
-                        playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: isOutgoing)
-                    )
-                    .frame(height: 24)
-
-                    Text(durationLabel)
-                        .wnFont(.medium10.monospacedDigit())
-                        .foregroundStyle(AttachmentRowPalette.detailContent)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .attachmentRowChrome(isOutgoing: isOutgoing)
         // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
         // does not trigger onDisappear. Stop playback here as well so the AVAudioPlayer and
         // progress monitor do not keep running offscreen.
