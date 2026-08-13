@@ -1154,6 +1154,66 @@ struct PureValueTests {
         #expect(own.relabelingPreviewSender(accountIdHex: "self", nickname: "Me") == own)
     }
 
+    /// A conversation the user named keeps that name even when it has exactly one other member.
+    ///
+    /// The roster of a two-person group resolves a direct peer, and that peer's profile used to win
+    /// the row title — so a group created as "Book club" with one other member came back titled
+    /// "Alice". mdk classifies any named conversation as a group whatever its member count, and the
+    /// name the user typed is the whole point of having typed it.
+    @Test func namedTwoMemberGroupKeepsItsNameOverTheOtherMembersProfile() async throws {
+        let selfIdHex = String(repeating: "5", count: 64)
+        let peer = ChatPeerProfile(
+            accountIdHex: aliceIdHex,
+            displayName: "Alice",
+            pictureURL: "https://example.com/alice.png"
+        )
+
+        let named = ChatItem(
+            row: chatRow(groupName: "Book club", sender: aliceIdHex, senderDisplayName: "Alice", plaintext: "Hi"),
+            activeAccountIdHex: selfIdHex,
+            directPeer: peer,
+            groupAvatarURL: "https://example.com/group.png"
+        )
+
+        #expect(named.title == "Book club")
+        #expect(!named.isDirect)
+        #expect(named.subtitle == "Book club")
+        // The group's own avatar, not the other member's: seeded by group id so the initials
+        // fallback draws the group name, and picturing the peer would read as a DM.
+        #expect(named.avatarSeed == "group")
+        #expect(named.pictureURL == "https://example.com/group.png")
+        // Nothing to reveal behind a private label, because no peer name is on display.
+        #expect(named.publishedTitle == nil)
+        #expect(named.directPeerAccountIdHex == nil)
+
+        // A private nickname for that member cannot retitle it either.
+        let nicknamed = ChatItem(
+            row: chatRow(groupName: "Book club", sender: aliceIdHex, senderDisplayName: "Alice", plaintext: "Hi"),
+            activeAccountIdHex: selfIdHex,
+            directPeer: ChatPeerProfile(
+                accountIdHex: aliceIdHex,
+                displayName: "Mum",
+                publishedDisplayName: "Alice",
+                pictureURL: nil
+            )
+        )
+        #expect(nicknamed.title == "Book club")
+        #expect(nicknamed.publishedTitle == nil)
+
+        // A real DM carries no name of its own, so the peer is still the only thing that titles it.
+        let direct = ChatItem(
+            row: chatRow(groupName: "", sender: aliceIdHex, senderDisplayName: "Alice", plaintext: "Hi"),
+            activeAccountIdHex: selfIdHex,
+            directPeer: peer
+        )
+        #expect(direct.title == "Alice")
+        #expect(direct.isDirect)
+        #expect(direct.subtitle == L10n.string("Direct message"))
+        #expect(direct.avatarSeed == aliceIdHex)
+        #expect(direct.pictureURL == "https://example.com/alice.png")
+        #expect(direct.directPeerAccountIdHex == aliceIdHex)
+    }
+
     @Test func chatListRowClampsOversizedUnreadCounts() async throws {
         // Regression for whitenoise-mac#242: unread counts cross the FFI boundary as
         // UInt64, and Int(value) traps above Int.max while mapping the chat list.

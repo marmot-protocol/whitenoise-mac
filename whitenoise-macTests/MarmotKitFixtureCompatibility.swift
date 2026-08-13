@@ -159,7 +159,8 @@ nonisolated extension ChatListRowFfi {
         lastReadTimelineAt: UInt64?,
         updatedAt: UInt64,
         selfMembership: SelfMembershipFfi,
-        leaveRequestPending: Bool = false
+        leaveRequestPending: Bool = false,
+        conversationKind: ChatConversationKindFfi? = nil
     ) {
         let previewTimelineAt = lastMessage?.timelineAt ?? 0
         let activitySortAt = previewTimelineAt > 0 ? previewTimelineAt : updatedAt
@@ -189,7 +190,11 @@ nonisolated extension ChatListRowFfi {
             activitySortAt: activitySortAt,
             updatedAt: updatedAt,
             selfMembership: selfMembership,
-            conversationKind: .unknown,
+            // Mirrors mdk's `conversation_kind`: a non-blank group name is a group before the
+            // member count is even consulted. A blank name stays `.unknown` here because this
+            // shim carries no member count — which is what mdk returns in that case too.
+            conversationKind: conversationKind
+                ?? (groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .unknown : .group),
             muted: false,
             mutedUntilMs: nil,
             leaveRequestPending: leaveRequestPending,

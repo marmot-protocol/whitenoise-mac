@@ -19178,6 +19178,71 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func namedGroupWithOneOtherMemberKeepsItsNameThroughEnrichment() async throws {
+        // Regression: naming a chat with a single other member left it titled with that member's
+        // name. Chat-list enrichment resolves a direct peer for any two-person roster, and the peer
+        // projection outranked the group name — so "Book club" came back as "Alice Actual". mdk
+        // classifies a named conversation as a group whatever its member count, and the name the
+        // user typed is what the row has to say.
+        let account = desktopAccount()
+        let aliceId = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("whitenoise-named-group-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
+
+        // A record left from an era when this conversation was a nameless two-person chat. Naming it
+        // makes the record wrong, so enrichment has to drop it — otherwise clearing the name later
+        // would put Alice back in the title.
+        try store.write(
+            ["book-club": RememberedDirectPeer(accountIdHex: aliceId, displayName: "Alice Actual", pictureURL: nil)],
+            forAccountId: account.label
+        )
+
+        var namedGroup = messageGroup()
+        namedGroup.groupIdHex = "book-club"
+        namedGroup.name = "Book club"
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installDirectGroup(
+            namedGroup,
+            selfAccountIdHex: account.accountIdHex,
+            otherAccountIdHex: aliceId,
+            otherDisplayName: "Alice Cached",
+            otherProfile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Actual",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(directPeerMemoryStore: store, clientFactory: { runtime })
+
+        await state.bootstrap()
+        // The roster fetch is the enrichment pass this test is about, so wait for it rather than
+        // for a title change — with the fix there is no change to observe.
+        let didEnrich = await waitFor { (runtime.groupDetailsCallCounts["book-club"] ?? 0) >= 1 }
+        #expect(didEnrich)
+        // Bounded negative check: the buggy path retitles the row from the peer profile.
+        let didRetitleFromPeer = await waitFor { state.activeChats.first?.title == "Alice Actual" }
+        #expect(!didRetitleFromPeer)
+
+        let chat = try #require(state.activeChats.first)
+        #expect(chat.title == "Book club")
+        #expect(chat.isDirect == false)
+        #expect(chat.subtitle == "Book club")
+        #expect(chat.avatarSeed == "book-club")
+        #expect(chat.pictureURL == nil)
+        // No peer was recorded either: a remembered peer for a named group would resurface as its
+        // title the moment the roster emptied out.
+        let accountId = try #require(state.activeAccountId)
+        #expect(try store.loadAll()[accountId]?["book-club"] == nil)
+        #expect(!runtime.refreshedProfileIds.contains(aliceId))
+    }
+
+    @MainActor
     @Test func newLastMessageChatRowPreservesDirectChatMetadataWithoutReenrichment() async throws {
         // Regression for #40/#251: a `.newLastMessage` single-row delta is metadata-invariant,
         // so it takes the `shouldEnrich: false` fast path (no per-row FFI fan-out). The
@@ -19498,8 +19563,13 @@ struct whitenoise_macTests {
         let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
 
         let runtime = FakeMarmotRuntime(accounts: [account])
+        // The conversation is nameless while it holds two people — that is the only shape that is
+        // titled from a peer, and so the only one that records one. It is named in the second phase
+        // below, which is the sequence a real group takes to get here.
+        var namelessGroup = messageGroup()
+        namelessGroup.name = ""
         runtime.installDirectGroup(
-            messageGroup(),
+            namelessGroup,
             selfAccountIdHex: account.accountIdHex,
             otherAccountIdHex: aliceId,
             otherDisplayName: "Alice Cached",
@@ -19553,8 +19623,12 @@ struct whitenoise_macTests {
         let store = DirectPeerMemoryFileStore(fileManager: fileManager, directoryURL: directory)
 
         let runtime = FakeMarmotRuntime(accounts: [account])
+        // Nameless while it is a two-person chat: only that shape is titled from a peer, and so only
+        // that shape records one for the growth below to drop.
+        var namelessGroup = messageGroup()
+        namelessGroup.name = ""
         runtime.installDirectGroup(
-            messageGroup(),
+            namelessGroup,
             selfAccountIdHex: account.accountIdHex,
             otherAccountIdHex: aliceId,
             otherDisplayName: "Alice Cached",
