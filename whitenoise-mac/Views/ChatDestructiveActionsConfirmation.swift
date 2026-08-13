@@ -82,6 +82,8 @@ private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
             ) { _ in
                 // No local-delete alternative here on purpose: dropping the local copy while the
                 // group still counts you as a member would silently strand everyone else's messages.
+                // The one case where that argument does not apply — nobody else left in the chat —
+                // never reaches this alert; it opens the local-delete confirmation above instead.
                 Button(L10n.string("OK"), role: .cancel) {}
             } message: { alert in
                 Text(alert.message)

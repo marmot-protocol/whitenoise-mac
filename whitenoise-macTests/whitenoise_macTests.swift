@@ -22476,6 +22476,9 @@ struct whitenoise_macTests {
         leaveRequestPending: Bool = false,
         selfIsAdmin: Bool = false,
         openingInspector: Bool = false,
+        // Leaves this account alone in the group, so a `.lastAdmin` block has neither a successor to
+        // promote nor anyone the departure would inform.
+        soleMember: Bool = false,
         // Empty by default, which is also the "nobody can be promoted" case the sole-admin dead end
         // needs. Pass actions when the test is about who may take the admin role over.
         memberActions: [GroupMemberActionStateFfi] = []
@@ -22483,7 +22486,11 @@ struct whitenoise_macTests {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroupDetails(
-            groupDetailsFixture(selfAccountIdHex: account.accountIdHex, selfIsAdmin: selfIsAdmin),
+            groupDetailsFixture(
+                selfAccountIdHex: account.accountIdHex,
+                selfIsAdmin: selfIsAdmin,
+                soleMember: soleMember
+            ),
             managementState: GroupManagementStateFfi(
                 myAccountIdHex: account.accountIdHex,
                 isSelfAdmin: selfIsAdmin,
@@ -23087,6 +23094,11 @@ struct whitenoise_macTests {
     /// would empty the admin set, so leaving is blocked until another member is promoted. The report
     /// says exactly that and offers no local delete: dropping the local copy while the group still
     /// counts this account as a member would strand every message they send afterwards.
+    ///
+    /// This is now the *narrow* dead end, and the fixture roster is what keeps it here: Alice and Bob
+    /// are still in the group, so somebody would be stranded. Empty that roster and the same
+    /// eligibility resolves to a local delete instead — see
+    /// `lastMemberBlockedAsLastAdminIsOfferedTheLocalDeleteInsteadOfADeadEnd`.
     @MainActor
     @Test func lastAdminLeaveIsReportedWithoutOfferingALocalDelete() async throws {
         let state = try await leavableChatState(
@@ -23245,6 +23257,65 @@ struct whitenoise_macTests {
         #expect(runtime.promoteAdminDetailedCallCount == 1)
         #expect(runtime.groupMutationOrder == ["promote", "selfDemote", "leave"])
         #expect(state.chatActionAlert == nil)
+    }
+
+    /// The last one out of a DM or group: alone, and refused the leave for being the last admin.
+    ///
+    /// Before this existed the row menu's Leave landed on an alert telling the user to invite
+    /// someone before leaving — advice with nobody to follow it about, and no way out of the chat.
+    /// The leave genuinely cannot happen, so the local delete takes its place: with no one else in
+    /// the group there is nobody the departure would have informed and nobody left to strand.
+    @MainActor
+    @Test func lastMemberBlockedAsLastAdminIsOfferedTheLocalDeleteInsteadOfADeadEnd() async throws {
+        let state = try await leavableChatState(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true,
+            selfIsAdmin: true,
+            soleMember: true
+        )
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+
+        // No dead-end alert, and no successor picker with nobody to put in it.
+        #expect(state.chatActionAlert == nil)
+        #expect(state.chatPendingAdminHandoff == nil)
+        #expect(state.chatPendingLeave == nil)
+        let target = try #require(state.chatPendingLocalDelete)
+        #expect(target.groupIdHex == chat.id)
+        #expect(target.title == chat.title)
+
+        // Nothing was sent on the user's behalf while resolving the block.
+        #expect(runtime.leaveGroupCallCount == 0)
+        #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
+        #expect(runtime.promoteAdminDetailedCallCount == 0)
+
+        await state.confirmChatLocalDelete(target)
+        #expect(runtime.locallyDeletedGroupIds == [chat.id])
+        #expect(state.chatActionAlert == nil)
+    }
+
+    /// The inspector holds the roster up front, so it must not offer a Leave whose only outcome is an
+    /// explanation — it offers the delete directly, with a footer saying why.
+    @MainActor
+    @Test func inspectorOffersTheLocalDeleteToTheLastMemberOfAChatItCannotLeave() async throws {
+        let state = try await leavableChatState(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true,
+            selfIsAdmin: true,
+            openingInspector: true,
+            soleMember: true
+        )
+        let snapshot = try #require(state.groupDetailsSnapshot)
+
+        #expect(snapshot.members.count == 1)
+        #expect(snapshot.leaveBlocker == .lastAdmin)
+        #expect(snapshot.lastAdminResolution == .deleteLocally)
+        #expect(snapshot.destructiveAction == .deleteLocally)
+        #expect(snapshot.leaveGuidance == .localDeleteInstead)
     }
 
     /// The sole admin of a fixture group in which Alice — and only Alice — may be promoted.
@@ -33839,7 +33910,10 @@ private func soleRemainingSelfMember(accountIdHex: String) -> GroupMemberDetails
 private func groupDetailsFixture(
     selfAccountIdHex: String,
     selfIsAdmin: Bool = true,
-    otherIsAdmin: Bool = false
+    otherIsAdmin: Bool = false,
+    /// Drops Alice and Bob, leaving this account alone in the group — the last member of a group
+    /// everyone else left, or the remaining half of a DM whose peer is gone.
+    soleMember: Bool = false
 ) -> GroupDetailsFfi {
     var group = messageGroup()
     group.description = "Original room"
@@ -33848,18 +33922,22 @@ private func groupDetailsFixture(
         selfIsAdmin ? selfAccountIdHex : nil,
         otherIsAdmin ? aliceIdHex : nil,
     ].compactMap(\.self)
+    let selfMember = GroupMemberDetailsFfi(
+        memberIdHex: selfAccountIdHex,
+        account: "Desktop Account",
+        local: true,
+        isAdmin: selfIsAdmin,
+        isSelf: true,
+        npub: "npub1self",
+        displayName: "Desktop Account"
+    )
+    if soleMember {
+        return GroupDetailsFfi(group: group, members: [selfMember])
+    }
     return GroupDetailsFfi(
         group: group,
         members: [
-            GroupMemberDetailsFfi(
-                memberIdHex: selfAccountIdHex,
-                account: "Desktop Account",
-                local: true,
-                isAdmin: selfIsAdmin,
-                isSelf: true,
-                npub: "npub1self",
-                displayName: "Desktop Account"
-            ),
+            selfMember,
             GroupMemberDetailsFfi(
                 memberIdHex: aliceIdHex,
                 account: nil,

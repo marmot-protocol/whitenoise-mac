@@ -62,12 +62,17 @@ extension GroupDetailsSnapshot {
     /// inspector and the sidebar row read the same way.
     var isNoLongerMember: Bool { selfMembership != .member }
 
-    /// The destructive action the inspector may offer — the same function the sidebar row uses, so
-    /// the two surfaces agree by construction rather than by convention.
+    /// The destructive action the inspector may offer — the same policy the sidebar row uses, so
+    /// the two surfaces agree by construction rather than by convention. The inspector holds the
+    /// roster and eligibility up front, so it takes the refined form: an account alone in a chat it
+    /// cannot leave is offered the local delete directly, rather than a Leave button whose only
+    /// possible outcome is an explanation.
     var destructiveAction: ChatDestructiveActions.Action? {
         ChatDestructiveActions.action(
             membership: selfMembership,
-            leaveRequestPending: leaveRequestPending
+            leaveRequestPending: leaveRequestPending,
+            leaveBlocker: leaveBlocker,
+            lastAdminResolution: lastAdminResolution
         )
     }
 
@@ -80,14 +85,21 @@ extension GroupDetailsSnapshot {
         ChatDestructiveActions.adminHandoffCandidates(from: members)
     }
 
-    /// What the inspector says beneath the leave button. Prefers the handoff hint over the raw
-    /// `.lastAdmin` blocker, so a sole admin with someone to promote is told leaving *will* work
-    /// rather than that it won't.
+    /// How a `.lastAdmin` block on this chat resolves. Read even when the account is not blocked —
+    /// the functions taking it ignore it unless the blocker is actually `.lastAdmin`.
+    var lastAdminResolution: ChatDestructiveActions.LastAdminResolution {
+        ChatDestructiveActions.lastAdminResolution(members: members)
+    }
+
+    /// What the inspector says beneath the leave button. Prefers the resolution over the raw
+    /// `.lastAdmin` blocker, so a sole admin who can still get out — by promoting someone, or by
+    /// dropping the local copy of a chat nobody else is in — is told what to do rather than that
+    /// they are stuck.
     var leaveGuidance: ChatDestructiveActions.LeaveGuidance? {
         ChatDestructiveActions.leaveGuidance(
             membership: selfMembership,
             eligibility: leaveEligibility,
-            hasAdminHandoffCandidate: !adminHandoffCandidates.isEmpty
+            lastAdminResolution: lastAdminResolution
         )
     }
 }
@@ -232,11 +244,13 @@ nonisolated enum ChatDestructiveActions {
         /// The account is the group's only admin. MIP-03 §149/§150 forbids an admin self-removal
         /// that would deplete the admin set, so leaving requires promoting another member first.
         ///
-        /// As a *blocker* this is the dead end only: the app resolves the ordinary case itself by
-        /// offering the successor picker (`LeaveGuidance.adminHandoffRequired`), so this reaches the
-        /// user only when there is nobody to promote — an admin alone in the group, or one whose
-        /// only companions the core refuses to let it promote. Hence the wording, which asks for a
-        /// member rather than for a promotion.
+        /// As a *blocker* this is the dead end only, and the dead end is now narrow: the app
+        /// resolves both ordinary cases itself, offering the successor picker
+        /// (`LeaveGuidance.adminHandoffRequired`) when someone can take the role over and the local
+        /// delete (`LeaveGuidance.localDeleteInstead`) when nobody else is in the group at all. What
+        /// is left — the only shape that reaches the user — is a sole admin whose companions the
+        /// core refuses to let it promote. Hence the wording, which asks for a member rather than
+        /// for a promotion: the members present are unusable as successors.
         case lastAdmin
         /// Ordinary group actions are disabled (the group is disbanding, or its lifecycle is
         /// terminal). Reachable from remote admin action even though this app never initiates a
@@ -260,16 +274,38 @@ nonisolated enum ChatDestructiveActions {
 
     }
 
+    /// How a `.lastAdmin` leave block resolves, decided from the roster the block applies to.
+    ///
+    /// The core reports one flag for three quite different situations, and conflating them is what
+    /// produced the dead end this type exists to remove — a user alone in a chat, told to invite
+    /// someone before leaving.
+    enum LastAdminResolution: Equatable {
+        /// Someone else may take the admin role: promote them, then leave. The group survives and
+        /// the departure still reaches it, which is why this is preferred whenever it is available.
+        case handOffAdmin
+        /// Nobody else is in the group at all, so there is no successor to promote *and* nobody the
+        /// leave would inform. See `action(membership:leaveRequestPending:leaveBlocker:lastAdminResolution:)`
+        /// for why the local delete is safe here and nowhere else.
+        case deleteLocally
+        /// Others remain, but the core will not let this account promote any of them — the genuine
+        /// dead end, and the only one reported as a `.lastAdmin` blocker.
+        case blocked
+    }
+
     /// What a surface says about leaving beyond offering the button — the inspector's footer today.
     ///
-    /// Distinguishing the two `.lastAdmin` outcomes is the whole point: a sole admin with a
-    /// promotable member is not blocked, they are one extra step away, and telling them "you can't
-    /// leave" would be wrong.
+    /// Distinguishing the `.lastAdmin` outcomes is the whole point: a sole admin with a promotable
+    /// member is not blocked, they are one extra step away, and a sole admin with nobody left at all
+    /// is not blocked either — they need a different action. Telling either "you can't leave" would
+    /// be wrong.
     enum LeaveGuidance: Equatable {
         /// Leaving cannot proceed, for a reason no action in this app resolves.
         case blocked(LeaveBlocker)
         /// Leaving works, but routes through the successor picker first.
         case adminHandoffRequired
+        /// Leaving is impossible and pointless — nobody else is in the chat — so the surface offers
+        /// the local delete in its place.
+        case localDeleteInstead
 
         var message: String {
             switch self {
@@ -277,6 +313,10 @@ nonisolated enum ChatDestructiveActions {
                 return blocker.message
             case .adminHandoffRequired:
                 return L10n.string("You're the only admin. You'll pick who takes over before you leave.")
+            case .localDeleteInstead:
+                return L10n.string(
+                    "You're the only one left in this chat, so there's no one to hand admin to. Remove it from this device to close it out."
+                )
             }
         }
     }
@@ -315,6 +355,32 @@ nonisolated enum ChatDestructiveActions {
         action(membership: chat.selfMembership, leaveRequestPending: chat.leaveRequestPending)
     }
 
+    /// The roster-aware refinement, for surfaces holding eligibility and the roster up front — the
+    /// inspector today.
+    ///
+    /// It can only ever turn `.leave` into `.deleteLocally`, and only for the one shape where the
+    /// rule above has nothing left to protect: an account the core refuses to let leave *because it
+    /// is the last admin*, in a group where it is also the last member. Leaving is otherwise the
+    /// only way out precisely so the rest of the group learns this account stopped reading — but
+    /// here there is no rest of the group to tell, and no leave the core will accept. The local
+    /// delete strands nobody, and it is the only way to close the chat out.
+    ///
+    /// Every other blocker keeps the plain answer. In particular `.blocked` — others present, none
+    /// promotable — stays a `.leave`, because those others *would* be stranded.
+    static func action(
+        membership: ChatSelfMembership,
+        leaveRequestPending: Bool,
+        leaveBlocker: LeaveBlocker?,
+        lastAdminResolution: LastAdminResolution
+    ) -> Action? {
+        let action = action(membership: membership, leaveRequestPending: leaveRequestPending)
+        guard action == .leave,
+            leaveBlocker == .lastAdmin,
+            lastAdminResolution == .deleteLocally
+        else { return action }
+        return .deleteLocally
+    }
+
     /// Whether a leave would do anything, counting the self-demote-first path as available.
     static func canLeave(_ eligibility: ChatLeaveEligibility) -> Bool {
         eligibility.canLeave || shouldSelfDemoteBeforeLeave(eligibility)
@@ -344,29 +410,27 @@ nonisolated enum ChatDestructiveActions {
         return eligibility.isLastAdmin ? .lastAdmin : .unavailable
     }
 
-    /// Whether the `.lastAdmin` block is the resolvable kind — the one the successor picker exists
-    /// for. `false` for every other blocker, including a `.lastAdmin` with nobody to promote.
-    static func offersAdminHandoff(
-        _ blocker: LeaveBlocker?,
-        hasAdminHandoffCandidate: Bool
-    ) -> Bool {
-        blocker == .lastAdmin && hasAdminHandoffCandidate
-    }
-
     /// The blocker a surface should explain, refined by whether the app can resolve it in-flow.
     /// `nil` when leaving is plain and needs no explanation.
+    ///
+    /// `.lastAdmin` is the only blocker a roster can say anything about: a pending leave and a
+    /// disabled group are unaffected by who else is present, so `lastAdminResolution` is ignored for
+    /// them rather than allowed to invent a way out they don't have.
     static func leaveGuidance(
         membership: ChatSelfMembership,
         eligibility: ChatLeaveEligibility,
-        hasAdminHandoffCandidate: Bool
+        lastAdminResolution: LastAdminResolution
     ) -> LeaveGuidance? {
         guard let blocker = leaveBlocker(membership: membership, eligibility: eligibility) else {
             return nil
         }
-        if offersAdminHandoff(blocker, hasAdminHandoffCandidate: hasAdminHandoffCandidate) {
-            return .adminHandoffRequired
+        guard blocker == .lastAdmin else { return .blocked(blocker) }
+
+        switch lastAdminResolution {
+        case .handOffAdmin: return .adminHandoffRequired
+        case .deleteLocally: return .localDeleteInstead
+        case .blocked: return .blocked(.lastAdmin)
         }
-        return .blocked(blocker)
     }
 }
 
@@ -383,5 +447,30 @@ extension ChatDestructiveActions {
     @MainActor
     static func adminHandoffCandidates(from members: [GroupMemberItem]) -> [GroupMemberItem] {
         members.filter { !$0.isSelf && !$0.isAdmin && $0.canPromote }
+    }
+
+    /// True when nobody but this account is left in the group — the last member of a group everyone
+    /// else left, or the remaining half of a DM whose peer is gone.
+    ///
+    /// Asks whether any *other* member exists rather than comparing a count, so an empty roster
+    /// answers true as well: a group with nobody in it has nobody to strand either, and the exotic
+    /// case where the core returns no members at all should not fall through to the dead end.
+    @MainActor
+    static func isSoleRemainingMember(_ members: [GroupMemberItem]) -> Bool {
+        !members.contains { !$0.isSelf }
+    }
+
+    /// Which way out of a `.lastAdmin` block this roster allows.
+    ///
+    /// Handing the role over comes first whenever it is possible: it keeps the group alive and puts
+    /// the departure on the wire, which the local delete cannot do. Only once there is no successor
+    /// does being alone matter — and being alone is checked *specifically*, not inferred from the
+    /// candidate list being empty. The two are not the same thing: a sole admin whose companions the
+    /// core refuses to promote also has no candidates, and dropping the local copy there would
+    /// strand the members still in the group.
+    @MainActor
+    static func lastAdminResolution(members: [GroupMemberItem]) -> LastAdminResolution {
+        if !adminHandoffCandidates(from: members).isEmpty { return .handOffAdmin }
+        return isSoleRemainingMember(members) ? .deleteLocally : .blocked
     }
 }
