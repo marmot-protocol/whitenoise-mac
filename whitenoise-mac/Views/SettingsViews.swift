@@ -359,7 +359,9 @@ struct PublicIdentityQRCodeSheet: View {
 
                 Spacer()
 
-                GlassCircleCloseButton {
+                // Outline rather than glass: the ✕ is the only way out of this sheet, but it is
+                // not the thing to look at — the code is. See `GlassCircleCloseButton.Appearance`.
+                GlassCircleCloseButton(appearance: .outline) {
                     dismiss()
                 }
             }
@@ -380,32 +382,24 @@ struct PublicIdentityQRCodeSheet: View {
                     .stroke(WNColor.borderTertiary, lineWidth: 1)
             }
 
-            Text(DisplayText.short(npub, head: 24, tail: 24))
-                .font(.system(.callout, design: .monospaced))
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity)
+            // Head and tail are cut to what fits beside the copy glyph on one line at this
+            // sheet's width; the button still copies the whole npub. Same shape as
+            // `CopyableKeyLabel`, which cannot be reused here because the sheet is handed a
+            // resolved npub rather than an account id.
+            HStack(spacing: 8) {
+                Text(DisplayText.short(npub, head: 20, tail: 16))
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
 
-            HStack(spacing: 10) {
                 CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
-                    Label(
-                        isConfirming ? L10n.string("Copied") : L10n.string("Copy npub"),
-                        systemImage: isConfirming ? "checkmark" : "doc.on.doc"
-                    )
+                    Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                        .foregroundStyle(
+                            isConfirming ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary)
                 }
-                .buttonStyle(.wnSecondary)
-
-                Spacer()
-
-                Button {
-                    dismiss()
-                } label: {
-                    Label(L10n.string("Done"), systemImage: "checkmark")
-                }
-                .nativeGlassProminentButtonStyle()
+                .buttonStyle(.borderless)
             }
         }
         .padding(22)
