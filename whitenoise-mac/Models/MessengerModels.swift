@@ -2320,7 +2320,6 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             plaintext: editedPlaintext,
             tags: [],
             deleted: isDeleted,
-            invalidationStatus: invalidationStatus,
             hasMediaAttachments: !mediaAttachments.isEmpty
         )
         let body = MentionDisplayResolver.resolve(in: wireBody, mentionNames: mentionNames)
