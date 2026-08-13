@@ -1531,17 +1531,40 @@ struct PendingGroupInviteComposerNotice: View {
         .padding(.vertical, 10)
         .glassCard()
         .accessibilityIdentifier("composer.pendingGroupInvite")
+        // This prompt replaces the composer, so the roster (and with it the inviter) has no
+        // other reason to load for the chat that most needs it.
+        .task(id: chat.id) {
+            workspace.ensureGroupInviterLoaded(forGroupIdHex: chat.id)
+        }
     }
 
     private var inviteMessage: String {
-        String(format: L10n.string("%@ invited you to a secure chat."), inviterName)
+        String(
+            format: L10n.string("%@ invited you to a secure chat."),
+            PeerDisplayText.templateFragment(inviterName)
+        )
     }
 
+    /// Who to name as the inviter, best source first.
+    ///
+    /// The group record's welcome sender is the only authoritative answer — a chat-list row
+    /// carries no welcomer, which is why this used to guess from the preview and land on
+    /// "Someone" for the case an invite is most often seen in: a direct chat with no messages
+    /// yet, whose preview is empty. `directPeerName` covers a record that kept no welcome
+    /// sender: a one-to-one has exactly one other member, so they are the inviter.
     private var inviterName: String {
-        if let previewSender = previewSenderName {
-            return previewSender
-        }
-        return L10n.string("Someone")
+        workspace.inviterDisplayName(forGroupIdHex: chat.id)
+            ?? directPeerName
+            ?? previewSenderName
+            ?? workspace.inviterIdentifierLabel(forGroupIdHex: chat.id)
+            ?? L10n.string("Someone")
+    }
+
+    /// The other party in a direct chat, and only once a peer has actually resolved — a title
+    /// standing in for an unresolved peer is the shortened group id, which names nobody.
+    private var directPeerName: String? {
+        guard chat.isDirect, chat.directPeerAccountIdHex != nil else { return nil }
+        return chat.title.nilIfBlank
     }
 
     private var previewSenderName: String? {

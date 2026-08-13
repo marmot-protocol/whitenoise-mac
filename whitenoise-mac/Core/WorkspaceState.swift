@@ -769,6 +769,13 @@ final class WorkspaceState {
     /// need members to identify direct chats and provide member-name fallbacks, so cache just
     /// that membership slice and invalidate it on membership-changing subscription events.
     var groupMemberDetailsCache: [String: [GroupMemberDetailsFfi]] = [:]
+    /// Who sent the welcome that put the local account in each group, from the same
+    /// `groupDetails` read that fills `groupMemberDetailsCache` — the only place the inviter's
+    /// identity is available, since a chat-list row carries no welcomer. Written and invalidated
+    /// with the roster cache, so "this group has no recorded inviter" (one the local account
+    /// created, or an older local record) reads as a missing entry against a *present* roster
+    /// entry, rather than as "not fetched yet".
+    var groupWelcomerCache: [String: String] = [:]
     /// Mention-picker projections derived from `groupMemberDetailsCache`. Kept outside Observation
     /// so reading or populating the cache from a view body does not schedule another render.
     /// Both mention caches fold in the viewer's private nicknames, so both are stamped with the
@@ -968,7 +975,10 @@ final class WorkspaceState {
 
     struct GroupMemberDetailsLookup {
         var token: UInt64
-        var task: Task<[GroupMemberDetailsFfi]?, Never>
+        /// The whole record, not just `members`: the same read is what teaches the app who
+        /// invited the local account (`AppGroupRecordFfi.welcomerAccountIdHex`), and a second
+        /// FFI hop for one string on the chat-list enrichment path would not be worth it.
+        var task: Task<GroupDetailsFfi?, Never>
     }
 
     struct MediaDiskStoreGuard: Equatable {

@@ -535,7 +535,7 @@ struct PureValueTests {
 
         let local = mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true)
         let alice = mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice")
-        state.storeGroupMembers([local, alice], for: group.id)
+        state.storeGroupMembers([local, alice], welcomerAccountIdHex: nil, for: group.id)
 
         #expect(state.mentionRoster().map(\.id) == ["alice"])
         #expect(state.mentionRoster().map(\.id) == ["alice"])
@@ -545,7 +545,7 @@ struct PureValueTests {
         #expect(state.mentionNamesBuildCount == 1)
 
         let bob = mentionMember(id: "bob", displayName: "Bob", npub: "npub1bob")
-        state.storeGroupMembers([local, bob], for: group.id)
+        state.storeGroupMembers([local, bob], welcomerAccountIdHex: nil, for: group.id)
 
         #expect(state.mentionRoster().map(\.id) == ["bob"])
         #expect(state.mentionRosterBuildCount == 2)
@@ -575,6 +575,7 @@ struct PureValueTests {
                 mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true),
                 mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice"),
             ],
+            welcomerAccountIdHex: nil,
             for: group.id
         )
 
@@ -625,6 +626,7 @@ struct PureValueTests {
         state.selection = .chat(group.id)
         state.storeGroupMembers(
             [mentionMember(id: "alice", displayName: "Alice", npub: "npub1alice")],
+            welcomerAccountIdHex: nil,
             for: group.id
         )
 
@@ -656,7 +658,7 @@ struct PureValueTests {
 
         let local = mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true)
         let peer = mentionMember(id: "nvk", displayName: "NVK", npub: "npub1nvk")
-        state.storeGroupMembers([local, peer], for: direct.id)
+        state.storeGroupMembers([local, peer], welcomerAccountIdHex: nil, for: direct.id)
 
         #expect(state.mentionRoster().map(\.id) == ["nvk"])
         #expect(state.mentionCandidates(matching: "nv").map(\.displayName) == ["NVK"])
@@ -2248,6 +2250,106 @@ struct PureValueTests {
 
             #expect(snapshot.selfMembership == expected)
         }
+    }
+
+    /// The invite prompt used to guess the inviter from the row preview, which is empty for the
+    /// case it matters most — a direct invite with no messages yet — so it said "Someone". The
+    /// group record's welcome sender is the authoritative answer, and it arrives on the same
+    /// read that fills the roster.
+    @MainActor
+    @Test func inviteRecordsWhoSentTheWelcomeAndNamesThemFromTheRoster() async throws {
+        let welcomer = "alice1234567890alice1234567890alice1234567890alice12345678"
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+
+        state.applyGroupDetails(
+            GroupDetailsFfi(
+                group: inviteGroupRecord(groupIdHex: "group", welcomerAccountIdHex: welcomer),
+                members: [
+                    mentionMember(id: welcomer, displayName: "Alice", npub: "npub1alice"),
+                    mentionMember(id: "self", displayName: "Local", npub: "npub1self", isSelf: true),
+                ]
+            ),
+            managementState: inviteManagementState
+        )
+
+        #expect(state.inviterAccountIdHex(forGroupIdHex: "group") == welcomer)
+        #expect(state.inviterDisplayName(forGroupIdHex: "group") == "Alice")
+        // A group nobody welcomed this account into (one it created) names no inviter, and
+        // neither does a group whose roster has never been read.
+        #expect(state.inviterDisplayName(forGroupIdHex: "unfetched") == nil)
+    }
+
+    /// An inviter whose profile has not resolved yet is still someone: naming them by npub beats
+    /// falling back to "Someone", and the published name replaces it in place when it lands. It
+    /// stays a separate lookup from the name so callers with a better fallback of their own —
+    /// a direct chat's title is the peer, already resolved — can rank it below theirs.
+    @MainActor
+    @Test func inviteNamesAnUnresolvedInviterByIdentifier() async throws {
+        let welcomer = "bob1234567890bob1234567890bob1234567890bob1234567890bob123"
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+
+        state.applyGroupDetails(
+            GroupDetailsFfi(
+                group: inviteGroupRecord(groupIdHex: "group", welcomerAccountIdHex: welcomer),
+                members: [
+                    GroupMemberDetailsFfi(
+                        memberIdHex: welcomer,
+                        account: nil,
+                        local: false,
+                        isAdmin: false,
+                        isSelf: false,
+                        npub: "npub1bobbobbobbobbobbob",
+                        displayName: nil
+                    )
+                ]
+            ),
+            managementState: inviteManagementState
+        )
+
+        #expect(state.inviterDisplayName(forGroupIdHex: "group") == nil)
+        #expect(
+            state.inviterIdentifierLabel(forGroupIdHex: "group")
+                == DisplayText.short("npub1bobbobbobbobbobbob", head: 12, tail: 8))
+
+        // A roster the app has not read at all cannot name the inviter from a member entry, so
+        // the account id itself is the last thing left to show.
+        state.storeGroupMembers([], welcomerAccountIdHex: welcomer, for: "other")
+        #expect(state.inviterIdentifierLabel(forGroupIdHex: "other") == DisplayText.short(welcomer))
+    }
+
+    /// The inviter is cached with the roster, so it must be dropped with it: a stale welcome
+    /// sender outliving the membership read that produced it would name the wrong account.
+    @MainActor
+    @Test func invalidatingTheRosterForgetsTheInviter() async throws {
+        let welcomer = "carol234567890carol234567890carol234567890carol2345678901"
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+
+        state.storeGroupMembers(
+            [mentionMember(id: welcomer, displayName: "Carol", npub: "npub1carol")],
+            welcomerAccountIdHex: welcomer,
+            for: "group"
+        )
+        #expect(state.inviterDisplayName(forGroupIdHex: "group") == "Carol")
+
+        state.invalidateGroupMembers(for: "group")
+        #expect(state.inviterAccountIdHex(forGroupIdHex: "group") == nil)
+
+        // A record that carries no welcome sender leaves no entry behind either, so a later
+        // read of a different group cannot inherit one.
+        state.storeGroupMembers([], welcomerAccountIdHex: "   ", for: "group")
+        #expect(state.inviterAccountIdHex(forGroupIdHex: "group") == nil)
     }
 
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
@@ -4802,6 +4904,47 @@ private func mentionMember(
         displayName: displayName
     )
 }
+
+/// A group record whose only interesting field is who sent the welcome.
+private func inviteGroupRecord(groupIdHex: String, welcomerAccountIdHex: String?) -> AppGroupRecordFfi {
+    AppGroupRecordFfi(
+        groupIdHex: groupIdHex,
+        endpoint: "",
+        name: "Test Group",
+        description: "",
+        admins: [],
+        relays: [],
+        nostrGroupIdHex: "",
+        avatarUrl: nil,
+        avatarDim: nil,
+        avatarThumbhash: nil,
+        imageHashHex: nil,
+        encryptedMedia: AppGroupEncryptedMediaComponentFfi(
+            componentId: 0,
+            component: "",
+            required: false,
+            mediaFormat: "",
+            allowedLocatorKinds: [],
+            defaultBlobEndpoints: []
+        ),
+        disappearingMessageSecs: 0,
+        archived: false,
+        pendingConfirmation: true,
+        selfMembership: .member,
+        welcomerAccountIdHex: welcomerAccountIdHex,
+        viaWelcomeMessageIdHex: nil
+    )
+}
+
+private let inviteManagementState = GroupManagementStateFfi(
+    myAccountIdHex: "self",
+    isSelfAdmin: false,
+    isLastAdmin: false,
+    canInvite: false,
+    canLeave: true,
+    requiresSelfDemoteBeforeLeave: false,
+    memberActions: []
+)
 
 private func wideMarkdownTable(columns: Int, rows: Int) -> MarkdownDocumentFfi {
     let header = (0..<columns).map { column in
