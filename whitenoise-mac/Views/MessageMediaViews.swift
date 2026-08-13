@@ -630,6 +630,18 @@ private extension View {
             }
     }
 
+    /// The pill behind an audio row's playback-speed label, a capsule counterpart to
+    /// `audioRowControlChrome`. Its width is fixed rather than hugging the label because the three
+    /// labels are not the same width: at the 10pt rung `1x` lays out at 12pt and `1.5x` at 22pt, so
+    /// a self-sizing pill would shove the waveform sideways on every click of the badge.
+    func audioRowSpeedChrome(isOutgoing: Bool) -> some View {
+        frame(width: 34, height: 22)
+            .background {
+                Capsule()
+                    .fill(AttachmentRowPalette.controlFill(isOutgoing: isOutgoing))
+            }
+    }
+
     func autoDownloadMediaAttachment(
         _ downloadState: MediaDownloadStateStore,
         attachment: MessageMediaAttachment,
@@ -1203,12 +1215,13 @@ struct MessageAttachmentStatusRow: View {
 /// The placeholder and the loaded player both render through this so the row cannot reflow as a
 /// download finishes — only the control's glyph changes. Nothing here shows the file name; an
 /// audio attachment is almost always a voice recording whose name the sender never chose.
-struct MessageAudioRow<Control: View>: View {
+struct MessageAudioRow<Control: View, SpeedControl: View>: View {
     let bars: [ComposerAudioWaveformBar]
     let progress: CGFloat
     let durationLabel: String
     let isOutgoing: Bool
     @ViewBuilder let control: Control
+    @ViewBuilder let speedControl: SpeedControl
 
     var body: some View {
         HStack(spacing: 10) {
@@ -1229,8 +1242,31 @@ struct MessageAudioRow<Control: View>: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            speedControl
         }
         .attachmentRowChrome(isOutgoing: isOutgoing)
+    }
+}
+
+/// The `1x` / `1.5x` / `2x` pill at the trailing edge of an audio row.
+///
+/// Rendered by `MessageAudioAttachmentPlayer` as a button's label and by
+/// `MessageAudioAttachmentPlaceholder` as inert text, so a finished download turns the badge live
+/// without moving anything around it — the same reason both rows share `MessageAudioRow` itself.
+struct MessageAudioSpeedBadge: View {
+    let speed: AudioPlaybackSpeed
+    let isOutgoing: Bool
+    // Read here rather than passed in so the badge re-renders on a language switch: the decimal
+    // separator in `1.5x` is language-specific, and the environment locale is the only form of the
+    // preference SwiftUI tracks as a dependency.
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        Text(speed.label(locale: locale))
+            .wnFont(.bold10)
+            .lineLimit(1)
+            .audioRowSpeedChrome(isOutgoing: isOutgoing)
     }
 }
 
@@ -1253,23 +1289,29 @@ struct MessageAudioAttachmentPlaceholder: View {
             bars: ComposerAudioWaveformPresentation.fallbackPlaybackBars,
             progress: 0,
             durationLabel: MediaDurationLabel.placeholder,
-            isOutgoing: isOutgoing
-        ) {
-            if let retryAction {
-                Button(action: retryAction) {
-                    Image(systemName: "arrow.clockwise")
-                        .wnFont(.bold14)
+            isOutgoing: isOutgoing,
+            control: {
+                if let retryAction {
+                    Button(action: retryAction) {
+                        Image(systemName: "arrow.clockwise")
+                            .wnFont(.bold14)
+                            .audioRowControlChrome(isOutgoing: isOutgoing)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.string("Retry download"))
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
                         .audioRowControlChrome(isOutgoing: isOutgoing)
                 }
-                .buttonStyle(.plain)
-                .help(L10n.string("Retry download"))
-            } else {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(AttachmentRowPalette.content(isOutgoing: isOutgoing))
-                    .audioRowControlChrome(isOutgoing: isOutgoing)
+            },
+            // Inert until the payload arrives: there is no player to set a rate on yet, and the
+            // badge is here so the finished download does not reflow the row around it.
+            speedControl: {
+                MessageAudioSpeedBadge(speed: .initial, isOutgoing: isOutgoing)
             }
-        }
+        )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
@@ -1292,6 +1334,7 @@ final class MessageAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate {
 struct MessageAudioAttachmentPlayer: View {
     let download: MessageMediaDownload
     let isOutgoing: Bool
+    @Environment(\.locale) private var locale
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
     @State private var playbackPreparationID: UUID?
@@ -1301,6 +1344,9 @@ struct MessageAudioAttachmentPlayer: View {
     @State private var waveformBars = ComposerAudioWaveformPresentation.fallbackPlaybackBars
     @State private var playbackMonitor: Task<Void, Never>?
     @State private var audioPlayerDelegate = MessageAudioPlayerDelegate()
+    /// Per-row, like the iOS client's bubble: the speed a listener picked for one voice note is
+    /// their reading of that note, not a preference to carry across the transcript.
+    @State private var speed = AudioPlaybackSpeed.initial
 
     private var isPreparingPlayback: Bool {
         playbackPreparationID != nil
@@ -1311,18 +1357,28 @@ struct MessageAudioAttachmentPlayer: View {
             bars: visibleWaveformBars,
             progress: playbackProgress,
             durationLabel: durationLabel,
-            isOutgoing: isOutgoing
-        ) {
-            Button {
-                Task { await togglePlayback() }
-            } label: {
-                Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
-                    .wnFont(.bold14)
-                    .audioRowControlChrome(isOutgoing: isOutgoing)
+            isOutgoing: isOutgoing,
+            control: {
+                Button {
+                    Task { await togglePlayback() }
+                } label: {
+                    Image(systemName: isPlaying || isPreparingPlayback ? "stop.fill" : "play.fill")
+                        .wnFont(.bold14)
+                        .audioRowControlChrome(isOutgoing: isOutgoing)
+                }
+                .buttonStyle(.plain)
+                .help(isPlaying || isPreparingPlayback ? L10n.string("Stop") : L10n.string("Play"))
+            },
+            speedControl: {
+                Button(action: cycleSpeed) {
+                    MessageAudioSpeedBadge(speed: speed, isOutgoing: isOutgoing)
+                }
+                .buttonStyle(.plain)
+                .help(L10n.string("Playback speed"))
+                .accessibilityLabel(L10n.string("Playback speed"))
+                .accessibilityValue(speed.label(locale: locale))
             }
-            .buttonStyle(.plain)
-            .help(isPlaying || isPreparingPlayback ? L10n.string("Stop") : L10n.string("Play"))
-        }
+        )
         // Transcript rows are intentionally eager, so scrolling this tile out of the viewport
         // does not trigger onDisappear. Stop playback here as well so the AVAudioPlayer and
         // progress monitor do not keep running offscreen.
@@ -1396,6 +1452,10 @@ struct MessageAudioAttachmentPlayer: View {
                 playbackPreparationID = nextPreparationID
                 let preparedPlayer = try await Task.detached(priority: .userInitiated) {
                     let audioPlayer = try AVAudioPlayer(data: data)
+                    // `rate` is only honoured when rate control is armed before the player
+                    // prepares its buffers, so the speed badge has to be enabled here — doing it
+                    // on the first click of the badge is too late and leaves playback at 1x.
+                    audioPlayer.enableRate = true
                     audioPlayer.prepareToPlay()
                     return PreparedMessageAudioPlayer(player: audioPlayer)
                 }.value.player
@@ -1405,7 +1465,9 @@ struct MessageAudioAttachmentPlayer: View {
                 preparedPlayer.delegate = audioPlayerDelegate
             }
             audioPlayerDelegate.onDidFinishPlaying = handlePlaybackFinished
+            applyPlaybackSpeed()
             player?.play()
+            applyPlaybackSpeed()
             isPlaying = true
             updatePlaybackProgress()
             monitorPlaybackProgress()
@@ -1415,6 +1477,26 @@ struct MessageAudioAttachmentPlayer: View {
                 isPlaying = false
             }
         }
+    }
+
+    /// Advance the badge one step, wrapping 2x back to 1x, and make the new rate audible at once.
+    ///
+    /// Nothing is loaded on the first click of a row that has never played, and that is fine: the
+    /// selection is remembered in `speed` and `startPlayback` applies it to the player it prepares.
+    private func cycleSpeed() {
+        speed = speed.next
+        applyPlaybackSpeed()
+        guard isPlaying else { return }
+        // A rate assigned to an already-playing `AVAudioPlayer` does not always take until the
+        // player is told to play again, and `play()` in turn can reset the rate to 1 — so the new
+        // speed is applied on both sides of the call. Without this the change is inaudible until
+        // the listener stops and restarts the note.
+        player?.play()
+        applyPlaybackSpeed()
+    }
+
+    private func applyPlaybackSpeed() {
+        player?.rate = speed.rate
     }
 
     private func stopPlayback() {

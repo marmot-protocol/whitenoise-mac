@@ -10183,7 +10183,43 @@ struct whitenoise_macTests {
 
             #expect(body.contains("MessageAudioRow("), "\(typeName) must render through MessageAudioRow")
             #expect(!body.contains("fileName"), "\(typeName) must not show the attachment file name")
+            // The speed badge is part of that shared geometry: it sits at the row's trailing edge
+            // and takes width from the waveform, so a row that showed it only once the download
+            // finished would reflow the bubble on the very swap this test exists to prevent.
+            #expect(
+                body.contains("MessageAudioSpeedBadge("),
+                "\(typeName) must reserve the playback-speed badge"
+            )
         }
+    }
+
+    @Test func audioPlayerArmsRateControlBeforePreparingAndReappliesItAroundPlay() throws {
+        // Two `AVAudioPlayer` traps, both of which fail silently — the badge would keep cycling and
+        // keep reading 2x while playback stayed at 1x, with nothing in the UI to show it:
+        //   1. `rate` is ignored unless `enableRate` was set *before* `prepareToPlay()`.
+        //   2. `play()` can reset `rate`, so the selected speed has to be applied after it too.
+        // Neither is observable from a unit test — nothing reports the audible rate back — so the
+        // ordering is pinned against the source, the same way the teardown paths above are.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let playerStart = try #require(source.range(of: "struct MessageAudioAttachmentPlayer: View {"))
+        let rest = source[playerStart.upperBound...]
+        let playerEnd = try #require(rest.range(of: "\nstruct MessageVideoAttachmentPlayer: View {")?.lowerBound)
+        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+
+        let enableRate = try #require(playerSource.range(of: "audioPlayer.enableRate = true"))
+        let prepareToPlay = try #require(playerSource.range(of: "audioPlayer.prepareToPlay()"))
+        #expect(enableRate.upperBound < prepareToPlay.lowerBound)
+
+        let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
+        #expect(normalizedSource.contains("applyPlaybackSpeed()player?.play()applyPlaybackSpeed()"))
+        #expect(normalizedSource.contains("privatefuncapplyPlaybackSpeed(){player?.rate=speed.rate}"))
     }
 
     @MainActor
