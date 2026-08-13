@@ -771,9 +771,10 @@ extension View {
 /// either way; raising that ring is a separate change because it also restyles the composer.
 struct GlassCircleCloseButton: View {
     enum Appearance {
-        /// The glass disc. For a ✕ that dismisses.
+        /// The glass disc. For a ✕ that dismisses and is meant to read as prominent.
         case glass
-        /// The palette's outline circle. For a ‹ that navigates back.
+        /// The palette's outline circle. For a ‹ that navigates back, or a ✕ that should not
+        /// compete with the content it sits above.
         case outline
     }
 
