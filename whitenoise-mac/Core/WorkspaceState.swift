@@ -562,6 +562,11 @@ final class WorkspaceState {
     /// and an adopted task predates the message that now owns it.
     @ObservationIgnored var pendingOutgoingMediaUploadTasks:
         [PendingOutgoingMediaMessage.ID: [Task<MediaAttachmentReferenceFfi?, Never>]] = [:]
+    /// The publish task for the last text message handed off from each conversation's composer.
+    /// Text needs no pending-bubble list the way media does — the local projection puts the real
+    /// row on screen the moment the message is stored — so one entry per composer is enough: it is
+    /// what the *next* send in that conversation chains behind, and what teardown drops.
+    @ObservationIgnored var outgoingTextSendTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
     @ObservationIgnored var composerDraftPersistenceTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
     @ObservationIgnored var composerDraftMutationGenerations: [ComposerDraftKey: UInt64] = [:]
     @ObservationIgnored var dirtyComposerDraftKeys: Set<ComposerDraftKey> = []

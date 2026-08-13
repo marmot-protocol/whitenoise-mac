@@ -37,6 +37,7 @@ extension WorkspaceState {
         discardAllComposerDraftPersistenceState()
         cancelAllPendingMediaUploads()
         cancelAllPendingOutgoingMediaSends()
+        cancelAllOutgoingTextSends()
         draftTextByConversation.removeAll()
         composerMentionSelectionsByConversation.removeAll()
         replyDraftContextByConversation.removeAll()
@@ -105,6 +106,7 @@ extension WorkspaceState {
             discardComposerDraftPersistenceState(for: key)
             cancelPendingMediaUploads(for: key)
             cancelPendingOutgoingMediaSends(for: key)
+            cancelOutgoingTextSends(for: key)
             draftTextByConversation[key] = nil
             composerMentionSelectionsByConversation[key] = nil
             replyDraftContextByConversation[key] = nil
@@ -118,6 +120,7 @@ extension WorkspaceState {
         discardComposerDraftPersistenceState(forAccountId: accountId)
         cancelPendingMediaUploads(forAccountId: accountId)
         cancelPendingOutgoingMediaSends(forAccountId: accountId)
+        cancelOutgoingTextSends(forAccountId: accountId)
         for key in draftTextByConversation.keys.filter({ $0.accountId == accountId }) {
             draftTextByConversation[key] = nil
         }
