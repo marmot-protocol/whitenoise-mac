@@ -475,10 +475,13 @@ struct GroupDetailsSheet: View {
                             }
 
                             // Leave / Delete come from the same policy the sidebar row menu uses, so
-                            // the two surfaces cannot disagree on which is legal. Membership is the
-                            // whole rule: a member is offered the leave even when eligibility will
-                            // block it, and `prepareSelectedChatLeave` either explains the block or —
-                            // for a sole admin — opens the successor picker that resolves it.
+                            // the two surfaces cannot disagree on which is legal. Membership is
+                            // very nearly the whole rule: a member is offered the leave even when
+                            // eligibility will block it, and `prepareSelectedChatLeave` either
+                            // explains the block or resolves it — with the successor picker for a
+                            // sole admin who has someone to promote. The one exception is an account
+                            // alone in a chat it cannot leave, which this inspector can see from the
+                            // roster and so offers the local delete outright.
                             switch snapshot.destructiveAction {
                             case .leave:
                                 Button(role: .destructive) {
