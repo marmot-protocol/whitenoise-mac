@@ -1700,6 +1700,7 @@ struct MessageImageGalleryOverlay: View {
     let presentation: MessageImageGalleryPresentation
     let onClose: () -> Void
     @State private var selectedIndex: Int
+    @State private var zoom = ImageZoomState()
 
     init(presentation: MessageImageGalleryPresentation, onClose: @escaping () -> Void) {
         self.presentation = presentation
@@ -1771,7 +1772,7 @@ struct MessageImageGalleryOverlay: View {
                         navigationButton(
                             systemName: "chevron.left",
                             accessibilityLabel: L10n.string("Previous image"),
-                            isEnabled: selectedIndex > 0
+                            isEnabled: selectedIndex > 0 && !zoom.isZoomed
                         ) {
                             selectedIndex = max(0, selectedIndex - 1)
                         }
@@ -1783,6 +1784,7 @@ struct MessageImageGalleryOverlay: View {
                             systemName: "chevron.right",
                             accessibilityLabel: L10n.string("Next image"),
                             isEnabled: selectedIndex < presentation.imageAttachments.count - 1
+                                && !zoom.isZoomed
                         ) {
                             selectedIndex = min(presentation.imageAttachments.count - 1, selectedIndex + 1)
                         }
@@ -1793,6 +1795,10 @@ struct MessageImageGalleryOverlay: View {
             }
         }
         .onExitCommand(perform: onClose)
+        // Paging out of a magnified photo would drop the next one in at someone else's
+        // zoom, so each image starts fitted. Flutter suppresses paging entirely while
+        // zoomed; the chevrons above disable for the same reason.
+        .onChange(of: selectedIndex) { zoom.reset() }
     }
 
     @ViewBuilder
@@ -1800,7 +1806,8 @@ struct MessageImageGalleryOverlay: View {
         MessageImageGalleryContent(
             downloadState: workspace.mediaDownloadStateStore(for: presentation.message, attachment: selectedAttachment),
             message: presentation.message,
-            attachment: selectedAttachment
+            attachment: selectedAttachment,
+            zoom: $zoom
         )
     }
 
@@ -1830,6 +1837,7 @@ struct MessageImageGalleryContent: View {
     let downloadState: MediaDownloadStateStore
     let message: MessageItem
     let attachment: MessageMediaAttachment
+    @Binding var zoom: ImageZoomState
 
     var body: some View {
         Group {
@@ -1852,7 +1860,7 @@ struct MessageImageGalleryContent: View {
                 }
                 .foregroundStyle(WNColor.fillContentQuaternary)
             case .loaded(let download):
-                DownsampledMessageGalleryImage(download: download, attachment: attachment)
+                DownsampledMessageGalleryImage(download: download, attachment: attachment, zoom: $zoom)
             }
         }
         .autoDownloadMediaAttachment(
@@ -1865,31 +1873,20 @@ struct MessageImageGalleryContent: View {
 }
 
 struct DownsampledMessageGalleryImage: View {
-    @Environment(\.displayScale) private var displayScale
     let download: MessageMediaDownload
     let attachment: MessageMediaAttachment
+    @Binding var zoom: ImageZoomState
 
     var body: some View {
-        GeometryReader { proxy in
-            DownsampledDataImage(
-                payload: download.payload,
-                maxPixelSize: DownsampledImageSizing.galleryPixelSize(
-                    for: proxy.size,
-                    displayScale: displayScale
-                )
-            ) { image in
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityLabel(attachment.fileName)
-            } placeholder: {
-                Text(L10n.string("Image unavailable"))
-                    .wnFont(.semiBold12)
-                    .foregroundStyle(WNColor.fillContentQuaternary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+        ZoomableMediaImage(
+            payload: download.payload,
+            zoom: $zoom,
+            accessibilityLabel: attachment.fileName
+        ) {
+            Text(L10n.string("Image unavailable"))
+                .wnFont(.semiBold12)
+                .foregroundStyle(WNColor.fillContentQuaternary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
