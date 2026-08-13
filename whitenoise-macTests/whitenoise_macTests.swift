@@ -2567,6 +2567,129 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func aBackgroundAccountsIncomingMessageMovesItsAvatarBadge() async throws {
+        // Chat-list subscriptions run for the active account only, so nothing told the app that a
+        // background account had new messages: its rail badge sat on whatever the last account
+        // switch or full reload recorded until the user switched to it. The client-wide
+        // notification stream is the live signal that it moved.
+        let backup = backupAccountSummary()
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.installNotificationSettings(
+            accountRef: backup.label,
+            settings: notificationSettings(for: backup, localEnabled: true)
+        )
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0),
+            unreadSummaryRow(accountIdHex: backup.accountIdHex, unreadCount: 0),
+        ]
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let (state, active) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 0,
+            localNotificationCenter: notificationCenter
+        )
+        state.accounts.append(AccountItem(summary: backup))
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: backup.accountIdHex) == 0)
+
+        // A message lands on the backup account while the user stays on the active one.
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0),
+            unreadSummaryRow(accountIdHex: backup.accountIdHex, unreadCount: 4),
+        ]
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup,
+                notificationKey: "notice-for-backup",
+                senderName: "Alice",
+                previewText: "Hi there."
+            ))
+
+        #expect(state.activeAccountId == active.id)
+        #expect(state.unreadCount(forAccountIdHex: backup.accountIdHex) == 4)
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["notice-for-backup"])
+    }
+
+    @MainActor
+    @Test func aBackgroundAccountWithNotificationsOffStillMovesItsAvatarBadge() async throws {
+        // The badge counts unread messages, not banners the user agreed to see, so the refresh sits
+        // above every delivery gate: turning local notifications off for an account must not freeze
+        // its rail badge at the last switch's total.
+        let backup = backupAccountSummary()
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.installNotificationSettings(
+            accountRef: backup.label,
+            settings: notificationSettings(for: backup, localEnabled: false)
+        )
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0),
+            unreadSummaryRow(accountIdHex: backup.accountIdHex, unreadCount: 6),
+        ]
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let (state, _) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 0,
+            localNotificationCenter: notificationCenter
+        )
+        state.accounts.append(AccountItem(summary: backup))
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: backup,
+                notificationKey: "silent-notice",
+                senderName: "Alice",
+                previewText: "Hi there."
+            ))
+
+        #expect(state.unreadCount(forAccountIdHex: backup.accountIdHex) == 6)
+        #expect(notificationCenter.postedRequests.isEmpty)
+    }
+
+    @MainActor
+    @Test func anActiveAccountNotificationLeavesTheUnreadSummaryToTheChatRowPath() async throws {
+        // The active account's chat-list subscription delivers the same message as a row delta,
+        // which already refreshes the summary. Querying from the notification too would put a
+        // second summary read on every message the account in front of the user receives.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 2)
+        ]
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let (state, account) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 2,
+            localNotificationCenter: notificationCenter
+        )
+        let activeSummary = AccountSummaryFfi(
+            label: account.accountRef,
+            accountIdHex: account.accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        runtime.installNotificationSettings(
+            accountRef: activeSummary.label,
+            settings: notificationSettings(for: activeSummary, localEnabled: true)
+        )
+
+        await state.refreshAccountUnreadSummary()
+        let queriesSoFar = runtime.accountUnreadSummaryCallCount
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: activeSummary,
+                notificationKey: "notice-for-active",
+                senderName: "Alice",
+                previewText: "Hi there."
+            ))
+
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar)
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["notice-for-active"])
+    }
+
+    @MainActor
     @Test func chatRowDeltasThatLeaveUnreadAloneDoNotRequeryTheAccountUnreadSummary() async throws {
         // The badge follows the rows, but a summary query per row delta would put an FFI call on
         // every read-marker advance and every incoming preview. Only a moved unread total re-queries.
@@ -33812,6 +33935,18 @@ private func notificationUpdate(
 private let unreadBadgeFixtureAccountIdHex =
     "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
 
+/// A second signed-in account for the rail, distinct from `unreadBadgeFixture`'s active one.
+private func backupAccountSummary() -> AccountSummaryFfi {
+    AccountSummaryFfi(
+        label: "Backup Account",
+        accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+        localSigning: true,
+        externalSigning: false,
+        signedOut: false,
+        running: true
+    )
+}
+
 /// A workspace wired to a runtime and one seeded chat, deliberately **without** `bootstrap()`.
 ///
 /// Tests that count summary queries or park one mid-flight cannot bootstrap: it returns while the
@@ -33822,7 +33957,8 @@ private let unreadBadgeFixtureAccountIdHex =
 @MainActor
 private func unreadBadgeFixture(
     runtime: FakeMarmotRuntime,
-    seededUnreadCount: Int
+    seededUnreadCount: Int,
+    localNotificationCenter: (any LocalNotificationCenter)? = nil
 ) -> (state: WorkspaceState, account: AccountItem) {
     let account = AccountItem(
         id: "Desktop Account",
@@ -33839,6 +33975,7 @@ private func unreadBadgeFixture(
     let state = WorkspaceState(
         accounts: [account],
         chatsByAccount: [account.id: [chat]],
+        localNotificationCenter: localNotificationCenter,
         clientFactory: { runtime }
     )
     state.client = runtime

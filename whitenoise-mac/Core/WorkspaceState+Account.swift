@@ -680,6 +680,20 @@ extension WorkspaceState {
         await refreshAccountUnreadSummary(reflecting: signal)
     }
 
+    /// Re-run the summary when a notification lands on an account other than the active one.
+    ///
+    /// Only the active account runs a chat-list subscription, so the row deltas that keep its own
+    /// badge honest never arrive for the others. Their avatar badges held whatever the last account
+    /// switch or full reload recorded, which is why incoming messages appeared to count only once
+    /// the user switched to that account.
+    ///
+    /// The active account is deliberately left to the row path: it is the more precise signal, and
+    /// querying here as well would put a second summary read on every message it receives.
+    func refreshAccountUnreadSummaryForBackgroundAccount(receiving update: NotificationUpdateFfi) async {
+        guard let activeAccount, activeAccount.accountIdHex != update.accountIdHex else { return }
+        await refreshAccountUnreadSummary()
+    }
+
     private func refreshAccountUnreadSummary(reflecting signal: AccountUnreadSignal?) async {
         guard let client else { return }
         // Two refreshes can be in flight at once (a read-marker advance and a chat-list reload
