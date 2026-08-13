@@ -502,7 +502,11 @@ final class WorkspaceState {
     var selectedTimelineMessageIds: Set<String> = []
     /// Account/group scopes currently re-driving a committed-but-undelivered message.
     /// The core retry is group-scoped, so one guard covers every pending bubble in that chat.
-    @ObservationIgnored var inFlightMessageRetryScopes = Set<String>()
+    ///
+    /// Observed rather than ignored: the failed bubbles in that chat trade their recovery row for a
+    /// progress line while the call runs, which is the only feedback a click on Retry gets — a
+    /// row's delivery marker is derived from `sentAt` and cannot be walked back to "Sending".
+    var inFlightMessageRetryScopes = Set<String>()
     /// Scoped message target whose unified delete-confirmation surface is open, or `nil`. Drives the adaptive
     /// dialog that offers only the scopes `messageDeletionCapability` permits.
     var messagePendingDeletion: MessageDeletionTarget?

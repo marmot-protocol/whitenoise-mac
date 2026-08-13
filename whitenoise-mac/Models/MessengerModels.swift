@@ -2425,8 +2425,14 @@ nonisolated struct MessageItem: Identifiable, Hashable {
             && sourceMessageIdHex == nil
     }
 
-    var canRetryDelivery: Bool {
-        isPendingDelivery
+    /// Whether this row may be re-driven to the relays at `now`.
+    ///
+    /// Time-sensitive on purpose: a send that is still inside `pendingDeliveryGrace` reads as
+    /// "Sending", and offering to retry something the app is telling the user is still going out
+    /// invites a second click on a first attempt that has not finished. Retry appears exactly when
+    /// the bubble starts reading as an error, which is also when the sibling clients offer it.
+    func canRetryDelivery(at now: Date) -> Bool {
+        isPendingDelivery && deliveryIndicator(at: now) == .failed
     }
 
     /// How long an own send may stay unconfirmed before its bubble stops reading as "Sending" and

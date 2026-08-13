@@ -666,8 +666,20 @@ extension WorkspaceState {
         copyText(message.body)
     }
 
+    /// Whether the conversation this row belongs to is re-driving its pending sends right now.
+    ///
+    /// Group-scoped like the retry itself: `retryGroupConvergence` re-drives every operation the
+    /// core has committed for the chat, so a retry started from one failed bubble really is
+    /// carrying its neighbours too, and they say so.
+    func isRetryingDelivery(of message: MessageItem) -> Bool {
+        guard let activeAccountId, let selectedChat, selectedChat.id == message.groupIdHex else { return false }
+        return inFlightMessageRetryScopes.contains(
+            Self.messageRetryScope(accountId: activeAccountId, groupIdHex: selectedChat.id)
+        )
+    }
+
     func retryDelivery(of message: MessageItem) async {
-        guard message.canRetryDelivery,
+        guard message.canRetryDelivery(at: .now),
             let client,
             let activeAccount,
             let activeAccountId,
@@ -675,7 +687,7 @@ extension WorkspaceState {
             selectedChat.id == message.groupIdHex
         else { return }
 
-        let retryScope = "\(activeAccountId)\u{1F}\(selectedChat.id)"
+        let retryScope = Self.messageRetryScope(accountId: activeAccountId, groupIdHex: selectedChat.id)
         guard !inFlightMessageRetryScopes.contains(retryScope) else { return }
         inFlightMessageRetryScopes.insert(retryScope)
         defer { inFlightMessageRetryScopes.remove(retryScope) }
@@ -695,6 +707,11 @@ extension WorkspaceState {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Unit separator, so an account id and a group id cannot run together into the same scope.
+    private static func messageRetryScope(accountId: String, groupIdHex: String) -> String {
+        "\(accountId)\u{1F}\(groupIdHex)"
     }
 
     var isTimelineSelectionMode: Bool {

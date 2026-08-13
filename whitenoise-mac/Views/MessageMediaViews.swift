@@ -277,6 +277,8 @@ struct MessageBubble: View {
                     MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
                 }
             }
+
+            sendFailureActions
         }
         .overlay(alignment: message.isOutgoing ? .leading : .trailing) {
             if !usesBubbleSurface {
@@ -388,6 +390,33 @@ struct MessageBubble: View {
                         scale: 0.96,
                         anchor: message.isOutgoing ? .trailing : .leading
                     )))
+        }
+    }
+
+    /// Recovery controls under a failed own send.
+    ///
+    /// The red footer glyph and its tooltip are the whole of the failure story otherwise, and a
+    /// tooltip is not an affordance — the retry lived only in the context menu and the hover
+    /// overflow, both of which the user has to go looking for. This puts the two things worth
+    /// doing about a stranded message where the failure already is. Suppressed during multi-select,
+    /// where the row is a checkbox target rather than a message.
+    @ViewBuilder
+    private var sendFailureActions: some View {
+        if message.isOutgoing, deliveryIndicator == .failed, !workspace.isTimelineSelectionMode {
+            let actions = MessageSendFailureActions(
+                onRetry: message.canRetryDelivery(at: deliveryClock)
+                    ? { Task { await workspace.retryDelivery(of: message) } } : nil,
+                // "Delete", not "Remove": the core committed this message locally before it tried
+                // to publish, so it is part of this device's history and goes out through the same
+                // scoped confirmation every other message deletion uses.
+                discardTitle: L10n.string("Delete"),
+                onDiscard: workspace.canDeleteMessage(message)
+                    ? { workspace.messagePendingDeletion = workspace.messageDeletionTarget(for: message) } : nil,
+                isRetrying: workspace.isRetryingDelivery(of: message)
+            )
+            if !actions.isEmpty {
+                actions.padding(.horizontal, 5)
+            }
         }
     }
 
@@ -2085,14 +2114,22 @@ struct MessageRowAction: Identifiable {
 
     var id: Kind { kind }
 
+    /// `now` resolves the delivery-grace-sensitive actions. Both presentations build their list when
+    /// the menu opens and throw it away when it closes, so reading the clock here is exact rather
+    /// than a snapshot that could go stale under a long-lived view.
     @MainActor
     static func all(
         for message: MessageItem,
         workspace: WorkspaceState,
+        now: Date = .now,
         dismiss: @escaping () -> Void = {}
     ) -> [MessageRowAction] {
         var actions: [MessageRowAction] = []
-        if message.canRetryDelivery {
+        // Dropped rather than disabled while a retry is already running, so this list agrees with
+        // the bubble's own recovery row — which trades Retry for a progress line for that window.
+        // `retryDelivery` would refuse the second call anyway; the point is not to offer a click
+        // that does nothing.
+        if message.canRetryDelivery(at: now), !workspace.isRetryingDelivery(of: message) {
             actions.append(
                 MessageRowAction(
                     kind: .retry,

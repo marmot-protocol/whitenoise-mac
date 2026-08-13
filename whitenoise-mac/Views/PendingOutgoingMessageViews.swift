@@ -28,8 +28,11 @@ struct PendingOutgoingMessageBubble: View {
             content
 
             if message.state == .failed {
-                PendingOutgoingMessageFailureActions(
+                // "Remove", not "Delete": nothing has been committed anywhere yet, so dropping the
+                // bubble takes the message with it rather than hiding a message the group has.
+                MessageSendFailureActions(
                     onRetry: { workspace.retryPendingOutgoingMediaMessage(message.id) },
+                    discardTitle: L10n.string("Remove"),
                     onDiscard: { workspace.discardPendingOutgoingMediaMessage(message.id) }
                 )
             }
@@ -167,21 +170,6 @@ private struct PendingOutgoingMessageMetadata: View {
     /// what retired the `isOnBubbleFill` flag this used to branch on.
     private var tint: Color {
         WNColor.backgroundContentTertiary
-    }
-}
-
-private struct PendingOutgoingMessageFailureActions: View {
-    let onRetry: () -> Void
-    let onDiscard: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Button(L10n.string("Retry"), systemImage: "arrow.clockwise", action: onRetry)
-            Button(L10n.string("Remove"), systemImage: "trash", action: onDiscard)
-        }
-        .buttonStyle(.link)
-        .wnFont(.medium10)
-        .labelStyle(.titleOnly)
     }
 }
 
