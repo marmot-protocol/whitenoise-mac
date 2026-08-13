@@ -10116,6 +10116,32 @@ struct whitenoise_macTests {
         )
     }
 
+    @Test func audioRowKeepsItsGeometryAcrossDownloadStatesAndNeverNamesTheFile() throws {
+        // A voice message's file name is a generated name the sender never chose, so no audio
+        // row shows it — not the player, not the not-yet-downloaded placeholder. The placeholder
+        // also has to occupy exactly the player's space so a finished download swaps the control
+        // glyph instead of reflowing the bubble, which is only guaranteed while both render
+        // through `MessageAudioRow`. Inlining either one's layout would break that silently.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+
+        for typeName in ["MessageAudioAttachmentPlaceholder", "MessageAudioAttachmentPlayer"] {
+            let start = try #require(source.range(of: "struct \(typeName): View {"))
+            let rest = source[start.upperBound...]
+            let end = try #require(rest.range(of: "\n}\n\n")?.upperBound)
+            let body = String(rest[..<end])
+
+            #expect(body.contains("MessageAudioRow("), "\(typeName) must render through MessageAudioRow")
+            #expect(!body.contains("fileName"), "\(typeName) must not show the attachment file name")
+        }
+    }
+
     @MainActor
     @Test func loadMediaAttachmentRetriesFromFailedState() async throws {
         let account = AccountSummaryFfi(

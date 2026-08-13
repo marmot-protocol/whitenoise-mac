@@ -811,6 +811,11 @@ nonisolated enum MessageMediaGridPresentation {
 }
 
 nonisolated enum MediaDurationLabel {
+    /// Stands in for a duration that is not known yet — an audio attachment still downloading,
+    /// whose length only its payload can reveal. Deliberately unlocalized: it is the digits of
+    /// `string(for:)` blanked out, so it has to occupy the same monospaced slot.
+    static let placeholder = "--:--"
+
     static func string(for durationSeconds: Double) -> String {
         // The duration can be peer-derived (see MediaWaveformAnalyzer), so it may be
         // NaN, ±Infinity, negative, or larger than Int.max. The trapping Int(_:)
