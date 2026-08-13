@@ -1072,18 +1072,69 @@ extension WorkspaceState {
             client: client
         )
 
+        handOffTextSend(
+            restorePoint,
+            text: text,
+            draftKey: draftKey,
+            groupIdHex: selectedChat.id,
+            account: activeAccount,
+            client: client
+        )
+    }
+
+    /// Moves a just-sent text message out of the Send button's hands and into a detached publish,
+    /// then returns — the same hand-off media already does, for the same reason. Waiting here held
+    /// the button spinning and every composer control disabled for the length of the relay
+    /// round-trip, so the user could not start their next message; the wait belongs to the
+    /// message's own bubble, which the local projection has already put on screen carrying its
+    /// delivery state.
+    ///
+    /// Chained per conversation so back-to-back sends publish in the order Send was pressed. A
+    /// failed predecessor still releases its successor — it just leaves `lastError` and a restored
+    /// draft behind it.
+    private func handOffTextSend(
+        _ restorePoint: ComposerSendSnapshot,
+        text: String,
+        draftKey: ComposerDraftKey,
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) {
+        let predecessor = outgoingTextSendTasks[draftKey]
+        outgoingTextSendTasks[draftKey] = Task { [weak self] in
+            await predecessor?.value
+            guard !Task.isCancelled else { return }
+            await self?.completeTextSend(
+                restorePoint,
+                text: text,
+                draftKey: draftKey,
+                groupIdHex: groupIdHex,
+                account: account,
+                client: client
+            )
+        }
+    }
+
+    private func completeTextSend(
+        _ restorePoint: ComposerSendSnapshot,
+        text: String,
+        draftKey: ComposerDraftKey,
+        groupIdHex: String,
+        account: AccountItem,
+        client: any MarmotRuntime
+    ) async {
         do {
             if let replyContext = restorePoint.replyContext {
                 _ = try await client.replyToMessage(
-                    accountRef: activeAccount.accountRef,
-                    groupIdHex: selectedChat.id,
+                    accountRef: account.accountRef,
+                    groupIdHex: groupIdHex,
                     targetMessageId: replyContext.targetMessageId,
                     text: text
                 )
             } else {
                 _ = try await client.sendText(
-                    accountRef: activeAccount.accountRef,
-                    groupIdHex: selectedChat.id,
+                    accountRef: account.accountRef,
+                    groupIdHex: groupIdHex,
                     text: text
                 )
             }
@@ -1096,8 +1147,26 @@ extension WorkspaceState {
         // immediately, even if the live projection for it is momentarily in flight.
         // The follow-on delivery-state transitions then arrive as projection deltas
         // and are applied incrementally by `applyTimelineProjection` — no longer a
-        // full re-map per delivery.
-        await refreshSelectedTimelineAfterSend(groupIdHex: selectedChat.id, account: activeAccount, client: client)
+        // full re-map per delivery. Guarded on the live selection inside, so a send the
+        // user navigated away from does not re-window whatever they navigated to.
+        await refreshSelectedTimelineAfterSend(groupIdHex: groupIdHex, account: account, client: client)
+    }
+
+    func cancelAllOutgoingTextSends() {
+        for task in outgoingTextSendTasks.values {
+            task.cancel()
+        }
+        outgoingTextSendTasks.removeAll()
+    }
+
+    func cancelOutgoingTextSends(for draftKey: ComposerDraftKey) {
+        outgoingTextSendTasks.removeValue(forKey: draftKey)?.cancel()
+    }
+
+    func cancelOutgoingTextSends(forAccountId accountId: String) {
+        for draftKey in outgoingTextSendTasks.keys.filter({ $0.accountId == accountId }) {
+            outgoingTextSendTasks.removeValue(forKey: draftKey)?.cancel()
+        }
     }
 
     /// What a text send took out of the composer, kept only long enough to put it back if the

@@ -15710,6 +15710,7 @@ struct whitenoise_macTests {
             ))
         state.draftText = "Looks good to me."
         await state.sendDraft()
+        await Self.settleOutgoingTextSends(state)
 
         #expect(
             runtime.repliedMessage
@@ -15922,6 +15923,7 @@ struct whitenoise_macTests {
         #expect(state.replyDraftContext?.targetMessageId == "parent")
 
         await state.sendDraft()
+        await Self.settleOutgoingTextSends(state)
 
         // The second staging kicked off its own upload, but starting a reply dropped the
         // attachment, so nothing new was published as media.
@@ -16671,16 +16673,15 @@ struct whitenoise_macTests {
 
         state.draftText = "Project notes"
         runtime.messageActionGateEnabled = true
-        async let send: Void = state.sendDraft()
-        while !(state.isSending && runtime.didReachMessageActionGate) {
-            await Task.yield()
-        }
+        await state.sendDraft()
 
-        // The publish is still gated, but the input is already empty.
+        // Send returned with the publish still gated: the input is empty and the button is back.
         #expect(state.draftText.isEmpty)
+        #expect(!state.isSending)
+        await Self.waitUntil { runtime.didReachMessageActionGate }
 
         runtime.releaseMessageActionGate()
-        await send
+        await Self.settleOutgoingTextSends(state)
 
         #expect(runtime.sentText == SentText(groupIdHex: "group", text: "Project notes"))
         #expect(state.draftText.isEmpty)
@@ -16702,22 +16703,59 @@ struct whitenoise_macTests {
         )
         state.draftText = "Looks good to me."
         runtime.messageActionGateEnabled = true
-        async let send: Void = state.sendDraft()
-        while !(state.isSending && runtime.didReachMessageActionGate) {
-            await Task.yield()
-        }
+        await state.sendDraft()
 
         #expect(state.draftText.isEmpty)
         #expect(state.replyDraftContext == nil)
+        #expect(!state.isSending)
+        await Self.waitUntil { runtime.didReachMessageActionGate }
 
         runtime.releaseMessageActionGate()
-        await send
+        await Self.settleOutgoingTextSends(state)
 
         #expect(
             runtime.repliedMessage
                 == SentReply(groupIdHex: "group", targetMessageId: "parent", text: "Looks good to me.")
         )
         #expect(state.draftText.isEmpty)
+    }
+
+    @MainActor
+    @Test func sendStaysAvailableWhileTheTextMessageIsStillPublishing() async throws {
+        // Send must not sit in its loading state for the length of the relay round-trip. Once the
+        // message has left the composer it is a bubble carrying its own delivery state, so the
+        // button comes back and the user can write and send the next message behind it — the same
+        // hybrid media already gets (#710). Repro: hold the publish at the FFI gate and use the
+        // composer normally behind it.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.draftText = "first message"
+        runtime.messageActionGateEnabled = true
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+
+        // The first message has not published yet, and the composer is already usable again.
+        #expect(runtime.publishedTexts.isEmpty)
+        #expect(!state.isSending)
+        #expect(state.canRecordVoiceMessage)
+
+        state.draftText = "second message"
+        #expect(state.canSend)
+        await state.sendDraft()
+        #expect(state.draftText.isEmpty)
+        #expect(!state.isSending)
+
+        runtime.releaseMessageActionGate()
+        await Self.settleOutgoingTextSends(state)
+
+        // Both went out, and in the order Send was pressed — the second waits on the first rather
+        // than overtaking it through the gate.
+        #expect(runtime.sendTextCallCount == 2)
+        #expect(runtime.publishedTexts.map(\.text) == ["first message", "second message"])
     }
 
     @MainActor
@@ -16751,6 +16789,7 @@ struct whitenoise_macTests {
             userInfo: [NSLocalizedDescriptionKey: "relay unreachable"]
         )
         await state.sendDraft()
+        await Self.settleOutgoingTextSends(state)
 
         #expect(state.draftText == "@Alice ping")
         #expect(state.composerMentionSelections == mentionSelections)
@@ -16778,15 +16817,13 @@ struct whitenoise_macTests {
             userInfo: [NSLocalizedDescriptionKey: "relay unreachable"]
         )
         runtime.messageActionGateEnabled = true
-        async let send: Void = state.sendDraft()
-        while !(state.isSending && runtime.didReachMessageActionGate) {
-            await Task.yield()
-        }
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
 
         // The user starts the next message while the first one is still in flight.
         state.draftText = "second message"
         runtime.releaseMessageActionGate()
-        await send
+        await Self.settleOutgoingTextSends(state)
 
         #expect(state.draftText == "second message")
         #expect(state.lastError == "relay unreachable")
@@ -16829,6 +16866,7 @@ struct whitenoise_macTests {
         state.draftText = "And this"
         #expect(state.canSend)
         await state.sendDraft()
+        await Self.settleOutgoingTextSends(state)
         #expect(runtime.sendTextCallCount == 1)
 
         // Releasing the upload lets the parked message finish on its own, carrying its caption.
@@ -17382,11 +17420,11 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func sendDraftDropsOverlappingDuplicateInvocation() async throws {
-        // Issue #78: sendDraft() must guard against reentrancy. `isSending` flips synchronously,
-        // and the composer is emptied synchronously with it, so a second invocation delivered
-        // before SwiftUI re-renders the disabled send button (Return auto-repeat, double events)
-        // is dropped twice over — by `!isSending` and by the now-empty draft. Repro: hold the
-        // first send in-flight at the FFI gate, fire an overlapping second send, then release.
+        // Issue #78: sendDraft() must guard against reentrancy. Send hands the publish off and
+        // returns, so the disabled-button window is gone entirely — what stops a second invocation
+        // delivered by Return auto-repeat or a double event is that the composer was emptied
+        // synchronously on hand-off (`!isSending` covers the narrower window before that lands).
+        // Repro: hold the publish at the FFI gate, fire an overlapping second send, then release.
         // Only one text must be sent.
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -17416,22 +17454,19 @@ struct whitenoise_macTests {
         await state.bootstrap()
         state.draftText = "only once"
 
-        // Arm the gate so the first send suspends inside sendText(); start it concurrently.
+        // Arm the gate so the handed-off publish suspends inside sendText().
         runtime.messageActionGateEnabled = true
-        async let firstSend: Void = state.sendDraft()
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
 
-        // Spin the main actor until the first send is in-flight (isSending set, FFI reached).
-        while !(state.isSending && runtime.didReachMessageActionGate) {
-            await Task.yield()
-        }
-
-        // Overlapping second invocation: it must hit the `!isSending` guard and return immediately.
+        // Overlapping second invocation, with the first message still unpublished: it must find
+        // the composer already empty and return without reaching the FFI.
         await state.sendDraft()
         #expect(runtime.sendTextCallCount == 1)
 
-        // Release the gate and let the first send finish.
+        // Release the gate and let the publish finish.
         runtime.releaseMessageActionGate()
-        await firstSend
+        await Self.settleOutgoingTextSends(state)
 
         #expect(runtime.sendTextCallCount == 1)
         #expect(runtime.sentText == SentText(groupIdHex: "direct-group", text: "only once"))
@@ -17525,12 +17560,10 @@ struct whitenoise_macTests {
             body: "original A"
         )
 
-        // Arm the gate so the send suspends inside the reply FFI call; start it concurrently.
+        // Arm the gate so the handed-off publish suspends inside the reply FFI call.
         runtime.messageActionGateEnabled = true
-        async let send: Void = state.sendDraft()
-        while !(state.isSending && runtime.didReachMessageActionGate) {
-            await Task.yield()
-        }
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
 
         // The user switches to chat B while the send is in flight and composes there.
         state.selectChat(chatB)
@@ -17547,7 +17580,7 @@ struct whitenoise_macTests {
 
         // Release the gate and let the send finish while chat B is selected.
         runtime.releaseMessageActionGate()
-        await send
+        await Self.settleOutgoingTextSends(state)
 
         // Chat A carried a reply context, so the send routed through replyToMessage.
         #expect(runtime.replyToMessageCallCount == 1)
@@ -24447,6 +24480,20 @@ struct whitenoise_macTests {
         }
     }
 
+    /// Text sends hand off the same way media ones do — Send empties the composer, returns, and
+    /// leaves a detached task to publish — so anything asserting on the runtime, `lastError` or the
+    /// transcript has to let that task finish. Awaiting the tasks beats yield-polling for the same
+    /// reason it does above: the publish path does real async work no cooperative hop can advance.
+    ///
+    /// One entry per conversation, each chained behind its predecessor, so awaiting the snapshot
+    /// drains every text send made from that composer.
+    @MainActor
+    private static func settleOutgoingTextSends(_ state: WorkspaceState) async {
+        for task in state.outgoingTextSendTasks.values {
+            await task.value
+        }
+    }
+
     /// Real-time counterpart of `yieldUntil`, for conditions a detached task only reaches after
     /// actual async work rather than after a cooperative hop.
     @MainActor
@@ -24960,6 +25007,7 @@ struct whitenoise_macTests {
         runtime.clearSyncCallThreadRecords()
 
         await state.sendDraft()
+        await Self.settleOutgoingTextSends(state)
 
         #expect(runtime.sentText?.text == "send once")
         #expect(state.draftText.isEmpty)
@@ -30351,6 +30399,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var deletedMessage: DeletedMessage?
     private(set) var editedMessage: EditedMessage?
     private(set) var sentText: SentText?
+    /// Recorded on the far side of the FFI gate, unlike `sentText`, so the order here is the order
+    /// the texts actually published in rather than the order the calls were made.
+    private(set) var publishedTexts: [SentText] = []
     private(set) var retriedGroupIdHex: String?
     // Stage-time uploads run one detached task per attachment, and `uploadMedia` is `nonisolated
     // async`, so those tasks execute it concurrently on the cooperative pool rather than on the
@@ -32204,6 +32255,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         sendTextCallCount += 1
         sentText = SentText(groupIdHex: groupIdHex, text: text)
         await messageActionGate.passIfArmed()
+        publishedTexts.append(SentText(groupIdHex: groupIdHex, text: text))
         if let sendTextError {
             throw sendTextError
         }
