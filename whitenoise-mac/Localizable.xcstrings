@@ -7822,61 +7822,61 @@
         }
       }
     },
-    "Anyone with your nsec controls this account. Never share it. Revealing it is recorded in your audit log.": {
+    "Anyone with your nsec controls this account. Never share it.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wer deinen nsec besitzt, kontrolliert diesen Account. Teile ihn niemals. Das Anzeigen wird in deinem Audit-Log erfasst."
+            "value": "Wer deinen nsec besitzt, kontrolliert diesen Account. Teile ihn niemals."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cualquiera que tenga tu nsec controla esta cuenta. Nunca lo compartas. Mostrarlo queda registrado en tu registro de auditoría."
+            "value": "Cualquiera que tenga tu nsec controla esta cuenta. Nunca lo compartas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quiconque possède votre nsec contrôle ce compte. Ne le partagez jamais. Son affichage est consigné dans votre journal d’audit."
+            "value": "Quiconque possède votre nsec contrôle ce compte. Ne le partagez jamais."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiunque possieda il tuo nsec controlla questo account. Non condividerlo mai. La visualizzazione viene registrata nel log di audit."
+            "value": "Chiunque possieda il tuo nsec controlla questo account. Non condividerlo mai."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Qualquer pessoa com o seu nsec controla esta conta. Nunca o compartilhe. A exibição fica registrada no seu log de auditoria."
+            "value": "Qualquer pessoa com o seu nsec controla esta conta. Nunca o compartilhe."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Любой, у кого есть ваш nsec, контролирует этот аккаунт. Никогда не передавайте его. Раскрытие фиксируется в журнале аудита."
+            "value": "Любой, у кого есть ваш nsec, контролирует этот аккаунт. Никогда не передавайте его."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "nsec’inize sahip olan herkes bu hesabı denetler. Asla paylaşmayın. Görüntülemeniz denetim kaydınıza işlenir."
+            "value": "nsec’inize sahip olan herkes bu hesabı denetler. Asla paylaşmayın."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "任何拥有你 nsec 的人都能控制此账户。请勿分享。显示该密钥会记录到审计日志中。"
+            "value": "任何拥有你 nsec 的人都能控制此账户。请勿分享。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "任何擁有你 nsec 的人都能控制此帳號。請勿分享。顯示該密鑰會記錄到稽核日誌中。"
+            "value": "任何擁有你 nsec 的人都能控制此帳號。請勿分享。"
           }
         }
       }
@@ -53408,6 +53408,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "White Noise 需要在「登入項目」中獲得核准，才能在登入時開啟。"
+          }
+        }
+      }
+    },
+    "White Noise notes the date and time of each reveal in this account's audit log, kept on this Mac, so you can spot a reveal you didn't make. Your nsec is never written to the log.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise vermerkt Datum und Uhrzeit jeder Anzeige im Audit-Log dieses Accounts, das auf diesem Mac bleibt, damit du eine Anzeige erkennst, die nicht von dir stammt. Dein nsec wird nie in das Log geschrieben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise anota la fecha y la hora de cada visualización en el registro de auditoría de esta cuenta, que se guarda en este Mac, para que detectes una visualización que no hiciste. Tu nsec nunca se escribe en el registro."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise note la date et l’heure de chaque affichage dans le journal d’audit de ce compte, conservé sur ce Mac, pour que vous repériez un affichage que vous n’avez pas fait. Votre nsec n’est jamais écrit dans le journal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise annota data e ora di ogni visualizzazione nel log di audit di questo account, conservato su questo Mac, così puoi accorgerti di una visualizzazione che non hai fatto. Il tuo nsec non viene mai scritto nel log."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O White Noise anota a data e a hora de cada exibição no log de auditoria desta conta, mantido neste Mac, para que você perceba uma exibição que não fez. Seu nsec nunca é escrito no log."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise записывает дату и время каждого раскрытия в журнал аудита этого аккаунта, который хранится на этом Mac, чтобы вы заметили раскрытие, которого не делали. Ваш nsec никогда не записывается в журнал."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise her görüntülemenin tarih ve saatini, bu Mac’te tutulan bu hesabın denetim kaydına işler; böylece sizin yapmadığınız bir görüntülemeyi fark edebilirsiniz. nsec’iniz kayda hiçbir zaman yazılmaz."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise 会把每次显示的日期和时间记入此账户的审计日志，该日志保存在这台 Mac 上，方便你发现并非你本人的显示操作。你的 nsec 绝不会写入日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise 會把每次顯示的日期和時間記入此帳號的稽核日誌，該日誌保存在這台 Mac 上，方便你發現並非你本人的顯示操作。你的 nsec 絕不會寫入日誌。"
           }
         }
       }

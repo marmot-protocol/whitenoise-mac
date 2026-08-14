@@ -969,14 +969,26 @@ struct PrivateKeyBackupSheet: View {
                 SecureField(L10n.string("Passphrase"), text: $passphrase)
                     .textFieldStyle(.roundedBorder)
             case .nsec:
-                Label(
-                    L10n.string(
-                        "Anyone with your nsec controls this account. Never share it. Revealing it is recorded in your audit log."
-                    ),
-                    systemImage: "exclamationmark.triangle.fill"
-                )
+                // Two lines on purpose: the warning carries the risk, the footnote spells out
+                // exactly what "recorded" means. The core writes a per-account audit line
+                // holding only a timestamp, a salted account hash, and a surface label — never
+                // the key material itself — so say so rather than leaving users to assume the
+                // nsec is written to a log.
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(
+                        L10n.string("Anyone with your nsec controls this account. Never share it."),
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(WNColor.intentionWarningContent)
+
+                    Text(
+                        L10n.string(
+                            "White Noise notes the date and time of each reveal in this account's audit log, kept on this Mac, so you can spot a reveal you didn't make. Your nsec is never written to the log."
+                        )
+                    )
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                }
                 .wnFont(.medium12)
-                .foregroundStyle(WNColor.intentionWarningContent)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
