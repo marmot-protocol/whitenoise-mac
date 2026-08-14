@@ -278,25 +278,11 @@ private struct SharedMediaThumbnail: View {
 private struct SharedMediaImagePreviewView: View {
     let payload: DownloadedMediaPayload
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.displayScale) private var displayScale
+    @State private var zoom = ImageZoomState()
 
     var body: some View {
-        GeometryReader { proxy in
-            DownsampledDataImage(
-                payload: payload,
-                maxPixelSize: DownsampledImageSizing.galleryPixelSize(
-                    for: proxy.size,
-                    displayScale: displayScale
-                )
-            ) { image in
-                image
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } placeholder: {
-                ContentUnavailableView(L10n.string("Couldn't open image"), systemImage: "photo")
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+        ZoomableMediaImage(payload: payload, zoom: $zoom) {
+            ContentUnavailableView(L10n.string("Couldn't open image"), systemImage: "photo")
         }
         .frame(minWidth: 480, minHeight: 360)
         .background(WNColor.shadow.opacity(0.85))

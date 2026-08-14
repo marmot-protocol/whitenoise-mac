@@ -319,12 +319,42 @@ nonisolated enum DownsampledImageSizing {
         max(1, ceil(maxPixelSize))
     }
 
+    /// Ceiling on the zoom-driven half of the gallery budget. A 4x pinch on a large window
+    /// would otherwise ask ImageIO to materialize a bitmap several times the size of anything
+    /// a chat photo actually contains, for detail the source does not have.
+    static let maximumGalleryPixelSize: CGFloat = 8192
+
     /// Buckets continuously-changing gallery sizes so drag-resizing a window does not create a
     /// fresh decoded cache entry for every pixel delta. Rounds up to avoid under-resolving.
-    static func galleryPixelSize(for pointSize: CGSize, displayScale: CGFloat) -> CGFloat {
+    ///
+    /// `zoomScale` raises the budget while the viewer is magnified. Without it a zoom would
+    /// simply enlarge the fit-sized decode and go soft exactly when the user is looking closest.
+    static func galleryPixelSize(
+        for pointSize: CGSize,
+        displayScale: CGFloat,
+        zoomScale: CGFloat = 1
+    ) -> CGFloat {
         let rawPixels = max(pointSize.width, pointSize.height) * max(1, displayScale)
         let bucketSize: CGFloat = 128
-        return max(bucketSize, ceil(rawPixels / bucketSize) * bucketSize)
+        let fitted = max(bucketSize, ceil(rawPixels / bucketSize) * bucketSize)
+        guard zoomScale > 1 else { return fitted }
+        // `max(fitted, …)` keeps the cap from ever *lowering* resolution on a display whose
+        // fitted decode is already past it: the ceiling bounds growth, it is not a target.
+        return max(fitted, min(fitted * zoomPixelMultiplier(for: zoomScale), maximumGalleryPixelSize))
+    }
+
+    /// Rounds a live zoom scale to the handful of resolutions worth decoding at.
+    ///
+    /// Feeding the raw scale in would cross a new 128px bucket several dozen times over a
+    /// single pinch, re-decoding at each one. Powers of two mean at most two refinements
+    /// between fit and 4x, and every step stays a multiple of the bucket size.
+    static func zoomPixelMultiplier(for zoomScale: CGFloat) -> CGFloat {
+        guard zoomScale.isFinite else { return 1 }
+        switch zoomScale {
+        case ..<1.5: return 1
+        case ..<3: return 2
+        default: return 4
+        }
     }
 
     /// Wraps a downsampled `CGImage` in an `NSImage` that reports the CGImage's *true* pixel
