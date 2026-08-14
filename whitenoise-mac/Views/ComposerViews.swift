@@ -1464,11 +1464,20 @@ struct PendingGroupInviteComposerNotice: View {
     let chat: ChatItem
 
     var body: some View {
+        let inviter = workspace.pendingInviteInviterIdentity(for: chat)
+
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "lock.shield.fill")
-                    .wnFont(.semiBold14)
-                    .foregroundStyle(WNColor.intentionInfoContent)
+            // Once the inviter resolves, their avatar leads the notice and opens their profile:
+            // the invitee's one chance to check who this is — npub included — before answering.
+            // The lock stands in until then, so the row never has an empty leading slot.
+            HStack(alignment: inviter == nil ? .firstTextBaseline : .center, spacing: 10) {
+                if let inviter {
+                    PendingInviteInviterAvatar(chat: chat, inviter: inviter, name: inviterName)
+                } else {
+                    Image(systemName: "lock.shield.fill")
+                        .wnFont(.semiBold14)
+                        .foregroundStyle(WNColor.intentionInfoContent)
+                }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(inviteMessage)
@@ -1576,6 +1585,43 @@ struct PendingGroupInviteComposerNotice: View {
             candidate != chat.title
         else { return nil }
         return candidate
+    }
+}
+
+/// The inviter's avatar in the pending-invite notice, opening their profile.
+///
+/// Drawn and wired like the transcript's sender avatar — same control, same contact pane — so
+/// "the picture beside a name is how you look that person up" holds here too. A touch larger
+/// than the transcript's 28pt, because here it stands beside the notice's two lines of text.
+///
+/// `name` is the notice's own `inviterName`, so the avatar's monogram and label always read as
+/// the sentence beside them, whichever rung of that ladder answered.
+private struct PendingInviteInviterAvatar: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let chat: ChatItem
+    let inviter: WorkspaceState.PendingInviteInviterIdentity
+    let name: String
+
+    var body: some View {
+        Button {
+            Task { await workspace.showContactDetails(for: inviter, named: name, invitedTo: chat) }
+        } label: {
+            ProfileImageAvatarView(
+                seed: inviter.accountIdHex,
+                initials: name,
+                sanitizedPictureURL: inviter.sanitizedPictureURL,
+                size: 32,
+                isSelected: false
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(viewContactLabel)
+        .accessibilityIdentifier("composer.pendingGroupInvite.inviter")
+        .help(viewContactLabel)
+    }
+
+    private var viewContactLabel: String {
+        String(format: L10n.string("View contact %@"), name)
     }
 }
 

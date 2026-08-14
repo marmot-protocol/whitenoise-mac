@@ -22511,6 +22511,58 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func pendingInviteAvatarOpensTheInvitersProfileWithTheirNpub() async throws {
+        // End to end for the invite prompt's avatar: the roster read that names the inviter also
+        // has to leave enough behind to *open* them — the npub above all, since checking the key
+        // is why someone looks at a profile before accepting an invite from a name they may not
+        // recognise.
+        let account = desktopAccount()
+        let aliceIdHex = "alice1234567890alice1234567890alice1234567890alice1234567890"
+        var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
+        details.group.pendingConfirmation = true
+        details.group.welcomerAccountIdHex = aliceIdHex
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(details)
+        runtime.installProfile(
+            accountIdHex: aliceIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "alice",
+                displayName: "Alice Inviter",
+                about: nil,
+                picture: "https://example.com/alice.png",
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        let groupChat = try #require(state.activeChats.first)
+        #expect(groupChat.pendingConfirmation)
+
+        _ = await state.cachedGroupMembers(
+            groupIdHex: groupChat.id,
+            account: try #require(state.activeAccount),
+            client: runtime
+        )
+        await state.settlePeerProfileRefreshQueueForTesting()
+
+        let inviter = try #require(state.pendingInviteInviterIdentity(for: groupChat))
+        #expect(inviter.accountIdHex == aliceIdHex)
+        #expect(inviter.npub == "npub1alyce")
+        // The avatar draws the published picture, so it is recognisably them and not a monogram.
+        #expect(inviter.sanitizedPictureURL == URL(string: "https://example.com/alice.png"))
+
+        let name = try #require(state.inviterDisplayName(forGroupIdHex: groupChat.id))
+        await state.showContactDetails(for: inviter, named: name, invitedTo: groupChat)
+
+        let target = try #require(state.contactDetailsTarget)
+        #expect(target.accountIdHex == aliceIdHex)
+        #expect(target.npub == "npub1alyce")
+        #expect(target.displayName == "Alice Inviter")
+    }
+
+    @MainActor
     @Test func acceptGroupInviteDropsOverlappingDuplicateAfterClosingDetails() async throws {
         let account = desktopAccount()
         var details = groupDetailsFixture(selfAccountIdHex: account.accountIdHex)
