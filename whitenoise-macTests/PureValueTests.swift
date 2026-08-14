@@ -19,6 +19,57 @@ import UserNotifications
 
 @Suite(.serialized)
 struct PureValueTests {
+    @MainActor
+    @Test func primaryButtonLargeIsBiggerThanMediumOnEveryAxisItControls() {
+        // The whole point of the `large` size is that it reads as the one action on the screen.
+        // "Bigger" has to hold on all three axes at once — a size that grew its padding while
+        // keeping the medium type ramp would just be a loose button, not a prominent one.
+        let medium = WNPrimaryButtonSize.medium
+        let large = WNPrimaryButtonSize.large
+
+        #expect(large.font.size > medium.font.size)
+        #expect(large.verticalPadding > medium.verticalPadding)
+        #expect(large.horizontalPadding > medium.horizontalPadding)
+        #expect(large.cornerRadius > medium.cornerRadius)
+        #expect(large.controlSize == .large)
+        #expect(medium.controlSize == .regular)
+    }
+
+    @MainActor
+    @Test func primaryButtonSizesKeepWnButtonsRadiusFloorAndPositivePadding() {
+        for size in WNPrimaryButtonSize.allCases {
+            // `WnButton` uses 8 at every size but `xsmall`, which the mac app has no use for, so 8
+            // is the floor rather than a value any size may drop below.
+            #expect(size.cornerRadius >= 8)
+            // Interior padding is what grows the native chrome; zero would silently make a size
+            // indistinguishable from the platform default.
+            #expect(size.verticalPadding > 0)
+            #expect(size.horizontalPadding > 0)
+        }
+    }
+
+    @Test func groupedSplitsAnIdentifierIntoFixedBlocksWithoutDroppingTheRemainder() {
+        // The whole npub has to survive the split: a reader checking a key against another
+        // screen compares every block, so a lost tail character is a silent wrong answer.
+        let npub = "npub1qy8lsm2fmc0ck4lz9r7zx8gz9nkzmk2h5a9ka7xnmp"
+        let grouped = DisplayText.grouped(npub)
+
+        #expect(grouped.replacing(" ", with: "") == npub)
+        #expect(grouped.hasPrefix("npub 1qy8 lsm2"))
+        // 47 characters is not a multiple of 4, so the final block is the short one.
+        #expect(grouped.split(separator: " ").last == "nmp")
+    }
+
+    @Test func groupedHandlesShortValuesAndARefusedBlockSize() {
+        #expect(DisplayText.grouped("") == "")
+        #expect(DisplayText.grouped("ab") == "ab")
+        #expect(DisplayText.grouped("abcd") == "abcd")
+        #expect(DisplayText.grouped("abcde") == "abcd e")
+        #expect(DisplayText.grouped("abcdef", every: 2) == "ab cd ef")
+        // A non-positive size would loop forever in `stride`; the value comes back untouched.
+        #expect(DisplayText.grouped("abcdef", every: 0) == "abcdef")
+    }
+
     @Test func pendingMediaUploadStateExposesItsReferenceOnlyWhenUploaded() {
         let reference = mediaReference(fileName: "photo.png")
 

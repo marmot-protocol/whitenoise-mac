@@ -3179,6 +3179,22 @@ nonisolated enum DisplayText {
         return "\(value.prefix(head))...\(value.suffix(tail))"
     }
 
+    /// Breaks an opaque identifier into fixed-size groups so a reader can check it a chunk at a
+    /// time, and so a long key has somewhere to wrap. Matches `formatPublicKey` on the other
+    /// clients, which is what makes a displayed npub look the same across them.
+    ///
+    /// Display only — the grouped string is never what gets copied.
+    static func grouped(_ value: String, every size: Int = 4) -> String {
+        guard size > 0 else { return value }
+        return stride(from: 0, to: value.count, by: size)
+            .map { offset in
+                let start = value.index(value.startIndex, offsetBy: offset)
+                let end = value.index(start, offsetBy: size, limitedBy: value.endIndex) ?? value.endIndex
+                return String(value[start..<end])
+            }
+            .joined(separator: " ")
+    }
+
     static func initials(for value: String, fallback: String) -> String {
         let source = value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? fallback : value
         let parts =
