@@ -129,6 +129,19 @@ struct ChatAdminHandoffTarget: Equatable, Identifiable {
     let candidates: [GroupMemberItem]
 
     var id: String { groupIdHex }
+
+    /// The successor the picker opens with already chosen, or `nil` when there is a choice to make.
+    ///
+    /// One candidate is not a choice. The core has named exactly one member this account may hand
+    /// the role to, so the click that selects them carries no decision — it is a step between the
+    /// user and the only way out of the group they have. Preselecting it makes the sheet what it
+    /// actually is at that point: a confirmation.
+    ///
+    /// From two candidates up, nothing is preselected on purpose — see the `selectedMemberId`
+    /// comment in `ChatAdminHandoffSheet`.
+    var preselectedSuccessorId: String? {
+        candidates.count == 1 ? candidates.first?.id : nil
+    }
 }
 
 /// Chat awaiting a local-delete confirmation.
