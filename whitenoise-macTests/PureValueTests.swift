@@ -2466,6 +2466,62 @@ struct PureValueTests {
         #expect(state.inviterAccountIdHex(forGroupIdHex: "group") == nil)
     }
 
+    /// Naming the inviter is one thing; being able to check who they actually are is another.
+    /// The avatar in the invite prompt opens their profile, and that needs the npub — the whole
+    /// point of looking before accepting is comparing a key rather than trusting a display name.
+    @MainActor
+    @Test func pendingInviteInviterIdentityCarriesTheNpubTheProfileNeeds() async throws {
+        let welcomer = "alice1234567890alice1234567890alice1234567890alice12345678"
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        let invite = pendingInviteChat(id: "group")
+        state.storeGroupMembers(
+            [mentionMember(id: welcomer, displayName: "Alice", npub: "npub1alice")],
+            welcomerAccountIdHex: welcomer,
+            for: "group"
+        )
+
+        let identity = try #require(state.pendingInviteInviterIdentity(for: invite))
+        #expect(identity.accountIdHex == welcomer)
+        #expect(identity.npub == "npub1alice")
+
+        // An answered invite has no inviter to offer: an accepted group is just a group.
+        let accepted = pendingInviteChat(id: "group", pendingConfirmation: false)
+        #expect(state.pendingInviteInviterIdentity(for: accepted) == nil)
+    }
+
+    /// A record that kept no welcome sender still has an inviter in a one-to-one: the single
+    /// other member. This is the same fallback the prompt's own name ladder makes, so the avatar
+    /// cannot end up naming one person and opening another.
+    @MainActor
+    @Test func pendingDirectInviteFallsBackToThePeerAsInviter() async throws {
+        let peer = "bob1234567890bob1234567890bob1234567890bob1234567890bob123"
+        let state = WorkspaceState(
+            localNotificationCenter: NoopLocalNotificationCenter(),
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        let invite = pendingInviteChat(id: "direct-group", avatarSeed: peer, isDirect: true)
+        state.storeGroupMembers(
+            [mentionMember(id: peer, displayName: "Bob", npub: "npub1bob")],
+            welcomerAccountIdHex: nil,
+            for: "direct-group"
+        )
+
+        #expect(state.inviterAccountIdHex(forGroupIdHex: "direct-group") == nil)
+        let identity = try #require(state.pendingInviteInviterIdentity(for: invite))
+        #expect(identity.accountIdHex == peer)
+        #expect(identity.npub == "npub1bob")
+
+        // A direct chat whose peer has not resolved seeds `avatarSeed` with the group id, which
+        // is nobody — offering that as a profile would open a page for a group id.
+        let unresolved = pendingInviteChat(id: "direct-group", avatarSeed: "direct-group", isDirect: true)
+        #expect(state.pendingInviteInviterIdentity(for: unresolved) == nil)
+    }
+
     @Test func remoteImageSanitizedURLRejectsPrivateHosts() async throws {
         // The string entry point used by the UI must also reject internal destinations.
         #expect(RemoteImageURLPolicy.sanitizedURL(from: "https://192.168.1.1/x.png") == nil)
@@ -5140,6 +5196,27 @@ private func mentionMember(
         isSelf: isSelf,
         npub: npub,
         displayName: displayName
+    )
+}
+
+/// A chat row for an invite nobody has answered yet — the state the invite prompt draws in.
+private func pendingInviteChat(
+    id: String,
+    avatarSeed: String? = nil,
+    isDirect: Bool = false,
+    pendingConfirmation: Bool = true
+) -> ChatItem {
+    ChatItem(
+        id: id,
+        title: "Test Group",
+        subtitle: "",
+        preview: "",
+        updatedAt: nil,
+        avatarSeed: avatarSeed ?? id,
+        pictureURL: nil,
+        unreadCount: 0,
+        isDirect: isDirect,
+        pendingConfirmation: pendingConfirmation
     )
 }
 
