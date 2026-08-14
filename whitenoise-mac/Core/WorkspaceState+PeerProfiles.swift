@@ -430,6 +430,13 @@ extension WorkspaceState {
                 // FFI resolve per group row on every pass is the cost this guard removes.
                 guard Self.otherMembers(in: members, activeAccount: account).count == 1 else { continue }
 
+                // A named two-person conversation is a group (MDK's `conversation_kind`), and its
+                // title is the name its members gave it — projecting a peer profile onto it would
+                // put the other member's name back over that name on every profile refresh. Rows
+                // whose kind MDK did not supply stay eligible, since they are the legacy
+                // roster-enriched ones this pass exists for.
+                guard chat.isDirect || !chat.hasAuthoritativeConversationKind else { continue }
+
                 // `readStateMetadataEnrichmentAttempts` is a permanent per-group "tried once"
                 // flag, so a group whose single enrichment pass ran before this peer's
                 // metadata landed could never re-enrich from the read-state path. Clearing it

@@ -58,9 +58,20 @@ extension ChatItem {
         lastSenderNickname: String? = nil
     ) {
         let groupName = PeerDisplayText.sanitize(row.groupName) ?? ""
-        let peerName = PeerDisplayText.sanitize(directPeer?.displayName)
+        // MDK classifies any conversation carrying a group name as a group whatever its member
+        // count (`conversation_kind`: a non-blank name returns `Group` before member count is even
+        // consulted). Naming a two-person chat is the user saying "this is the group Book club",
+        // not "this is my DM with Alice" — so a named row drops the direct-peer projection its
+        // one-other-member roster resolves, which would otherwise win `resolvedTitle` and replace
+        // the name they typed with the other member's name.
+        //
+        // Keyed on the name rather than on `.group`: MDK also reports `.group` for a conversation
+        // whose roster has emptied out, and that case is exactly where the remembered/recovered
+        // peer is the only thing left that can name the chat.
+        let peer = groupName.isEmpty ? directPeer : nil
+        let peerName = PeerDisplayText.sanitize(peer?.displayName)
         let projectedTitle = PeerDisplayText.sanitize(row.title) ?? ""
-        let fallbackId = directPeer?.accountIdHex ?? row.groupIdHex
+        let fallbackId = peer?.accountIdHex ?? row.groupIdHex
         let title = Self.resolvedTitle(
             peerName: peerName,
             projectedTitle: projectedTitle,
@@ -68,7 +79,7 @@ extension ChatItem {
             fallbackId: fallbackId
         )
 
-        let publishedTitle = directPeer?.publishedDisplayName?.nilIfBlank.map { peerPublishedName in
+        let publishedTitle = peer?.publishedDisplayName?.nilIfBlank.map { peerPublishedName in
             Self.resolvedTitle(
                 peerName: PeerDisplayText.sanitize(peerPublishedName),
                 projectedTitle: projectedTitle,
@@ -88,7 +99,7 @@ extension ChatItem {
         // writes and must not make a conversation jump in the sidebar.
         let timestamp = row.activitySortAt > 0 ? row.activitySortAt : row.conversationCreatedAt
         let updatedAt = timestamp > 0 ? Date(timeIntervalSince1970: TimeInterval(timestamp)) : nil
-        let isDirect = row.conversationKind == .direct || directPeer != nil
+        let isDirect = row.conversationKind == .direct || peer != nil
         let subtitle: String
         if row.archived {
             subtitle = L10n.string("Archived")
@@ -111,8 +122,8 @@ extension ChatItem {
             previewAttachmentKind: preview?.attachmentKind,
             previewAttribution: preview?.attribution,
             updatedAt: updatedAt,
-            avatarSeed: directPeer?.accountIdHex ?? row.groupIdHex,
-            pictureURL: directPeer?.pictureURL ?? groupAvatarURL,
+            avatarSeed: peer?.accountIdHex ?? row.groupIdHex,
+            pictureURL: peer?.pictureURL ?? groupAvatarURL,
             groupImagePayload: isDirect ? nil : groupImagePayload,
             groupImageHashHex: isDirect ? nil : row.avatar?.imageHashHex.nilIfBlank,
             unreadCount: Int(clamping: row.unreadCount),

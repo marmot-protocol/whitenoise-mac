@@ -725,15 +725,29 @@ extension WorkspaceState {
                 from: members,
                 nicknames: contactNicknames(forOwnerAccountIdHex: account.accountIdHex)
             )
-            directPeer = await directPeerProfile(
-                from: members,
-                groupIdHex: row.groupIdHex,
-                activeAccount: account,
-                client: client
-            )
+            // A named conversation is a group however few members it has, so it takes no peer
+            // projection — `ChatItem.init(row:)` drops one anyway. Skipping the resolve here also
+            // saves the profile FFI hop and keeps `directPeerProfile` from recording a remembered
+            // peer for a named group, which a later rename to a blank name could resurface as the
+            // title.
+            let isNamedConversation = PeerDisplayText.sanitize(row.groupName) != nil
+            if isNamedConversation {
+                // Naming the conversation is what makes it a group, so a peer remembered from when
+                // it held two people no longer describes it. Dropped here for the same reason
+                // `directPeerProfile` drops one when the roster grows: clearing the name later must
+                // not resurface that peer as the title. A no-op when nothing was recorded.
+                forgetDirectPeer(groupIdHex: row.groupIdHex, accountId: account.id)
+            } else {
+                directPeer = await directPeerProfile(
+                    from: members,
+                    groupIdHex: row.groupIdHex,
+                    activeAccount: account,
+                    client: client
+                )
+            }
             if directPeer == nil,
-                Self.otherMembers(in: members, activeAccount: account).isEmpty,
-                PeerDisplayText.sanitize(row.groupName) == nil
+                !isNamedConversation,
+                Self.otherMembers(in: members, activeAccount: account).isEmpty
             {
                 // Nobody is left to name this conversation and it never had a group name, so MDK
                 // projects the shortened group id as its title. Fall back to whoever this chat was
