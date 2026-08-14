@@ -141,6 +141,11 @@ final class WorkspaceState {
     /// just did, so they are surfaced on a non-modal global banner instead of the
     /// per-screen error view, preventing misattribution and clobbering of `lastError`.
     var backgroundStatus: String?
+    /// The counterpart of `lastError` for actions that succeed quietly — a pasteboard write above
+    /// all. Kept here rather than in the environment because the actions that raise it sit in
+    /// context menus, overflow popovers and sheets, none of which reliably inherit an injected
+    /// environment value; `workspace` is threaded into all three already.
+    let successToasts = SuccessToastPresenter()
 
     /// Profile reference from a marmot:// deep link that arrived before the workspace
     /// reached `.ready` (cold start or signed out). Never read by a view body; flushed
@@ -1762,8 +1767,22 @@ final class WorkspaceState {
         telemetryBuildConfigProvider()
     }
 
+    /// The re-configure pass started by `refreshObservabilityRuntime()`, or `nil` when none is in
+    /// flight. Retained for two reasons: a newer refresh can supersede the one already running
+    /// instead of racing it, and a caller that needs the new configuration in place — an account
+    /// switch's, above all — has something to await.
+    @ObservationIgnored private(set) var observabilityRefreshTask: Task<Void, Never>?
+
+    /// Re-configure observability for whatever the active account and build config now are,
+    /// without making the caller wait.
+    ///
+    /// Two passes running together are not harmful — they converge on the same configuration —
+    /// but they do both bump `observabilityRuntimeGeneration`, so the one that bumps first
+    /// abandons its write when it finds the generation moved. Cancelling the pass already in
+    /// flight keeps that to the single pass whose inputs are freshest.
     func refreshObservabilityRuntime() {
-        Task { [weak self] in
+        observabilityRefreshTask?.cancel()
+        observabilityRefreshTask = Task { [weak self] in
             await self?.configureObservabilityRuntimeBestEffort()
         }
     }

@@ -18412,7 +18412,7 @@ struct whitenoise_macTests {
         var copiedConcealed = false
         let state = WorkspaceState(copyTextHandler: { _, concealed in copiedConcealed = concealed })
 
-        state.copyText("anything-copied-from-this-app")
+        state.copyText("anything-copied-from-this-app", notice: "Copied to clipboard")
 
         #expect(copiedConcealed)
     }
@@ -18450,38 +18450,103 @@ struct whitenoise_macTests {
         var copiedText = ""
         let state = WorkspaceState(copyTextHandler: { text, _ in copiedText = text })
 
-        state.copyText("public-key-value")
+        state.copyText("public-key-value", notice: "Public key copied to clipboard")
 
         #expect(copiedText == "public-key-value")
     }
 
     @MainActor
-    @Test func copyConfirmationShowsThenClearsItself() async throws {
-        let confirmation = CopyConfirmation(duration: .milliseconds(30))
+    @Test func copyingTextRaisesItsSuccessNotice() async throws {
+        let state = WorkspaceState(copyTextHandler: { _, _ in })
 
-        #expect(!confirmation.isConfirming)
-        confirmation.confirm()
-        // macOS gives no system-level copy confirmation, so the checkmark is the only signal the
-        // user gets that the click landed — it has to be up immediately, not after an await.
-        #expect(confirmation.isConfirming)
+        #expect(state.successToasts.message == nil)
+        state.copyText("public-key-value", notice: "Public key copied to clipboard")
 
-        try await Task.sleep(for: .milliseconds(300))
-
-        #expect(!confirmation.isConfirming)
+        // macOS gives no system-level copy confirmation, so the toast is the only signal the user
+        // gets that the click landed — it has to be up immediately, not after an await.
+        #expect(state.successToasts.message == "Public key copied to clipboard")
     }
 
     @MainActor
-    @Test func repeatedCopyRestartsTheConfirmationWindow() async throws {
-        let confirmation = CopyConfirmation(duration: .milliseconds(200))
+    @Test func copyingAMessageBodyNamesTheMessageInItsNotice() async throws {
+        let state = WorkspaceState(copyTextHandler: { _, _ in })
 
-        confirmation.confirm()
+        state.copyText(
+            of: MessageItem(
+                id: "message",
+                senderName: "Alice",
+                body: "Copy this",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false
+            ))
+
+        #expect(state.successToasts.message == L10n.string("Message copied to clipboard"))
+    }
+
+    @MainActor
+    @Test func aCopyThatIsRefusedRaisesNoNotice() async throws {
+        let state = WorkspaceState(copyTextHandler: { _, _ in })
+
+        state.copyText(
+            of: MessageItem(
+                id: "deleted",
+                senderName: "Alice",
+                body: "Message deleted",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isDeleted: true,
+                isOutgoing: false
+            ))
+
+        // Nothing reached the pasteboard, so claiming a successful copy would be a lie.
+        #expect(state.successToasts.message == nil)
+    }
+
+    @MainActor
+    @Test func successToastShowsThenClearsItself() async throws {
+        let presenter = SuccessToastPresenter(duration: .milliseconds(30))
+
+        #expect(presenter.message == nil)
+        presenter.show("Copied to clipboard")
+        #expect(presenter.message == "Copied to clipboard")
+
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(presenter.message == nil)
+    }
+
+    @MainActor
+    @Test func repeatedSuccessRestartsTheToastWindow() async throws {
+        let presenter = SuccessToastPresenter(duration: .milliseconds(200))
+
+        presenter.show("Public key copied to clipboard")
         try await Task.sleep(for: .milliseconds(120))
-        // Second copy mid-window: the first reset must not fire and blank the confirmation while
-        // the user is still looking at the result of the newer copy.
-        confirmation.confirm()
+        // Second copy mid-window: the first clear must not fire and blank the toast while the user
+        // is still looking at the result of the newer copy.
+        presenter.show("Private key copied to clipboard")
         try await Task.sleep(for: .milliseconds(120))
 
-        #expect(confirmation.isConfirming)
+        #expect(presenter.message == "Private key copied to clipboard")
+    }
+
+    @MainActor
+    @Test func onlyTheInnermostSurfaceDrawsTheSuccessToast() async throws {
+        let presenter = SuccessToastPresenter()
+        let window = UUID()
+        let sheet = UUID()
+
+        presenter.installSurface(window)
+        #expect(presenter.drawingSurface == window)
+
+        // A sheet draws in a child window above every part of its parent, so once one is up it is
+        // the only surface whose toast the user could see. Drawing on both would paint it twice.
+        presenter.installSurface(sheet)
+        #expect(presenter.drawingSurface == sheet)
+
+        // Re-entering `onAppear` without an intervening `onDisappear` must not stack a duplicate,
+        // which would survive the matching removal and strand the toast on the dismissed sheet.
+        presenter.installSurface(sheet)
+        presenter.removeSurface(sheet)
+        #expect(presenter.drawingSurface == window)
     }
 
     @Test func globalMessageSearchTextNormalizesOrderedTokensAndBoundsSnippets() {
@@ -28231,6 +28296,12 @@ struct whitenoise_macTests {
 
         let secondaryItem = try #require(state.accounts.first { $0.id == secondary.label })
         state.prepareForActiveAccountSwitch(to: secondaryItem, preservingMessageCacheFor: nil)
+        // The switch starts its own re-configure pass. Await it instead of racing it: both it and
+        // the call below bump `observabilityRuntimeGeneration`, so whichever bumps first abandons
+        // its write — and when the loser was the awaited call, the assertions below read whatever
+        // the unawaited pass had managed to land. It usually landed in time locally and did not
+        // under CI load, which is the whole of this test's flakiness.
+        await state.observabilityRefreshTask?.value
         try await state.configureObservabilityRuntime()
         runtime.releaseTelemetryInstallIdGate()
         try await stalePrimaryConfiguration

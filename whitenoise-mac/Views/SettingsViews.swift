@@ -341,6 +341,7 @@ struct PublicIdentityQRCodeButton: View {
 }
 
 struct PublicIdentityQRCodeSheet: View {
+    @Environment(WorkspaceState.self) private var workspace
     @Environment(\.dismiss) private var dismiss
     let displayName: String
     let npub: String
@@ -394,10 +395,13 @@ struct PublicIdentityQRCodeSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
-                    Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                        .foregroundStyle(
-                            isConfirming ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary)
+                CopyToClipboardButton(
+                    value: npub,
+                    actionDescription: L10n.string("Copy npub"),
+                    successMessage: L10n.string("Public key copied to clipboard")
+                ) {
+                    Image(systemName: "doc.on.doc")
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 .buttonStyle(.borderless)
             }
@@ -407,6 +411,9 @@ struct PublicIdentityQRCodeSheet: View {
         .background {
             LiquidGlassBackground()
         }
+        // The sheet draws in a child window above the whole parent, so the window's own surface
+        // could not show this sheet's copy confirmation.
+        .successToastSurface(workspace.successToasts)
     }
 }
 
@@ -836,13 +843,11 @@ struct IdentityKeysSettingsView: View {
 
                             CopyToClipboardButton(
                                 value: npub,
-                                actionDescription: L10n.string("Copy npub")
-                            ) { isConfirming in
-                                Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                                    .foregroundStyle(
-                                        isConfirming
-                                            ? WNColor.intentionSuccessContent
-                                            : WNColor.backgroundContentPrimary)
+                                actionDescription: L10n.string("Copy npub"),
+                                successMessage: L10n.string("Public key copied to clipboard")
+                            ) {
+                                Image(systemName: "doc.on.doc")
+                                    .foregroundStyle(WNColor.backgroundContentPrimary)
                             }
                             .buttonStyle(.borderless)
 
@@ -991,13 +996,11 @@ struct PrivateKeyBackupSheet: View {
                         Spacer(minLength: 8)
                         CopyToClipboardButton(
                             value: revealedSecret,
-                            actionDescription: L10n.string("Copy")
-                        ) { isConfirming in
-                            Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
-                                .foregroundStyle(
-                                    isConfirming
-                                        ? WNColor.intentionSuccessContent
-                                        : WNColor.backgroundContentPrimary)
+                            actionDescription: L10n.string("Copy"),
+                            successMessage: L10n.string("Private key copied to clipboard")
+                        ) {
+                            Image(systemName: "doc.on.doc")
+                                .foregroundStyle(WNColor.backgroundContentPrimary)
                         }
                         .buttonStyle(.borderless)
                     }
@@ -1027,6 +1030,9 @@ struct PrivateKeyBackupSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+        // The sheet draws in a child window above the whole parent, so the window's own surface
+        // could not show this sheet's copy confirmation.
+        .successToastSurface(workspace.successToasts)
     }
 
     private var backupTypeSelector: some View {
@@ -1104,11 +1110,14 @@ struct CopyableKeyLabel: View {
                 .textSelection(.enabled)
 
             if showsCopyButton {
-                CopyToClipboardButton(value: npub, actionDescription: L10n.string("Copy npub")) { isConfirming in
-                    Image(systemName: isConfirming ? "checkmark" : "doc.on.doc")
+                CopyToClipboardButton(
+                    value: npub,
+                    actionDescription: L10n.string("Copy npub"),
+                    successMessage: L10n.string("Public key copied to clipboard")
+                ) {
+                    Image(systemName: "doc.on.doc")
                         .wnFont(.medium10)
-                        .foregroundStyle(
-                            isConfirming ? WNColor.intentionSuccessContent : WNColor.backgroundContentSecondary)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 .buttonStyle(.borderless)
             }

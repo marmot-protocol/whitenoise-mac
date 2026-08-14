@@ -30,6 +30,10 @@ struct ContentView: View {
             // Attached here, not on the conversation pane: a chat-list delete is most likely with
             // no chat selected, and the sidebar row menu cannot host its own dialog.
             .chatDestructiveActionsConfirmation()
+            // The window-wide surface for quiet successes (copies, above all). Sheets that host
+            // one of those actions install their own surface on top of this one, because a sheet
+            // draws above every part of its parent window.
+            .successToastSurface(workspace.successToasts)
             // App-wide default: static text is selectable, so anything on screen — a startup
             // failure message, a relay URL, an npub, a profile field — can be selected and
             // copied without the view having to opt in. `.textSelection` propagates through the

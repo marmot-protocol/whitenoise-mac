@@ -690,7 +690,6 @@ struct GroupDetailsSheet: View {
 }
 
 struct GroupDiagnosticsValueRow: View {
-    @Environment(WorkspaceState.self) private var workspace
     let title: String
     let value: String
     var lineLimit = 2
@@ -716,14 +715,18 @@ struct GroupDiagnosticsValueRow: View {
             }
 
             if copyable && !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Button {
-                    workspace.copyText(value)
-                } label: {
+                // Deliberately not "<title> copied": the diagnostics titles are interpolated, and
+                // a value name cannot be dropped into a sentence in the languages this app ships
+                // without breaking agreement. The generic confirmation is correct in all of them.
+                CopyToClipboardButton(
+                    value: value,
+                    actionDescription: String(format: L10n.string("Copy %@"), title),
+                    successMessage: L10n.string("Copied to clipboard")
+                ) {
                     Image(systemName: "doc.on.doc")
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.wnSecondary)
-                .help(String(format: L10n.string("Copy %@"), title))
             }
         }
     }
@@ -918,13 +921,14 @@ struct ContactDetailsView: View {
                             .textSelection(.enabled)
                     }
 
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(
-                            contact.npub.isEmpty ? contact.accountIdHex : contact.npub,
-                            forType: .string
-                        )
-                    } label: {
+                    // Routed through `copyText` rather than writing the pasteboard here, so this
+                    // copy confirms itself and carries the same concealed marker as every other
+                    // copy in the app.
+                    CopyToClipboardButton(
+                        value: contact.npub.isEmpty ? contact.accountIdHex : contact.npub,
+                        actionDescription: L10n.string("Copy Public Key"),
+                        successMessage: L10n.string("Public key copied to clipboard")
+                    ) {
                         Label(L10n.string("Copy Public Key"), systemImage: "doc.on.doc")
                     }
                     .buttonStyle(.wnSecondary)

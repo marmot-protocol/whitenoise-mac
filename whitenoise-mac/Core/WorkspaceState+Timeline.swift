@@ -663,7 +663,7 @@ extension WorkspaceState {
 
     func copyText(of message: MessageItem) {
         guard message.canCopyText else { return }
-        copyText(message.body)
+        copyText(message.body, notice: L10n.string("Message copied to clipboard"))
     }
 
     /// Whether the conversation this row belongs to is re-driving its pending sends right now.
@@ -848,7 +848,7 @@ extension WorkspaceState {
         cancelMessageSelection()
     }
 
-    /// Copies `text` to the system pasteboard.
+    /// Copies `text` to the system pasteboard and confirms it with the success toast.
     ///
     /// Every value copied from this app is private-messenger content — decrypted message
     /// bodies, full conversation transcripts, and Nostr identity keys — so copies default to
@@ -856,8 +856,14 @@ extension WorkspaceState {
     /// marker (see `copyToGeneralPasteboard`), which clipboard-history managers honor to avoid
     /// persisting the value and which discourages Universal Clipboard (Handoff) from syncing it
     /// to the user's other devices.
-    func copyText(_ text: String, concealed: Bool = true) {
+    ///
+    /// `notice` is what the toast says, e.g. "Public key copied to clipboard". It has no default on
+    /// purpose: macOS gives no feedback of its own for a pasteboard write, so a copy affordance
+    /// that raises nothing is a copy the user cannot confirm — and this way one cannot be written
+    /// without the compiler asking for the confirmation.
+    func copyText(_ text: String, concealed: Bool = true, notice: String) {
         copyTextHandler(text, concealed)
+        successToasts.show(notice)
     }
 
     /// Ordered edit history (oldest first) for `message` in the selected conversation, or empty
