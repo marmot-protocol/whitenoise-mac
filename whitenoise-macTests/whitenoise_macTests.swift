@@ -10324,6 +10324,57 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func audioRowAlignsItsControlsOnTheWaveformRatherThanOnTheRowBox() throws {
+        // The duration label hangs below the bars inside the middle column, so the column's centre
+        // — and with it the row box's — sits about half a line below the bars themselves. Aligning
+        // on `.center` therefore hangs the play control and the speed badge low against the
+        // waveform they belong to. Nothing observable from a unit test reports a stack's alignment,
+        // so the guide is pinned against the source, like the player's rate ordering below.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let start = try #require(source.range(of: "struct MessageAudioRow<"))
+        let rest = source[start.upperBound...]
+        let end = try #require(rest.range(of: "\n}\n\n")?.upperBound)
+        let normalizedBody = String(rest[..<end]).components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(normalizedBody.contains("HStack(alignment:.audioRowWaveformCenter"))
+        // Half the waveform's own height, not a literal: the guide has to follow the band it names.
+        #expect(normalizedBody.contains(".alignmentGuide(.audioRowWaveformCenter){_inSelf.waveformHeight/2}"))
+    }
+
+    @Test func aSendingAudioShowsItsWaitInThePlayButtonRatherThanUnderAnOverlay() throws {
+        // Same geometry contract as the test above, across the other axis: a voice note is one row
+        // from the moment Send is pressed to the moment it is playable, so the wait belongs in the
+        // well the play button lands in. Rendering it through the shared placeholder is what makes
+        // that a guarantee instead of two hand-matched layouts — and the message-wide dimmer has to
+        // stand down for it, or the send announces itself twice and the inline spinner fades along
+        // with the row it sits in.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("PendingOutgoingMessageViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+
+        #expect(
+            source.contains("MessageAudioAttachmentPlaceholder("),
+            "a pending audio row must render through the shared audio placeholder"
+        )
+        let normalizedSource = source.components(separatedBy: .whitespacesAndNewlines).joined()
+        #expect(
+            normalizedSource.contains("message.state.isInFlight&&message.inlineLoadingAudioAttachment==nil"),
+            "the centered overlay must stand down for a row that carries its own spinner"
+        )
+    }
+
     @Test func audioPlayerArmsRateControlBeforePreparingAndReappliesItAroundPlay() throws {
         // Two `AVAudioPlayer` traps, both of which fail silently — the badge would keep cycling and
         // keep reading 2x while playback stayed at 1x, with nothing in the UI to show it:
@@ -16471,6 +16522,163 @@ struct whitenoise_macTests {
         #expect(runtime.sentMediaAttachments.last?.fileNames == ["voice-note.m4a"])
         #expect(runtime.sentMediaAttachments.last?.caption == nil)
         #expect(state.selectedPendingOutgoingMediaMessages.isEmpty)
+    }
+
+    @MainActor
+    @Test func pendingBubbleGivesWayTheMomentItsPublishedRowLands() async throws {
+        // The core commits an own send locally *inside* `sendMediaAttachments`, so the real row can
+        // reach the transcript through the timeline subscription while the relay round-trip is
+        // still in flight. The pending bubble is only dropped once that call returns, so for the
+        // length of the publish the same voice note rendered twice — one loading bubble stacked
+        // under the real one. Matching on the uploaded blob's plaintext digest retires the
+        // placeholder as soon as the row it became is on screen.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let recording = recordedVoiceMessage()
+        state.appendPendingMediaAttachment(recording, for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+
+        // Arm the gate only now, so it holds the publish rather than the upload.
+        runtime.messageActionGateEnabled = true
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+        #expect(state.selectedPendingOutgoingMediaMessages.map(\.state) == [.publishing])
+
+        runtime.installTimelinePage(
+            TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: "published-voice",
+                        direction: "outbound",
+                        groupIdHex: "group",
+                        sender: account.accountIdHex,
+                        plaintext: "",
+                        recordedAt: 1_700_000_000,
+                        media: [
+                            mediaAttachmentReference(
+                                mediaType: "audio/mp4",
+                                fileName: "voice-note.m4a",
+                                plaintextSha256: hexSHA256(recording.data)
+                            )
+                        ]
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "group"
+        )
+        let activeAccount = try #require(state.activeAccount)
+        await state.refreshSelectedTimelineAfterSend(
+            groupIdHex: "group",
+            account: activeAccount,
+            client: runtime
+        )
+
+        // One bubble, not two: the real row is on screen and the loading one is already gone, even
+        // though the publish has not returned yet.
+        #expect(state.selectedMessages.map(\.id) == ["published-voice"])
+        #expect(state.selectedPendingOutgoingMediaMessages.isEmpty)
+        // Hidden, not cancelled — the send still owns the message until its publish returns, which
+        // is what lets a failure put the bubble back with its retry actions.
+        #expect(state.pendingOutgoingMediaMessagesByConversation[draftKey]?.count == 1)
+
+        runtime.releaseMessageActionGate()
+        await Self.settlePendingOutgoingMediaSends(state)
+        #expect(state.pendingOutgoingMediaMessagesByConversation.isEmpty)
+    }
+
+    @MainActor
+    @Test func pendingBubbleStaysUpWhileADifferentAudioIsPublished() async throws {
+        // The suppression is keyed on the blob the message actually uploaded. A neighbouring audio
+        // row in the same transcript must not retire a bubble whose own publish is still climbing.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(recordedVoiceMessage(), for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+        runtime.messageActionGateEnabled = true
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+
+        runtime.installTimelinePage(
+            TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: "someone-elses-voice",
+                        groupIdHex: "group",
+                        sender: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                        plaintext: "",
+                        recordedAt: 1_700_000_000,
+                        media: [
+                            mediaAttachmentReference(
+                                mediaType: "audio/mp4",
+                                fileName: "other.m4a",
+                                plaintextSha256: hexSHA256(Data("someone else".utf8))
+                            )
+                        ]
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "group"
+        )
+        let activeAccount = try #require(state.activeAccount)
+        await state.refreshSelectedTimelineAfterSend(
+            groupIdHex: "group",
+            account: activeAccount,
+            client: runtime
+        )
+
+        #expect(state.selectedPendingOutgoingMediaMessages.map(\.state) == [.publishing])
+
+        runtime.releaseMessageActionGate()
+        await Self.settlePendingOutgoingMediaSends(state)
+    }
+
+    @Test func onlyAnAudioOnlyMessageCarriesItsLoadingStateInsideTheRow() {
+        // The inline spinner lives in the well the play button lands in, which only exists on an
+        // audio row. A message that also carries tiles or a document row has no such well, so it
+        // keeps the centered overlay — and a message that had both would show one Send press two
+        // loading indicators.
+        let voice = PendingMediaAttachment(
+            fileName: "voice-note.m4a",
+            mediaType: "audio/mp4",
+            data: Data("recorded audio".utf8),
+            dim: nil,
+            durationSeconds: 4,
+            waveformSamples: [0.2, 0.7, 0.4],
+            isVoiceMessage: true
+        )
+        let photo = PendingMediaAttachment(
+            fileName: "photo.png",
+            mediaType: "image/png",
+            data: Data("png".utf8),
+            dim: "120x80"
+        )
+
+        #expect(
+            PendingOutgoingMediaMessage(attachments: [voice], caption: "")
+                .inlineLoadingAudioAttachment == voice
+        )
+        #expect(
+            PendingOutgoingMediaMessage(attachments: [voice, photo], caption: "")
+                .inlineLoadingAudioAttachment == nil
+        )
+        #expect(
+            PendingOutgoingMediaMessage(attachments: [photo], caption: "")
+                .inlineLoadingAudioAttachment == nil
+        )
     }
 
     @MainActor

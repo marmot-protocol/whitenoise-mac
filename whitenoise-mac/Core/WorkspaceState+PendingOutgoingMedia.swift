@@ -57,6 +57,9 @@ extension WorkspaceState {
             let client
         else { return }
         pendingOutgoingMediaMessagesByConversation[draftKey]?[index].state = .uploading
+        // The retry re-uploads from scratch, so last attempt's digests describe nothing that is on
+        // its way out any more. Left behind, they would hide the bubble the retry just relit.
+        pendingOutgoingMediaMessagesByConversation[draftKey]?[index].publishedPlaintextSHAs = []
         pendingOutgoingMediaSendTasks[id]?.cancel()
         pendingOutgoingMediaSendTasks[id] = Task { [weak self] in
             await self?.completePendingOutgoingMediaSend(
@@ -138,6 +141,15 @@ extension WorkspaceState {
         pendingOutgoingMediaUploadTasks[id] = nil
         guard !Task.isCancelled, pendingOutgoingMediaMessage(id, in: draftKey) != nil else { return }
 
+        // Stamped before the publish, not after it: the core commits an own send locally as part of
+        // publishing, so the real row can reach the transcript through the subscription while we
+        // are still awaiting the relay. These digests are what let it hide this bubble on arrival
+        // instead of leaving the two stacked for the length of the round-trip.
+        setPendingOutgoingMediaPublishedDigests(
+            Set(references.map { $0.plaintextSha256.lowercased() }),
+            for: id,
+            in: draftKey
+        )
         setPendingOutgoingMediaMessageState(.publishing, for: id, in: draftKey)
 
         // We are holding the plaintext that produced these references, so the sender's own bubble
@@ -233,6 +245,16 @@ extension WorkspaceState {
         guard let index = pendingOutgoingMediaMessagesByConversation[draftKey]?.firstIndex(where: { $0.id == id })
         else { return }
         pendingOutgoingMediaMessagesByConversation[draftKey]?[index].state = state
+    }
+
+    private func setPendingOutgoingMediaPublishedDigests(
+        _ digests: Set<String>,
+        for id: PendingOutgoingMediaMessage.ID,
+        in draftKey: ComposerDraftKey
+    ) {
+        guard let index = pendingOutgoingMediaMessagesByConversation[draftKey]?.firstIndex(where: { $0.id == id })
+        else { return }
+        pendingOutgoingMediaMessagesByConversation[draftKey]?[index].publishedPlaintextSHAs = digests
     }
 
     private func removePendingOutgoingMediaMessage(

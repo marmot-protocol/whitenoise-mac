@@ -1618,9 +1618,35 @@ final class WorkspaceState {
 
     /// Media messages sent from the selected conversation that are still uploading or publishing,
     /// oldest first — the loading bubbles the transcript appends after its real rows.
+    ///
+    /// A message whose blobs are already on screen is withheld even though its publish has not
+    /// returned yet: the core commits an own send locally *inside* that call, so the real row can
+    /// arrive through the timeline subscription while the relay round-trip is still going, and both
+    /// rows would render at once for the length of it. Only in-flight messages are withheld — a
+    /// failed one keeps its bubble so its retry and remove actions stay reachable.
     var selectedPendingOutgoingMediaMessages: [PendingOutgoingMediaMessage] {
         guard let selectedComposerDraftKey else { return [] }
-        return pendingOutgoingMediaMessagesByConversation[selectedComposerDraftKey] ?? []
+        let pending = pendingOutgoingMediaMessagesByConversation[selectedComposerDraftKey] ?? []
+        // Nothing has been uploaded yet in the common case, so the timeline is never walked.
+        guard pending.contains(where: { $0.state.isInFlight && !$0.publishedPlaintextSHAs.isEmpty }) else {
+            return pending
+        }
+        let published = publishedOutgoingMediaDigestsInSelectedTimeline
+        return pending.filter { message in
+            guard message.state.isInFlight, !message.publishedPlaintextSHAs.isEmpty else { return true }
+            return !message.publishedPlaintextSHAs.isSubset(of: published)
+        }
+    }
+
+    /// Plaintext digests of every blob the selected transcript already renders as an own send.
+    private var publishedOutgoingMediaDigestsInSelectedTimeline: Set<String> {
+        var digests: Set<String> = []
+        for message in selectedMessages where message.isOutgoing {
+            for attachment in message.mediaAttachments {
+                digests.insert(attachment.reference.plaintextSha256.lowercased())
+            }
+        }
+        return digests
     }
 
     var showsMessengerChrome: Bool {
