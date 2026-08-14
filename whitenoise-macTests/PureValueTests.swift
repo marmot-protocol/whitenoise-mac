@@ -4560,6 +4560,21 @@ struct PureValueTests {
         )
     }
 
+    /// A one-row picker asks a question with a single available answer, so the sheet opens with that
+    /// answer chosen and the confirmation is all that is left. Two or more is a decision that stays
+    /// the user's to make.
+    @MainActor
+    @Test func soleSuccessorIsPreselectedWhileARealChoiceIsNot() {
+        let alice = handoffMember(id: "alice", canPromote: true)
+        let bob = handoffMember(id: "bob", canPromote: true)
+
+        #expect(handoffTarget(candidates: [alice]).preselectedSuccessorId == "alice")
+        #expect(handoffTarget(candidates: [alice, bob]).preselectedSuccessorId == nil)
+        // A target is never built with an empty roster — that case is the `.lastAdmin` dead end — but
+        // the property must answer "nobody" rather than invent a successor if one ever is.
+        #expect(handoffTarget(candidates: []).preselectedSuccessorId == nil)
+    }
+
     @Test func nonLastAdminLeavesBySteppingDownFirst() {
         let admin = leaveEligibility(
             canLeave: false,
@@ -5125,6 +5140,10 @@ private func handoffMember(
         canPromote: canPromote,
         canDemote: isAdmin
     )
+}
+
+private func handoffTarget(candidates: [GroupMemberItem]) -> ChatAdminHandoffTarget {
+    ChatAdminHandoffTarget(groupIdHex: "group", title: "Planning", candidates: candidates)
 }
 
 private func destructiveActionChat(

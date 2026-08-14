@@ -23566,6 +23566,9 @@ struct whitenoise_macTests {
         #expect(handoff.title == chat.title)
         // Alice only: Bob carries no action state, so the core has not said he may be promoted.
         #expect(handoff.candidates.map(\.npub) == ["npub1alyce"])
+        // And because she is the only one, the picker opens with her already chosen — the sheet is a
+        // confirmation at that point, not a question with one available answer.
+        #expect(handoff.preselectedSuccessorId == handoff.candidates.first?.id)
         // A question, not a commit: nothing about the group has changed, and no blocker was reported.
         #expect(state.chatActionAlert == nil)
         #expect(state.chatPendingLeave == nil)
@@ -23573,6 +23576,44 @@ struct whitenoise_macTests {
         #expect(runtime.leaveGroupCallCount == 0)
         #expect(runtime.selfDemoteAdminDetailedCallCount == 0)
         #expect(state.activeChats.contains { $0.id == chat.id })
+    }
+
+    /// The other side of the preselection: as soon as the core names more than one member this
+    /// account may promote, the choice is real and belongs to the user. Preselecting one of them
+    /// would let a return-press hand the admin role to whoever the roster happens to list first.
+    @MainActor
+    @Test func successorPickerWithMoreThanOneCandidateOpensWithNobodyChosen() async throws {
+        let state = try await leavableChatState(
+            canLeave: false,
+            requiresSelfDemoteBeforeLeave: true,
+            isLastAdmin: true,
+            selfIsAdmin: true,
+            memberActions: [
+                GroupMemberActionStateFfi(
+                    memberIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890",
+                    isSelf: false,
+                    isAdmin: false,
+                    canRemove: true,
+                    canPromote: true,
+                    canDemote: false
+                ),
+                GroupMemberActionStateFfi(
+                    memberIdHex: "bob1234567890bob1234567890bob1234567890bob1234567890bob1",
+                    isSelf: false,
+                    isAdmin: false,
+                    canRemove: true,
+                    canPromote: true,
+                    canDemote: false
+                ),
+            ]
+        )
+        let chat = try #require(state.activeChats.first)
+
+        await state.prepareChatLeave(for: chat)
+
+        let handoff = try #require(state.chatPendingAdminHandoff)
+        #expect(handoff.candidates.map(\.npub) == ["npub1alyce", "npub1p0p"])
+        #expect(handoff.preselectedSuccessorId == nil)
     }
 
     /// The point of the whole flow: one confirmation promotes the successor, steps this account down,

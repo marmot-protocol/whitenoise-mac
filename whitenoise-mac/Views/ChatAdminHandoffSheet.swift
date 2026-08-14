@@ -18,9 +18,15 @@ struct ChatAdminHandoffSheet: View {
 
     let target: ChatAdminHandoffTarget
 
-    /// Nothing is preselected on purpose: handing someone the admin role is a consequential choice,
-    /// and a default would let a distracted return-press pick for them.
+    /// Seeded from `preselectedSuccessorId`, which is the sole candidate when there is only one and
+    /// nothing otherwise: with a real choice on offer, handing someone the admin role is
+    /// consequential, and a default would let a distracted return-press pick for them.
     @State private var selectedMemberId: String?
+
+    init(target: ChatAdminHandoffTarget) {
+        self.target = target
+        _selectedMemberId = State(initialValue: target.preselectedSuccessorId)
+    }
 
     private var selectedMember: GroupMemberItem? {
         target.candidates.first { $0.id == selectedMemberId }
