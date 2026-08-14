@@ -820,6 +820,60 @@ struct PureValueTests {
         )
     }
 
+    @Test func audioPlaybackSpeedCyclesThroughTheIOSRatesAndWrapsBackToNormal() {
+        // Parity with the iOS client's audio bubble, which cycles one badge through exactly these
+        // three rates in this order. A fourth rate, a different order, or a cycle that stopped at
+        // 2x instead of wrapping would make the same voice note behave differently on each client.
+        #expect(AudioPlaybackSpeed.allCases == [.normal, .oneAndAHalf, .double])
+        #expect(AudioPlaybackSpeed.initial == .normal)
+
+        #expect(AudioPlaybackSpeed.normal.next == .oneAndAHalf)
+        #expect(AudioPlaybackSpeed.oneAndAHalf.next == .double)
+        #expect(AudioPlaybackSpeed.double.next == .normal)
+
+        // Cycling once per case returns to where it started, whatever the case count grows to.
+        var speed = AudioPlaybackSpeed.initial
+        for _ in AudioPlaybackSpeed.allCases {
+            speed = speed.next
+        }
+        #expect(speed == .initial)
+    }
+
+    @Test func audioPlaybackSpeedRatesAndLabelsAgree() {
+        // The badge is the only thing a listener sees, so its text has to name the rate the player
+        // is actually set to. `1` matters especially: it is what `AVAudioPlayer` plays at natively,
+        // so a mislabelled normal speed would look like a broken control rather than a wrong rate.
+        #expect(AudioPlaybackSpeed.normal.rate == 1)
+        #expect(AudioPlaybackSpeed.oneAndAHalf.rate == 1.5)
+        #expect(AudioPlaybackSpeed.double.rate == 2)
+
+        #expect(AudioPlaybackSpeed.normal.label(locale: Locale(identifier: "en")) == "1x")
+        #expect(AudioPlaybackSpeed.oneAndAHalf.label(locale: Locale(identifier: "en")) == "1.5x")
+        #expect(AudioPlaybackSpeed.double.label(locale: Locale(identifier: "en")) == "2x")
+    }
+
+    @Test func audioPlaybackSpeedLabelsUseEachLanguagesDecimalSeparator() {
+        // `1.5x` is not language-neutral: seven of the nine languages the app ships write it `1,5x`.
+        // The separator is asserted from the locale's own data rather than spelled out here, so this
+        // stays true if CLDR revises one — the point is that the label never hardcodes a `.`.
+        // The whole rates must also stay whole: `1,0x` would be a worse regression than `1.5x`.
+        for identifier in ["en", "es", "de", "fr", "it", "pt", "ru", "tr", "zh-Hans", "zh-Hant"] {
+            let locale = Locale(identifier: identifier)
+            let separator = locale.decimalSeparator ?? "."
+
+            #expect(AudioPlaybackSpeed.normal.label(locale: locale) == "1x")
+            #expect(AudioPlaybackSpeed.oneAndAHalf.label(locale: locale) == "1\(separator)5x")
+            #expect(AudioPlaybackSpeed.double.label(locale: locale) == "2x")
+        }
+
+        // The seven comma languages really are reached above, rather than every locale quietly
+        // resolving to a dot and the loop passing for the wrong reason.
+        let commaLanguages = ["es", "de", "fr", "it", "pt", "ru", "tr"]
+        for identifier in commaLanguages {
+            #expect(AudioPlaybackSpeed.oneAndAHalf.label(locale: Locale(identifier: identifier)) == "1,5x")
+        }
+    }
+
     @Test func composerAudioWaveformSelectsLoadedBarsForMatchingPayload() async throws {
         // The metadata-loaded path stores bars once, then playback progress should only
         // recolor those loaded bars. Stale or missing metadata keeps showing fallback.
