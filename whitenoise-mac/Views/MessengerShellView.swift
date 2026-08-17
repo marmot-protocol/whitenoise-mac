@@ -64,6 +64,12 @@ struct MessengerShellView: View {
         .background {
             MessagesWindowBackground()
         }
+        // Above the conversation pane rather than inside it: the image gallery is an overlay on
+        // the transcript, and a download started from the gallery has to confirm itself over the
+        // gallery, not underneath it.
+        .overlay(alignment: .bottomLeading) {
+            MediaDownloadFeedbackToast()
+        }
         .ignoresSafeArea(.container, edges: ignoredEdges)
     }
 }

@@ -1681,6 +1681,25 @@ struct StorageSettingsView: View {
             title: L10n.string("Storage"),
             subtitle: L10n.string("Downloaded attachments stored on this Mac.")
         ) {
+            // The folder is granted by the panel on the first download, so without this row there
+            // would be no way to see where files went or to move them somewhere else.
+            Section(L10n.string("Downloads")) {
+                LabeledContent(L10n.string("Save downloads to")) {
+                    Text(
+                        workspace.mediaDownloadDestinationPath
+                            ?? L10n.string("Chosen the first time you download")
+                    )
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                }
+
+                Button(L10n.string("Change Folder"), systemImage: "folder") {
+                    workspace.changeMediaDownloadDestination()
+                }
+                .buttonStyle(.wnSecondary)
+            }
+
             Section(L10n.string("Media Cache")) {
                 LabeledContent(L10n.string("Cached attachments")) {
                     if workspace.isLoadingMediaCacheFootprint {
@@ -1738,6 +1757,7 @@ struct StorageSettingsView: View {
             }
         }
         .task {
+            workspace.refreshMediaDownloadDestinationPath()
             await workspace.refreshMediaCacheFootprint()
         }
         .confirmationDialog(

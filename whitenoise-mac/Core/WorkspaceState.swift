@@ -112,6 +112,8 @@ final class WorkspaceState {
     /// `withRememberedChatPreserved(_:_:)`.
     @ObservationIgnored var isPreservingRememberedChat = false
     @ObservationIgnored let quickReactionStore: any QuickReactionStoring
+    /// Holds the one folder grant the user gave for downloads, so the panel appears once.
+    @ObservationIgnored let mediaDownloadDestinationStore: any MediaDownloadDestinationStoring
     @ObservationIgnored var mediaReferenceIndexes: [MediaReferenceCacheKey: MediaReferenceIndex] = [:]
     @ObservationIgnored var mediaReferenceIndexTasks: [MediaReferenceCacheKey: MediaReferenceIndexTask] = [:]
     @ObservationIgnored var mediaReferenceIndexGeneration: UInt64 = 0
@@ -132,6 +134,16 @@ final class WorkspaceState {
     /// attachments rebuild against fresh state stores and shared-media thumbnails re-request data.
     var mediaCacheGeneration: UInt64 = 0
     @ObservationIgnored var mediaCacheFootprintRefreshGeneration: UInt64 = 0
+    /// Messages with a download-to-Downloads gesture in flight. The bubble and gallery buttons
+    /// disable against it, and it serializes writes into the destination folder.
+    var mediaDownloadingMessageIds = Set<String>()
+    /// Tally of the last finished download gesture, shown as a transient toast.
+    var mediaDownloadFeedback: MediaDownloadFeedback?
+    /// The remembered download folder, as shown in Storage settings. Loaded on demand by
+    /// `refreshMediaDownloadDestinationPath()`; `nil` until the user has chosen one.
+    var mediaDownloadDestinationPath: String?
+    @ObservationIgnored var mediaDownloadFeedbackDismissTask: Task<Void, Never>?
+    @ObservationIgnored var nextMediaDownloadFeedbackId: UInt64 = 0
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.
@@ -591,6 +603,10 @@ final class WorkspaceState {
     let conversationWindowVisibilityProvider: @MainActor () -> Bool
     let copyTextHandler: @MainActor (String, Bool) -> Void
     let transcriptExportDestinationPicker: @MainActor (String) -> URL?
+    /// Folder picker for attachment downloads. The panel is how the sandbox grants write access at
+    /// all, so this is the permission prompt as much as it is a preference; injected so tests can
+    /// answer it with a temporary directory instead of showing a modal.
+    let mediaDownloadDestinationPicker: @MainActor () -> URL?
     let telemetryBuildConfigProvider: @MainActor () -> TelemetryBuildConfig
     let groupImageSearchClient: any GroupImageSearchClient
     let groupImageSourceLoader: any GroupImageSourceLoading
@@ -1084,6 +1100,8 @@ final class WorkspaceState {
         copyTextHandler: @escaping @MainActor (String, Bool) -> Void = WorkspaceState.copyToGeneralPasteboard,
         transcriptExportDestinationPicker: @escaping @MainActor (String) -> URL? =
             WorkspaceState.chooseTranscriptExportDestination,
+        mediaDownloadDestinationPicker: @escaping @MainActor () -> URL? =
+            WorkspaceState.chooseMediaDownloadDestination,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = {
             TelemetryBuildConfig.current()
         },
@@ -1101,6 +1119,7 @@ final class WorkspaceState {
         directPeerMemoryStore: (any DirectPeerMemoryStoring)? = nil,
         chatRestorationStore: (any ChatRestorationStoring)? = nil,
         quickReactionStore: (any QuickReactionStoring)? = nil,
+        mediaDownloadDestinationStore: (any MediaDownloadDestinationStoring)? = nil,
         clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
     ) {
         self.accounts = accounts
@@ -1113,6 +1132,7 @@ final class WorkspaceState {
         self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
         self.copyTextHandler = copyTextHandler
         self.transcriptExportDestinationPicker = transcriptExportDestinationPicker
+        self.mediaDownloadDestinationPicker = mediaDownloadDestinationPicker
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
         self.groupImageSourceLoader = groupImageSourceLoader ?? SecureGroupImageSourceLoader()
@@ -1132,6 +1152,8 @@ final class WorkspaceState {
             quickReactionStore ?? UserDefaultsQuickReactionStore()
         self.quickReactionStore = resolvedQuickReactionStore
         self.quickReactions = QuickReactionSet.normalized(resolvedQuickReactionStore.load())
+        self.mediaDownloadDestinationStore =
+            mediaDownloadDestinationStore ?? UserDefaultsMediaDownloadDestinationStore()
         self.clientFactory = clientFactory
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)

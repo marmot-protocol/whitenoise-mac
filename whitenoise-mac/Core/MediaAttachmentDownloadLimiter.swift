@@ -17,7 +17,12 @@ nonisolated enum MediaAttachmentDownloadConcurrency {
     static let defaultFfiDownloadTimeoutNanoseconds: UInt64 = 60 * 1_000_000_000
 
     #if DEBUG
-        static var ffiDownloadTimeoutNanoseconds: UInt64 = defaultFfiDownloadTimeoutNanoseconds
+        /// Shortened by tests that need a stalled download to give up in milliseconds. Unguarded
+        /// on purpose — it is written from a test before the code under test runs, never
+        /// concurrently with it — and `nonisolated(unsafe)` is what says so, here and to the
+        /// Swift 6 language mode, where nonisolated mutable global state is otherwise an error.
+        nonisolated(unsafe) static var ffiDownloadTimeoutNanoseconds: UInt64 =
+            defaultFfiDownloadTimeoutNanoseconds
     #else
         static let ffiDownloadTimeoutNanoseconds: UInt64 = defaultFfiDownloadTimeoutNanoseconds
     #endif

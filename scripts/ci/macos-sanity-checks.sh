@@ -87,6 +87,10 @@ assert_plist_nonempty "$INFO_PLIST" "WhiteNoiseTelemetryOTLPEndpoint"
 assert_entitlement_true "com.apple.security.app-sandbox"
 assert_entitlement_true "com.apple.security.network.client"
 assert_entitlement_true "com.apple.security.files.user-selected.read-write"
+# Attachment downloads write into the folder the user picks in a panel — that pick *is* the sandbox
+# grant. This entitlement grants no folder by itself; it only lets the app remember the pick across
+# launches, and without it every download would reopen the panel.
+assert_entitlement_true "com.apple.security.files.bookmarks.app-scope"
 assert_entitlement_true "com.apple.security.device.audio-input"
 
 assert_build_setting_equals "PRODUCT_BUNDLE_IDENTIFIER" "dev.ipf.whitenoise.mac"

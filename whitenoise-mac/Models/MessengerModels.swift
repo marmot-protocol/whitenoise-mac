@@ -2523,6 +2523,20 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     var canEdit: Bool {
         isActionableChatBubble && isOutgoing && hasCopyableBody && mediaAttachments.isEmpty
     }
+
+    /// Whether the hover actions offer "download every attachment on this message". Own messages
+    /// qualify too — the local copy of a sent photo is only in the app until it is downloaded.
+    var canDownloadMediaAttachments: Bool {
+        isActionableChatBubble && !mediaAttachments.isEmpty
+    }
+
+    /// One gesture, two jobs: a lone attachment downloads itself, several download together, and
+    /// the hover tooltip and the context menu both have to say which before the click.
+    var mediaDownloadActionTitle: String {
+        mediaAttachments.count > 1
+            ? L10n.string("Download attachments")
+            : L10n.string("Download")
+    }
 }
 
 /// Which delete scopes the local account may perform on one message. Derived from conversation
