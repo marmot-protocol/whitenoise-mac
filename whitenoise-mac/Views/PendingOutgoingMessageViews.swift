@@ -56,6 +56,11 @@ struct PendingOutgoingMessageBubble: View {
             // alone rather than on the whole row — a caption or the timestamp footer below the
             // grid would otherwise drag the overlay's midpoint down off the image. The dim is
             // applied per part instead of to the stack so it does not fade the spinner with it.
+            //
+            // An audio-only message opts out of both: its row shows the wait in the well the play
+            // button lands in (`inlineLoadingAudioAttachment`), which is where a listener already
+            // looks. A large spinner floated over that single short row on top of it would be the
+            // same send announced twice, and the dim would fade the inline one along with the row.
             attachments
                 .opacity(dimsForSend ? 0.55 : 1)
                 .overlay(alignment: .center) {
@@ -78,7 +83,7 @@ struct PendingOutgoingMessageBubble: View {
     }
 
     private var dimsForSend: Bool {
-        message.state.isInFlight
+        message.state.isInFlight && message.inlineLoadingAudioAttachment == nil
     }
 
     /// The visual body of the bubble: the grid, then any audio/document rows. Never empty — a
@@ -86,12 +91,20 @@ struct PendingOutgoingMessageBubble: View {
     @ViewBuilder
     private var attachments: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            if !message.visualAttachments.isEmpty {
-                PendingOutgoingMediaGrid(attachments: message.visualAttachments)
-            }
+            if let audio = message.inlineLoadingAudioAttachment {
+                PendingOutgoingAudioRow(
+                    attachment: audio,
+                    isFailed: message.state == .failed,
+                    onRetry: { workspace.retryPendingOutgoingMediaMessage(message.id) }
+                )
+            } else {
+                if !message.visualAttachments.isEmpty {
+                    PendingOutgoingMediaGrid(attachments: message.visualAttachments)
+                }
 
-            ForEach(message.nonvisualAttachments) { attachment in
-                PendingOutgoingMediaAttachmentRow(attachment: attachment)
+                ForEach(message.nonvisualAttachments) { attachment in
+                    PendingOutgoingMediaAttachmentRow(attachment: attachment)
+                }
             }
         }
     }
@@ -293,49 +306,57 @@ private struct PendingOutgoingMediaTile: View {
     }
 }
 
-/// Audio and document attachments, which never enter the grid. Kept intentionally plain: the
-/// message is still going out, so there is nothing to play or reveal yet.
+/// A lone audio attachment on its way out, wearing the delivered player's exact geometry with a
+/// spinner where the play button will be.
+///
+/// It renders through `MessageAudioAttachmentPlaceholder` — the same row a not-yet-downloaded
+/// audio uses — rather than a shape of its own, which is the only way the row is guaranteed not to
+/// resize when the published message replaces it. The waveform and duration are the real ones: the
+/// sender recorded this audio, so unlike a download this side already knows both.
+private struct PendingOutgoingAudioRow: View {
+    let attachment: PendingMediaAttachment
+    let isFailed: Bool
+    let onRetry: () -> Void
+
+    var body: some View {
+        MessageAudioAttachmentPlaceholder(
+            isOutgoing: true,
+            accessibilityLabel: isFailed ? L10n.string("Not delivered") : L10n.string("Sending"),
+            bars: bars,
+            durationLabel: attachment.durationSeconds.map(MediaDurationLabel.string(for:))
+                ?? MediaDurationLabel.placeholder,
+            retryAction: isFailed ? onRetry : nil,
+            retryHelp: L10n.string("Retry")
+        )
+    }
+
+    /// An audio *file* the user attached carries no samples — nothing analysed it — so it falls
+    /// back to the same flat bars a download shows until its payload lands.
+    private var bars: [ComposerAudioWaveformBar] {
+        attachment.waveformSamples.isEmpty
+            ? ComposerAudioWaveformPresentation.fallbackPlaybackBars
+            : ComposerAudioWaveformPresentation.bars(for: attachment.waveformSamples, mode: .playback)
+    }
+}
+
+/// Document attachments, and audio travelling alongside them, which never enter the grid. Kept
+/// intentionally plain: the message is still going out, so there is nothing to play or reveal yet.
+///
+/// A recording never reaches here — it takes the composer over on its own, so it is always the
+/// message's only attachment and always renders as `PendingOutgoingAudioRow`.
 private struct PendingOutgoingMediaAttachmentRow: View {
     let attachment: PendingMediaAttachment
 
     var body: some View {
-        Group {
-            if attachment.isVoiceMessage {
-                voiceMessageRow
-            } else {
-                fileRow
+        fileRow
+            .foregroundStyle(AttachmentRowPalette.outgoingContent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(width: 260, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(MessagesPalette.sentBubble)
             }
-        }
-        .foregroundStyle(AttachmentRowPalette.outgoingContent)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(width: 260, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(MessagesPalette.sentBubble)
-        }
-    }
-
-    /// A recording keeps its waveform on the way out, the way the voice-draft bar showed it and
-    /// the way the delivered bubble will show it. Its file name is a generated `voice-<uuid>.m4a`
-    /// the user never chose, so naming it here would be worse than saying nothing.
-    private var voiceMessageRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "mic.fill")
-                .wnFont(.semiBold14)
-
-            ComposerAudioWaveformView(
-                samples: attachment.waveformSamples,
-                progress: 0,
-                barColor: AttachmentRowPalette.waveformBar(isOutgoing: true),
-                playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: true)
-            )
-            .frame(height: 24)
-
-            Text(MediaDurationLabel.string(for: attachment.durationSeconds ?? 0))
-                .wnFont(.semiBold10.monospacedDigit())
-                .foregroundStyle(AttachmentRowPalette.detailContent)
-        }
     }
 
     private var fileRow: some View {
@@ -350,7 +371,7 @@ private struct PendingOutgoingMediaAttachmentRow: View {
                     .truncationMode(.middle)
                 Text(attachment.durationLabel ?? attachment.sizeLabel)
                     .wnFont(.medium10.monospacedDigit())
-                    .foregroundStyle(AttachmentRowPalette.detailContent)
+                    .foregroundStyle(AttachmentRowPalette.detailContent(isOutgoing: true))
             }
 
             Spacer(minLength: 0)

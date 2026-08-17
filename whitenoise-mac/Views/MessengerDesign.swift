@@ -270,22 +270,45 @@ nonisolated enum AttachmentRowPalette {
     /// content color so it steps away from the fill in whichever direction that fill has room —
     /// the alternative, a fixed white or black wash, is only correct in one of the four
     /// fill × appearance combinations.
+    ///
+    /// The opacities below are set against measured contrast, not by eye. `content` over `fill` is
+    /// a ~14:1 pair in all four fill × appearance combinations, so an opacity here reads almost
+    /// directly as a fraction of that: 0.14 left the disc at 1.4:1, invisible enough that the well
+    /// the play button sits in read as an artifact of the fill rather than as a control.
+    static let controlFillOpacity = 0.24
+
     static func controlFill(isOutgoing: Bool) -> Color {
-        content(isOutgoing: isOutgoing).opacity(0.14)
+        content(isOutgoing: isOutgoing).opacity(controlFillOpacity)
     }
+
+    /// 0.58 is the iOS client's own figure for this bar, and it is the step that clears 3:1
+    /// against every bubble fill — 0.42 held only where the content color was the light one
+    /// (4.05:1 outgoing in light appearance) and fell to 2.84:1 where it was the dark one, which
+    /// is how a waveform came to read as washed-out grey on half the rows in the app.
+    static let waveformBarOpacity = 0.58
 
     static func waveformBar(isOutgoing: Bool) -> Color {
-        content(isOutgoing: isOutgoing).opacity(0.42)
+        content(isOutgoing: isOutgoing).opacity(waveformBarOpacity)
     }
+
+    static let waveformPlayedBarOpacity = 0.9
 
     static func waveformPlayedBar(isOutgoing: Bool) -> Color {
-        content(isOutgoing: isOutgoing).opacity(0.9)
+        content(isOutgoing: isOutgoing).opacity(waveformPlayedBarOpacity)
     }
 
-    /// Detail text inside an attachment row — file size, duration. `backgroundContentTertiary` is
-    /// what the other clients use for de-emphasized text inside a bubble, in *both* directions:
-    /// the `400`/`500` neutral step is the one that clears both bubble fills.
-    static let detailContent = WNColor.backgroundContentTertiary
+    /// Detail text inside an attachment row — file size, duration.
+    ///
+    /// Derived from the row's own content, like every other value here, because the fill it is
+    /// drawn on is the row's — not the window's. The flat `backgroundContentTertiary` this used to
+    /// be is a *background* token, and pairing it with a bubble fill is the crossover this palette
+    /// exists to prevent: it measured 7.85:1 on the outgoing bubble in light appearance and 2.31:1
+    /// on the incoming one, the same label failing in one place and shouting in another.
+    static let detailContentOpacity = 0.72
+
+    static func detailContent(isOutgoing: Bool) -> Color {
+        content(isOutgoing: isOutgoing).opacity(detailContentOpacity)
+    }
 }
 
 /// How an `@mention` is set off from the text around it: **bold, in the app's one blue**, with no

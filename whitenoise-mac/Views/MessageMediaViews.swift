@@ -1220,7 +1220,7 @@ struct MessageAttachmentStatusRow: View {
                     .lineLimit(1)
                 Text(detail)
                     .wnFont(.medium10)
-                    .foregroundStyle(AttachmentRowPalette.detailContent)
+                    .foregroundStyle(AttachmentRowPalette.detailContent(isOutgoing: isOutgoing))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1245,6 +1245,8 @@ struct MessageAttachmentStatusRow: View {
 /// download finishes — only the control's glyph changes. Nothing here shows the file name; an
 /// audio attachment is almost always a voice recording whose name the sender never chose.
 struct MessageAudioRow<Control: View, SpeedControl: View>: View {
+    static var waveformHeight: CGFloat { 24 }
+
     let bars: [ComposerAudioWaveformBar]
     let progress: CGFloat
     let durationLabel: String
@@ -1253,7 +1255,12 @@ struct MessageAudioRow<Control: View, SpeedControl: View>: View {
     @ViewBuilder let speedControl: SpeedControl
 
     var body: some View {
-        HStack(spacing: 10) {
+        // Aligned on the waveform's own midline rather than on the row box. The duration label
+        // hangs below the bars, so the box's centre sits about half a line lower than they do —
+        // enough that a centred play button read as riding low against the waveform beside it.
+        // Only the middle column needs to state its guide; the control and the badge fall back to
+        // their own centres, which is exactly where they should meet the bars.
+        HStack(alignment: .audioRowWaveformCenter, spacing: 10) {
             control
 
             VStack(alignment: .leading, spacing: 5) {
@@ -1263,19 +1270,34 @@ struct MessageAudioRow<Control: View, SpeedControl: View>: View {
                     barColor: AttachmentRowPalette.waveformBar(isOutgoing: isOutgoing),
                     playedColor: AttachmentRowPalette.waveformPlayedBar(isOutgoing: isOutgoing)
                 )
-                .frame(height: 24)
+                .frame(height: Self.waveformHeight)
 
                 Text(durationLabel)
                     .wnFont(.medium10.monospacedDigit())
-                    .foregroundStyle(AttachmentRowPalette.detailContent)
+                    .foregroundStyle(AttachmentRowPalette.detailContent(isOutgoing: isOutgoing))
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .alignmentGuide(.audioRowWaveformCenter) { _ in Self.waveformHeight / 2 }
 
             speedControl
         }
         .attachmentRowChrome(isOutgoing: isOutgoing)
     }
+}
+
+/// `nonisolated` because `AlignmentID.defaultValue` is: the module defaults to MainActor
+/// isolation, which would otherwise isolate the conformance and the alignment constant with it.
+nonisolated extension VerticalAlignment {
+    /// The midline of an audio row's waveform, so the play control and the speed badge sit level
+    /// with the bars instead of with the box the bars and their duration label share.
+    private enum AudioRowWaveformCenter: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat {
+            context[VerticalAlignment.center]
+        }
+    }
+
+    static let audioRowWaveformCenter = VerticalAlignment(AudioRowWaveformCenter.self)
 }
 
 /// The `1x` / `1.5x` / `2x` pill at the trailing edge of an audio row.
@@ -1299,25 +1321,34 @@ struct MessageAudioSpeedBadge: View {
     }
 }
 
-/// An audio attachment whose payload has not arrived yet.
+/// An audio attachment with no payload to play yet — one still downloading, or one still on its
+/// way out.
 ///
-/// It stands in for `MessageAudioAttachmentPlayer` at exactly the same size, showing the same
-/// flat fallback bars the player itself starts with and a `--:--` duration, because neither the
-/// real waveform nor the real duration is known before the download — the mac's imeta reference
-/// carries only `dim` and `thumbhash`. Audio deliberately does not fall back to
-/// `MessageAttachmentStatusRow`: that row leads with the file name and the raw media type, which
-/// is the wrong thing to show for a voice message and reflows the bubble once playback is ready.
+/// It stands in for `MessageAudioAttachmentPlayer` at exactly the same size, which is the whole
+/// point: the spinner sits in the well the play button lands in, so the row swaps a glyph rather
+/// than reflowing when the payload arrives. A download defaults to flat fallback bars and a `--:--`
+/// duration because neither the real waveform nor the real duration is known before it lands — the
+/// mac's imeta reference carries only `dim` and `thumbhash`. A send passes both in: the sender
+/// recorded the audio, so this client already knows them.
+///
+/// Audio deliberately does not fall back to `MessageAttachmentStatusRow`: that row leads with the
+/// file name and the raw media type, which is the wrong thing to show for a voice message and
+/// reflows the bubble once playback is ready.
 struct MessageAudioAttachmentPlaceholder: View {
     let isOutgoing: Bool
     let accessibilityLabel: String
-    /// `nil` while the download is still in flight; set once it has failed and can be retried.
+    var bars: [ComposerAudioWaveformBar] = ComposerAudioWaveformPresentation.fallbackPlaybackBars
+    var durationLabel: String = MediaDurationLabel.placeholder
+    /// `nil` while the payload is still in flight; set once it has failed and can be retried.
     var retryAction: (() -> Void)?
+    /// What the retry control's tooltip says. A download is retried; a send that never left is not.
+    var retryHelp: String = L10n.string("Retry download")
 
     var body: some View {
         MessageAudioRow(
-            bars: ComposerAudioWaveformPresentation.fallbackPlaybackBars,
+            bars: bars,
             progress: 0,
-            durationLabel: MediaDurationLabel.placeholder,
+            durationLabel: durationLabel,
             isOutgoing: isOutgoing,
             control: {
                 if let retryAction {
@@ -1327,7 +1358,7 @@ struct MessageAudioAttachmentPlaceholder: View {
                             .audioRowControlChrome(isOutgoing: isOutgoing)
                     }
                     .buttonStyle(.plain)
-                    .help(L10n.string("Retry download"))
+                    .help(retryHelp)
                 } else {
                     ProgressView()
                         .controlSize(.small)
