@@ -90,6 +90,10 @@ extension WorkspaceState {
         newChatQuery = ""
         newChatRecipient = nil
         lastError = nil
+        // Scoped to the row that failed, so it goes with the results. The group draft's
+        // unreachable marks are *not* cleared here — they survive chooseMembers ↔ nameGroup
+        // hops exactly like the rest of the draft.
+        startChatInvitePrompt = nil
     }
 
     func showSettings(_ page: SettingsPage = .profile) {

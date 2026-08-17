@@ -37,6 +37,16 @@ struct NewChatPanelView: View {
             .debouncedNewChatQueryResolution(for: workspace.newChatQuery)
             .userDiscovery(for: workspace.newChatQuery)
 
+            // Above the list, not inside it: the row that failed can be anywhere in a long
+            // contact list, and a prompt appended below the results would land off screen.
+            // `visible…` rather than the raw prompt so editing the query hides it immediately,
+            // without waiting on the resolution debounce.
+            if let prompt = workspace.visibleStartChatInvitePrompt {
+                StartChatInviteNotice(prompt: prompt)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+            }
+
             GlassSeparator(axis: .horizontal)
 
             ScrollView {
@@ -342,15 +352,7 @@ struct NameGroupPanelView: View {
 
                     disappearingRow
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(L10n.plural("%lld members", Int64(workspace.newChatRecipients.count)))
-                            .wnFont(MessagesType.sectionHeader)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                        ForEach(workspace.newChatRecipients, id: \.accountIdHex) { member in
-                            memberRow(member)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    GroupDraftMembersSection()
 
                     if let lastError = workspace.lastError {
                         Text(lastError)
@@ -363,6 +365,21 @@ struct NameGroupPanelView: View {
             }
 
             GlassSeparator(axis: .horizontal)
+
+            // Pinned above the button rather than left in the scrolling list: this is the one
+            // thing the user must see before pressing Create, and the members list can be
+            // scrolled away. It deliberately does *not* live in the button's title — a primary
+            // action whose label rewrites itself between presses reads as a different button
+            // each time. The first press that meets a refusal fills this in completely and
+            // creates nothing, so it is never a partial account of who was left out.
+            if !workspace.unreachableDraftMembers.isEmpty || workspace.hasUnnamedGroupDraftRefusal {
+                GroupDraftInviteNotice(
+                    members: workspace.unreachableDraftMembers,
+                    hasUnnamedRefusal: workspace.hasUnnamedGroupDraftRefusal
+                )
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+            }
 
             HStack {
                 Spacer()
@@ -380,7 +397,7 @@ struct NameGroupPanelView: View {
                     }
                 }
                 .nativeGlassProminentButtonStyle()
-                .disabled(trimmedName.isEmpty || workspace.isCreatingChat)
+                .disabled(trimmedName.isEmpty || workspace.isCreatingChat || workspace.reachableDraftMembers.isEmpty)
                 .accessibilityIdentifier("compose.create")
             }
             .padding(12)
@@ -435,7 +452,55 @@ struct NameGroupPanelView: View {
         .glassCard()
     }
 
-    private func memberRow(_ member: NewChatRecipient) -> some View {
+}
+
+// MARK: - Group draft members
+
+/// The chosen members, split by whether the core will accept them. Everyone stays on screen: a
+/// member the core refused is dimmed under its own heading rather than dropped, because "who do I
+/// still need to invite" is the whole question this panel has to answer.
+private struct GroupDraftMembersSection: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    var body: some View {
+        let reachable = workspace.reachableDraftMembers
+        let unreachable = workspace.unreachableDraftMembers
+
+        VStack(alignment: .leading, spacing: 16) {
+            if !reachable.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.plural("%lld members", Int64(reachable.count)))
+                        .wnFont(MessagesType.sectionHeader)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                    ForEach(reachable, id: \.accountIdHex) { member in
+                        GroupDraftMemberRow(member: member)
+                    }
+                }
+            }
+
+            if !unreachable.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.string("Not on White Noise yet"))
+                        .wnFont(MessagesType.sectionHeader)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                    ForEach(unreachable, id: \.accountIdHex) { member in
+                        GroupDraftMemberRow(member: member, isExcluded: true)
+                    }
+                    // The explanation and the invite action live in the pinned footer notice, so
+                    // this section stays a plain roster and the two never disagree.
+                }
+                .accessibilityIdentifier("compose.notOnWhiteNoise")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct GroupDraftMemberRow: View {
+    let member: NewChatRecipient
+    var isExcluded = false
+
+    var body: some View {
         HStack(spacing: 10) {
             ProfileImageAvatarView(
                 seed: member.accountIdHex,
@@ -457,6 +522,103 @@ struct NameGroupPanelView: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
+        // Dimming is how the other clients mark an excluded member, and it carries here without
+        // a second colour: the row keeps its own tokens, it just recedes.
+        .opacity(isExcluded ? 0.55 : 1)
+        .help(isExcluded ? L10n.string("Not on White Noise yet — they won't be added to this group.") : "")
+    }
+}
+
+/// Why the dimmed members can't join, and the one action that changes it. Also the only place the
+/// panel speaks about a refusal it could not pin on anyone: two claims in two styles — a red error
+/// line over this notice — read as two different answers about the same draft.
+private struct GroupDraftInviteNotice: View {
+    let members: [NewChatRecipient]
+    /// The core refused someone it did not name and no member could be held responsible.
+    var hasUnnamedRefusal = false
+
+    var body: some View {
+        // Text block over the action, the shape `PendingGroupInviteComposerNotice` already uses:
+        // the compose drawer is narrow, and a button parked beside two wrapping lines squeezes
+        // both. `.firstTextBaseline` sits the icon on the headline rather than the box.
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "person.badge.plus")
+                    .wnFont(.semiBold14)
+                    .foregroundStyle(WNColor.intentionInfoContent)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(headline)
+                        .wnFont(.semiBold12)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(L10n.string("Invite them to White Noise, then add them to the group once they're set up."))
+                        .wnFont(.medium10)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            ShareLink(item: WhiteNoiseInvite.message) {
+                Text(L10n.string("Invite"))
+            }
+            .buttonStyle(.wnSecondary)
+            .accessibilityIdentifier("compose.invite")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassCard()
+    }
+
+    private var headline: String {
+        // A refusal nobody owned up to outranks the count. It means there is someone here beyond
+        // the rows already dimmed above, so a headline claiming a number would be claiming the
+        // wrong one — and a count next to "and also someone else" is the pair of answers that made
+        // this panel confusing in the first place.
+        guard let first = members.first, !hasUnnamedRefusal else {
+            return L10n.string("Someone in this group isn't on White Noise yet, so it can't be created.")
+        }
+        guard members.count > 1 else {
+            return String(
+                format: L10n.string("%@ isn't on White Noise yet, so they can't be added."),
+                first.title)
+        }
+        return L10n.plural("%lld people here aren't on White Noise yet, so they can't be added.", Int64(members.count))
+    }
+}
+
+/// The one-to-one counterpart: nothing to restage, so the panel drops the error and offers the
+/// invite directly.
+private struct StartChatInviteNotice: View {
+    let prompt: StartChatInvitePrompt
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "person.badge.plus")
+                    .wnFont(.semiBold14)
+                    .foregroundStyle(WNColor.intentionInfoContent)
+
+                Text(prompt.detail)
+                    .wnFont(.semiBold12)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+
+            ShareLink(item: WhiteNoiseInvite.message) {
+                Text(L10n.string("Invite"))
+            }
+            .buttonStyle(.wnSecondary)
+            .accessibilityIdentifier("compose.invite")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .glassCard()
+        .accessibilityIdentifier("compose.startChatInvite")
     }
 }
 
