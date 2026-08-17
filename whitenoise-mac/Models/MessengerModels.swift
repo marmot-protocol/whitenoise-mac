@@ -2629,7 +2629,7 @@ enum WorkspaceSelection: Equatable {
 
 enum SettingsPage: Equatable {
     case overview
-    case general
+    case preferences
     case profile
     case identityKeys
     case relays
@@ -2640,13 +2640,16 @@ enum SettingsPage: Equatable {
     case storage
     case developerMode
 
+    /// Preferences sits next to Appearance rather than at the top: both are day-to-day
+    /// choices about how the app treats you, and neither is what someone opens settings for.
+    /// Leading with the startup toggles made a rarely-touched page read as the main one.
     static let sidebarPages: [SettingsPage] = [
-        .general,
         .profile,
         .identityKeys,
         .relays,
         .keyPackages,
         .appearance,
+        .preferences,
         .privacySecurity,
         .notifications,
         .storage,
@@ -2670,8 +2673,8 @@ enum SettingsPage: Equatable {
         switch self {
         case .overview:
             "Settings"
-        case .general:
-            "General"
+        case .preferences:
+            "Preferences"
         case .profile:
             "Profile"
         case .identityKeys:
@@ -2697,8 +2700,8 @@ enum SettingsPage: Equatable {
         switch self {
         case .overview:
             "Settings home"
-        case .general:
-            "Startup preferences"
+        case .preferences:
+            "Startup and quick reactions"
         case .profile:
             "Public display info"
         case .identityKeys:
@@ -2724,8 +2727,8 @@ enum SettingsPage: Equatable {
         switch self {
         case .overview:
             "gearshape"
-        case .general:
-            "gear"
+        case .preferences:
+            "slider.horizontal.3"
         case .profile:
             "person.crop.circle"
         case .identityKeys:
