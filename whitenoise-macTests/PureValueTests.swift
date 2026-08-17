@@ -19,6 +19,32 @@ import UserNotifications
 
 @Suite(.serialized)
 struct PureValueTests {
+    @Test func ownAccountAvatarLoadsItsPictureWithTheRemoteImagePreferenceOff() {
+        // The bug this pins: "Load Remote Profile Images" is off by default, and the profile
+        // editor's 96pt avatar went through the same gate as a stranger's. Picking an image
+        // uploaded it and updated the draft, then drew initials anyway — no picture, no error,
+        // indistinguishable from a broken picker. Your own avatar is not remote content you were
+        // sent, so the preference must not reach it.
+        #expect(
+            RemoteImageDisplayPolicy.loadsRemoteImage(isOwnAccountImage: true, preferenceEnabled: false)
+        )
+        #expect(
+            RemoteImageDisplayPolicy.loadsRemoteImage(isOwnAccountImage: true, preferenceEnabled: true)
+        )
+    }
+
+    @Test func peerAvatarStillWaitsForTheRemoteImagePreference() {
+        // The other half of the rule, and the reason the exemption is a per-call-site flag rather
+        // than a default: a peer's `picture` is a URL they chose, so fetching it hands them the
+        // viewer's IP address and presence. That stays gated.
+        #expect(
+            !RemoteImageDisplayPolicy.loadsRemoteImage(isOwnAccountImage: false, preferenceEnabled: false)
+        )
+        #expect(
+            RemoteImageDisplayPolicy.loadsRemoteImage(isOwnAccountImage: false, preferenceEnabled: true)
+        )
+    }
+
     @MainActor
     @Test func primaryButtonLargeIsBiggerThanMediumOnEveryAxisItControls() {
         // The whole point of the `large` size is that it reads as the one action on the screen.
