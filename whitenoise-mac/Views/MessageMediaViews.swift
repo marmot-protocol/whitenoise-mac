@@ -192,6 +192,8 @@ struct MessageBubble: View {
     @Environment(\.conversationHoverSelectionCoordinator) private var hoverSelectionCoordinator
     @State private var isHovering = false
     @State private var isInlineActionPresentationActive = false
+    /// The hover strip's own width, measured. See `inlineActions`.
+    @State private var inlineActionWidth: CGFloat = 0
     @State private var isSelectable = false
     @State private var isReactionViewerPresented = false
     @State private var reactionViewerEmoji: String?
@@ -383,7 +385,23 @@ struct MessageBubble: View {
                 isPresentationActive: $isInlineActionPresentationActive,
                 message: message
             )
+            // The strip is an overlay on the bubble's edge, pushed clear of it by the width
+            // SwiftUI measured — not by a count of the controls kept in step with the row's `if`
+            // ladder by hand, which is a mirror that goes stale the next time a control is added.
+            //
+            // `.alignmentGuide` would say this without the state, but an explicit guide does not
+            // survive the `ViewBuilder` conditionals between here and the overlay that consumes
+            // it: the guide is dropped and the strip renders on top of the bubble. `.offset` is a
+            // draw-time transform, so it does not care what it is nested in.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                inlineActionWidth = width
+            }
             .offset(x: message.isOutgoing ? -inlineActionOffset : inlineActionOffset)
+            // Hidden for the frame between first layout and the width arriving, so the strip is
+            // never seen at a position derived from a width of zero.
+            .opacity(inlineActionWidth > 0 ? 1 : 0)
             .transition(
                 .opacity.combined(
                     with: .scale(
@@ -420,8 +438,11 @@ struct MessageBubble: View {
         }
     }
 
+    /// Breathing room between the hover strip and the bubble edge.
+    private static let inlineActionBubbleGap: CGFloat = 8
+
     private var inlineActionOffset: CGFloat {
-        MessageInlineActionLayout.offset(for: message)
+        inlineActionWidth + Self.inlineActionBubbleGap
     }
 
     @ViewBuilder
@@ -1851,10 +1872,6 @@ struct MessageImageGalleryOverlay: View {
         presentation.imageAttachments.count > 1
     }
 
-    private var isDownloading: Bool {
-        workspace.isDownloadingMediaAttachments(for: presentation.message)
-    }
-
     var body: some View {
         // Re-resolve the selected attachment's ignored state store after a manual cache clear.
         let _ = workspace.mediaCacheGeneration
@@ -1890,31 +1907,32 @@ struct MessageImageGalleryOverlay: View {
 
                         // Downloads the photo on screen, not the whole message: the bubble's own
                         // action is the one that takes every attachment.
-                        Button {
-                            Task {
-                                await workspace.downloadMediaAttachments(
-                                    [selectedAttachment], for: presentation.message)
-                            }
-                        } label: {
-                            Group {
-                                if isDownloading {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .tint(WNColor.fillContentQuaternary)
-                                } else {
-                                    Image(systemName: "square.and.arrow.down")
-                                        .wnFont(.bold16)
+                        if let download = MessageMediaDownloadAction(
+                            message: presentation.message,
+                            attachments: [selectedAttachment],
+                            workspace: workspace
+                        ) {
+                            Button(action: download.perform) {
+                                Group {
+                                    if download.isInFlight {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .tint(WNColor.fillContentQuaternary)
+                                    } else {
+                                        Image(systemName: "square.and.arrow.down")
+                                            .wnFont(.bold16)
+                                    }
                                 }
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
                             }
-                            .frame(width: 34, height: 34)
-                            .background(
-                                WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
+                            .buttonStyle(.plain)
+                            .foregroundStyle(WNColor.fillContentQuaternary)
+                            .disabled(download.isInFlight)
+                            .help(download.title)
+                            .accessibilityLabel(download.title)
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(WNColor.fillContentQuaternary)
-                        .disabled(isDownloading)
-                        .help(L10n.string("Download"))
-                        .accessibilityLabel(L10n.string("Download"))
 
                         Button(action: onClose) {
                             Image(systemName: "xmark")
@@ -2113,20 +2131,13 @@ struct MessageInlineActions: View {
             // Sits beside the overflow control rather than inside it: with media on the message
             // this is the action people reach for, and burying it one popover deep is the same
             // mistake the retry affordance made.
-            if message.canDownloadMediaAttachments {
-                Button {
-                    Task {
-                        await workspace.downloadMediaAttachments(message.mediaAttachments, for: message)
-                    }
-                } label: {
-                    MessageInlineActionIcon(
-                        systemName: "square.and.arrow.down",
-                        label: downloadAccessibilityLabel
-                    )
+            if let download = MessageMediaDownloadAction(message: message, workspace: workspace) {
+                Button(action: download.perform) {
+                    MessageInlineActionIcon(systemName: "square.and.arrow.down", label: download.title)
                 }
                 .buttonStyle(.plain)
-                .disabled(workspace.isDownloadingMediaAttachments(for: message))
-                .help(downloadAccessibilityLabel)
+                .disabled(download.isInFlight)
+                .help(download.title)
             }
 
             if message.supportsChatActions {
@@ -2154,10 +2165,6 @@ struct MessageInlineActions: View {
         .onDisappear {
             isPresentationActive = false
         }
-    }
-
-    private var downloadAccessibilityLabel: String {
-        message.mediaDownloadActionTitle
     }
 
     private func syncPresentationState() {
@@ -2395,18 +2402,15 @@ struct MessageContextMenuItems: View {
 
     var body: some View {
         Group {
-            if message.canDownloadMediaAttachments {
+            if let download = MessageMediaDownloadAction(message: message, workspace: workspace) {
                 // The hover bar's download button is revealed by pointing at the row, which leaves
                 // the right-click menu as the only path to it for a document or an audio file —
-                // neither of which opens a viewer with a save control of its own.
-                Button {
-                    Task {
-                        await workspace.downloadMediaAttachments(message.mediaAttachments, for: message)
-                    }
-                } label: {
-                    Label(message.mediaDownloadActionTitle, systemImage: "square.and.arrow.down")
+                // neither of which opens a viewer with a save control of its own. Same action
+                // value as the bar's, so the two cannot disagree about when it is offered.
+                Button(action: download.perform) {
+                    Label(download.title, systemImage: "square.and.arrow.down")
                 }
-                .disabled(workspace.isDownloadingMediaAttachments(for: message))
+                .disabled(download.isInFlight)
 
                 Divider()
             }

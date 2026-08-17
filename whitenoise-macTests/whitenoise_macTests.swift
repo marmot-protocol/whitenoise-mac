@@ -8927,29 +8927,130 @@ struct whitenoise_macTests {
         #expect(feedback.failedCount == 1)
     }
 
-    @Test func contextMenuOffersTheSameAttachmentDownloadAsTheHoverBar() throws {
-        // The hover bar's download button only exists while the pointer is on the row. A document
-        // or an audio attachment has no viewer to save from either, so the right-click menu has to
-        // carry the same action — the same capability flag, the same call, the same in-flight
-        // guard, so the two can never disagree about when downloading is possible.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let menuStart = try #require(source.range(of: "struct MessageContextMenuItems: View {"))
-        let rest = source[menuStart.upperBound...]
-        let menuEnd = try #require(rest.range(of: "\nstruct MessageReplyContextView: View {")?.lowerBound)
-        let menuSource = String(source[menuStart.lowerBound..<menuEnd])
+    @MainActor
+    @Test func mediaDownloadWriterNeverOverwritesAFileItDidNotCreate() async throws {
+        // The actor orders the app's own writes, but the chosen folder is one other apps write to
+        // as well — a browser finishing its own `photo.jpg` in the window between this writer
+        // checking the name and creating the file. `RacingFileManager` is that window: it reports
+        // the name free and creates it before the answer is used, which is what a check-then-write
+        // cannot survive and an exclusive create can.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let intruder = RacingFileManager.intruder
+        let racing = RacingFileManager()
 
-        #expect(menuSource.contains("if message.canDownloadMediaAttachments {"))
-        #expect(
-            menuSource.contains("await workspace.downloadMediaAttachments(message.mediaAttachments, for: message)"))
-        #expect(menuSource.contains(".disabled(workspace.isDownloadingMediaAttachments(for: message))"))
-        #expect(menuSource.contains("message.mediaDownloadActionTitle"))
+        let written = try await MediaDownloadWriter.shared.write(
+            Data([0x02]), fileName: "photo.jpg", into: folder, fileManager: racing)
+
+        #expect(racing.plantedPath != nil)
+        // The download stepped to the next name rather than replacing the file it lost the race to.
+        #expect(written.lastPathComponent != "photo.jpg")
+        #expect(try Data(contentsOf: folder.appending(path: "photo.jpg")) == intruder)
+        #expect(try Data(contentsOf: written) == Data([0x02]))
+        // Publishing consumed the staging file, including on the attempt that lost the race.
+        #expect(try folderContents(of: folder).allSatisfy { !$0.hasSuffix(".partial") })
+    }
+
+    @Test func mediaDownloadWriterLeavesNoStagingFileBehind() async throws {
+        // The bytes are staged under a name of the writer's own before they are published, and
+        // that file lives in the user's download folder. It must never outlive the write.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let written = try await MediaDownloadWriter.shared.write(
+            Data([0x01, 0x02]), fileName: "photo.jpg", into: folder)
+
+        #expect(written.lastPathComponent == "photo.jpg")
+        #expect(try folderContents(of: folder) == ["photo.jpg"])
+    }
+
+    @Test func mediaDownloadWriterReportsAFolderItCannotWriteInto() async throws {
+        // A failure that is not a name collision is propagated rather than retried away.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let blocked = folder.appending(path: "not-a-folder")
+        try Data([0x00]).write(to: blocked)
+
+        await #expect(throws: (any Error).self) {
+            try await MediaDownloadWriter.shared.write(Data([0x01]), fileName: "photo.jpg", into: blocked)
+        }
+    }
+
+    @MainActor
+    @Test func downloadFeedbackAddsUpGesturesThatFinishWhileTheToastIsStillUp() async throws {
+        // The per-message lock does not stop two messages downloading at once, so a second gesture
+        // can finish while the first one's toast is still on screen. Replacing the count there
+        // would report one file when two were saved.
+        let destination = FakeMediaDownloadDestination()
+        let fixture = await mediaDownloadFixture(attachments: [], destination: destination)
+
+        fixture.state.presentMediaDownloadFeedback(savedCount: 1, failedCount: 0)
+        fixture.state.presentMediaDownloadFeedback(savedCount: 2, failedCount: 1)
+
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(feedback.savedCount == 3)
+        #expect(feedback.failedCount == 1)
+        #expect(feedback.hasFailures)
+
+        // Once the toast is gone the next gesture starts a tally of its own, rather than inheriting
+        // counts for files the user has already been told about.
+        fixture.state.dismissMediaDownloadFeedback()
+        fixture.state.presentMediaDownloadFeedback(savedCount: 1, failedCount: 0)
+
+        let afterDismissal = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(afterDismissal.savedCount == 1)
+        #expect(afterDismissal.failedCount == 0)
+        fixture.state.dismissMediaDownloadFeedback()
+    }
+
+    @MainActor
+    @Test func mediaDownloadActionIsTheOneGestureEveryEntryPointBuilds() async throws {
+        // The hover bar's download button only exists while the pointer is on the row, and a
+        // document or an audio attachment has no viewer to save from either, so the right-click
+        // menu and the gallery carry the action too. All three build it from here: whether it is
+        // offered, what it is called and whether one is already running are decided once, and a
+        // `nil` is the "nothing to download" answer no call site can render a control around.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(storedURL: folder)
+        let fixture = await mediaDownloadFixture(
+            attachments: [
+                (fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x01]), isAvailable: true),
+                (fileName: "notes.pdf", mediaType: "application/pdf", data: Data([0x02]), isAvailable: true),
+            ],
+            destination: destination
+        )
+        let message = fixture.message
+
+        let everything = try #require(MessageMediaDownloadAction(message: message, workspace: fixture.state))
+        #expect(everything.title == L10n.string("Download attachments"))
+        #expect(!everything.isInFlight)
+
+        // The gallery's variant names the photo on screen, not the message's two files.
+        let onScreen = try #require(message.mediaAttachments.first)
+        let single = try #require(
+            MessageMediaDownloadAction(message: message, attachments: [onScreen], workspace: fixture.state))
+        #expect(single.title == L10n.string("Download"))
+
+        // A message with nothing to download offers no action at all, so there is no control for
+        // any of the three to draw.
+        let textOnly = MessageItem(
+            id: "text-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        #expect(MessageMediaDownloadAction(message: textOnly, workspace: fixture.state) == nil)
+        #expect(MessageMediaDownloadAction(message: message, attachments: [], workspace: fixture.state) == nil)
+
+        // And the in-flight flag every entry point disables against is the per-message lock the
+        // running gesture holds.
+        fixture.state.mediaDownloadingMessageIds.insert(message.id)
+        let running = try #require(MessageMediaDownloadAction(message: message, workspace: fixture.state))
+        #expect(running.isInFlight)
+        fixture.state.mediaDownloadingMessageIds.remove(message.id)
     }
 
     @Test func mediaDownloadActionTitleNamesOneAttachmentOrSeveral() {
@@ -9040,9 +9141,10 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func inlineActionStripReservesRoomForTheDownloadControl() {
-        // The strip is an overlay pushed out by its own width, so a control the offset forgets
-        // slides the whole row back over the bubble it belongs to.
+    @Test func messageOffersAttachmentDownloadOnlyWithAttachments() {
+        // The hover strip's download control is gated on this and nothing else. Its geometry is
+        // not: the strip is measured by SwiftUI, so a control added to the row cannot be forgotten
+        // by an offset that counts them.
         let base = MessageItem(
             id: "text-message",
             groupIdHex: "group",
@@ -9068,16 +9170,6 @@ struct whitenoise_macTests {
 
         #expect(!base.canDownloadMediaAttachments)
         #expect(withMedia.canDownloadMediaAttachments)
-        #expect(
-            MessageInlineActionLayout.actionCount(for: withMedia)
-                == MessageInlineActionLayout.actionCount(for: base) + 1
-        )
-        let extraControlWidth =
-            MessageInlineActionLayout.controlDiameter + MessageInlineActionLayout.controlSpacing
-        #expect(
-            MessageInlineActionLayout.offset(for: withMedia)
-                == MessageInlineActionLayout.offset(for: base) + extraControlWidth
-        )
     }
 
     @Test func sharedMediaProjectionKeepsIdentityStableAcrossInputReordering() {
@@ -36357,6 +36449,12 @@ private func isolatedContactNicknameStore() -> (store: ContactNicknameFileStore,
 
 /// A directory of this test's own for attachment downloads, so nothing is written into the
 /// running user's Downloads folder and no two tests can collide over a file name.
+/// Every name in `directory`, hidden ones included — a staging file left behind is hidden, and a
+/// check that skipped hidden files would not see the thing it is looking for.
+private func folderContents(of directory: URL) throws -> [String] {
+    try FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false)).sorted()
+}
+
 private func uniqueTemporaryDirectory() throws -> URL {
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("whitenoise-media-downloads-\(UUID().uuidString)", isDirectory: true)
@@ -36369,6 +36467,26 @@ private func uniqueTemporaryDirectory() throws -> URL {
 ///
 /// `pickCallCount` is the point of the "pick once" design: the second download must not ask again.
 @MainActor
+/// A `FileManager` that loses the caller a race: the first name it is asked about is reported free
+/// and then created, so the answer is stale by the time it is acted on. Stands in for any other
+/// process writing into the same folder — the download folder is usually one of those.
+private final class RacingFileManager: FileManager, @unchecked Sendable {
+    /// What the racing writer puts on disk, so the test can assert it survived.
+    nonisolated static let intruder = Data("written by something else".utf8)
+    /// Written and read on one thread inside a single write call, never concurrently.
+    nonisolated(unsafe) private(set) var plantedPath: String?
+
+    nonisolated override func fileExists(atPath path: String) -> Bool {
+        let existed = super.fileExists(atPath: path)
+        if !existed, plantedPath == nil {
+            plantedPath = path
+            try? Self.intruder.write(to: URL(filePath: path))
+        }
+        // What was true a moment ago, which is all a check-then-write ever has.
+        return existed
+    }
+}
+
 private final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
     /// What the panel returns. `nil` means the user closed it without choosing.
     var pickedURL: URL?
