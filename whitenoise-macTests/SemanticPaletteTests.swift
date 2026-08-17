@@ -145,6 +145,53 @@ struct SemanticPaletteTests {
     /// `fillPrimary` and `backgroundPrimary` run in opposite directions, and so do their
     /// content tokens. That inversion is the reason the two families cannot be mixed, so it
     /// is asserted directly rather than left implicit in the contrast table.
+    /// The attachment row derives its waveform and its detail text from the row's *own* content at
+    /// a reduced opacity, so each has to be measured against the row's own fill — the surface the
+    /// rest of the table works from is the window, which is not what these are drawn on.
+    ///
+    /// Both fills invert between appearances while the content inverts with them, so a single
+    /// opacity has to clear four combinations at once. That is what the old values missed: an
+    /// unplayed bar at 0.42 measured 4.05 on the outgoing bubble in light appearance and 2.84 on
+    /// the incoming one, and the duration label — drawn in the flat *background* token
+    /// `backgroundContentTertiary` rather than in the row's content — ran from 7.85 down to 2.31.
+    @Test func attachmentRowTonesClearTheRowFillTheyAreDrawnOn() throws {
+        // Row fill paired with the content every tone in the row is derived from.
+        let rows: [(name: String, fill: NSColor, content: NSColor)] = [
+            ("outgoing", WNNSColor.fillPrimary, WNNSColor.fillContentPrimary),
+            ("incoming", WNNSColor.backgroundMessageIncoming, WNNSColor.backgroundContentPrimary),
+        ]
+        // The unplayed waveform is a graphical object, so it takes WCAG's non-text bar; the
+        // duration label is small text and takes the body-text one. The disc behind the play
+        // control is deliberately absent: it is a locator for a glyph that carries its own
+        // contrast, so a threshold on it would be a number invented to be met.
+        let tones: [(name: String, opacity: Double, minimum: Double)] = [
+            ("waveform bar", AttachmentRowPalette.waveformBarOpacity, 3.0),
+            ("played waveform bar", AttachmentRowPalette.waveformPlayedBarOpacity, 4.5),
+            ("duration label", AttachmentRowPalette.detailContentOpacity, 4.5),
+        ]
+
+        for appearance in try Self.appearances() {
+            for row in rows {
+                for tone in tones {
+                    let drawn = try Self.blended(
+                        row.content,
+                        opacity: tone.opacity,
+                        over: row.fill,
+                        in: appearance
+                    )
+                    let ratio = try Self.contrast(drawn, row.fill, in: appearance)
+                    #expect(
+                        ratio >= tone.minimum,
+                        """
+                        \(row.name) \(tone.name) contrast \(ratio) < \(tone.minimum) \
+                        in \(appearance.name.rawValue)
+                        """
+                    )
+                }
+            }
+        }
+    }
+
     @Test func fillAndBackgroundFamiliesInvertRelativeToEachOther() throws {
         for appearance in try Self.appearances() {
             // The fill is the *opposite* of the surface it sits on…
@@ -412,6 +459,31 @@ struct SemanticPaletteTests {
         let first = relativeLuminance(of: a)
         let second = relativeLuminance(of: b)
         return (max(first, second) + 0.05) / (min(first, second) + 0.05)
+    }
+
+    /// `color` laid over `background` at `opacity`, resolved in `appearance` — what a
+    /// `.opacity()` modifier actually puts on screen, which is the thing worth measuring when a
+    /// tone is derived from its own surface's content rather than named outright.
+    private static func blended(
+        _ color: NSColor,
+        opacity: Double,
+        over background: NSColor,
+        in appearance: NSAppearance
+    ) throws -> NSColor {
+        var blended: NSColor?
+        appearance.performAsCurrentDrawingAppearance {
+            guard
+                let foreground = color.usingColorSpace(.sRGB),
+                let base = background.usingColorSpace(.sRGB)
+            else { return }
+            blended = NSColor(
+                srgbRed: foreground.redComponent * opacity + base.redComponent * (1 - opacity),
+                green: foreground.greenComponent * opacity + base.greenComponent * (1 - opacity),
+                blue: foreground.blueComponent * opacity + base.blueComponent * (1 - opacity),
+                alpha: 1
+            )
+        }
+        return try #require(blended)
     }
 
     /// The sRGB hex a token resolves to under `appearance`, for asserting that a token does —

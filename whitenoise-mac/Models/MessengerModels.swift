@@ -897,6 +897,14 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
     let caption: String
     let createdAt: Date
     var state: PendingOutgoingMediaMessageState
+    /// The plaintext digests of this message's blobs, stamped once every upload has handed back a
+    /// reference and empty until then.
+    ///
+    /// The published row carries the same digests, which is what lets the transcript retire this
+    /// bubble the moment the row it became is on screen. It has to: the core commits an own send
+    /// locally *inside* the publish call, so the real row can arrive through the timeline
+    /// subscription while the relay round-trip is still in flight — and until then both rendered.
+    var publishedPlaintextSHAs: Set<String> = []
 
     init(
         id: UUID = UUID(),
@@ -920,6 +928,18 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
 
     var nonvisualAttachments: [PendingMediaAttachment] {
         attachments.filter { $0.kind == .audio || $0.kind == .file }
+    }
+
+    /// The one audio attachment that carries this message's loading state inside its own row, or
+    /// `nil` when the bubble has to fall back to the centered overlay.
+    ///
+    /// An audio row has a natural home for progress — the circular well the play button lands in,
+    /// which `MessageAudioRow` reserves at the same size whatever the row's state. A grid of tiles
+    /// and a document row do not, so a message carrying either keeps the overlay; lighting up both
+    /// treatments would give one Send press two loading indicators.
+    var inlineLoadingAudioAttachment: PendingMediaAttachment? {
+        guard attachments.count == 1, let only = attachments.first, only.kind == .audio else { return nil }
+        return only
     }
 }
 
