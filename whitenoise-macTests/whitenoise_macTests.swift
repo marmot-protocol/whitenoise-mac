@@ -8643,6 +8643,435 @@ struct whitenoise_macTests {
         #expect(runtime.downloadMediaCallCount == 1)
     }
 
+    @MainActor
+    @Test func mediaDownloadDestinationKeepsTheGrantWhenOnlyDisplayReadsFail() throws {
+        // The Settings row reads the stored folder every time the pane opens. A folder whose
+        // volume is merely unmounted resolves again once it is back, so a read for display must
+        // never be what costs the user the grant they gave.
+        let suiteName = "whitenoise.mac.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = "whitenoise.mac.mediaDownloadDestinationBookmark"
+        // Not a bookmark at all — resolution throws, which is the failure both paths see.
+        defaults.set(Data([0x00, 0x01, 0x02, 0x03]), forKey: key)
+        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults)
+
+        #expect(store.storedDestinationURL == nil)
+        #expect(defaults.data(forKey: key) != nil)
+
+        // The download path is the one place a dead grant actually blocks a write, so that is
+        // where it is discarded and the user is asked again.
+        #expect(store.resolveDestination()?.url == nil)
+        #expect(defaults.data(forKey: key) == nil)
+    }
+
+    @MainActor
+    @Test func mediaDownloadDestinationForgetsTheOldFolderWhenTheNewOneCannotBePersisted() throws {
+        // Changing the folder in Settings and having the write fail must not leave the previous
+        // folder in place: the next download would go there silently, which is the one folder the
+        // user has just said no to. Nothing stored means the panel asks, which is the safe answer.
+        let suiteName = "whitenoise.mac.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = "whitenoise.mac.mediaDownloadDestinationBookmark"
+        let store = UserDefaultsMediaDownloadDestinationStore(defaults: defaults)
+
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        store.store(folder)
+        #expect(defaults.data(forKey: key) != nil)
+
+        // A folder that is gone by the time it is bookmarked: `bookmarkData` throws, which is the
+        // failure the panel's own grant cannot help with.
+        let replacement = try uniqueTemporaryDirectory()
+        try FileManager.default.removeItem(at: replacement)
+        store.store(replacement)
+
+        #expect(defaults.data(forKey: key) == nil)
+        #expect(store.storedDestinationURL == nil)
+        #expect(store.resolveDestination()?.url == nil)
+    }
+
+    @Test func mediaFileDownloaderSanitizesRemoteAttachmentNames() {
+        // File names arrive over the wire, so they are treated as one path component and nothing
+        // more: no escaping the destination folder, no invisible dotfiles, no HFS separators.
+        #expect(MediaFileDownloader.sanitizedFileName("photo.jpg") == "photo.jpg")
+        #expect(MediaFileDownloader.sanitizedFileName("../../etc/passwd") == "passwd")
+        #expect(MediaFileDownloader.sanitizedFileName(".hidden.png") == "hidden.png")
+        #expect(MediaFileDownloader.sanitizedFileName("Q3:report.pdf") == "Q3-report.pdf")
+        #expect(MediaFileDownloader.sanitizedFileName("   ") == MediaFileDownloader.fallbackFileName)
+        #expect(MediaFileDownloader.sanitizedFileName("..") == MediaFileDownloader.fallbackFileName)
+    }
+
+    @Test func mediaFileDownloaderCapsMultibyteNamesByBytesNotCharacters() {
+        // APFS counts a path component in UTF-8 bytes, so a name of emoji or CJK hits the 255-byte
+        // ceiling four and three times faster than its character count suggests. A cap measured in
+        // characters would let this through and the write would fail with ENAMETOOLONG.
+        let ceiling = 255
+        let emoji = String(repeating: "😀", count: 300) + ".jpg"
+        let sanitized = MediaFileDownloader.sanitizedFileName(emoji)
+        #expect(sanitized.utf8.count <= ceiling)
+        #expect(sanitized.hasSuffix(".jpg"))
+        // Characters are kept whole — a half-written scalar is not a name.
+        #expect(!sanitized.contains("\u{FFFD}"))
+        #expect(sanitized.dropLast(4).allSatisfy { $0 == "😀" })
+
+        let cjk = String(repeating: "文", count: 400)
+        let withoutExtension = MediaFileDownloader.sanitizedFileName(cjk)
+        #expect(withoutExtension.utf8.count <= ceiling)
+        #expect(withoutExtension.allSatisfy { $0 == "文" })
+
+        // And the " N" suffix has to fit inside the same budget, not be bolted onto a name that
+        // already fills it.
+        var taken: Set<String> = [sanitized]
+        let uniqued = MediaFileDownloader.uniqueFileName(for: emoji) { taken.contains($0) }
+        #expect(uniqued != sanitized)
+        #expect(uniqued.utf8.count <= ceiling)
+        #expect(uniqued.hasSuffix(" 2.jpg"))
+        taken.insert(uniqued)
+        let third = MediaFileDownloader.uniqueFileName(for: emoji) { taken.contains($0) }
+        #expect(third.utf8.count <= ceiling)
+        #expect(third.hasSuffix(" 3.jpg"))
+    }
+
+    @Test func mediaFileDownloaderNeverOverwritesAnExistingFile() {
+        // Two people sending `IMG_0001.jpg` must not silently replace each other's download.
+        var taken: Set<String> = ["photo.jpg"]
+        let second = MediaFileDownloader.uniqueFileName(for: "photo.jpg") { taken.contains($0) }
+        #expect(second == "photo 2.jpg")
+        taken.insert(second)
+        #expect(MediaFileDownloader.uniqueFileName(for: "photo.jpg") { taken.contains($0) } == "photo 3.jpg")
+        #expect(MediaFileDownloader.uniqueFileName(for: "notes") { taken.contains($0) } == "notes")
+        taken.insert("notes")
+        #expect(MediaFileDownloader.uniqueFileName(for: "notes") { taken.contains($0) } == "notes 2")
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsWritesEveryAttachmentAndReportsTheCount() async throws {
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(storedURL: folder)
+        let firstData = Data([0x01, 0x02, 0x03, 0x04])
+        let secondData = Data([0x05, 0x06])
+        let fixture = await mediaDownloadFixture(
+            attachments: [
+                (fileName: "photo.jpg", mediaType: "image/jpeg", data: firstData, isAvailable: true),
+                (fileName: "notes.pdf", mediaType: "application/pdf", data: secondData, isAvailable: true),
+            ],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(feedback.savedCount == 2)
+        #expect(feedback.failedCount == 0)
+        #expect(!feedback.hasFailures)
+        #expect(try Data(contentsOf: folder.appending(path: "photo.jpg")) == firstData)
+        #expect(try Data(contentsOf: folder.appending(path: "notes.pdf")) == secondData)
+        // An existing grant is used as-is: no panel, and nothing re-stored.
+        #expect(destination.pickCallCount == 0)
+        #expect(destination.storeCallCount == 0)
+        // The gesture releases its per-message lock, so the button re-enables.
+        #expect(!fixture.state.isDownloadingMediaAttachments(for: fixture.message))
+        fixture.state.dismissMediaDownloadFeedback()
+        #expect(fixture.state.mediaDownloadFeedback == nil)
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsAsksForAFolderOnceAndRemembersIt() async throws {
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        // Nothing stored yet, and the panel answers with `folder`.
+        let destination = FakeMediaDownloadDestination(storedURL: nil, pickedURL: folder)
+        let payload = Data([0x0A, 0x0B])
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: payload, isAvailable: true)],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(destination.pickCallCount == 1)
+        #expect(destination.storeCallCount == 1)
+        #expect(destination.storedURL == folder)
+        #expect(try Data(contentsOf: folder.appending(path: "photo.jpg")) == payload)
+        // The chosen folder is what Storage settings shows.
+        fixture.state.refreshMediaDownloadDestinationPath()
+        #expect(fixture.state.mediaDownloadDestinationPath == folder.path(percentEncoded: false))
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        // Second download: the grant is remembered, so the user is not asked again.
+        #expect(destination.pickCallCount == 1)
+        #expect(try Data(contentsOf: folder.appending(path: "photo 2.jpg")) == payload)
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsAsksAgainWhenTheStoredFolderNoLongerResolves() async throws {
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(storedURL: folder, pickedURL: folder)
+        // A grant that no longer opens: folder deleted, volume ejected, permissions revoked.
+        destination.failsToResolve = true
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x2A]), isAvailable: true)],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(destination.pickCallCount == 1)
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(feedback.savedCount == 1)
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsWritesNothingWhenTheFolderPanelIsCancelled() async throws {
+        // Nothing stored, and the panel returns nil — the user closed it without choosing.
+        let destination = FakeMediaDownloadDestination(storedURL: nil, pickedURL: nil)
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x01]), isAvailable: true)],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        #expect(destination.pickCallCount == 1)
+        #expect(destination.storeCallCount == 0)
+        // A cancelled panel is not a failure: no toast at all, not a "couldn't download" one.
+        #expect(fixture.state.mediaDownloadFeedback == nil)
+        #expect(!fixture.state.isDownloadingMediaAttachments(for: fixture.message))
+    }
+
+    @MainActor
+    @Test func changeMediaDownloadDestinationStoresTheNewFolderAndKeepsItOnCancel() async throws {
+        let folder = try uniqueTemporaryDirectory()
+        let replacement = try uniqueTemporaryDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: folder)
+            try? FileManager.default.removeItem(at: replacement)
+        }
+        let destination = FakeMediaDownloadDestination(storedURL: folder, pickedURL: replacement)
+        let fixture = await mediaDownloadFixture(attachments: [], destination: destination)
+
+        fixture.state.changeMediaDownloadDestination()
+
+        #expect(destination.storedURL == replacement)
+        #expect(fixture.state.mediaDownloadDestinationPath == replacement.path(percentEncoded: false))
+
+        // Cancelling the Settings panel must leave the folder that was already granted.
+        destination.pickedURL = nil
+        fixture.state.changeMediaDownloadDestination()
+
+        #expect(destination.storedURL == replacement)
+        #expect(fixture.state.mediaDownloadDestinationPath == replacement.path(percentEncoded: false))
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsReportsAttachmentsItCouldNotFetch() async throws {
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(storedURL: folder)
+        let available = Data([0x11, 0x22])
+        let fixture = await mediaDownloadFixture(
+            attachments: [
+                (fileName: "photo.jpg", mediaType: "image/jpeg", data: available, isAvailable: true),
+                (fileName: "gone.jpg", mediaType: "image/jpeg", data: Data([0x33]), isAvailable: false),
+            ],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(feedback.savedCount == 1)
+        #expect(feedback.failedCount == 1)
+        #expect(feedback.hasFailures)
+        #expect(try Data(contentsOf: folder.appending(path: "photo.jpg")) == available)
+        #expect(!FileManager.default.fileExists(atPath: folder.appending(path: "gone.jpg").path))
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsReportsFailureWhenTheFolderCannotBeWritten() async throws {
+        let folder = try uniqueTemporaryDirectory()
+        // A regular file where the folder should be: `createDirectory` and the write both fail.
+        let blocked = folder.appending(path: "not-a-folder")
+        try Data([0x00]).write(to: blocked)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(storedURL: blocked)
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x01]), isAvailable: true)],
+            destination: destination
+        )
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(feedback.savedCount == 0)
+        #expect(feedback.failedCount == 1)
+    }
+
+    @Test func contextMenuOffersTheSameAttachmentDownloadAsTheHoverBar() throws {
+        // The hover bar's download button only exists while the pointer is on the row. A document
+        // or an audio attachment has no viewer to save from either, so the right-click menu has to
+        // carry the same action — the same capability flag, the same call, the same in-flight
+        // guard, so the two can never disagree about when downloading is possible.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let menuStart = try #require(source.range(of: "struct MessageContextMenuItems: View {"))
+        let rest = source[menuStart.upperBound...]
+        let menuEnd = try #require(rest.range(of: "\nstruct MessageReplyContextView: View {")?.lowerBound)
+        let menuSource = String(source[menuStart.lowerBound..<menuEnd])
+
+        #expect(menuSource.contains("if message.canDownloadMediaAttachments {"))
+        #expect(
+            menuSource.contains("await workspace.downloadMediaAttachments(message.mediaAttachments, for: message)"))
+        #expect(menuSource.contains(".disabled(workspace.isDownloadingMediaAttachments(for: message))"))
+        #expect(menuSource.contains("message.mediaDownloadActionTitle"))
+    }
+
+    @Test func mediaDownloadActionTitleNamesOneAttachmentOrSeveral() {
+        let reference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: "application/pdf",
+            fileName: "notes.pdf",
+            plaintextSha256: String(repeating: "b", count: 64)
+        )
+        func message(attachmentCount: Int) -> MessageItem {
+            MessageItem(
+                id: "media-message",
+                groupIdHex: "group",
+                senderName: "Alice",
+                body: "",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: false,
+                mediaAttachments: (0..<attachmentCount).map {
+                    MessageMediaAttachment(id: "media-message#\($0)", reference: reference)
+                }
+            )
+        }
+
+        #expect(message(attachmentCount: 1).mediaDownloadActionTitle == L10n.string("Download"))
+        #expect(message(attachmentCount: 2).mediaDownloadActionTitle == L10n.string("Download attachments"))
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsGivesUpOnAnAttachmentWhoseDownloadIsStalled() async throws {
+        // Clicking download while the tile's own automatic download is mid-flight waits on that
+        // task rather than reporting a failure for a file that is seconds away. The wait is
+        // bounded: a download that never returns must not hold the gesture — and with it the
+        // disabled control — for the rest of the session.
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(storedURL: folder)
+        let fixture = await mediaDownloadFixture(
+            attachments: [(fileName: "photo.jpg", mediaType: "image/jpeg", data: Data([0x01]), isAvailable: true)],
+            destination: destination
+        )
+        let runtime = fixture.runtime
+        let attachment = try #require(fixture.message.mediaAttachments.first)
+
+        runtime.mediaDownloadGateEnabled = true
+        let automaticLoad = Task { await fixture.state.loadMediaAttachment(attachment, for: fixture.message) }
+        defer {
+            runtime.releaseMediaDownloadGate()
+            runtime.mediaDownloadGateEnabled = false
+            automaticLoad.cancel()
+        }
+        for _ in 0..<200 where !runtime.didReachMediaDownloadGate {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        guard runtime.didReachMediaDownloadGate else {
+            Issue.record("Expected the automatic attachment load to reach the fake download gate")
+            return
+        }
+
+        // Shortened only now, so the load already in flight keeps the default ceiling and stays
+        // `.loading` — the state the download path has to wait out.
+        let previousTimeout = MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds
+        defer { MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = previousTimeout }
+        MediaAttachmentDownloadConcurrency.ffiDownloadTimeoutNanoseconds = 20_000_000
+
+        await fixture.state.downloadMediaAttachments(
+            fixture.message.mediaAttachments, for: fixture.message)
+
+        let feedback = try #require(fixture.state.mediaDownloadFeedback)
+        #expect(feedback.savedCount == 0)
+        #expect(feedback.failedCount == 1)
+        #expect(!fixture.state.isDownloadingMediaAttachments(for: fixture.message))
+    }
+
+    @MainActor
+    @Test func downloadMediaAttachmentsIgnoresAMessageWithoutAttachments() async throws {
+        let folder = try uniqueTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = FakeMediaDownloadDestination(storedURL: folder)
+        let fixture = await mediaDownloadFixture(attachments: [], destination: destination)
+
+        await fixture.state.downloadMediaAttachments([], for: fixture.message)
+
+        // No attachments means no gesture at all — an empty toast would be noise, and the folder
+        // panel must not open either.
+        #expect(fixture.state.mediaDownloadFeedback == nil)
+        #expect(destination.pickCallCount == 0)
+        #expect(!fixture.message.canDownloadMediaAttachments)
+    }
+
+    @MainActor
+    @Test func inlineActionStripReservesRoomForTheDownloadControl() {
+        // The strip is an overlay pushed out by its own width, so a control the offset forgets
+        // slides the whole row back over the bubble it belongs to.
+        let base = MessageItem(
+            id: "text-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "Hello",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false
+        )
+        let withMedia = MessageItem(
+            id: "media-message",
+            groupIdHex: "group",
+            senderName: "Alice",
+            body: "",
+            sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+            isOutgoing: false,
+            mediaAttachments: [
+                MessageMediaAttachment(
+                    id: "media-message#0",
+                    reference: mediaAttachmentReference(mediaType: "image/jpeg", fileName: "photo.jpg")
+                )
+            ]
+        )
+
+        #expect(!base.canDownloadMediaAttachments)
+        #expect(withMedia.canDownloadMediaAttachments)
+        #expect(
+            MessageInlineActionLayout.actionCount(for: withMedia)
+                == MessageInlineActionLayout.actionCount(for: base) + 1
+        )
+        let extraControlWidth =
+            MessageInlineActionLayout.controlDiameter + MessageInlineActionLayout.controlSpacing
+        #expect(
+            MessageInlineActionLayout.offset(for: withMedia)
+                == MessageInlineActionLayout.offset(for: base) + extraControlWidth
+        )
+    }
+
     @Test func sharedMediaProjectionKeepsIdentityStableAcrossInputReordering() {
         let first = MediaRecordFfi(
             messageIdHex: "first-message",
@@ -35103,6 +35532,149 @@ private func isolatedContactNicknameStore() -> (store: ContactNicknameFileStore,
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("whitenoise-nicknames-\(UUID().uuidString)", isDirectory: true)
     return (ContactNicknameFileStore(directoryURL: directory), directory)
+}
+
+/// A directory of this test's own for attachment downloads, so nothing is written into the
+/// running user's Downloads folder and no two tests can collide over a file name.
+private func uniqueTemporaryDirectory() throws -> URL {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("whitenoise-media-downloads-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+}
+
+/// Stands in for both halves of the download destination — the folder panel and the remembered
+/// grant — so tests neither show a modal nor touch the real `UserDefaults` bookmark.
+///
+/// `pickCallCount` is the point of the "pick once" design: the second download must not ask again.
+@MainActor
+private final class FakeMediaDownloadDestination: MediaDownloadDestinationStoring {
+    /// What the panel returns. `nil` means the user closed it without choosing.
+    var pickedURL: URL?
+    private(set) var pickCallCount = 0
+    private(set) var storedURL: URL?
+    private(set) var storeCallCount = 0
+    private(set) var clearCallCount = 0
+    /// Simulates a grant that no longer resolves — folder deleted, volume ejected.
+    var failsToResolve = false
+
+    init(storedURL: URL? = nil, pickedURL: URL? = nil) {
+        self.storedURL = storedURL
+        self.pickedURL = pickedURL
+    }
+
+    /// Passed to `WorkspaceState(mediaDownloadDestinationPicker:)`.
+    func pick() -> URL? {
+        pickCallCount += 1
+        return pickedURL
+    }
+
+    func resolveDestination() -> MediaDownloadDestinationAccess? {
+        guard let storedURL, !failsToResolve else { return nil }
+        return MediaDownloadDestinationAccess(url: storedURL, isSecurityScoped: false)
+    }
+
+    func store(_ url: URL) {
+        storeCallCount += 1
+        storedURL = url
+        failsToResolve = false
+    }
+
+    func clear() {
+        clearCallCount += 1
+        storedURL = nil
+    }
+
+    var storedDestinationURL: URL? {
+        storedURL
+    }
+}
+
+/// A bootstrapped workspace whose timeline holds one message carrying `attachments`.
+///
+/// Attachments marked `isAvailable: false` have no media record installed, which is how the fake
+/// core reports an attachment the account can no longer fetch.
+@MainActor
+private func mediaDownloadFixture(
+    attachments: [(fileName: String, mediaType: String, data: Data, isAvailable: Bool)],
+    destination: FakeMediaDownloadDestination
+) async -> (state: WorkspaceState, message: MessageItem, runtime: FakeMarmotRuntime) {
+    let account = AccountSummaryFfi(
+        label: "Desktop Account",
+        accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        localSigning: true,
+        externalSigning: false,
+        signedOut: false,
+        running: false
+    )
+    let runtime = FakeMarmotRuntime(accounts: [account])
+    runtime.installGroup(messageGroup())
+
+    var messageAttachments: [MessageMediaAttachment] = []
+    for (index, attachment) in attachments.enumerated() {
+        let ciphertextSha256 = String(repeating: "a", count: 63) + "\(index)"
+        let plaintextSha256 = String(repeating: "b", count: 63) + "\(index)"
+        let timelineReference = mediaAttachmentReference(
+            sourceEpoch: 0,
+            mediaType: attachment.mediaType,
+            fileName: attachment.fileName,
+            ciphertextSha256: ciphertextSha256,
+            plaintextSha256: plaintextSha256
+        )
+        let fullReference = mediaAttachmentReference(
+            sourceEpoch: 7,
+            mediaType: attachment.mediaType,
+            fileName: attachment.fileName,
+            ciphertextSha256: ciphertextSha256,
+            plaintextSha256: plaintextSha256
+        )
+        if attachment.isAvailable {
+            runtime.installMediaRecord(
+                MediaRecordFfi(
+                    messageIdHex: "media-message",
+                    attachmentIndex: UInt32(index),
+                    direction: "inbound",
+                    groupIdHex: "group",
+                    sender: "alice",
+                    reference: fullReference,
+                    caption: nil,
+                    recordedAt: 1_700_000_000,
+                    receivedAt: 1_700_000_000
+                ),
+                download: MediaDownloadResultFfi(
+                    plaintext: attachment.data,
+                    fileName: attachment.fileName,
+                    mediaType: attachment.mediaType,
+                    sizeBytes: UInt64(attachment.data.count)
+                )
+            )
+        }
+        messageAttachments.append(
+            MessageMediaAttachment(
+                id: "media-message#\(index)#\(plaintextSha256)",
+                reference: timelineReference
+            )
+        )
+    }
+
+    let state = WorkspaceState(
+        mediaDownloadDestinationPicker: { destination.pick() },
+        mediaDownloadDestinationStore: destination,
+        clientFactory: { runtime }
+    )
+    await state.bootstrap()
+    state.selection = .chat("group")
+    let message = MessageItem(
+        id: "media-message",
+        groupIdHex: "group",
+        senderName: "Alice",
+        body: "",
+        sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+        isOutgoing: false,
+        mediaAttachments: messageAttachments
+    )
+    state.replaceMessages([message], groupIdHex: "group")
+    return (state, message, runtime)
 }
 
 private func restoreDefault(_ value: Any?, forKey key: String) {

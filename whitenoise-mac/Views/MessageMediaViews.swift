@@ -421,14 +421,7 @@ struct MessageBubble: View {
     }
 
     private var inlineActionOffset: CGFloat {
-        var actionCount = 0
-        actionCount += message.canReact ? 1 : 0
-        actionCount += message.canReply ? 1 : 0
-        actionCount += message.supportsChatActions ? 1 : 0
-
-        let controlWidth = CGFloat(actionCount) * 40
-        let spacingWidth = CGFloat(max(actionCount - 1, 0)) * 4
-        return controlWidth + spacingWidth + 8
+        MessageInlineActionLayout.offset(for: message)
     }
 
     @ViewBuilder
@@ -1858,6 +1851,10 @@ struct MessageImageGalleryOverlay: View {
         presentation.imageAttachments.count > 1
     }
 
+    private var isDownloading: Bool {
+        workspace.isDownloadingMediaAttachments(for: presentation.message)
+    }
+
     var body: some View {
         // Re-resolve the selected attachment's ignored state store after a manual cache clear.
         let _ = workspace.mediaCacheGeneration
@@ -1890,6 +1887,34 @@ struct MessageImageGalleryOverlay: View {
                                 .wnFont(.semiBold10.monospacedDigit())
                                 .foregroundStyle(WNColor.fillContentQuaternary.opacity(0.72))
                         }
+
+                        // Downloads the photo on screen, not the whole message: the bubble's own
+                        // action is the one that takes every attachment.
+                        Button {
+                            Task {
+                                await workspace.downloadMediaAttachments(
+                                    [selectedAttachment], for: presentation.message)
+                            }
+                        } label: {
+                            Group {
+                                if isDownloading {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .tint(WNColor.fillContentQuaternary)
+                                } else {
+                                    Image(systemName: "square.and.arrow.down")
+                                        .wnFont(.bold16)
+                                }
+                            }
+                            .frame(width: 34, height: 34)
+                            .background(
+                                WNColor.fillContentQuaternary.opacity(0.14), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(WNColor.fillContentQuaternary)
+                        .disabled(isDownloading)
+                        .help(L10n.string("Download"))
+                        .accessibilityLabel(L10n.string("Download"))
 
                         Button(action: onClose) {
                             Image(systemName: "xmark")
@@ -2085,6 +2110,25 @@ struct MessageInlineActions: View {
                 .help(L10n.string("Reply"))
             }
 
+            // Sits beside the overflow control rather than inside it: with media on the message
+            // this is the action people reach for, and burying it one popover deep is the same
+            // mistake the retry affordance made.
+            if message.canDownloadMediaAttachments {
+                Button {
+                    Task {
+                        await workspace.downloadMediaAttachments(message.mediaAttachments, for: message)
+                    }
+                } label: {
+                    MessageInlineActionIcon(
+                        systemName: "square.and.arrow.down",
+                        label: downloadAccessibilityLabel
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(workspace.isDownloadingMediaAttachments(for: message))
+                .help(downloadAccessibilityLabel)
+            }
+
             if message.supportsChatActions {
                 Button {
                     isOverflowPresented = true
@@ -2110,6 +2154,10 @@ struct MessageInlineActions: View {
         .onDisappear {
             isPresentationActive = false
         }
+    }
+
+    private var downloadAccessibilityLabel: String {
+        message.mediaDownloadActionTitle
     }
 
     private func syncPresentationState() {
@@ -2337,12 +2385,32 @@ struct MessageOverflowPopover: View {
 /// The right-click menu for a chat bubble. The reaction submenu and hover popover both render
 /// `QuickReactionButtons` from the workspace preference, while the remaining actions mirror the
 /// hover bar's overflow (`MessageRowAction.all`).
+///
+/// React and Download are built here rather than in `MessageRowAction.all`: both also sit in the
+/// hover bar as controls of their own, and `.all` backs the bar's overflow popover, so routing
+/// them through it would show each of them twice, inches apart.
 struct MessageContextMenuItems: View {
     @Environment(WorkspaceState.self) private var workspace
     let message: MessageItem
 
     var body: some View {
         Group {
+            if message.canDownloadMediaAttachments {
+                // The hover bar's download button is revealed by pointing at the row, which leaves
+                // the right-click menu as the only path to it for a document or an audio file —
+                // neither of which opens a viewer with a save control of its own.
+                Button {
+                    Task {
+                        await workspace.downloadMediaAttachments(message.mediaAttachments, for: message)
+                    }
+                } label: {
+                    Label(message.mediaDownloadActionTitle, systemImage: "square.and.arrow.down")
+                }
+                .disabled(workspace.isDownloadingMediaAttachments(for: message))
+
+                Divider()
+            }
+
             if message.canReact {
                 Menu {
                     QuickReactionButtons(
