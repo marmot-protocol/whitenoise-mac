@@ -261,6 +261,52 @@ struct SettingsScaffold<Content: View>: View {
     }
 }
 
+/// The scaffold for a settings page that lays its own controls out rather than filling native
+/// grouped `Form` rows: same header, same error surface, but the content sits in a plain
+/// scrolling column. A page built from `WNCallout`, `WNCopyCard` and `SettingsLabeledField` needs
+/// this — those controls draw their own box, and a grouped `Section` would put a second one
+/// around each.
+struct SettingsStackScaffold<Content: View>: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let title: String
+    var subtitle: String?
+    let content: Content
+
+    init(
+        title: String,
+        subtitle: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SettingsHeader(title: title, subtitle: subtitle)
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    content
+
+                    if let error = workspace.lastError {
+                        SettingsErrorView(error: error)
+                    }
+                }
+                // A form reads badly when its fields stretch the full width of a wide window,
+                // so the column is capped and centred while the scroll view keeps the pane.
+                .frame(maxWidth: 460, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 24)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
 struct RemoveAccountConfirmationModifier: ViewModifier {
     let account: AccountItem?
     @Binding var isPresented: Bool
@@ -313,25 +359,60 @@ extension View {
     }
 }
 
+/// How prominent the QR affordance is at a given call site.
+enum PublicIdentityQRCodeButtonStyle {
+    /// A bare glyph sitting inside a row of other text — an account switcher entry, a key row.
+    case inline
+    /// A tile that stands next to a `WNCopyCard` and matches its height, for the screens where
+    /// handing your identity to someone else is the point rather than an aside.
+    case tile
+}
+
 struct PublicIdentityQRCodeButton: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var isPresented = false
+    @State private var isHovering = false
     let accountIdHex: String
     let displayName: String
+    var style: PublicIdentityQRCodeButtonStyle = .inline
 
     private var npub: String {
         workspace.npub(forAccountIdHex: accountIdHex)
     }
 
     var body: some View {
-        Button {
-            isPresented = true
-        } label: {
-            Image(systemName: "qrcode")
-                .wnFont(.semiBold14)
-                .frame(width: 24, height: 24)
+        // The two styles differ in their button style as well as their label, and `buttonStyle`
+        // has to be applied to the `Button` itself, so the branch covers the whole control.
+        Group {
+            switch style {
+            case .inline:
+                Button {
+                    isPresented = true
+                } label: {
+                    Image(systemName: "qrcode")
+                        .wnFont(.semiBold14)
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+            case .tile:
+                Button {
+                    isPresented = true
+                } label: {
+                    Image(systemName: "qrcode")
+                        .wnFont(.medium24)
+                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                        .frame(width: 56)
+                        .frame(maxHeight: .infinity)
+                        .background(
+                            isHovering ? WNColor.fillSecondaryHover : WNColor.fillSecondary,
+                            in: .rect(cornerRadius: 8, style: .continuous)
+                        )
+                        .contentShape(.rect(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .onHover { isHovering = $0 }
+            }
         }
-        .buttonStyle(.borderless)
         .help(L10n.string("Show npub QR code"))
         .accessibilityLabel(Text(L10n.string("Show npub QR code")))
         .sheet(isPresented: $isPresented) {
@@ -552,91 +633,60 @@ struct SettingsErrorView: View {
 
 struct ProfileSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
-    @State private var isMoreExpanded = false
 
     var body: some View {
         @Bindable var workspace = workspace
 
-        SettingsScaffold(
+        SettingsStackScaffold(
             title: L10n.string("Profile"),
             subtitle: L10n.string("Publish the profile other people see for this identity.")
         ) {
             if let account = workspace.activeAccount {
-                Section(L10n.string("Preview")) {
-                    HStack(spacing: 12) {
-                        Button {
-                            workspace.showProfileImagePicker()
-                        } label: {
-                            ZStack(alignment: .bottomTrailing) {
-                                ProfileImageAvatarView(
-                                    seed: account.accountIdHex,
-                                    initials: profilePreviewName(fallback: account),
-                                    sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
-                                    size: 56,
-                                    isSelected: false
-                                )
-
-                                Image(systemName: "camera.fill")
-                                    .wnFont(.semiBold10)
-                                    .foregroundStyle(WNColor.fillContentQuaternary)
-                                    .frame(width: 20, height: 20)
-                                    .background(WNColor.overlayTertiary, in: Circle())
-                            }
-                            .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.string("Change profile image"))
-                        .accessibilityLabel(L10n.string("Change profile image"))
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(profilePreviewName(fallback: account))
-                                .wnFont(.semiBold14)
-                                .lineLimit(1)
-                            CopyableKeyLabel(accountIdHex: account.accountIdHex)
-                        }
-
-                        Spacer()
-
-                        PublicIdentityQRCodeButton(
-                            accountIdHex: account.accountIdHex,
-                            displayName: profilePreviewName(fallback: account)
-                        )
-                    }
-                }
+                ProfileIdentityHeaderView(
+                    account: account,
+                    displayName: profilePreviewName(fallback: account)
+                )
             }
 
-            Section(L10n.string("Profile")) {
-                TextField(L10n.string("Name"), text: $workspace.profileDraft.displayName)
-                TextField(L10n.string("About"), text: $workspace.profileDraft.about, axis: .vertical)
-                    .lineLimit(3...5)
+            WNCallout(
+                title: L10n.string("Your profile is public"),
+                message: L10n.string(
+                    "Name, photo, and bio are visible on the global Nostr network. Use what you're comfortable sharing."
+                ),
+                intent: .info
+            )
 
-                DisclosureGroup("More", isExpanded: $isMoreExpanded) {
-                    TextField(L10n.string("Profile image URL"), text: $workspace.profileDraft.picture)
-                    TextField(L10n.string("Banner image URL"), text: $workspace.profileDraft.banner)
-                }
+            SettingsLabeledField(label: L10n.string("Name")) {
+                TextField(L10n.string("Enter your name"), text: $workspace.profileDraft.displayName)
             }
 
-            Section {
-                HStack {
-                    Button {
-                        Task { await workspace.saveProfile() }
-                    } label: {
-                        Label(
-                            workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"),
-                            systemImage: "checkmark.circle")
-                    }
-                    .nativeGlassProminentButtonStyle()
-                    .disabled(workspace.isSavingProfile || workspace.activeAccount == nil)
-
-                    if workspace.isLoadingSettings {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    Spacer()
-                }
+            SettingsLabeledField(label: L10n.string("About"), minHeight: 88) {
+                TextField(
+                    L10n.string("Introduce yourself"),
+                    text: $workspace.profileDraft.about,
+                    axis: .vertical
+                )
+                .lineLimit(3...6)
             }
 
+            HStack {
+                WNPrimaryButton(
+                    workspace.isSavingProfile ? L10n.string("Saving...") : L10n.string("Save profile"),
+                    systemImage: "checkmark.circle",
+                    size: .large
+                ) {
+                    Task { await workspace.saveProfile() }
+                }
+                .disabled(workspace.isSavingProfile || workspace.activeAccount == nil)
+
+                if workspace.isLoadingSettings {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Spacer()
+            }
+            .padding(.top, 4)
         }
         .sheet(isPresented: $workspace.isProfileImagePickerPresented) {
             ProfileImagePickerSheet()
@@ -648,6 +698,66 @@ struct ProfileSettingsView: View {
             workspace.profileDraft.displayName,
             account.displayName,
         ]) ?? account.displayName
+    }
+}
+
+/// The top of the profile form: the avatar, centred and large enough to be the subject of the
+/// page, over the npub and its QR code. The name is not repeated here — the Name field is the
+/// next thing on the page and carries the same value live.
+struct ProfileIdentityHeaderView: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let account: AccountItem
+    let displayName: String
+
+    private let avatarSize: CGFloat = 96
+
+    private var npub: String {
+        workspace.npub(forAccountIdHex: account.accountIdHex)
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Button {
+                workspace.showProfileImagePicker()
+            } label: {
+                ZStack(alignment: .bottomTrailing) {
+                    ProfileImageAvatarView(
+                        seed: account.accountIdHex,
+                        initials: displayName,
+                        sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
+                        size: avatarSize,
+                        isSelected: false
+                    )
+
+                    Image(systemName: "camera.fill")
+                        .wnFont(.semiBold12)
+                        .foregroundStyle(WNColor.fillContentQuaternary)
+                        .frame(width: 30, height: 30)
+                        .background(WNColor.overlayTertiary, in: .circle)
+                }
+                .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string("Change profile image"))
+            .accessibilityLabel(L10n.string("Change profile image"))
+
+            HStack(spacing: 8) {
+                WNCopyCard(
+                    displayText: DisplayText.grouped(npub),
+                    value: npub,
+                    actionDescription: L10n.string("Copy npub")
+                )
+
+                PublicIdentityQRCodeButton(
+                    accountIdHex: account.accountIdHex,
+                    displayName: displayName,
+                    style: .tile
+                )
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 8)
     }
 }
 
