@@ -3,7 +3,7 @@
 //  whitenoise-mac
 //
 //  The settings surface: SettingsPanelView and every settings page/row
-//  (profile, identity keys, appearance, privacy/security, audit logs,
+//  (profile, identity keys, appearance, preferences, privacy/security, audit logs,
 //  notifications, developer mode, relays, key packages). Switching between
 //  identities is not a page here — it lives in the switcher at the top of the
 //  settings drawer, in SettingsAccountSwitcherViews.swift.
@@ -28,8 +28,8 @@ struct SettingsPanelView: View {
             switch page {
             case .overview:
                 ProfileSettingsView()
-            case .general:
-                GeneralSettingsView()
+            case .preferences:
+                PreferencesSettingsView()
             case .profile:
                 ProfileSettingsView()
             case .identityKeys:
@@ -66,14 +66,17 @@ struct SettingsPanelView: View {
     }
 }
 
-struct GeneralSettingsView: View {
+/// The small day-to-day choices that are not about how the app looks: startup, and which
+/// six emoji the message actions offer. Quick reactions used to sit under Appearance, next
+/// to theme and language, where a choice about interaction was hard to find.
+struct PreferencesSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var launchAtLogin = LaunchAtLoginController()
 
     var body: some View {
         SettingsScaffold(
-            title: L10n.string("General"),
-            subtitle: L10n.string("Choose how White Noise behaves when you start your Mac.")
+            title: L10n.string("Preferences"),
+            subtitle: L10n.string("Choose how White Noise starts up and how it behaves in chats.")
         ) {
             Section(L10n.string("Startup")) {
                 Toggle(
@@ -108,6 +111,8 @@ struct GeneralSettingsView: View {
                 .wnFont(.medium10)
                 .foregroundStyle(WNColor.backgroundContentSecondary)
             }
+
+            QuickReactionsSettingsSection()
         }
         .onAppear {
             launchAtLogin.refresh()
@@ -154,6 +159,95 @@ struct GeneralSettingsView: View {
         case .notRegistered, .enabled:
             EmptyView()
         }
+    }
+}
+
+/// Lives in `PreferencesSettingsView`, as its own view so that page stays readable.
+struct QuickReactionsSettingsSection: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var quickReactionBeingReplaced: Int?
+
+    var body: some View {
+        Section(L10n.string("Quick reactions")) {
+            Text(L10n.string("Choose and order the six reactions shown in message actions."))
+                .wnFont(.medium10)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+
+            ForEach(Array(workspace.quickReactions.enumerated()), id: \.offset) { index, emoji in
+                HStack(spacing: 12) {
+                    Button {
+                        quickReactionBeingReplaced = index
+                    } label: {
+                        Text(emoji)
+                            .wnFont(.medium24)
+                            .frame(width: 38, height: 32)
+                            .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        String(
+                            format: L10n.string("Replace quick reaction %d, currently %@"),
+                            index + 1,
+                            emoji
+                        )
+                    )
+                    .popover(isPresented: replacementPopoverBinding(for: index), arrowEdge: .leading) {
+                        ChatEmojiPicker(disabledEmoji: unavailableReplacementEmoji(for: index)) { replacement in
+                            guard workspace.replaceQuickReaction(at: index, with: replacement) else { return }
+                            quickReactionBeingReplaced = nil
+                        }
+                    }
+
+                    Text(String(format: L10n.string("Quick reaction %d"), index + 1))
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+
+                    Spacer()
+
+                    Button {
+                        workspace.moveQuickReaction(at: index, by: -1)
+                    } label: {
+                        Image(systemName: "arrow.up")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(index == workspace.quickReactions.startIndex)
+                    .help(L10n.string("Move earlier"))
+
+                    Button {
+                        workspace.moveQuickReaction(at: index, by: 1)
+                    } label: {
+                        Image(systemName: "arrow.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(index == workspace.quickReactions.index(before: workspace.quickReactions.endIndex))
+                    .help(L10n.string("Move later"))
+                }
+            }
+
+            Button(L10n.string("Restore defaults")) {
+                workspace.restoreDefaultQuickReactions()
+            }
+            .buttonStyle(.wnSecondary)
+            .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
+        }
+    }
+
+    private func replacementPopoverBinding(for index: Int) -> Binding<Bool> {
+        Binding(
+            get: { quickReactionBeingReplaced == index },
+            set: { isPresented in
+                if !isPresented, quickReactionBeingReplaced == index {
+                    quickReactionBeingReplaced = nil
+                }
+            }
+        )
+    }
+
+    private func unavailableReplacementEmoji(for index: Int) -> Set<String> {
+        Set(
+            workspace.quickReactions.enumerated().compactMap { offset, emoji in
+                offset == index ? nil : emoji
+            }
+        )
     }
 }
 
@@ -1118,7 +1212,6 @@ struct CopyableKeyLabel: View {
 
 struct AppearanceSettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
-    @State private var quickReactionBeingReplaced: Int?
 
     var body: some View {
         @Bindable var workspace = workspace
@@ -1144,88 +1237,7 @@ struct AppearanceSettingsView: View {
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            Section(L10n.string("Quick reactions")) {
-                Text(L10n.string("Choose and order the six reactions shown in message actions."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-
-                ForEach(Array(workspace.quickReactions.enumerated()), id: \.offset) { index, emoji in
-                    HStack(spacing: 12) {
-                        Button {
-                            quickReactionBeingReplaced = index
-                        } label: {
-                            Text(emoji)
-                                .wnFont(.medium24)
-                                .frame(width: 38, height: 32)
-                                .background(WNColor.fillSecondary, in: RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(
-                            String(
-                                format: L10n.string("Replace quick reaction %d, currently %@"),
-                                index + 1,
-                                emoji
-                            )
-                        )
-                        .popover(isPresented: replacementPopoverBinding(for: index), arrowEdge: .leading) {
-                            ChatEmojiPicker(disabledEmoji: unavailableReplacementEmoji(for: index)) { replacement in
-                                guard workspace.replaceQuickReaction(at: index, with: replacement) else { return }
-                                quickReactionBeingReplaced = nil
-                            }
-                        }
-
-                        Text(String(format: L10n.string("Quick reaction %d"), index + 1))
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-
-                        Spacer()
-
-                        Button {
-                            workspace.moveQuickReaction(at: index, by: -1)
-                        } label: {
-                            Image(systemName: "arrow.up")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(index == workspace.quickReactions.startIndex)
-                        .help(L10n.string("Move earlier"))
-
-                        Button {
-                            workspace.moveQuickReaction(at: index, by: 1)
-                        } label: {
-                            Image(systemName: "arrow.down")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(index == workspace.quickReactions.index(before: workspace.quickReactions.endIndex))
-                        .help(L10n.string("Move later"))
-                    }
-                }
-
-                Button(L10n.string("Restore defaults")) {
-                    workspace.restoreDefaultQuickReactions()
-                }
-                .buttonStyle(.wnSecondary)
-                .disabled(workspace.quickReactions == ChatReactionDefaults.quick)
-            }
         }
-    }
-
-    private func replacementPopoverBinding(for index: Int) -> Binding<Bool> {
-        Binding(
-            get: { quickReactionBeingReplaced == index },
-            set: { isPresented in
-                if !isPresented, quickReactionBeingReplaced == index {
-                    quickReactionBeingReplaced = nil
-                }
-            }
-        )
-    }
-
-    private func unavailableReplacementEmoji(for index: Int) -> Set<String> {
-        Set(
-            workspace.quickReactions.enumerated().compactMap { offset, emoji in
-                offset == index ? nil : emoji
-            }
-        )
     }
 }
 

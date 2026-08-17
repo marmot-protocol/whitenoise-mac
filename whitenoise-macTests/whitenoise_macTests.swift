@@ -5880,11 +5880,11 @@ struct whitenoise_macTests {
         let spanish = Locale(identifier: AppLanguage.spanish.rawValue)
         let german = Locale(identifier: AppLanguage.german.rawValue)
 
-        #expect(SettingsPage.general.title(in: german) == "Allgemein")
+        #expect(SettingsPage.preferences.title(in: german) == "Voreinstellungen")
         #expect(SettingsPage.appearance.title(in: spanish) == "Apariencia")
         #expect(SettingsPage.overview.title(in: spanish) == "Configuración")
-        #expect(SettingsPage.general.sidebarSubtitle(in: spanish) == "Preferencias de inicio")
-        #expect(SettingsPage.general.sidebarSubtitle(in: german) == "Starteinstellungen")
+        #expect(SettingsPage.preferences.sidebarSubtitle(in: spanish) == "Inicio y reacciones rápidas")
+        #expect(SettingsPage.preferences.sidebarSubtitle(in: german) == "Start und Schnellreaktionen")
         #expect(SettingsPage.appearance.sidebarSubtitle(in: german) == "Design")
     }
 
@@ -24327,8 +24327,8 @@ struct whitenoise_macTests {
     @Test func settingsSelectionCanTargetAllSettingsPages() async throws {
         let state = WorkspaceState.preview()
 
-        state.showSettings(.general)
-        #expect(state.selection == .settings(.general))
+        state.showSettings(.preferences)
+        #expect(state.selection == .settings(.preferences))
 
         state.showSettings(.profile)
         #expect(state.selection == .settings(.profile))
@@ -24358,9 +24358,11 @@ struct whitenoise_macTests {
         #expect(state.selection == .settings(.developerMode))
     }
 
+    /// Profile leads, not the startup toggles: settings used to open on "General", which put a
+    /// page nobody comes to settings for in the position that reads as the most important one.
     @MainActor
-    @Test func settingsSidebarPagesStartWithGeneralAndExcludeOverview() async throws {
-        #expect(SettingsPage.sidebarPages.first == .general)
+    @Test func settingsSidebarPagesStartWithProfileAndExcludeOverview() async throws {
+        #expect(SettingsPage.sidebarPages.first == .profile)
         #expect(!SettingsPage.sidebarPages.contains(.overview))
         #expect(SettingsPage.sidebarPages.contains(.privacySecurity))
         #expect(SettingsPage.sidebarPages.contains(.storage))
@@ -24374,12 +24376,12 @@ struct whitenoise_macTests {
     @Test func settingsSidebarHasNoAccountsPage() async throws {
         #expect(
             SettingsPage.sidebarPages == [
-                .general,
                 .profile,
                 .identityKeys,
                 .relays,
                 .keyPackages,
                 .appearance,
+                .preferences,
                 .privacySecurity,
                 .notifications,
                 .storage,
