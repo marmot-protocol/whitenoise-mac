@@ -890,10 +890,7 @@ struct PureValueTests {
         #expect(MediaWaveformAnalyzer.fallbackSamples == MediaWaveformAnalyzer.fallback())
         #expect(
             ComposerAudioWaveformPresentation.fallbackPlaybackBars
-                == ComposerAudioWaveformPresentation.bars(
-                    for: MediaWaveformAnalyzer.fallbackSamples,
-                    mode: .playback
-                )
+                == ComposerAudioWaveformPresentation.bars(for: MediaWaveformAnalyzer.fallbackSamples)
         )
     }
 
@@ -954,10 +951,7 @@ struct PureValueTests {
     @Test func composerAudioWaveformSelectsLoadedBarsForMatchingPayload() async throws {
         // The metadata-loaded path stores bars once, then playback progress should only
         // recolor those loaded bars. Stale or missing metadata keeps showing fallback.
-        let loadedBars = ComposerAudioWaveformPresentation.bars(
-            for: [0.15, 0.35, 0.65, 1.0],
-            mode: .playback
-        )
+        let loadedBars = ComposerAudioWaveformPresentation.bars(for: [0.15, 0.35, 0.65, 1.0])
 
         #expect(
             ComposerAudioWaveformPresentation.visiblePlaybackBars(
@@ -980,6 +974,163 @@ struct PureValueTests {
                 currentPayloadID: "payload-b"
             ) == ComposerAudioWaveformPresentation.fallbackPlaybackBars
         )
+    }
+
+    @Test func voiceRecordingLevelsSpreadSpeechAcrossTheWholeBarHeight() {
+        // The mapping this replaces was a power ratio (`pow(10, average / 36)`), and speech occupies
+        // a narrow slice of it: a quiet passage and a raised voice both landed mid-height, so the
+        // live strip read as a hedge rather than as a voice. Keeping the two visibly apart is the
+        // whole point of drawing a waveform while the mic is hot.
+        let quiet = VoiceRecordingLevelMeter.amplitude(averagePower: -46, peakPower: -42)
+        let speaking = VoiceRecordingLevelMeter.amplitude(averagePower: -26, peakPower: -20)
+        let loud = VoiceRecordingLevelMeter.amplitude(averagePower: -12, peakPower: -6)
+
+        #expect(quiet < 0.25)
+        #expect(speaking > 0.4)
+        #expect(speaking < 0.75)
+        #expect(loud > 0.9)
+        #expect(loud - quiet > 0.65)
+
+        // The same three levels through the old curve, so the improvement is pinned rather than
+        // asserted from memory: it spanned less than half the strip, with speech barely above rest.
+        let legacy = { (power: Float) in max(0.05, min(1, CGFloat(pow(10, power / 36)))) }
+        #expect(legacy(-12) - legacy(-46) < 0.5)
+        #expect(legacy(-26) < 0.3)
+    }
+
+    @Test func voiceRecordingLevelsClampSilenceAndFullScale() {
+        // `AVAudioRecorder` reports -160 dBFS for silence and 0 for full scale. Silence still draws
+        // the resting sliver, so a speaker who pauses reads as a waveform at rest rather than as a
+        // control that died.
+        #expect(
+            VoiceRecordingLevelMeter.amplitude(averagePower: -160, peakPower: -160)
+                == VoiceRecordingLevelMeter.minimumAmplitude
+        )
+        #expect(VoiceRecordingLevelMeter.amplitude(averagePower: 0, peakPower: 0) > 0.99)
+
+        // A meter read before the first `updateMeters()`, or on a channel that never carried audio,
+        // can hand back a non-finite value. A NaN height collapses the bar's frame instead of
+        // drawing the sliver, so it has to land on silence.
+        #expect(
+            VoiceRecordingLevelMeter.amplitude(averagePower: .nan, peakPower: .nan)
+                == VoiceRecordingLevelMeter.minimumAmplitude
+        )
+        #expect(
+            VoiceRecordingLevelMeter.amplitude(averagePower: -.infinity, peakPower: -20)
+                > VoiceRecordingLevelMeter.minimumAmplitude
+        )
+    }
+
+    @Test func voiceRecordingLevelsRiseFasterThanTheyFall() {
+        // The attack/release asymmetry is what makes the strip read as speech: an onset lands almost
+        // at once, and the gap between two words must not flicker the bar back to the floor. A
+        // symmetric filter can only pick one of those two failures.
+        #expect(VoiceRecordingLevelMeter.attack > VoiceRecordingLevelMeter.release)
+        let oneStepUp = VoiceRecordingLevelMeter.smoothed(1, previous: 0.2) - 0.2
+        let oneStepDown = 1 - VoiceRecordingLevelMeter.smoothed(0.2, previous: 1)
+        #expect(oneStepUp > oneStepDown)
+
+        // Asserted over time rather than per bar, because the coefficients are derived from the bar
+        // rate: five bars (0.2 s) of a shout is nearly all the way up, while five bars of silence has
+        // given up only about half the way down.
+        var rising: CGFloat = 0.2
+        var falling: CGFloat = 1
+        for _ in 0..<5 {
+            rising = VoiceRecordingLevelMeter.smoothed(1, previous: rising)
+            falling = VoiceRecordingLevelMeter.smoothed(0.2, previous: falling)
+        }
+        #expect(rising > 0.9)
+        #expect(falling > 0.5)
+        #expect(falling < 0.65)
+
+        // The first sample of a take lands where the level actually is instead of ramping up out of
+        // the floor, which would clip the start of every recording's waveform.
+        #expect(VoiceRecordingLevelMeter.smoothed(0.8, previous: nil) == 0.8)
+
+        // Nothing leaves the drawable range, whatever the filter is handed.
+        #expect(VoiceRecordingLevelMeter.smoothed(4, previous: 0.9) == 1)
+        #expect(
+            VoiceRecordingLevelMeter.smoothed(-3, previous: 0.1)
+                == VoiceRecordingLevelMeter.minimumAmplitude
+        )
+    }
+
+    @Test func liveRecordingBarsAreNarrowAndFollowTheWidthTheyAreGiven() {
+        // The playback waveform divides its width between a fixed number of samples, which in a
+        // composer-wide bar makes every bar about as wide as a finger. A live strip keeps the bar
+        // width fixed and takes as many bars as fit, so it stays thin at any window size.
+        #expect(VoiceRecordingWaveform.barWidth == 3)
+        #expect(VoiceRecordingWaveform.barPitch == 5)
+
+        #expect(VoiceRecordingWaveform.barCount(forWidth: 440) == 88)
+        #expect(VoiceRecordingWaveform.barCount(forWidth: 220) == 44)
+
+        // The last bar needs no trailing gap, so a width that is an exact number of bars plus their
+        // inner gaps holds all of them rather than one fewer.
+        #expect(VoiceRecordingWaveform.barCount(forWidth: 5 * 4 - 2) == 4)
+
+        // Degenerate widths draw nothing instead of trapping, and the count is bounded by the tail
+        // the model actually keeps.
+        #expect(VoiceRecordingWaveform.barCount(forWidth: 0) == 0)
+        #expect(VoiceRecordingWaveform.barCount(forWidth: -12) == 0)
+        #expect(VoiceRecordingWaveform.barCount(forWidth: .nan) == 0)
+        #expect(
+            VoiceRecordingWaveform.barCount(forWidth: 40_000)
+                == VoiceRecordingWaveform.maximumWindowSampleCount
+        )
+    }
+
+    @Test func liveRecordingStripShowsItsNewestLevelsClamped() {
+        let window: [CGFloat] = [0.2, 0.4, 0.6, 0.8]
+
+        #expect(VoiceRecordingWaveform.visibleLevels(window: window, barCount: 2) == [0.6, 0.8])
+        #expect(VoiceRecordingWaveform.visibleLevels(window: window, barCount: 9) == window)
+        #expect(VoiceRecordingWaveform.visibleLevels(window: window, barCount: 0).isEmpty)
+
+        // Heights are clamped on the way out, so no level can draw past the strip or vanish.
+        #expect(
+            VoiceRecordingWaveform.visibleLevels(window: [-1, 5], barCount: 2)
+                == [VoiceRecordingLevelMeter.minimumAmplitude, 1]
+        )
+    }
+
+    @Test func recordedAudioNotTheSchedulerDecidesHowFarTheStripTravels() {
+        // This is the constant-speed guarantee, and the bug it answers: the strip used to advance one
+        // bar per metering wakeup, with the travel handed to an implicit animation that was
+        // retargeted before it settled — so scheduling lag became extra distance per frame and the
+        // waveform visibly accelerated. Bars are owed by the recorder's clock instead: 40 ms of
+        // sound is one bar, always.
+        #expect(
+            VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 0.04, alreadyMetered: 0, maximum: 512) == 1
+        )
+        #expect(
+            VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 1, alreadyMetered: 0, maximum: 512) == 25
+        )
+
+        // A wakeup that arrives three intervals late owes three bars, so the waveform stays lined up
+        // with the audio instead of lagging further behind with every stall.
+        #expect(
+            VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 0.16, alreadyMetered: 1, maximum: 512) == 3
+        )
+
+        // A wakeup that fires early, or twice, owes nothing — it cannot pull the strip forward.
+        #expect(
+            VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 0.05, alreadyMetered: 1, maximum: 512) == 0
+        )
+        #expect(
+            VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 0.039, alreadyMetered: 0, maximum: 512) == 0
+        )
+
+        // A long stall catches up by at most a windowful rather than by minutes of bars at once.
+        #expect(
+            VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 600, alreadyMetered: 0, maximum: 512) == 512
+        )
+
+        // A clock that reads zero, backwards, or non-finite owes nothing.
+        #expect(VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 0, alreadyMetered: 0, maximum: 512) == 0)
+        #expect(VoiceRecordingLevelMeter.barsOwed(recordedSeconds: -3, alreadyMetered: 0, maximum: 512) == 0)
+        #expect(VoiceRecordingLevelMeter.barsOwed(recordedSeconds: .nan, alreadyMetered: 0, maximum: 512) == 0)
+        #expect(VoiceRecordingLevelMeter.barsOwed(recordedSeconds: 1, alreadyMetered: 25, maximum: 512) == 0)
     }
 
     @MainActor

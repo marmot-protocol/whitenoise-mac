@@ -1481,10 +1481,7 @@ struct MessageAudioAttachmentPlayer: View {
                 waveformBars = ComposerAudioWaveformPresentation.fallbackPlaybackBars
             }
             let loaded = await MessageAudioMetadataCache.shared.metadata(for: download)
-            let loadedWaveformBars = ComposerAudioWaveformPresentation.bars(
-                for: loaded.samples,
-                mode: .playback
-            )
+            let loadedWaveformBars = ComposerAudioWaveformPresentation.bars(for: loaded.samples)
             guard !Task.isCancelled else { return }
             metadata = loaded
             metadataPayloadID = payloadID

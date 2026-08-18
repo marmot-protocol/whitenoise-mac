@@ -718,6 +718,7 @@ extension WorkspaceState {
 
             voiceRecorder = recorder
             voiceRecordingSamples = []
+            voiceRecordingHistory = []
             voiceRecordingDurationSeconds = 0
             isRecordingVoiceMessage = true
             startVoiceRecordingMetering()
@@ -734,7 +735,10 @@ extension WorkspaceState {
         }
         let draftKey = selectedComposerDraftKey
         let duration = max(voiceRecordingDurationSeconds, recorder.currentTime)
-        let samples = voiceRecordingSamples
+        // The whole take, not the few seconds still on screen: the window is a sliding view for the
+        // live strip, so a 30-second recording used to be sent with a waveform of its tail. Tests
+        // that arm a recording without the meter only fill the window, hence the fallback.
+        let samples = voiceRecordingHistory.isEmpty ? voiceRecordingSamples : voiceRecordingHistory
         let fileName = url.lastPathComponent
         recorder.stop()
         resetVoiceRecording(deleteFile: false)
@@ -916,21 +920,54 @@ extension WorkspaceState {
         voiceRecordingMeterTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(nanoseconds: 70_000_000)
+                    try await Task.sleep(for: VoiceRecordingLevelMeter.sampleInterval)
                 } catch {
                     return
                 }
                 guard let self, let recorder = self.voiceRecorder else { return }
                 recorder.updateMeters()
-                self.voiceRecordingDurationSeconds = recorder.currentTime
-                let power = recorder.averagePower(forChannel: 0)
-                let normalized = max(0.05, min(1, CGFloat(pow(10, power / 36))))
-                self.voiceRecordingSamples.append(normalized)
-                if self.voiceRecordingSamples.count > MediaWaveformAnalyzer.sampleCount {
-                    self.voiceRecordingSamples.removeFirst(
-                        self.voiceRecordingSamples.count - MediaWaveformAnalyzer.sampleCount)
-                }
+                let recordedSeconds = recorder.currentTime
+                self.voiceRecordingDurationSeconds = recordedSeconds
+                self.appendVoiceRecordingLevels(
+                    averagePower: recorder.averagePower(forChannel: 0),
+                    peakPower: recorder.peakPower(forChannel: 0),
+                    recordedSeconds: recordedSeconds
+                )
             }
+        }
+    }
+
+    /// Files the bars this metered level has earned in both places they are needed: the observable
+    /// window the live waveform draws, and the full-length history the sent message's waveform is
+    /// derived from. Split in two because they answer different questions — the strip shows the last
+    /// few seconds, the bubble shows the shape of the whole take — and because a buffer that grows
+    /// for 40 minutes has no business being copied on every repaint.
+    ///
+    /// How many bars is the recorder's decision, not this wakeup's: `barsOwed` compares the audio
+    /// clock against what has already been drawn. A tick that arrives late owes more than one bar
+    /// and a duplicate tick owes none, so the strip advances at one bar per 40 ms of *sound* — which
+    /// is what makes its horizontal speed constant instead of tracking the scheduler.
+    func appendVoiceRecordingLevels(averagePower: Float, peakPower: Float, recordedSeconds: Double) {
+        let owed = VoiceRecordingLevelMeter.barsOwed(
+            recordedSeconds: recordedSeconds,
+            alreadyMetered: voiceRecordingHistory.count,
+            maximum: VoiceRecordingWaveform.maximumWindowSampleCount
+        )
+        guard owed > 0 else { return }
+        let level = VoiceRecordingLevelMeter.smoothed(
+            VoiceRecordingLevelMeter.amplitude(averagePower: averagePower, peakPower: peakPower),
+            previous: voiceRecordingSamples.last
+        )
+
+        voiceRecordingSamples.append(contentsOf: repeatElement(level, count: owed))
+        if voiceRecordingSamples.count > VoiceRecordingWaveform.maximumWindowSampleCount {
+            voiceRecordingSamples.removeFirst(
+                voiceRecordingSamples.count - VoiceRecordingWaveform.maximumWindowSampleCount)
+        }
+        voiceRecordingHistory.append(contentsOf: repeatElement(level, count: owed))
+        if voiceRecordingHistory.count > VoiceRecordingLevelMeter.maximumHistorySampleCount {
+            voiceRecordingHistory.removeFirst(
+                voiceRecordingHistory.count - VoiceRecordingLevelMeter.maximumHistorySampleCount)
         }
     }
 
@@ -943,6 +980,7 @@ extension WorkspaceState {
         voiceRecordingURL = nil
         isRecordingVoiceMessage = false
         voiceRecordingSamples = []
+        voiceRecordingHistory = []
         voiceRecordingDurationSeconds = 0
         if deleteFile, let url {
             try? FileManager.default.removeItem(at: url)
