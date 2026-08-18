@@ -25939,6 +25939,45 @@ struct whitenoise_macTests {
         #expect(reloaded.loadRemoteImages)
     }
 
+    @Test func accountRailAvatarExemptsSignedInAccountsFromRemoteImagePreference() throws {
+        // The rail lists the *viewer's own* identities, so it belongs with the profile editor
+        // and the account switcher on the exempt side of `RemoteImageDisplayPolicy`: leaving it
+        // on the default made the sidebar draw initials for the picture the viewer had just set
+        // and could see in Settings, which reads as "my avatar is broken" rather than as privacy.
+        // Signed-out accounts stay gated, the same narrower argument the switcher's list makes.
+        // The chat rows next to it are peers and must keep the default.
+        let sidebarSource = try String(
+            contentsOf:
+                URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("whitenoise-mac")
+                .appendingPathComponent("Views")
+                .appendingPathComponent("SidebarViews.swift"),
+            encoding: .utf8
+        )
+
+        func declarationSource(of declaration: String) throws -> String {
+            let start = try #require(sidebarSource.range(of: declaration)?.upperBound)
+            let rest = sidebarSource[start...]
+            let end =
+                [
+                    rest.range(of: "\nprivate struct ")?.lowerBound,
+                    rest.range(of: "\nstruct ")?.lowerBound,
+                ]
+                .compactMap { $0 }.min() ?? sidebarSource.endIndex
+            return String(sidebarSource[start..<end])
+        }
+
+        let railSource = try declarationSource(of: "private struct AccountRailAvatar: View {")
+        #expect(railSource.contains("isOwnAccountImage: !account.signedOut"))
+
+        for row in ["struct ChatRowContent: View {", "struct CollapsedChatRowContent: View {"] {
+            let rowSource = try declarationSource(of: row)
+            #expect(!rowSource.contains("isOwnAccountImage"), "\(row) draws peers and must stay gated")
+        }
+    }
+
     @MainActor
     @Test func messageDebugMetadataSummarizesTimelineKindAndId() async throws {
         let message = MessageItem(
