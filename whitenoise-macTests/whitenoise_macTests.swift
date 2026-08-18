@@ -1056,6 +1056,7 @@ struct whitenoise_macTests {
             .deletingLastPathComponent()
             .appending(path: "whitenoise-mac")
             .appending(path: "Views")
+            .appending(path: "Settings")
             .appending(path: "SettingsAccountSwitcherViews.swift")
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
