@@ -56,8 +56,6 @@ nonisolated enum WNColor {
     static let fillDestructiveHover = Color(nsColor: WNNSColor.fillDestructiveHover)
     static let fillDestructiveActive = Color(nsColor: WNNSColor.fillDestructiveActive)
 
-    static let fillInfo = Color(nsColor: WNNSColor.fillInfo)
-
     static let fillDisabled = Color(nsColor: WNNSColor.fillDisabled)
     static let fillContentDisabled = Color(nsColor: WNNSColor.fillContentDisabled)
 
@@ -67,7 +65,6 @@ nonisolated enum WNColor {
     static let fillContentSecondary = Color(nsColor: WNNSColor.fillContentSecondary)
     static let fillContentTertiary = Color(nsColor: WNNSColor.fillContentTertiary)
     static let fillContentQuaternary = Color(nsColor: WNNSColor.fillContentQuaternary)
-    static let fillContentInfo = Color(nsColor: WNNSColor.fillContentInfo)
 
     // MARK: - Borders
 
