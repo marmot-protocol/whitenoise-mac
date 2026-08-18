@@ -572,12 +572,28 @@ private struct ConversationView: View {
                             return
                         }
                     }
-                    // A pending media bubble is appended below the timeline window, so it never
-                    // moves `messageIDs.last` — without this, a message sent while the user was at
-                    // the bottom could appear just off the bottom edge.
-                    .onChange(of: pendingOutgoingMediaMessages.count) { oldCount, newCount in
-                        guard newCount > oldCount, isPinnedToBottom else { return }
-                        scrollToBottom(with: proxy)
+                    // Pressing Send scrolls to the live edge, off the send itself rather than off
+                    // the message it produces. Neither rule above covers a send made while reading
+                    // history: a media send (a recording included) appends its pending bubble
+                    // *below* the timeline window, so it never moves `messageIDs.last`, and a text
+                    // send that lands while an older-history prepend is in flight is not eligible
+                    // for the newest-message scroll at all. Both left the new message off the
+                    // bottom edge. Unconditional in `isPinnedToBottom`, because sending is an
+                    // explicit local action — the same reason the outgoing branch above ignores it.
+                    .onChange(of: workspace.outgoingSendScrollGeneration) { _, _ in
+                        guard workspace.selectedChat?.id == chat.id else { return }
+                        // A window detached from the live edge (the user jumped to a search result
+                        // or a reply target) has to be re-attached, not merely scrolled: its bottom
+                        // is the foot of a history page, and stopping there would let the
+                        // newer-history paging that the bottom edge triggers walk the user back up
+                        // off the message they just sent. Same path the jump-to-latest button takes.
+                        // Live paging state, not the value captured at body evaluation — an
+                        // `onChange` action runs after it, exactly as the geometry ones do.
+                        if workspace.selectedTimelinePaging.hasMoreAfter {
+                            Task { await jumpToNewest(using: proxy) }
+                        } else {
+                            scrollToBottom(with: proxy)
+                        }
                     }
                     .onChange(of: messageIDs.first) { _, _ in
                         guard let anchorId = pendingPrependAnchorId else { return }

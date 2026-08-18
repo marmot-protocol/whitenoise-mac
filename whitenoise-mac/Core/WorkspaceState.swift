@@ -605,6 +605,14 @@ final class WorkspaceState {
     /// row on screen the moment the message is stored — so one entry per composer is enough: it is
     /// what the *next* send in that conversation chains behind, and what teardown drops.
     @ObservationIgnored var outgoingTextSendTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
+    /// Bumped once per send the local user commits from the selected conversation's composer —
+    /// text, media or a recording. The transcript scrolls to the live edge off this rather than off
+    /// the message that follows it, because neither of the newest-message rules covers a send made
+    /// while reading history: a media send appends its pending bubble *below* the timeline window,
+    /// so it never moves `messageIDs.last`, and a text send that lands while an older-history
+    /// prepend is in flight is not eligible for the newest-message scroll at all. Sending is an
+    /// explicit local action, so it goes to the bottom whether or not the user was pinned there.
+    var outgoingSendScrollGeneration: UInt64 = 0
     @ObservationIgnored var composerDraftPersistenceTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
     @ObservationIgnored var composerDraftMutationGenerations: [ComposerDraftKey: UInt64] = [:]
     @ObservationIgnored var dirtyComposerDraftKeys: Set<ComposerDraftKey> = []
