@@ -12,14 +12,29 @@ import SwiftUI
 /// filtered to that emoji; the overflow chip opens it on "All". Chips are view-only —
 /// adding/removing is done from the hover React control.
 ///
-/// Colors come from `WNReactionColors`, which is keyed by direction because a chip hangs off the
-/// bubble's edge and therefore sits against `fillPrimary` or `backgroundMessageIncoming` — fills
-/// that run in opposite directions. A chip for a reaction the local account added takes the
-/// `selected` state.
+/// The pill is the iOS prototype's: a 22pt capsule on the app's own surface inside the palette's
+/// hairline, one step off whichever bubble it overlaps rather than a tint of it.
+///
+/// It replaced `WNReactionColors`, a direction-keyed set that chose its fill from the bubble
+/// underneath. That set had a hole the border closes: its dark incoming fill was `neutral800`,
+/// which is `backgroundMessageIncoming` exactly, so a chip on a received bubble in Dark Aqua was
+/// drawn in the bubble's own color and vanished. `backgroundPrimary` steps away from *both*
+/// bubbles in both appearances — the received bubble is a neutral step off the surface, the sent
+/// one is inverted against it — so one fill serves both directions and the chip no longer needs to
+/// be told which bubble it is on at all.
+///
+/// The separation is deliberately quiet in Aqua (a white pill on the near-white received bubble),
+/// which is what the hairline is for: a resting reaction should read as an emoji rather than as a
+/// button. Against the *sent* bubble the same pill is at full contrast in both appearances, since
+/// `backgroundPrimary` and `fillPrimary` are each other's inverse — the fill and the border take
+/// turns carrying the shape depending on which bubble is underneath.
+///
+/// A chip carrying the local account's own reaction steps to `fillSecondaryActive` and swaps its
+/// hairline for `borderPrimary`, the palette's selected outline. The fill step alone would not
+/// carry it: one neutral rung off the surface measures about 1.2:1, where the outline swap is
+/// better than 15:1.
 struct MessageReactionChips: View {
     let reactions: [MessageReaction]
-    /// Which bubble these chips hang off, which decides the whole chip color set.
-    let isOutgoing: Bool
     /// emoji to focus the viewer on, or nil for the "All" tab.
     let onOpenViewer: (String?) -> Void
 
@@ -39,34 +54,50 @@ struct MessageReactionChips: View {
         reactions.contains { $0.isOwn }
     }
 
-    private var colors: WNReactionColorSet {
-        WNReactionColors.set(isOutgoing: isOutgoing)
-    }
-
     var body: some View {
-        let colors = colors
         Button {
             onOpenViewer(nil)
         } label: {
-            HStack(spacing: 3) {
+            HStack(spacing: 2) {
                 Text(emojis)
                 if totalCount > 1 {
                     Text(verbatim: "\(totalCount)")
-                        .wnFont(.semiBold10)
-                        .foregroundStyle(isOwn ? colors.contentSelected : colors.content)
+                        .wnFont(.semiBold10.monospacedDigit())
+                        // Paired with the pill's own fill: the resting pill is a `background*`
+                        // surface, the selected one a `fill*`. The two tokens resolve alike today,
+                        // which is exactly why naming the right one matters — see the pairing rule
+                        // in `WNNSColor`.
+                        .foregroundStyle(
+                            isOwn ? WNColor.fillContentSecondary : WNColor.backgroundContentPrimary)
                 }
             }
-            .wnFont(.medium10)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(isOwn ? colors.fillSelected : colors.fill)
-            )
+            .wnFont(.medium12)
+            .padding(.horizontal, Self.horizontalInset)
+            .frame(height: Self.pillHeight)
+            .background {
+                GlassCapsuleBackground(
+                    fill: isOwn ? WNColor.fillSecondaryActive : WNColor.backgroundPrimary,
+                    // The selection signal. A fill step alone is too quiet here — one neutral rung
+                    // off the surface is roughly 1.2:1 — so the state is carried by the palette's
+                    // selected outline, which is what `borderPrimary` is for.
+                    borderColor: isOwn ? WNColor.borderPrimary : WNColor.borderTertiary
+                )
+            }
         }
         .buttonStyle(.plain)
         .contentShape(Capsule(style: .continuous))
     }
+}
+
+extension MessageReactionChips {
+    /// The visible pill, sized as the prototype sizes it. The chip overlaps the bubble's bottom
+    /// edge by `bubbleOverlap`, so these two together are what the caller's negative top padding
+    /// is computed from.
+    static let pillHeight: CGFloat = 22
+    static let horizontalInset: CGFloat = 7
+    /// How far the pill rides up onto the bubble — about a third of it, enough to read as bound to
+    /// the message rather than floating under it.
+    static let bubbleOverlap: CGFloat = 7
 }
 
 /// Reaction viewer: a horizontal "All / per-emoji" filter row over a list of reactors (avatar +

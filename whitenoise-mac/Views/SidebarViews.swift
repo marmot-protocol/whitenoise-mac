@@ -11,21 +11,28 @@
 import AppKit
 import SwiftUI
 
+/// The unread count, and the shape every other unread signal in the app borrows.
+///
+/// `fillPrimary` + `fillContentPrimary`: near-black with a white count in Aqua, white with a
+/// near-black count in Dark Aqua. This used to be a blue pill (`fillInfo`, a token that existed
+/// for it alone and is gone with it), on the argument that `fillPrimary` is already the sent
+/// bubble and the send button, so a badge wearing it would read as chrome. The iOS prototype and
+/// the Flutter client both settle it the other way: one inverted accent for everything the app
+/// wants you to act on, and blue reserved for text that behaves like a link. A badge drawn in it
+/// is not competing with the selected row, which is `fillTertiaryHover`.
+///
+/// Digits are monospaced so a count ticking 9 → 10 does not shift the pill's width mid-scroll.
 struct UnreadCountBadge: View {
     let count: Int
     var textStyle: WNTextStyle = .bold10
 
     var body: some View {
         Text(verbatim: count > 99 ? "99+" : "\(count)")
-            .wnFont(textStyle)
-            // `fillInfo` + `fillContentInfo`: a white count on a blue pill in both appearances.
-            // Deliberately *not* `fillPrimary`, which this used to take — that token is already the
-            // sent bubble, the send button and the selected row, so an unread count drawn in it read
-            // as chrome instead of as something waiting for you.
-            .foregroundStyle(WNColor.fillContentInfo)
+            .wnFont(textStyle.monospacedDigit())
+            .foregroundStyle(WNColor.fillContentPrimary)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
-            .background(Capsule().fill(WNColor.fillInfo))
+            .background(Capsule().fill(WNColor.fillPrimary))
     }
 }
 
@@ -470,7 +477,8 @@ private struct ChatSidebarRow: View {
             if isCollapsed {
                 CollapsedChatRowContent(
                     chat: chat,
-                    isSelected: workspace.selection == .chat(chat.id)
+                    isSelected: workspace.selection == .chat(chat.id),
+                    isPinned: !isArchived && workspace.isChatPinned(chat)
                 )
             } else {
                 ChatRowContent(
@@ -726,6 +734,11 @@ struct ChatRowContent: View {
                 size: MessagesLayout.chatRowAvatarSize,
                 isSelected: false
             )
+            .overlay(alignment: .bottomTrailing) {
+                if isPinned {
+                    ChatAvatarPinBadge()
+                }
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
@@ -746,12 +759,6 @@ struct ChatRowContent: View {
                     case .pendingInvite, nil:
                         EmptyView()
                     }
-                    if isPinned {
-                        Image(systemName: "pin.fill")
-                            .wnFont(.medium10)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                            .accessibilityLabel(L10n.string("Pinned"))
-                    }
                     if chat.muted {
                         Image(systemName: "bell.slash.fill")
                             .wnFont(.medium10)
@@ -766,7 +773,9 @@ struct ChatRowContent: View {
                         locale: locale
                     )
                     .equatable()
-                    .wnFont(MessagesType.meta)
+                    // Monospaced digits, as the prototype sets this label: the timestamp is the
+                    // row's right edge, and proportional digits move that edge as the clock ticks.
+                    .wnFont(MessagesType.meta.monospacedDigit())
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
                 HStack(alignment: .top, spacing: 4) {
@@ -784,22 +793,22 @@ struct ChatRowContent: View {
                     if rowStatus == .pendingInvite {
                         PendingInviteBadge()
                     } else if chat.hasUnread {
-                        // The three unread signals share `fillInfo` with `UnreadCountBadge`: a row
-                        // can show the mention pill next to the count, and one of them in the
-                        // neutral fill would read as a different kind of thing than the other.
+                        // The three unread signals share `fillPrimary` with `UnreadCountBadge`: a
+                        // row can show the mention pill next to the count, and one of them in a
+                        // different fill would read as a different kind of thing than the other.
                         if chat.hasMention {
                             Image(systemName: "at")
                                 .wnFont(.bold10)
-                                .foregroundStyle(WNColor.fillContentInfo)
+                                .foregroundStyle(WNColor.fillContentPrimary)
                                 .frame(width: 18, height: 18)
-                                .background(Circle().fill(WNColor.fillInfo))
+                                .background(Circle().fill(WNColor.fillPrimary))
                                 .help(L10n.string("You were mentioned"))
                         }
                         if chat.unreadCount > 0 {
                             UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
                         } else {
                             Circle()
-                                .fill(WNColor.fillInfo)
+                                .fill(WNColor.fillPrimary)
                                 .frame(width: 9, height: 9)
                                 .accessibilityLabel(L10n.string("Marked unread"))
                         }
@@ -824,10 +833,7 @@ struct ChatRowContent: View {
             if let placeholder = chat.previewPlaceholder(locale: locale) {
                 return Text(placeholder)
             }
-            guard let kind = chat.previewAttachmentKind else { return Text(chat.preview) }
-            // Inline in the same `Text` so the glyph wraps, truncates and picks up the row's
-            // preview font and secondary style along with the words.
-            return Text(Image(systemName: kind.systemImageName)) + Text(verbatim: " ") + Text(chat.preview)
+            return Self.attributedPreview(for: chat)
         }
         // The emphasised runs name the Bold rung outright instead of taking `.bold()`: Manrope
         // ships as three separate faces, so asking for a bolder version of the row's Medium
@@ -837,6 +843,39 @@ struct ChatRowContent: View {
             + Text(searchResult.snippet.match).wnFont(.bold12)
             .foregroundColor(WNColor.intentionInfoContent)
             + Text(searchResult.snippet.trailing)
+    }
+
+    /// The last-message line with the sender it is attributed to set in Bold, the way the
+    /// prototype's row draws it: **Maya** then what Maya said, so a group's traffic can be scanned
+    /// by who is talking without reading the messages.
+    ///
+    /// The prefix is recovered from the composed line rather than rebuilt from
+    /// `previewAttribution.publishedSenderName`, because the name on display may be a private
+    /// nickname that `relabelingPreviewSender` patched in — see `ChatItem.previewAttributionParts`.
+    ///
+    /// An attachment glyph belongs to the message, not to the attribution, so it follows the name
+    /// rather than leading the line. Everything stays inside one `Text` so the whole line wraps,
+    /// truncates and inherits the row's preview font and secondary style.
+    ///
+    /// A line of your own ("You: …") carries no attribution and so stays one plain run. That is the
+    /// right reading rather than a gap: the Bold run marks *who else* is talking, which is what a
+    /// group is scanned for, and "You" is never the answer to that question.
+    private static func attributedPreview(for chat: ChatItem) -> Text {
+        let glyph: Text =
+            chat.previewAttachmentKind.map { kind in
+                Text(Image(systemName: kind.systemImageName)) + Text(verbatim: " ")
+            } ?? Text(verbatim: "")
+
+        guard let parts = chat.previewAttributionParts else {
+            return glyph + Text(chat.preview)
+        }
+        // The Bold rung is named outright rather than taken with `.bold()`: Manrope ships as three
+        // separate faces, so asking for a bolder version of the row's Medium would synthesize one
+        // rather than reach for the Bold already in the bundle.
+        return Text(verbatim: parts.senderName).wnFont(.bold12)
+            + Text(verbatim: ": ")
+            + glyph
+            + Text(parts.body)
     }
 }
 
@@ -853,6 +892,7 @@ struct ChatRowContent: View {
 struct CollapsedChatRowContent: View {
     let chat: ChatItem
     let isSelected: Bool
+    var isPinned = false
 
     private var rowStatus: ChatRowStatus? { ChatRowStatus.status(for: chat) }
 
@@ -875,6 +915,14 @@ struct CollapsedChatRowContent: View {
             // nothing is clipped.
             badge
                 .offset(x: 3, y: -3)
+        }
+        // The other corner, so the pin never contends with the badge slot above. Moving the pin
+        // onto the avatar is what lets the collapsed row keep it at all — there is no title line
+        // here to put it beside.
+        .overlay(alignment: .bottomTrailing) {
+            if isPinned {
+                ChatAvatarPinBadge()
+            }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 6)
@@ -900,15 +948,15 @@ struct CollapsedChatRowContent: View {
             if chat.hasMention {
                 Image(systemName: "at")
                     .wnFont(.bold10)
-                    .foregroundStyle(WNColor.fillContentInfo)
+                    .foregroundStyle(WNColor.fillContentPrimary)
                     .frame(width: 18, height: 18)
-                    .background(Circle().fill(WNColor.fillInfo))
+                    .background(Circle().fill(WNColor.fillPrimary))
                     .accessibilityLabel(L10n.string("You were mentioned"))
             } else if chat.unreadCount > 0 {
                 UnreadCountBadge(count: chat.unreadCount, textStyle: MessagesType.badge)
             } else {
                 Circle()
-                    .fill(WNColor.fillInfo)
+                    .fill(WNColor.fillPrimary)
                     .frame(width: 9, height: 9)
                     .accessibilityLabel(L10n.string("Marked unread"))
             }
@@ -963,7 +1011,7 @@ private struct ChatTimestampText: View, Equatable {
 }
 
 /// An invitation waiting on an answer, drawn in the row's unread slot as a `+` on the same
-/// `fillInfo` disc the unread count and the mention pill use.
+/// `fillPrimary` disc the unread count and the mention pill use.
 ///
 /// This is the other clients' `ChatStatusType.request`, and sharing the unread badge's shape is
 /// the whole point of it: an invite and an unread message are the same kind of claim on the
@@ -983,9 +1031,9 @@ struct PendingInviteBadge: View {
     var body: some View {
         Image(systemName: "plus")
             .wnFont(.bold10)
-            .foregroundStyle(WNColor.fillContentInfo)
+            .foregroundStyle(WNColor.fillContentPrimary)
             .frame(width: 18, height: 18)
-            .background(Circle().fill(WNColor.fillInfo))
+            .background(Circle().fill(WNColor.fillPrimary))
             .accessibilityLabel(L10n.string("Invite pending"))
             .help(L10n.string("Invite pending"))
     }

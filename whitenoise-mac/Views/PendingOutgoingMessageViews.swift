@@ -135,17 +135,13 @@ private struct PendingOutgoingMessageCaption<Metadata: View>: View {
 
             metadata()
         }
-        .padding(.horizontal, 13)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background {
-            UnevenRoundedRectangle(
-                topLeadingRadius: 20,
-                bottomLeadingRadius: 20,
-                bottomTrailingRadius: 6,
-                topTrailingRadius: 20,
-                style: .continuous
-            )
-            .fill(MessagesPalette.sentBubble)
+            // The bubble's own shape, not a copy of it: the invariant this surface exists for is
+            // that a pending row and the committed message that replaces it are the same shape.
+            MessageBubbleShape()
+                .fill(MessagesPalette.sentBubble)
         }
         .frame(maxWidth: 540, alignment: .trailing)
     }

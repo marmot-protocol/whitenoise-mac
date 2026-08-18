@@ -10734,7 +10734,10 @@ struct whitenoise_macTests {
             source.range(of: "private struct AutomaticMediaDownloadModifier: ViewModifier {")
         )
         let rest = source[modifierStart.upperBound...]
-        let modifierEnd = try #require(rest.range(of: "\n/// The chat-bubble shape:")?.lowerBound)
+        // Anchored on the next declaration rather than on the prose above it, the way the other
+        // source contracts in this suite are: rewording a doc comment must not fail a test about
+        // download lifecycle wiring.
+        let modifierEnd = try #require(rest.range(of: "\nprivate struct BubbleBackground: View {")?.lowerBound)
         let modifierSource = String(source[modifierStart.lowerBound..<modifierEnd])
 
         #expect(modifierSource.contains("@State private var automaticDownloadTask: Task<Void, Never>?"))

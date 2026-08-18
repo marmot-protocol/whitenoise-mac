@@ -1285,6 +1285,61 @@ struct PureValueTests {
         #expect(own.relabelingPreviewSender(accountIdHex: "self", nickname: "Me") == own)
     }
 
+    /// The chat row draws the attributed sender in Bold and the message in its ordinary weight, so
+    /// it needs the composed line handed back in two pieces.
+    ///
+    /// The split is anchored on the tail — everything before `body`'s separator is the name —
+    /// because the name on display may be a nickname that never appears in `previewAttribution`.
+    /// Rebuilding the prefix from `publishedSenderName` instead would set the *published* name in
+    /// Bold while the rest of the line showed the private one.
+    @Test func chatRowSplitsAnAttributedPreviewIntoItsSenderAndBody() async throws {
+        let row = chatRow(groupName: "Planning", sender: aliceIdHex, senderDisplayName: "Alice", plaintext: "On my way")
+        let chat = ChatItem(row: row, activeAccountIdHex: "self")
+
+        let parts = try #require(chat.previewAttributionParts)
+        #expect(parts.senderName == bidiIsolated("Alice"))
+        #expect(parts.body == "On my way")
+        // The two pieces put back together are the line the row would otherwise have drawn whole.
+        #expect(parts.senderName + ChatItem.previewAttributionSeparator + parts.body == chat.preview)
+
+        // A nickname is what the row shows, so it is what the Bold run has to be.
+        let nicknamed = chat.relabelingPreviewSender(accountIdHex: aliceIdHex, nickname: "Mum")
+        #expect(nicknamed.previewAttributionParts?.senderName == bidiIsolated("Mum"))
+
+        // A name carrying the separator itself still splits at the seam, because the body is
+        // matched rather than the prefix.
+        let colonNamed = ChatItem(
+            row: chatRow(groupName: "Planning", sender: aliceIdHex, senderDisplayName: "Alice: PM", plaintext: "Hi"),
+            activeAccountIdHex: "self"
+        )
+        #expect(colonNamed.previewAttributionParts?.senderName == bidiIsolated("Alice: PM"))
+        #expect(colonNamed.previewAttributionParts?.body == "Hi")
+
+        // A body that repeats the separator is not a seam either.
+        let colonBody = ChatItem(
+            row: chatRow(
+                groupName: "Planning", sender: aliceIdHex, senderDisplayName: "Alice", plaintext: "note: read"),
+            activeAccountIdHex: "self"
+        )
+        #expect(colonBody.previewAttributionParts?.senderName == bidiIsolated("Alice"))
+        #expect(colonBody.previewAttributionParts?.body == "note: read")
+
+        // Your own line has no attribution — "You" is not a name to scan a group for — and an
+        // unattributed line has nothing to set apart, so both stay one plain run.
+        let own = ChatItem(
+            row: chatRow(groupName: "Planning", sender: "self", senderDisplayName: "You", plaintext: "Hi"),
+            activeAccountIdHex: "self"
+        )
+        #expect(own.previewAttributionParts == nil)
+
+        let anonymous = ChatItem(
+            row: chatRow(groupName: "Planning", sender: aliceIdHex, senderDisplayName: nil, plaintext: "Hi"),
+            activeAccountIdHex: "self"
+        )
+        #expect(anonymous.preview == "Hi")
+        #expect(anonymous.previewAttributionParts == nil)
+    }
+
     /// A conversation the user named keeps that name even when it has exactly one other member.
     ///
     /// The roster of a two-person group resolves a direct peer, and that peer's profile used to win
