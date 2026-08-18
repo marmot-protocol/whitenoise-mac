@@ -209,7 +209,35 @@ nonisolated struct ChatItem: Identifiable, Hashable {
     /// carries no nickname has nothing to put here.
     nonisolated static func attributedPreviewText(body: String, senderName: String?) -> String {
         guard let senderName, !senderName.isEmpty else { return body }
-        return "\(PeerDisplayText.templateFragment(senderName)): \(body)"
+        return
+            "\(PeerDisplayText.templateFragment(senderName))\(previewAttributionSeparator)\(body)"
+    }
+
+    /// The separator `attributedPreviewText` joins a sender's name to their message with, and the
+    /// seam `previewAttributionParts` splits the line back apart on.
+    nonisolated static let previewAttributionSeparator = ": "
+
+    /// `preview` split back into the sender's displayed name and their message, or `nil` when this
+    /// row's line carries no attribution.
+    ///
+    /// The chat row sets the name in Bold and leaves the message in the row's ordinary weight, so
+    /// it needs the two apart. It cannot rebuild the prefix from `previewAttribution`, whose
+    /// `publishedSenderName` is the *published* name — a private nickname would have replaced it in
+    /// `preview` through `relabelingPreviewSender`, and the row must show what the line actually
+    /// says. So the split is anchored on the tail instead: `previewAttribution.body` is the message
+    /// verbatim, which makes everything before its separator the name, however many colons the name
+    /// itself contains.
+    ///
+    /// The name keeps the bidi isolation `attributedPreviewText` wrapped it in — a peer-controlled
+    /// display name must not be able to reorder the message text after it, and that holds just as
+    /// much when the name is drawn as its own run.
+    nonisolated var previewAttributionParts: (senderName: String, body: String)? {
+        guard let previewAttribution else { return nil }
+        let separated = Self.previewAttributionSeparator + previewAttribution.body
+        guard preview.hasSuffix(separated) else { return nil }
+        let senderName = String(preview.dropLast(separated.count))
+        guard !senderName.isEmpty else { return nil }
+        return (senderName, previewAttribution.body)
     }
 
     /// A copy whose last-message attribution reflects `nickname`, or `self` when this row's

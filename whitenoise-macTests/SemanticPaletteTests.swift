@@ -93,15 +93,13 @@ struct SemanticPaletteTests {
             ("fillSecondaryHover", WNNSColor.fillSecondaryHover, WNNSColor.fillContentSecondary, 4.5),
             ("fillSecondary/tertiary", WNNSColor.fillSecondary, WNNSColor.fillContentTertiary, 2.0),
             ("fillDestructive", WNNSColor.fillDestructive, WNNSColor.fillContentQuaternary, 4.5),
-            // The unread badge. Held to the large-text bar rather than the body-text one, and this
-            // is the one place in the table where that is a real concession: white on `blue600`
-            // measures 5.17 in Aqua, but white on the brighter `blue500` measures 3.68 in Dark
-            // Aqua. The dark step is the brighter one on purpose — it is what separates the pill
-            // from the near-black row, which `fillInfo/onSecondary` below asserts — and the content
-            // it carries is a bold two-glyph numeral in a capsule, never running text. Going the
-            // other way (`blue600` in dark) would buy 4.5 here and spend it on a pill that recedes
-            // into the row, which is the complaint this token was added to fix.
-            ("fillInfo", WNNSColor.fillInfo, WNNSColor.fillContentInfo, 3.0),
+            // The reaction chip's two states. It is drawn on a bubble rather than on the app
+            // surface, so its resting fill comes from the `background*` family and its selected
+            // fill from `fill*` — the pill is a surface at rest and a pressed control when it
+            // carries your own reaction. `reactionChipStaysLegibleOnBothBubbles` covers what this
+            // table cannot: the pill against the two bubbles underneath it.
+            ("reactionChip/resting", WNNSColor.backgroundPrimary, WNNSColor.backgroundContentPrimary, 4.5),
+            ("reactionChip/selected", WNNSColor.fillSecondaryActive, WNNSColor.fillContentSecondary, 4.5),
             ("fillDisabled", WNNSColor.fillDisabled, WNNSColor.fillContentDisabled, 1.4),
             // The intentions are background/content pairs like any other, and the app draws them
             // as pairs — an intention's content on its own wash, the way the other clients style
@@ -119,11 +117,17 @@ struct SemanticPaletteTests {
             // from them too — a badge whose capsule matches the row behind it is not a badge.
             ("intentionInfo/onPrimary", WNNSColor.backgroundPrimary, WNNSColor.intentionInfoContent, 4.5),
             // The unread pill against the surfaces it is actually drawn on: the chat-list row
-            // (`backgroundSecondary`) and the account rail (`backgroundTertiary`). A badge whose
-            // capsule matches the row behind it is not a badge — this is the half of the pair that
-            // `fillInfo`'s lowered text bar is buying.
-            ("fillInfo/onSecondary", WNNSColor.backgroundSecondary, WNNSColor.fillInfo, 4.5),
-            ("fillInfo/onTertiary", WNNSColor.backgroundTertiary, WNNSColor.fillInfo, 4.5),
+            // (`backgroundSecondary`), the account rail (`backgroundTertiary`) and the selected row
+            // (`fillTertiaryHover`). A badge whose capsule matches the row behind it is not a badge.
+            //
+            // The badge is `fillPrimary` now rather than the blue `fillInfo` it used to be — the
+            // prototype and the Flutter client both draw every unread signal in the one inverted
+            // accent. That token was only ever the unread badge's, and it went with it; the numbers
+            // here are the argument that nothing was lost, since an inverted fill clears all three
+            // surfaces by a wider margin than the blue did.
+            ("fillPrimary/onSecondary", WNNSColor.backgroundSecondary, WNNSColor.fillPrimary, 4.5),
+            ("fillPrimary/onTertiary", WNNSColor.backgroundTertiary, WNNSColor.fillPrimary, 4.5),
+            ("fillPrimary/onSelectedRow", WNNSColor.fillTertiaryHover, WNNSColor.fillPrimary, 4.5),
             // The scrim over media, and the chrome drawn on it.
             ("overlayTertiary", WNNSColor.overlayTertiary, WNNSColor.fillContentQuaternary, 4.5),
         ]
@@ -214,41 +218,27 @@ struct SemanticPaletteTests {
         }
     }
 
-    /// The unread badge's whole job is to not look like the rest of the chrome, so the property
-    /// worth asserting is not its contrast but that it is a *hue* — `fillPrimary`, the token it
-    /// used to take, is a neutral that inverts with the surface, which is why a badge drawn in it
-    /// read as another piece of chrome rather than as an unread count.
-    @Test func theUnreadFillIsAHueRatherThanTheNeutralPrimaryFill() throws {
-        for appearance in try Self.appearances() {
-            let info = try #require(
-                Self.resolvedComponents(WNNSColor.fillInfo, in: appearance))
-            let primary = try Self.resolvedHex(WNNSColor.fillPrimary, in: appearance)
-            let unread = try Self.resolvedHex(WNNSColor.fillInfo, in: appearance)
+    /// The unread count, the mention pill, the manual-unread dot and the pending-invite `+` are all
+    /// one fill, and that fill is the inverted `fillPrimary` — the prototype's single accent, and
+    /// the Flutter client's.
+    ///
+    /// They used to be a blue `fillInfo`, a token that existed for them alone and was deleted with
+    /// the decision. What that token bought was separation from the near-black row it sits on; an
+    /// inverted neutral buys more of it (the `fillPrimary/onSecondary` rows in
+    /// `semanticPairsStayLegibleInBothAppearances` measure it), so the property left to pin here is
+    /// that the fill genuinely *crosses over* with the appearance. A badge frozen at one end — the
+    /// mistake a literal `.black` would make — would pass every contrast row in one appearance and
+    /// disappear in the other.
+    @Test func everyUnreadSignalTakesTheInvertedPrimaryFill() throws {
+        let fills = try Self.appearances().map { try Self.resolvedHex(WNNSColor.fillPrimary, in: $0) }
+        #expect(fills == ["0A0A0A", "FFFFFF"], "fillPrimary should invert between the appearances")
 
-            #expect(
-                info.blue > info.red && info.blue > info.green,
-                """
-                fillInfo resolves to \(unread) in \(appearance.name.rawValue), which is not a \
-                blue — a neutral here is the regression this token exists to prevent
-                """
-            )
-            #expect(
-                unread != primary,
-                "fillInfo collapsed onto fillPrimary (\(primary)) in \(appearance.name.rawValue)")
+        let contents = try Self.appearances().map {
+            try Self.resolvedHex(WNNSColor.fillContentPrimary, in: $0)
         }
-
-        // Brighter in dark than in light, the way the palette's other blues run. Flattening the two
-        // steps to one value would still pass every assertion above while giving up the separation
-        // from the near-black row that the dark step is chosen for.
-        let steps = try Self.appearances().map { try Self.resolvedHex(WNNSColor.fillInfo, in: $0) }
-        #expect(steps == ["2563EB", "3B82F6"], "fillInfo should be blue600 in Aqua, blue500 in Dark Aqua")
-
-        // The content on it does *not* cross over — unlike `fillContentPrimary`, which is the
-        // reason that pair cannot be reused here.
-        let content = try Self.appearances().map {
-            try Self.resolvedHex(WNNSColor.fillContentInfo, in: $0)
-        }
-        #expect(content == ["FFFFFF", "FFFFFF"])
+        #expect(
+            contents == ["FFFFFF", "0A0A0A"],
+            "fillContentPrimary should cross over with the fill it is drawn on")
     }
 
     // MARK: - Accents
@@ -270,10 +260,10 @@ struct SemanticPaletteTests {
         }
     }
 
-    /// A mention is one color for everybody — the blue the unread badge and the pending-invite `+`
-    /// already carry — so the first half of this pins the two together. They are separate tokens
-    /// (`intentionInfoContent` and `fillInfo`) that happen to resolve alike, and a tag that
-    /// quietly stopped matching the badge is the regression worth catching.
+    /// A mention is one color for everybody — the app's single blue, shared with a link and a
+    /// search hit — so the first half of this pins its two steps. Blue is now confined to text:
+    /// the badges that used to carry it are `fillPrimary`, and a blue that stopped stepping
+    /// brighter in dark is the regression worth catching.
     ///
     /// The second half is what a per-person accent used to buy: a mention lands on the sent
     /// bubble, the received bubble and the composer without knowing which, and both bubble fills
@@ -282,24 +272,21 @@ struct SemanticPaletteTests {
     /// `500` in Dark Aqua, where it is white. The floor is 3:1, the WCAG threshold for the bold
     /// weight a mention is always drawn at; pinning the token to a single step fails it (`blue600`
     /// everywhere lands at 2.93 on the dark received bubble).
-    @Test func mentionColorIsTheUnreadBlueAndClearsEverySurfaceItLandsOn() throws {
+    @Test func mentionColorIsTheAppsOneBlueAndClearsEverySurfaceItLandsOn() throws {
         let surfaces = [
             ("sent bubble", WNNSColor.fillPrimary),
             ("received bubble", WNNSColor.backgroundMessageIncoming),
             ("composer", WNNSColor.backgroundPrimary),
         ]
 
-        for appearance in try Self.appearances() {
-            let mention = try Self.resolvedHex(MentionTextPalette.nsForeground, in: appearance)
-            let badge = try Self.resolvedHex(WNNSColor.fillInfo, in: appearance)
-            #expect(
-                mention == badge,
-                """
-                the mention color (\(mention)) and the unread badge (\(badge)) have drifted \
-                apart in \(appearance.name.rawValue)
-                """
-            )
+        let steps = try Self.appearances().map {
+            try Self.resolvedHex(MentionTextPalette.nsForeground, in: $0)
+        }
+        #expect(
+            steps == ["2563EB", "3B82F6"],
+            "the mention blue should be blue600 in Aqua and the brighter blue500 in Dark Aqua")
 
+        for appearance in try Self.appearances() {
             for (surfaceName, surface) in surfaces {
                 let ratio = try Self.contrast(surface, MentionTextPalette.nsForeground, in: appearance)
                 #expect(
@@ -312,27 +299,41 @@ struct SemanticPaletteTests {
 
     // MARK: - Reactions
 
-    /// The two reaction sets cross over between appearances, because in both the crossed
-    /// cases the chip is sitting on a dark bubble. A set that stopped crossing would read as
-    /// a chip that vanishes into one of the two bubbles.
-    @Test func reactionSetsPairEachStateWithItsContent() throws {
-        let states: [(String, KeyPath<WNReactionColorSet, NSColor>, KeyPath<WNReactionColorSet, NSColor>)] = [
-            ("rest", \.nsFill, \.nsContent),
-            ("hover", \.nsFillHover, \.nsContent),
-            ("selected", \.nsFillSelected, \.nsContentSelected),
+    /// A reaction chip hangs off a bubble's bottom edge, so it is drawn on `fillPrimary` or on
+    /// `backgroundMessageIncoming` — fills that run in opposite directions. One pill now serves
+    /// both, which is only sound because the pill's *fill* and its *border* take turns: whichever
+    /// one the bubble happens to match, the other still draws the shape.
+    ///
+    /// This replaced `WNReactionColors`, a direction-keyed set whose dark incoming fill was
+    /// `neutral800` — `backgroundMessageIncoming` exactly — so a chip on a received bubble in Dark
+    /// Aqua was drawn in the bubble's own color *and* outlined in it, for a flat 1.0. That is the
+    /// case this asserts cannot come back.
+    ///
+    /// The floor is low on purpose. A resting chip on the received bubble is *meant* to be quiet —
+    /// it should read as an emoji, not as a button — and in Aqua that is where the pill is faintest:
+    /// white on `neutral100` measures 1.09, its hairline 1.16. Everything else is far clear of the
+    /// bar (the sent bubble is the pill's inverse, around 20:1). So the bar is set where it catches
+    /// a genuine collapse without claiming a contrast the design does not want.
+    @Test func reactionChipStaysLegibleOnBothBubbles() throws {
+        let bubbles = [
+            ("sent", WNNSColor.fillPrimary),
+            ("received", WNNSColor.backgroundMessageIncoming),
+        ]
+        let states = [
+            ("resting", WNNSColor.backgroundPrimary, WNNSColor.borderTertiary),
+            ("own", WNNSColor.fillSecondaryActive, WNNSColor.borderPrimary),
         ]
 
         for appearance in try Self.appearances() {
-            for isOutgoing in [true, false] {
-                let set = WNReactionColors.set(isOutgoing: isOutgoing)
-                for (stateName, fill, content) in states {
-                    let ratio = try Self.contrast(
-                        set[keyPath: fill], set[keyPath: content], in: appearance)
+            for (bubbleName, bubble) in bubbles {
+                for (stateName, pill, border) in states {
+                    let fillRatio = try Self.contrast(bubble, pill, in: appearance)
+                    let borderRatio = try Self.contrast(bubble, border, in: appearance)
                     #expect(
-                        ratio >= 3.0,
+                        max(fillRatio, borderRatio) >= 1.1,
                         """
-                        reaction \(isOutgoing ? "outgoing" : "incoming").\(stateName) contrast \
-                        \(ratio) in \(appearance.name.rawValue)
+                        the \(stateName) reaction chip is invisible on the \(bubbleName) bubble in \
+                        \(appearance.name.rawValue): fill \(fillRatio), border \(borderRatio)
                         """
                     )
                 }
@@ -340,27 +341,34 @@ struct SemanticPaletteTests {
         }
     }
 
-    /// Adding your own reaction has to *read* as a state change, which is the one thing a chip's
-    /// fill is load-bearing for.
+    /// Adding your own reaction has to *read* as a state change.
     ///
-    /// Deliberately not asserted against the bubble or the surface behind the chip: the other
-    /// clients let a resting chip's fill match the surface outright — light `incoming` is plain
-    /// white on a white surface — because a resting reaction is meant to read as an emoji rather
-    /// than as a button. The emoji and its count carry it, and `reactionSetsPairEachStateWithItsContent`
-    /// is what guards those.
-    @Test func selectingAReactionChangesItsFillVisibly() throws {
+    /// The chip carries it on the border rather than the fill, which is the opposite of what the
+    /// old direction-keyed set did: `backgroundPrimary` → `fillSecondaryActive` is one neutral rung,
+    /// around 1.2:1, so the assertion that matters is on the outline swap. The fill still has to
+    /// move — a border-only change on an unchanged pill reads as a rendering artifact — but it is
+    /// held to "visibly different" rather than to a text bar it could never clear.
+    @Test func selectingAReactionChangesTheChipsOutlineVisibly() throws {
         for appearance in try Self.appearances() {
-            for isOutgoing in [true, false] {
-                let set = WNReactionColors.set(isOutgoing: isOutgoing)
-                let ratio = try Self.contrast(set.nsFill, set.nsFillSelected, in: appearance)
-                #expect(
-                    ratio >= 4.5,
-                    """
-                    reaction \(isOutgoing ? "outgoing" : "incoming"): selected fill is only \
-                    \(ratio) from the resting fill in \(appearance.name.rawValue)
-                    """
-                )
-            }
+            let outline = try Self.contrast(
+                WNNSColor.borderTertiary, WNNSColor.borderPrimary, in: appearance)
+            #expect(
+                outline >= 4.5,
+                """
+                the own-reaction outline is only \(outline) from the resting hairline in \
+                \(appearance.name.rawValue)
+                """
+            )
+
+            let fill = try Self.contrast(
+                WNNSColor.backgroundPrimary, WNNSColor.fillSecondaryActive, in: appearance)
+            #expect(
+                fill >= 1.15,
+                """
+                the own-reaction fill is only \(fill) from the resting fill in \
+                \(appearance.name.rawValue)
+                """
+            )
         }
     }
 
@@ -494,20 +502,6 @@ struct SemanticPaletteTests {
             resolved = color.usingColorSpace(.sRGB)
         }
         return hexString(of: try #require(resolved))
-    }
-
-    /// The sRGB channels a token resolves to under `appearance`, for asserting on a token's hue
-    /// rather than on its contrast against something else.
-    private static func resolvedComponents(
-        _ color: NSColor,
-        in appearance: NSAppearance
-    ) -> (red: CGFloat, green: CGFloat, blue: CGFloat)? {
-        var resolved: NSColor?
-        appearance.performAsCurrentDrawingAppearance {
-            resolved = color.usingColorSpace(.sRGB)
-        }
-        guard let resolved else { return nil }
-        return (resolved.redComponent, resolved.greenComponent, resolved.blueComponent)
     }
 
     private static func relativeLuminance(of color: NSColor) -> Double {

@@ -208,6 +208,10 @@ struct MessageBubble: View {
     let onOpenImageGallery: (MessageImageGalleryPresentation) -> Void
     let onNavigateToMessage: (String) -> Void
 
+    /// Gap between the row's stacked parts — sender name, media, bubble, reactions. Named because
+    /// the reaction chips' negative top padding has to cancel it before it can overlap the bubble.
+    private static let contentSpacing: CGFloat = 6
+
     var body: some View {
         // Alignment is done with a fill-frame + opposite-side padding rather than the old
         // `HStack { Spacer(minLength: 72); … }`. Two flexible `Spacer`s plus the nested
@@ -216,7 +220,7 @@ struct MessageBubble: View {
         // of those per row while resolving the bottom scroll anchor. Frame-alignment is a
         // single deterministic pass with the same result: bubble pinned to its side, ≥72pt
         // gutter opposite. See whitenoise-mac#205 (scroll-layout hangs).
-        VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 6) {
+        VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: Self.contentSpacing) {
             if !message.isOutgoing {
                 if showsSenderContactLink {
                     Button {
@@ -267,14 +271,19 @@ struct MessageBubble: View {
             }
 
             if message.supportsChatActions && !message.reactions.isEmpty {
-                MessageReactionChips(reactions: message.reactions, isOutgoing: message.isOutgoing) { emoji in
+                MessageReactionChips(reactions: message.reactions) { emoji in
                     reactionViewerEmoji = emoji
                     isReactionViewerPresented = true
                 }
                 // Hang the chips on the bubble's bottom edge (a slight upward overlap) instead of
                 // floating as a detached row, matching the sibling clients' bubble-bound reactions.
+                // The overlap comes from the chip so the pill's height and how much of it rides on
+                // the bubble stay one decision.
                 .padding(.horizontal, 10)
-                .padding(.top, usesStickerStyle ? 0 : -10)
+                .padding(
+                    .top,
+                    usesStickerStyle ? 0 : -(Self.contentSpacing + MessageReactionChips.bubbleOverlap)
+                )
                 .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
                     MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
                 }
@@ -518,7 +527,7 @@ struct MessageBubble: View {
                 compactMetadata
             }
         }
-        .padding(.horizontal, 13)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background { BubbleBackground(isOutgoing: message.isOutgoing) }
         // Attach controls before the positioning frame so short messages use the visible
@@ -766,8 +775,8 @@ private struct AutomaticMediaDownloadModifier: ViewModifier {
     }
 }
 
-/// The chat-bubble shape: a rounded rectangle with the trailing/leading bottom corner
-/// tucked in on the sender's side.
+/// The chat bubble's fill, in `MessageBubbleShape` — symmetric, and a capsule once the message is
+/// short enough that half its height is the smaller radius.
 ///
 /// Both fills are opaque palette tokens — `fillPrimary` for sent, `backgroundMessageIncoming` for
 /// received — and neither carries a stroke, matching the other clients. The received bubble used to
@@ -777,14 +786,8 @@ private struct BubbleBackground: View {
     let isOutgoing: Bool
 
     var body: some View {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 20,
-            bottomLeadingRadius: isOutgoing ? 20 : 6,
-            bottomTrailingRadius: isOutgoing ? 6 : 20,
-            topTrailingRadius: 20,
-            style: .continuous
-        )
-        .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
+        MessageBubbleShape()
+            .fill(MessagesPalette.bubbleFill(isOutgoing: isOutgoing))
     }
 }
 

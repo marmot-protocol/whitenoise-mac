@@ -314,10 +314,10 @@ nonisolated enum AttachmentRowPalette {
 /// How an `@mention` is set off from the text around it: **bold, in the app's one blue**, with no
 /// background chip and no decoration.
 ///
-/// The color is `intentionInfoContent`, which resolves to the same `blue600`/`blue500` pair the
-/// unread count badge and the pending-invite `+` are drawn in, so every tag in the app carries the
-/// same signal. It replaced the mentioned person's own accent — the `500` step of their avatar ramp
-/// — which drew a tag in amber or orange often enough to read as a warning rather than as a name.
+/// The color is `intentionInfoContent`, the same `blue600`/`blue500` pair a link and a search-hit
+/// highlight take, so every run of text in the app that points somewhere carries one signal. It
+/// replaced the mentioned person's own accent — the `500` step of their avatar ramp — which drew a
+/// tag in amber or orange often enough to read as a warning rather than as a name.
 ///
 /// One color for every mention also settles the case a per-person accent could not: an `nprofile`
 /// is TLV-encoded rather than a bare key, so no accent could be derived from it and such a mention
@@ -331,8 +331,9 @@ nonisolated enum AttachmentRowPalette {
 /// `blue600` everywhere to 2.93 on the dark one.
 ///
 /// A deliberate divergence from the other clients, which still draw a mention in the mentioned
-/// person's `contentSecondary`; it follows the same divergence `fillInfo` already carries, so the
-/// unread badge and the tag stay one signal on this platform.
+/// person's `contentSecondary`. Blue is now the app's only non-neutral signal, and it is confined
+/// to text — links, mentions, search hits. The badges that used to share it (the unread count, the
+/// mention pill, the pending invite) are `fillPrimary` like the prototype's.
 ///
 /// `nonisolated` because a message's attributed string is built off-main while mapping a timeline
 /// window (whitenoise-mac#285), so this must be reachable from outside the main actor.
@@ -694,6 +695,10 @@ struct GlassCardModifier: ViewModifier {
 }
 
 struct GlassCapsuleBackground: View {
+    /// The pill's surface. Defaults to the secondary fill, which is what a day header or a system
+    /// notice sits on; a reaction chip overrides it because it is drawn *on a bubble* rather than
+    /// on the app surface, and `fillSecondary` is the received bubble's own value.
+    var fill: Color = WNColor.fillSecondary
     var borderColor: Color?
 
     var body: some View {
@@ -706,11 +711,63 @@ struct GlassCapsuleBackground: View {
         // the token the other clients put behind a pill, where `.quaternary` was the system's
         // hierarchical gray and belonged to no palette.
         Capsule(style: .continuous)
-            .fill(WNColor.fillSecondary)
+            .fill(fill)
             .overlay {
                 Capsule(style: .continuous)
                     .stroke(borderColor ?? WNColor.borderTertiary, lineWidth: 1)
             }
+    }
+}
+
+/// The chat bubble's silhouette: one continuous radius on all four corners, clamped to half the
+/// bubble's height so a short message resolves to a capsule.
+///
+/// This replaced an `UnevenRoundedRectangle` that tucked the sender's bottom corner in to 6pt —
+/// a tail. The iOS prototype draws no tail: both bubbles are the same symmetric shape and the
+/// side they are pinned to is what says who sent them. Clamping is why the shape is a `Shape`
+/// rather than a rounded rectangle at a fixed radius — the radius depends on the rect, and a
+/// one-line bubble is exactly the case the clamp is for.
+struct MessageBubbleShape: Shape {
+    /// The resting radius, for content tall enough to take it.
+    static let cornerRadius: CGFloat = 18
+
+    func path(in rect: CGRect) -> Path {
+        RoundedRectangle(
+            cornerRadius: min(rect.height / 2, Self.cornerRadius),
+            style: .continuous
+        )
+        .path(in: rect)
+    }
+}
+
+/// The pin marker on a pinned chat's avatar: the glyph on a `backgroundPrimary` disc inside a
+/// `borderTertiary` hairline, nudged onto the avatar's bottom-trailing corner.
+///
+/// It sits on the avatar rather than beside the title — the prototype's placement — for two
+/// reasons. The title line is where a chat's *name* competes with its timestamp and its status
+/// capsules, and pinning is the one row state that is true of the whole row rather than of its
+/// last message; and the avatar corner is a slot the collapsed row already uses, so the same mark
+/// survives the drawer narrowing to avatars.
+///
+/// The disc is opaque `backgroundPrimary` rather than a wash because it is drawn over an avatar
+/// whose fill is an accent ramp step — a translucent mark would take that accent's hue and stop
+/// reading as chrome.
+struct ChatAvatarPinBadge: View {
+    var body: some View {
+        Image(systemName: "pin.fill")
+            .wnFont(.semiBold10)
+            .foregroundStyle(WNColor.backgroundContentPrimary)
+            .padding(3)
+            .background {
+                Circle()
+                    .fill(WNColor.backgroundPrimary)
+                    .overlay {
+                        Circle()
+                            .strokeBorder(WNColor.borderTertiary, lineWidth: 1)
+                    }
+            }
+            .offset(x: 2, y: 2)
+            .accessibilityLabel(L10n.string("Pinned"))
     }
 }
 
