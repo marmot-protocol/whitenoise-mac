@@ -16,9 +16,19 @@ final class WorkspaceState {
         case failed(String)
     }
 
+    /// Which onboarding screen the signed-out pane is showing.
+    ///
+    /// The three cases are the iOS prototype's three onboarding destinations — its Welcome
+    /// screen and the two sheets it presents from there. They are one flat enum rather than a
+    /// `NavigationStack` path because the mac app has no stack here: onboarding *is* the detail
+    /// pane, and it swaps its whole contents.
     enum AuthenticationMode: Equatable {
+        /// The welcome screen: the mark, and the two ways in.
         case landing
+        /// Entering an existing `nsec1…` / `npub1…`.
         case login
+        /// Naming a brand-new identity before creating it.
+        case signUp
     }
 
     /// Which authentication path is in flight, so only that path's button shows progress
@@ -295,6 +305,10 @@ final class WorkspaceState {
     var inFlightDeleteMessageIds = Set<String>()
     var authenticationMode: AuthenticationMode = .landing
     var loginIdentity = ""
+    /// The name and bio typed on the sign-up screen. Published straight after the identity is
+    /// created, and reset on every entry to that screen so a cancelled sign-up leaves nothing
+    /// behind for the next one to inherit.
+    var signUpDraft = SignUpDraft()
     var authenticationActivity: AuthenticationActivity?
     /// Any authentication in flight, whichever path it is. Controls used by *both* paths
     /// (the nsec field, Cancel, the account switcher) disable on this; a button that owns

@@ -108,108 +108,6 @@ private struct BackgroundStatusBanner: View {
     }
 }
 
-private struct WelcomeAuthView: View {
-    @Environment(WorkspaceState.self) private var workspace
-
-    var body: some View {
-        @Bindable var workspace = workspace
-
-        VStack(spacing: 22) {
-            Spacer(minLength: 32)
-
-            Image("WhiteNoiseLogo")
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 104, height: 104)
-                .shadow(color: WNColor.shadow.opacity(0.1), radius: 18, y: 10)
-
-            // Standard primary/secondary pattern: hierarchy comes from the button style,
-            // and the system owns the label/fill colors (adapts to accent, contrast, and
-            // light/dark) — we don't hard-code them.
-            VStack(spacing: 12) {
-                Button {
-                    Task { await workspace.signUp() }
-                } label: {
-                    Text(
-                        workspace.authenticationActivity == .signUp
-                            ? L10n.string("Creating...")
-                            : L10n.string("Create New Identity")
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .controlSize(.extraLarge)
-                .buttonBorderShape(.capsule)
-                .nativeGlassProminentButtonStyle()
-                .disabled(workspace.isAuthenticating)
-
-                Button {
-                    workspace.showLogin()
-                } label: {
-                    Text(L10n.string("Log in with Key"))
-                        .frame(maxWidth: .infinity)
-                }
-                .controlSize(.extraLarge)
-                .buttonStyle(.plain)
-                .disabled(workspace.isAuthenticating)
-            }
-            .frame(width: 280)
-
-            if workspace.authenticationMode == .login {
-                VStack(spacing: 12) {
-                    SecureField(L10n.string("nsec1..."), text: $workspace.loginIdentity)
-                        .textFieldStyle(.plain)
-                        .frame(width: 360)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .glassCard()
-                        .disabled(workspace.isAuthenticating)
-
-                    HStack(spacing: 10) {
-                        Button(L10n.string("Cancel")) {
-                            workspace.cancelLogin()
-                        }
-                        .buttonStyle(.wnSecondary)
-                        .disabled(workspace.isAuthenticating)
-
-                        Button(
-                            workspace.authenticationActivity == .login
-                                ? L10n.string("Logging in...")
-                                : L10n.string("Log in")
-                        ) {
-                            Task { await workspace.login() }
-                        }
-                        .nativeGlassProminentButtonStyle()
-                        .disabled(
-                            workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                || workspace.isAuthenticating)
-                    }
-                }
-                .padding(.top, 4)
-            }
-
-            if let lastError = workspace.lastError {
-                Text(lastError)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentDestructive)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 460)
-                    .padding(.top, 2)
-            }
-
-            Spacer(minLength: 32)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            // `backgroundPrimary`, as on the other clients' sign-in screen. It used to be a fixed
-            // #202020 chosen to bleed into the logo tile, which made this the one pane in the app
-            // whose surface belonged to no palette and did not follow the appearance at all. The
-            // logo now reads as the app icon it is, sitting on the app's own surface.
-            MessagesTranscriptBackground()
-        }
-    }
-}
-
 private struct DetailPaneView: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -217,11 +115,11 @@ private struct DetailPaneView: View {
         Group {
             switch workspace.phase {
             case .bootstrapping:
-                StartupView()
+                SplashScreen()
             case .onboarding:
-                WelcomeAuthView()
+                OnboardingPaneView()
             case .failed(let message):
-                FailureView(message: message)
+                StartupFailureView(message: message)
             case .ready:
                 if workspace.activeAccount == nil {
                     SignedOutAccountsView()
@@ -244,6 +142,11 @@ private struct DetailPaneView: View {
     }
 }
 
+/// Every account on this Mac is signed out. Pick one to sign back into, or add another.
+///
+/// Built on the onboarding components rather than on its own layout: it is reached by signing
+/// out, so it is the screen *between* the app and the welcome screen, and the mark, the column
+/// width and the bottom action should be the ones the user is about to see again.
 private struct SignedOutAccountsView: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -252,70 +155,82 @@ private struct SignedOutAccountsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image("WhiteNoiseLogo")
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 80, height: 80)
+        OnboardingScaffold {
+            VStack(spacing: OnboardingMetrics.sectionSpacing) {
+                OnboardingBrandMark(size: OnboardingMetrics.compactMarkSize)
 
-            VStack(spacing: 5) {
-                Text(L10n.string("Choose an account"))
-                    .wnFont(.semiBold18)
-                Text(L10n.string("Sign in to continue with an account stored on this Mac."))
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
+                VStack(spacing: OnboardingMetrics.stackSpacing) {
+                    Text(L10n.string("Choose an account"))
+                        .wnFont(.semiBold18)
+                        .foregroundStyle(WNColor.backgroundContentPrimary)
 
-            VStack(spacing: 10) {
-                ForEach(signedOutAccounts) { account in
-                    Button {
-                        Task { await workspace.signInAccount(account) }
-                    } label: {
-                        HStack(spacing: 12) {
-                            ProfileImageAvatarView(
-                                seed: account.accountIdHex,
-                                initials: account.initials,
-                                sanitizedPictureURL: account.sanitizedPictureURL,
-                                size: 40,
-                                isSelected: false
-                            )
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(account.displayName)
-                                    .wnFont(.semiBold14)
-                                Text(DisplayText.short(account.npub ?? account.accountIdHex))
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                            }
-                            Spacer(minLength: 20)
-                            Text(L10n.string("Sign In"))
-                                .wnFont(.semiBold12)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    Text(L10n.string("Sign in to continue with an account stored on this Mac."))
+                        .wnFont(.medium12)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                VStack(spacing: 10) {
+                    ForEach(signedOutAccounts) { account in
+                        SignedOutAccountRow(account: account)
                     }
-                    .buttonStyle(.plain)
-                    .glassCard(cornerRadius: 12)
-                    .disabled(workspace.isSigningOutAccount)
                 }
             }
-            .frame(maxWidth: 440)
+        } actions: {
+            VStack(spacing: 12) {
+                OnboardingActionButton(
+                    title: L10n.string("Use another account"),
+                    tier: .secondary
+                ) {
+                    workspace.showAccountOnboarding()
+                }
+                .disabled(workspace.isSigningOutAccount)
 
-            Button(L10n.string("Use another account")) {
-                workspace.showAccountOnboarding()
-            }
-            .buttonStyle(.wnSecondary)
-            .disabled(workspace.isSigningOutAccount)
-
-            if let lastError = workspace.lastError {
-                Text(lastError)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentDestructive)
-                    .multilineTextAlignment(.center)
+                OnboardingErrorMessage(message: workspace.lastError)
             }
         }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// One stored, signed-out account, as a card that signs it back in.
+private struct SignedOutAccountRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    let account: AccountItem
+
+    var body: some View {
+        Button {
+            Task { await workspace.signInAccount(account) }
+        } label: {
+            HStack(spacing: 12) {
+                ProfileImageAvatarView(
+                    seed: account.accountIdHex,
+                    initials: account.initials,
+                    sanitizedPictureURL: account.sanitizedPictureURL,
+                    size: 40,
+                    isSelected: false
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.displayName)
+                        .wnFont(.semiBold14)
+                    Text(DisplayText.short(account.npub ?? account.accountIdHex))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+                }
+
+                Spacer(minLength: 20)
+
+                Text(L10n.string("Sign In"))
+                    .wnFont(.semiBold12)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .glassCard(cornerRadius: 12)
+        .disabled(workspace.isSigningOutAccount)
     }
 }
 
@@ -1053,18 +968,6 @@ private struct ConversationView: View {
     }
 }
 
-private struct StartupView: View {
-    var body: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text(L10n.string("Starting Marmot"))
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 private struct GroupDetailsPane: View {
     let chat: ChatItem
 
@@ -1095,42 +998,75 @@ private struct ContactDetailsPane: View {
     }
 }
 
-private struct FailureView: View {
+/// Bootstrap could not complete. The message is the core's, so it stands in for the
+/// description a `WNEmptyState` would otherwise supply.
+private struct StartupFailureView: View {
     let message: String
 
     var body: some View {
-        ContentUnavailableView {
-            Label(L10n.string("Startup failed"), systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
+        WNEmptyState(
+            title: L10n.string("Startup failed"),
+            systemImage: "exclamationmark.triangle",
+            description: message
+        )
+        .background {
+            MessagesTranscriptBackground()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
+/// The chat drawer with nothing in it.
+///
+/// No action button, unlike the detail pane's equivalent: the drawer is 250–300pt wide and the
+/// toolbar directly above it already carries the new-chat control. A second one inside the pane
+/// would be the same button twice, an inch apart, in the narrowest column in the app.
 struct EmptyDrawerState: View {
     var body: some View {
-        ContentUnavailableView("No chats", systemImage: "bubble.left.and.bubble.right")
-            .padding()
+        WNEmptyState(
+            title: L10n.string("No chats yet"),
+            systemImage: "bubble.left.and.bubble.right",
+            description: L10n.string("Start a conversation by inviting someone with their npub.")
+        )
+        .padding()
     }
 }
 
 private struct EmptyConversationView: View {
     var body: some View {
-        ContentUnavailableView("No messages", systemImage: "text.bubble")
-            .frame(maxWidth: .infinity, minHeight: 360)
+        WNEmptyState(
+            title: L10n.string("No messages yet"),
+            systemImage: "text.bubble",
+            description: L10n.string("Say hello to get this conversation started.")
+        )
+        .frame(minHeight: 360)
     }
 }
 
+/// The detail pane with nothing selected — the mac app's home screen.
+///
+/// Two states, not one: with no account there is nothing to select *yet*, and with an account
+/// there is something to select and the toolbar beside this pane already carries the control
+/// that makes one. The action is offered only in the second case, where it can actually run.
 private struct EmptyDetailView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
-        ContentUnavailableView {
-            Label(
-                workspace.accounts.isEmpty ? L10n.string("No accounts") : L10n.string("Select a chat"),
-                systemImage: "bubble.left.and.bubble.right")
+        if workspace.accounts.isEmpty {
+            WNEmptyState(
+                title: L10n.string("No accounts"),
+                systemImage: "person.crop.circle.badge.plus",
+                description: L10n.string("Sign in or create an identity to start messaging.")
+            )
+        } else {
+            WNEmptyState(
+                title: L10n.string("Select a chat"),
+                systemImage: "bubble.left.and.bubble.right",
+                description: L10n.string("Pick a conversation from the list, or start a new one.")
+            ) {
+                WNPrimaryButton(L10n.string("New chat"), systemImage: "square.and.pencil") {
+                    workspace.showNewChat()
+                }
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

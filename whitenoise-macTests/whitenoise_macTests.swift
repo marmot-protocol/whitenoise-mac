@@ -2396,6 +2396,131 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func signUpScreenNavigationClearsWhateverTheOtherPathLeftBehind() async throws {
+        // The three onboarding screens share `lastError` and the pane they draw in, so moving
+        // between them has to leave nothing of the previous one on screen: a key half-typed into
+        // sign-in must not still be in memory behind the sign-up form, and sign-in's failure
+        // must not be sitting under sign-up's button.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        #expect(state.phase == .onboarding)
+        #expect(state.authenticationMode == .landing)
+
+        state.showLogin()
+        state.loginIdentity = "nsec1qqqqq"
+        state.lastError = "Something went wrong."
+
+        state.showSignUp()
+
+        #expect(state.authenticationMode == .signUp)
+        #expect(state.loginIdentity.isEmpty)
+        #expect(state.lastError == nil)
+        #expect(state.signUpDraft == SignUpDraft())
+
+        state.signUpDraft.displayName = "Marmota"
+        state.returnToOnboardingLanding()
+        #expect(state.authenticationMode == .landing)
+
+        // Re-entering resets the form; a draft is only ever cleared on the way *in*, so backing
+        // out cannot blank the fields underneath an outgoing transition.
+        state.showSignUp()
+        #expect(state.signUpDraft == SignUpDraft())
+    }
+
+    @MainActor
+    @Test func returningToTheLandingScreenScrubsTheEnteredKey() async throws {
+        // Issue #32: the entered nsec must not outlive the screen it was typed on. Backing out
+        // of the form is the likeliest way to leave one sitting in observable memory.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.showLogin()
+        state.loginIdentity = "nsec1qqqqq"
+        state.lastError = "Something went wrong."
+
+        state.returnToOnboardingLanding()
+
+        #expect(state.authenticationMode == .landing)
+        #expect(state.loginIdentity.isEmpty)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func signUpPublishesTheProfileTypedOnTheSignUpScreen() async throws {
+        // The point of collecting a name during sign-up rather than sending the user to Settings
+        // afterwards: the identity arrives with a profile already on the network.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.showSignUp()
+        state.signUpDraft.displayName = "  Marmota  "
+        state.signUpDraft.about = "Building things."
+
+        await state.signUp()
+
+        #expect(state.phase == .ready)
+        #expect(runtime.publishedProfiles.count == 1)
+        let published = try #require(runtime.publishedProfiles.first)
+        #expect(published.displayName == "Marmota")
+        #expect(published.name == "Marmota")
+        #expect(published.about == "Building things.")
+        // The account row picks the published name up, so the rail and the chat list are not
+        // still showing the core's placeholder label.
+        #expect(state.activeAccount?.displayName == "Marmota")
+        // And the draft does not survive into the next sign-up.
+        #expect(state.signUpDraft == SignUpDraft())
+    }
+
+    @MainActor
+    @Test func signingUpWithABlankFormPublishesNoProfile() async throws {
+        // Pressing straight through is the pseudonymous path and must stay open — but it must
+        // not announce an empty `kind:0` to the relays on the way.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.showSignUp()
+        state.signUpDraft.about = "   "
+
+        await state.signUp()
+
+        #expect(state.phase == .ready)
+        #expect(runtime.publishedProfiles.isEmpty)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func aFailedProfilePublishDoesNotReportSignUpAsFailed() async throws {
+        // The identity exists, the keys are in the Keychain and the user is already inside the
+        // app by the time the `kind:0` goes out. Leaving that failure in `lastError` would draw
+        // it on the onboarding screen the user has just left, under the button they pressed —
+        // which reads as "your account was not created". It belongs on the background banner.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
+        runtime.publishUserProfileError = FakeMarmotRuntimeError.unused
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        state.showSignUp()
+        state.signUpDraft.displayName = "Marmota"
+
+        await state.signUp()
+
+        #expect(state.phase == .ready)
+        #expect(state.activeAccountId == account.label)
+        #expect(state.lastError == nil)
+        #expect(state.backgroundStatus == "Unused fake runtime error.")
+        #expect(runtime.publishedProfiles.isEmpty)
+    }
+
+    @MainActor
     @Test func observabilityFailureDoesNotAbortReadyStateActivation() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [], createdAccount: account)
@@ -32566,8 +32691,16 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var didRepublishKeyPackage = false
     private(set) var deletedPackageEventId: String?
     private(set) var lastPackageDeleteRelays: [String] = []
+    /// When set, `publishUserProfile` throws it. Models a relay refusing the `kind:0` so the
+    /// sign-up path can be held to demoting that failure to the background banner rather than
+    /// reporting a sign-up that plainly succeeded as failed.
+    var publishUserProfileError: Error?
     private(set) var lastPublishedProfileDefaultRelays: [String] = []
     private(set) var lastPublishedProfileBootstrapRelays: [String] = []
+    /// Every profile that reached the network, in order. `lastPublishedProfileDefaultRelays`
+    /// records a publish that was *attempted*; this records the ones that landed, which is the
+    /// distinction a "blank sign-up publishes nothing" assertion needs.
+    private(set) var publishedProfiles: [UserProfileMetadataFfi] = []
     private(set) var uploadedProfileImageData: Data?
     private(set) var uploadedProfileImageMediaType: String?
     private(set) var uploadedProfileImageBlossomServer: String?
@@ -33256,7 +33389,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     ) async throws -> UserProfileMetadataFfi {
         lastPublishedProfileDefaultRelays = defaultRelays
         lastPublishedProfileBootstrapRelays = bootstrapRelays
+        if let publishUserProfileError { throw publishUserProfileError }
         self.profile = profile
+        publishedProfiles.append(profile)
         await publishUserProfileGate.passIfArmed()
         return profile
     }

@@ -287,6 +287,19 @@ extension WorkspaceState {
     func showLogin() {
         authenticationMode = .login
         clearEnteredLoginIdentity()
+        signUpDraft = SignUpDraft()
+        lastError = nil
+    }
+
+    /// Open the sign-up screen from the welcome screen.
+    ///
+    /// The draft is reset on the way *in* rather than on the way out: a user who backs out and
+    /// returns expects an empty form, and clearing on exit would race the screen's own
+    /// disappearance and blank the fields under the outgoing transition.
+    func showSignUp() {
+        authenticationMode = .signUp
+        clearEnteredLoginIdentity()
+        signUpDraft = SignUpDraft()
         lastError = nil
     }
 
@@ -297,7 +310,12 @@ extension WorkspaceState {
         phase = .onboarding
     }
 
-    func cancelLogin() {
+    /// Back out of sign-in or sign-up to the welcome screen.
+    ///
+    /// Shared by both screens' back affordances. The entered nsec is scrubbed here as well as
+    /// on the login exit paths — backing out of the form is the most likely way to leave a key
+    /// sitting in observable memory. See #32.
+    func returnToOnboardingLanding() {
         authenticationMode = .landing
         clearEnteredLoginIdentity()
         lastError = nil
@@ -331,9 +349,38 @@ extension WorkspaceState {
             try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
             await activateReadyState()
+            await publishSignUpProfile()
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Publish the name and bio typed on the sign-up screen, once the identity they belong to
+    /// exists.
+    ///
+    /// Sequenced *after* `activateReadyState()`, and non-throwing, so it cannot take the
+    /// sign-up down with it. A `kind:0` that fails to publish is not a failed sign-up: the
+    /// identity is created, the keys are in the Keychain, the app is already usable, and the
+    /// profile can be re-published from Settings at any time. Leaving that failure in
+    /// `lastError` would draw it on the onboarding screen the user has just left, under the
+    /// button they pressed — which reads as "your account was not created". So it is demoted
+    /// to the background banner, and any error that was already there is put back.
+    private func publishSignUpProfile() async {
+        guard signUpDraft.hasPublishableProfile, activeAccount != nil else {
+            signUpDraft = SignUpDraft()
+            return
+        }
+
+        let draft = signUpDraft
+        signUpDraft = SignUpDraft()
+        profileDraft = draft.profileDraft
+
+        let errorBeforePublish = lastError
+        await saveProfile()
+
+        guard let publishError = lastError, publishError != errorBeforePublish else { return }
+        lastError = errorBeforePublish
+        setBackgroundStatus(publishError)
     }
 
     func login() async {
