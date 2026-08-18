@@ -2473,8 +2473,15 @@ nonisolated struct MessageItem: Identifiable, Hashable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Whether the row carries real content the user can act on.
+    ///
+    /// Invalidated rows count. Convergence retired them, but they are still drawn with their own
+    /// content and their own failure marker, so to the reader they are a failed message like any
+    /// other — and a failed message the app refuses to retry, forward, edit, copy or delete is a
+    /// bubble the user is simply stuck with. Only a deleted row, whose body is a placeholder rather
+    /// than anything the user wrote, is excluded.
     private var isActionableContent: Bool {
-        !isDeleted && invalidationStatus == nil
+        !isDeleted
     }
 
     private var isActionableChatBubble: Bool {
@@ -2497,12 +2504,18 @@ nonisolated struct MessageItem: Identifiable, Hashable {
 
     /// Whether this row may be re-driven to the relays at `now`.
     ///
-    /// Time-sensitive on purpose: a send that is still inside `pendingDeliveryGrace` reads as
-    /// "Sending", and offering to retry something the app is telling the user is still going out
-    /// invites a second click on a first attempt that has not finished. Retry appears exactly when
-    /// the bubble starts reading as an error, which is also when the sibling clients offer it.
+    /// Keyed on the marker the bubble is actually wearing, so retry appears exactly when the row
+    /// starts reading as an error and never before. That is time-sensitive on purpose: a send still
+    /// inside `pendingDeliveryGrace` reads as "Sending", and offering to retry something the app is
+    /// telling the user is still going out invites a second click on a first attempt that has not
+    /// finished.
+    ///
+    /// Invalidated rows qualify too — they wear the same marker, so refusing them here would be the
+    /// app showing a failure and then declining to do the one thing a failure asks for. The retry
+    /// is `retryGroupConvergence`, which re-drives what the core is holding for the conversation.
     func canRetryDelivery(at now: Date) -> Bool {
-        isPendingDelivery && deliveryIndicator(at: now) == .failed
+        guard presentation.isChatBubble, isOutgoing, !isDeleted else { return false }
+        return deliveryIndicator(at: now) == .failed
     }
 
     /// How long an own send may stay unconfirmed before its bubble stops reading as "Sending" and

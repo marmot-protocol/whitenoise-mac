@@ -6645,9 +6645,10 @@ struct whitenoise_macTests {
         // the pending-delivery grace window.
         #expect(messages.allSatisfy { $0.deliveryIndicator(at: sentAt) == .failed })
         #expect(messages.allSatisfy { $0.statusLabel(for: .failed) == "Did not reach group" })
-        // Convergence-lost content stays read-only — reacting to or replying to a message the
-        // group never accepted would address a branch that no longer exists.
-        #expect(messages.allSatisfy { !$0.supportsChatActions })
+        // Convergence-lost content is still actionable: it carries the user's own words and a
+        // failure marker, so it gets the same menu every other row has rather than being a bubble
+        // nothing can be done about.
+        #expect(messages.allSatisfy { $0.supportsChatActions })
     }
 
     @MainActor
@@ -7271,13 +7272,22 @@ struct whitenoise_macTests {
         #expect(incomingMediaOnly.canReply)
         #expect(!incomingMediaOnly.canDelete)
 
-        for message in [deleted, failed] {
-            #expect(!message.supportsChatActions)
-            #expect(!message.canCopyText)
-            #expect(!message.canReact)
-            #expect(!message.canReply)
-            #expect(!message.canDelete)
-        }
+        #expect(!deleted.supportsChatActions)
+        #expect(!deleted.canCopyText)
+        #expect(!deleted.canReact)
+        #expect(!deleted.canReply)
+        #expect(!deleted.canDelete)
+
+        // An invalidated row keeps every action a live one has. It is drawn with its own content
+        // and its own failure marker, so to the reader it is a failed message like any other, and
+        // a failed message the app refuses to act on is a bubble the user is stuck with.
+        #expect(failed.supportsChatActions)
+        #expect(failed.canCopyText)
+        #expect(failed.canReact)
+        #expect(failed.canReply)
+        #expect(failed.canDelete)
+        // Including the one a failure actually asks for.
+        #expect(failed.canRetryDelivery(at: sentAt))
 
         #expect(!systemNotice.supportsChatActions)
         #expect(systemNotice.canCopyText)
@@ -17700,6 +17710,332 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func failedOutgoingMediaBubbleOffersRetryAndRemoveInItsOverflowMenu() async throws {
+        // The staged-media bubble used to carry its recovery as a link row under itself and had no
+        // ⋯ control at all, so it was the one failed row in the transcript whose actions lived
+        // somewhere other than the overflow menu every other row uses.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(
+            PendingMediaAttachment(
+                fileName: "notes.txt",
+                mediaType: "text/plain",
+                data: Data("hello media".utf8),
+                dim: nil
+            ),
+            for: draftKey
+        )
+        await Self.settleComposerMediaUploads(state)
+
+        runtime.sendMediaAttachmentsError = FakeMarmotRuntimeError.mediaUploadFailed
+        await state.sendDraft()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        let failed = try #require(state.selectedPendingOutgoingMediaMessages.first)
+        let actions = MessageRowAction.all(for: failed, workspace: state)
+        #expect(actions.map(\.kind) == [.retry, .delete])
+        // "Remove", not "Delete": nothing has been committed anywhere yet.
+        #expect(actions.map(\.title) == [L10n.string("Retry"), L10n.string("Remove")])
+        #expect(actions.last?.role == .destructive)
+
+        runtime.sendMediaAttachmentsError = nil
+        try #require(actions.first { $0.kind == .retry }).run()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        #expect(runtime.sendMediaAttachmentsCallCount == 2)
+        #expect(state.selectedPendingOutgoingMediaMessages.isEmpty)
+    }
+
+    @MainActor
+    @Test func outgoingMediaBubbleOverflowMenuIsEmptyWhileTheSendIsStillGoingOut() async throws {
+        // Nothing to retry and nothing to remove until it has failed: the core has no cancellation
+        // story for a publish in flight, so both actions would be a lie.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let sending = PendingOutgoingMediaMessage(
+            attachments: [
+                PendingMediaAttachment(
+                    fileName: "notes.txt",
+                    mediaType: "text/plain",
+                    data: Data("hello media".utf8),
+                    dim: nil
+                )
+            ],
+            caption: "",
+            state: .uploading
+        )
+
+        #expect(MessageRowAction.all(for: sending, workspace: state).isEmpty)
+    }
+
+    @MainActor
+    @Test func failedOutgoingMediaBubbleRoutesRemoveThroughTheOverflowMenu() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(
+            PendingMediaAttachment(
+                fileName: "notes.txt",
+                mediaType: "text/plain",
+                data: Data("hello media".utf8),
+                dim: nil
+            ),
+            for: draftKey
+        )
+        await Self.settleComposerMediaUploads(state)
+
+        runtime.sendMediaAttachmentsError = FakeMarmotRuntimeError.mediaUploadFailed
+        await state.sendDraft()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        let failed = try #require(state.selectedPendingOutgoingMediaMessages.first)
+        var dismissed = false
+        let actions = MessageRowAction.all(for: failed, workspace: state) { dismissed = true }
+        try #require(actions.first { $0.kind == .delete }).run()
+
+        #expect(dismissed)
+        #expect(state.selectedPendingOutgoingMediaMessages.isEmpty)
+        #expect(state.pendingOutgoingMediaMessagesByConversation.isEmpty)
+    }
+
+    @Test func failedOutgoingMediaBubbleCarriesTheSharedOverflowControl() throws {
+        // Source contract: the pending bubble's recovery is offered twice on purpose — the link row
+        // under the bubble, where the failure already is, and the ⋯ menu every other row uses. This
+        // guards both, since the bubble had only the first for as long as it existed.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("PendingOutgoingMessageViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+
+        #expect(source.contains("MessageInlineActionIcon(systemName: \"ellipsis\""))
+        #expect(source.contains("MessageOverflowMenu("))
+        #expect(source.contains("MessageRowAction.all(for: message, workspace: workspace)"))
+        #expect(source.contains("MessageSendFailureActions {"))
+        // Retry only under the bubble — Remove belongs in the menu with the other destructive
+        // actions, and reintroducing it here is the regression this guards.
+        #expect(!source.contains("discardPendingOutgoingMediaMessage"))
+    }
+
+    @MainActor
+    @Test func invalidatedRowGetsTheSameOverflowMenuAsALiveOne() async throws {
+        // An invalidated row used to have no ⋯ at all — `supportsChatActions` refused everything,
+        // so a bubble wearing the same red failure marker as any other failed send offered nothing,
+        // not even Delete. It now carries the whole menu, retry included: it is drawn with the
+        // user's own words, and a failure the app declines to act on is a bubble they are stuck
+        // with.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        func message(id: String, invalidated: Bool) -> MessageItem {
+            MessageItem(
+                id: id,
+                groupIdHex: "group",
+                sourceMessageIdHex: "source-\(id)",
+                senderAccountIdHex: account.accountIdHex,
+                senderName: "Desktop Account",
+                body: "Meet at seven",
+                sentAt: .now,
+                invalidationStatus: invalidated ? "LosingBranch" : nil,
+                isOutgoing: true
+            )
+        }
+
+        let invalidated = message(id: "invalidated", invalidated: true)
+        let live = message(id: "live", invalidated: false)
+
+        #expect(invalidated.supportsChatActions)
+        #expect(invalidated.canRetryDelivery(at: .now))
+
+        let invalidatedKinds = MessageRowAction.all(for: invalidated, workspace: state).map(\.kind)
+        #expect(invalidatedKinds.first == .retry)
+        // Everything a delivered row offers, and nothing withheld: the only difference between the
+        // two lists is the retry a failure earns.
+        #expect(
+            invalidatedKinds.filter { $0 != .retry }
+                == MessageRowAction.all(for: live, workspace: state).map(\.kind)
+        )
+
+        // The destructive action is a real one, not a local-only consolation.
+        #expect(state.messageDeletionCapability(invalidated).canDeleteForEveryone)
+    }
+
+    @MainActor
+    @Test func invalidatedRowRetryReDrivesConvergenceLikeAnyOtherFailedSend() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let invalidated = MessageItem(
+            id: "invalidated",
+            groupIdHex: "group",
+            sourceMessageIdHex: "source-event",
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "Meet at seven",
+            sentAt: .now,
+            invalidationStatus: "LosingBranch",
+            isOutgoing: true
+        )
+
+        let retry = try #require(
+            MessageRowAction.all(for: invalidated, workspace: state).first { $0.kind == .retry }
+        )
+        retry.run()
+        await Self.waitUntil { runtime.retryGroupConvergenceCallCount == 1 }
+
+        #expect(runtime.retryGroupConvergenceCallCount == 1)
+
+        // An *incoming* invalidated row wears the same marker but is nobody's send to re-drive.
+        let incoming = MessageItem(
+            id: "incoming-invalidated",
+            groupIdHex: "group",
+            sourceMessageIdHex: "source-incoming",
+            senderAccountIdHex: "alice1234567890alice1234567890alice1234567890alice1234567890alic",
+            senderName: "Alice",
+            body: "Bring the keys",
+            sentAt: .now,
+            invalidationStatus: "LosingBranch",
+            isOutgoing: false
+        )
+        #expect(!incoming.canRetryDelivery(at: .now))
+        #expect(!MessageRowAction.all(for: incoming, workspace: state).contains { $0.kind == .retry })
+    }
+
+    @MainActor
+    @Test func retryPutsTheRowBackToSendingInsteadOfHangingAProgressLineUnderIt() async throws {
+        // A retry is a send going out again, so the row wears what a first attempt wears: the clock
+        // in the bubble's own footer. It used to keep the failure marker and grow a "Retrying…"
+        // line underneath instead, which is the one piece of the failure story rendered outside the
+        // bubble. The recovery row rides on the same marker, so it stands down with it.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let sentAt = Date.now.addingTimeInterval(-(MessageItem.pendingDeliveryGrace + 1))
+        let failed = MessageItem(
+            id: "failed",
+            groupIdHex: "group",
+            sourceMessageIdHex: nil,
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "Say something while I work",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        let delivered = MessageItem(
+            id: "delivered",
+            groupIdHex: "group",
+            sourceMessageIdHex: "source-event",
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "This one landed",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+
+        #expect(state.deliveryIndicator(for: failed, at: .now) == .failed)
+
+        runtime.messageActionGateEnabled = true
+        let retry = Task { await state.retryDelivery(of: failed) }
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+
+        #expect(state.deliveryIndicator(for: failed, at: .now) == .sending)
+        // Group-scoped, like the core call it wraps: a second failed row in the same chat is being
+        // carried by this same retry and goes back to "Sending" with it.
+        let sibling = MessageItem(
+            id: "sibling",
+            groupIdHex: "group",
+            sourceMessageIdHex: nil,
+            senderAccountIdHex: account.accountIdHex,
+            senderName: "Desktop Account",
+            body: "Me too",
+            sentAt: sentAt,
+            isOutgoing: true
+        )
+        #expect(state.deliveryIndicator(for: sibling, at: .now) == .sending)
+        // A row that was never failed is untouched — the retry does not repaint the whole chat.
+        #expect(state.deliveryIndicator(for: delivered, at: .now) == .delivered)
+
+        runtime.releaseMessageActionGate()
+        await retry.value
+
+        // The row is still unconfirmed once the window closes, so the failure marker comes back
+        // with its recovery row rather than the bubble being left on a clock forever.
+        #expect(state.deliveryIndicator(for: failed, at: .now) == .failed)
+    }
+
+    @MainActor
+    @Test func retriedOutgoingMediaBubbleStillOffersItsOverflowMenuAfterFailingAgain() async throws {
+        // The reported shape of the bug: the ⋯ was missing on a message that had already been
+        // retried, not only on one that had just failed. A retry walks the bubble back through
+        // `.uploading`, so the menu has to come back with the failure rather than being a
+        // first-failure-only affordance.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(
+            PendingMediaAttachment(
+                fileName: "notes.txt",
+                mediaType: "text/plain",
+                data: Data("hello media".utf8),
+                dim: nil
+            ),
+            for: draftKey
+        )
+        await Self.settleComposerMediaUploads(state)
+
+        runtime.sendMediaAttachmentsError = FakeMarmotRuntimeError.mediaUploadFailed
+        await state.sendDraft()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        let failed = try #require(state.selectedPendingOutgoingMediaMessages.first)
+
+        // Two failed retries, not one: the menu must survive every trip through `.uploading`, not
+        // just the first.
+        for _ in 0..<2 {
+            let retry = try #require(
+                MessageRowAction.all(for: failed, workspace: state).first { $0.kind == .retry }
+            )
+            retry.run()
+            await Self.settlePendingOutgoingMediaSends(state)
+
+            let retried = try #require(state.selectedPendingOutgoingMediaMessages.first)
+            #expect(retried.state == .failed)
+            #expect(MessageRowAction.all(for: retried, workspace: state).map(\.kind) == [.retry, .delete])
+        }
+
+        #expect(runtime.sendMediaAttachmentsCallCount == 3)
+    }
+
+    @MainActor
     @Test func failedOutgoingMediaMessageCanBeDiscarded() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
@@ -19379,6 +19715,10 @@ struct whitenoise_macTests {
                 isDeleted: true,
                 isOutgoing: false
             ))
+        #expect(copiedText == "initial")
+
+        // An invalidated row is not a placeholder — its body is what the sender actually wrote, so
+        // it copies like any other message.
         state.copyText(
             of: MessageItem(
                 id: "failed",
@@ -19389,7 +19729,7 @@ struct whitenoise_macTests {
                 isOutgoing: true
             ))
 
-        #expect(copiedText == "initial")
+        #expect(copiedText == "Lost the branch")
     }
 
     @MainActor

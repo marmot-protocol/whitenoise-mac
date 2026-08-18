@@ -420,30 +420,27 @@ struct MessageBubble: View {
         }
     }
 
-    /// Recovery controls under a failed own send.
+    /// Retry under a failed own send.
     ///
     /// The red footer glyph and its tooltip are the whole of the failure story otherwise, and a
-    /// tooltip is not an affordance — the retry lived only in the context menu and the hover
-    /// overflow, both of which the user has to go looking for. This puts the two things worth
-    /// doing about a stranded message where the failure already is. Suppressed during multi-select,
-    /// where the row is a checkbox target rather than a message.
+    /// tooltip is not an affordance. Retry is in the row's ⋯ menu too, where every other thing that
+    /// can be done to a message lives — but a failure is worth answering without making the user go
+    /// looking, so this one action is answered twice on purpose. Delete is not: it is destructive
+    /// and belongs with the rest of the menu. Suppressed during multi-select, where the row is a
+    /// checkbox target rather than a message.
+    ///
+    /// Gated on `deliveryIndicator`, which reads `.sending` again while a retry runs — so this
+    /// stands down for that window and the bubble shows the same clock a first attempt shows,
+    /// inside its own footer, instead of a progress line hanging underneath it.
     @ViewBuilder
     private var sendFailureActions: some View {
-        if message.isOutgoing, deliveryIndicator == .failed, !workspace.isTimelineSelectionMode {
-            let actions = MessageSendFailureActions(
-                onRetry: message.canRetryDelivery(at: deliveryClock)
-                    ? { Task { await workspace.retryDelivery(of: message) } } : nil,
-                // "Delete", not "Remove": the core committed this message locally before it tried
-                // to publish, so it is part of this device's history and goes out through the same
-                // scoped confirmation every other message deletion uses.
-                discardTitle: L10n.string("Delete"),
-                onDiscard: workspace.canDeleteMessage(message)
-                    ? { workspace.messagePendingDeletion = workspace.messageDeletionTarget(for: message) } : nil,
-                isRetrying: workspace.isRetryingDelivery(of: message)
-            )
-            if !actions.isEmpty {
-                actions.padding(.horizontal, 5)
+        if message.canRetryDelivery(at: deliveryClock), deliveryIndicator == .failed,
+            !workspace.isTimelineSelectionMode
+        {
+            MessageSendFailureActions {
+                Task { await workspace.retryDelivery(of: message) }
             }
+            .padding(.horizontal, 5)
         }
     }
 
@@ -591,7 +588,7 @@ struct MessageBubble: View {
     }
 
     private var deliveryIndicator: MessageDeliveryIndicator {
-        message.deliveryIndicator(at: deliveryClock)
+        workspace.deliveryIndicator(for: message, at: deliveryClock)
     }
 
     /// Hover text for the failure glyph. The bubble keeps the message's own text now, so this
@@ -2349,6 +2346,35 @@ struct MessageRowAction: Identifiable {
         }
         return actions
     }
+
+    /// The same two recovery actions for a media message that never reached the core: the bubble
+    /// the transcript renders while a send is on its way out, once that send has failed.
+    ///
+    /// Deliberately the same type the committed rows build, so both open `MessageOverflowMenu` and
+    /// a failed row's actions live in one place whichever half of the send it is stranded in. The
+    /// list is empty until then — the core has no cancellation story for a publish in flight, so
+    /// neither action would do anything.
+    @MainActor
+    static func all(
+        for message: PendingOutgoingMediaMessage,
+        workspace: WorkspaceState,
+        dismiss: @escaping () -> Void = {}
+    ) -> [MessageRowAction] {
+        guard message.state == .failed else { return [] }
+        return [
+            MessageRowAction(kind: .retry, title: L10n.string("Retry"), systemImage: "arrow.clockwise", role: nil) {
+                dismiss()
+                workspace.retryPendingOutgoingMediaMessage(message.id)
+            },
+            // "Remove", not "Delete": nothing has been committed anywhere yet, so dropping the
+            // bubble takes the message with it rather than hiding a message the group has. It also
+            // skips the deletion confirmation the committed rows go through, for the same reason.
+            MessageRowAction(kind: .delete, title: L10n.string("Remove"), systemImage: "trash", role: .destructive) {
+                dismiss()
+                workspace.discardPendingOutgoingMediaMessage(message.id)
+            },
+        ]
+    }
 }
 
 struct MessageOverflowPopover: View {
@@ -2357,7 +2383,21 @@ struct MessageOverflowPopover: View {
     let dismiss: () -> Void
 
     var body: some View {
-        let actions = MessageRowAction.all(for: message, workspace: workspace, dismiss: dismiss)
+        MessageOverflowMenu(actions: MessageRowAction.all(for: message, workspace: workspace, dismiss: dismiss))
+    }
+}
+
+/// The popover body behind the ⋯ control: a list of `MessageRowAction`s in the transcript's own
+/// menu chrome.
+///
+/// Split from `MessageOverflowPopover` so the staged-media bubble
+/// (`PendingOutgoingMessageOverflowButton`) opens the same menu rather than a lookalike — it
+/// builds its actions from a message the core has never seen, but a failed row is a failed row and
+/// the two must not drift into different shapes.
+struct MessageOverflowMenu: View {
+    let actions: [MessageRowAction]
+
+    var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                 if index > 0 { Divider() }
