@@ -37,6 +37,7 @@ struct SettingsAccountSwitcherCard: View {
                         seed: account.accountIdHex,
                         initials: account.initials,
                         sanitizedPictureURL: account.sanitizedPictureURL,
+                        isOwnAccountImage: true,
                         size: 34,
                         isSelected: false
                     )
@@ -259,6 +260,12 @@ struct AccountSwitcherRow: View {
                         seed: account.accountIdHex,
                         initials: account.initials,
                         sanitizedPictureURL: account.sanitizedPictureURL,
+                        // Every row here is one of this Mac's own accounts, but a signed-out one is
+                        // an identity the user has deliberately deactivated — sign-out even drops
+                        // its relay key packages. Fetching its avatar would put traffic on the wire
+                        // for an identity that is supposed to be off, so it drops back to initials
+                        // (the row is already dimmed to 0.4). Signed-in rows are unaffected.
+                        isOwnAccountImage: !account.signedOut,
                         size: 32,
                         isSelected: isActive
                     )

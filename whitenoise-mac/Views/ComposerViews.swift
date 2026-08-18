@@ -1629,9 +1629,13 @@ struct ProfileImageAvatarView: View {
     @Environment(WorkspaceState.self) private var workspace
     let seed: String
     let initials: String
-    /// Already passed through `RemoteImageURLPolicy`; body only checks the user preference.
+    /// Already passed through `RemoteImageURLPolicy`; body only checks consent to load it.
     let sanitizedPictureURL: URL?
     let localImagePayload: DownloadedMediaPayload?
+    /// Whether `sanitizedPictureURL` is an account signed in on this Mac rather than a peer's.
+    /// Own-account avatars ignore the "Load Remote Profile Images" preference — see
+    /// `RemoteImageDisplayPolicy` for why, and for the four call sites allowed to pass `true`.
+    let isOwnAccountImage: Bool
     let size: CGFloat
     let isSelected: Bool
 
@@ -1640,6 +1644,7 @@ struct ProfileImageAvatarView: View {
         initials: String,
         sanitizedPictureURL: URL?,
         localImagePayload: DownloadedMediaPayload? = nil,
+        isOwnAccountImage: Bool = false,
         size: CGFloat,
         isSelected: Bool
     ) {
@@ -1647,6 +1652,7 @@ struct ProfileImageAvatarView: View {
         self.initials = initials
         self.sanitizedPictureURL = sanitizedPictureURL
         self.localImagePayload = localImagePayload
+        self.isOwnAccountImage = isOwnAccountImage
         self.size = size
         self.isSelected = isSelected
     }
@@ -1661,7 +1667,7 @@ struct ProfileImageAvatarView: View {
                 } placeholder: {
                     AvatarView(seed: seed, initials: initials, size: size, isSelected: isSelected, drawsChrome: false)
                 }
-            } else if workspace.loadRemoteImages, let imageURL = sanitizedPictureURL {
+            } else if loadsRemoteImage, let imageURL = sanitizedPictureURL {
                 DownsampledAsyncImage(url: imageURL, maxPixelSize: size * 2) { image in
                     image
                         .resizable()
@@ -1678,11 +1684,20 @@ struct ProfileImageAvatarView: View {
         .modifier(AvatarChromeModifier(isSelected: isSelected, ringColor: ringColor))
     }
 
+    /// Whether a remote picture may be fetched: the viewer's preference, or an own-account
+    /// exemption from it.
+    private var loadsRemoteImage: Bool {
+        RemoteImageDisplayPolicy.loadsRemoteImage(
+            isOwnAccountImage: isOwnAccountImage,
+            preferenceEnabled: workspace.loadRemoteImages
+        )
+    }
+
     /// A picture keeps the neutral hairline; the initials fallback wears its accent border, whose
     /// pale fill needs the ring to read as an object. Keyed on whether an image will be *attempted*
     /// rather than on whether one has decoded, so the ring does not change color mid-load.
     private var ringColor: Color {
-        let showsPicture = localImagePayload != nil || (workspace.loadRemoteImages && sanitizedPictureURL != nil)
+        let showsPicture = localImagePayload != nil || (loadsRemoteImage && sanitizedPictureURL != nil)
         return showsPicture ? AvatarChromeModifier.neutralRing : AvatarPalette.colors(for: seed).border
     }
 }
