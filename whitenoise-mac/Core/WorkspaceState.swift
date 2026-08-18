@@ -289,6 +289,8 @@ final class WorkspaceState {
     /// Bumped by `cancelVoiceRecording()` so an in-flight mic-permission await cannot resume
     /// and create a recorder after navigation tears down the composer (#441).
     var voiceRecordingPreparationGeneration: UInt64 = 0
+    /// The tail the live waveform draws — at most `VoiceRecordingWaveform.maximumWindowSampleCount`
+    /// levels, so the copy each repaint makes stays trivial however long the recording runs.
     var voiceRecordingSamples: [CGFloat] = []
     var voiceRecordingDurationSeconds: Double = 0
     /// Per-target reentrancy guards for message actions. `react`/`deleteMessage`
@@ -622,6 +624,10 @@ final class WorkspaceState {
     @ObservationIgnored var dirtyComposerDraftKeys: Set<ComposerDraftKey> = []
     @ObservationIgnored var restoredComposerDraftKeys: Set<ComposerDraftKey> = []
     var voiceRecorder: AVAudioRecorder?
+    /// Every level of the recording, not just the visible tail: the waveform stored on the sent
+    /// message is derived from the whole take. Observation-ignored because nothing draws it live —
+    /// observing a buffer that grows to tens of thousands of samples would copy it on every tick.
+    @ObservationIgnored var voiceRecordingHistory: [CGFloat] = []
     var voiceRecordingURL: URL?
     var voiceRecordingMeterTask: Task<Void, Never>?
 

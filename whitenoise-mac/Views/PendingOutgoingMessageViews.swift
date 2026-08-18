@@ -331,7 +331,7 @@ private struct PendingOutgoingAudioRow: View {
     private var bars: [ComposerAudioWaveformBar] {
         attachment.waveformSamples.isEmpty
             ? ComposerAudioWaveformPresentation.fallbackPlaybackBars
-            : ComposerAudioWaveformPresentation.bars(for: attachment.waveformSamples, mode: .playback)
+            : ComposerAudioWaveformPresentation.bars(for: attachment.waveformSamples)
     }
 }
 
