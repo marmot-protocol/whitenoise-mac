@@ -26762,6 +26762,72 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func voiceRecordingDrawsItsTailButSendsTheWholeTakesWaveform() {
+        // The live strip shows the last few seconds, so the window it draws is capped. The waveform
+        // stored on the sent message is not that window: it is the shape of the whole recording, and
+        // reading the capped window meant a two-minute voice note shipped with the waveform of its
+        // final seconds. Both are fed from one metering tick, so this pins that the tail stays a
+        // tail and the history keeps everything.
+        let state = WorkspaceState.preview()
+        let overrun = VoiceRecordingWaveform.maximumWindowSampleCount + 20
+        let interval = VoiceRecordingLevelMeter.sampleIntervalSeconds
+
+        for index in 0..<overrun {
+            // Alternating levels, so a history that had silently become the window would show up as
+            // a flat run rather than passing on count alone. One bar's worth of audio per call, so
+            // each call owes exactly one bar.
+            let quiet = index.isMultiple(of: 2)
+            state.appendVoiceRecordingLevels(
+                averagePower: quiet ? -44 : -14,
+                peakPower: quiet ? -40 : -9,
+                recordedSeconds: Double(index + 1) * interval
+            )
+        }
+
+        #expect(state.voiceRecordingSamples.count == VoiceRecordingWaveform.maximumWindowSampleCount)
+        #expect(state.voiceRecordingHistory.count == overrun)
+        #expect(
+            state.voiceRecordingSamples
+                == Array(
+                    state.voiceRecordingHistory.suffix(VoiceRecordingWaveform.maximumWindowSampleCount))
+        )
+        #expect(Set(state.voiceRecordingHistory).count > 2)
+
+        // Teardown has to clear both, or the next recording starts with the last one's bars and sends
+        // the last one's waveform.
+        state.resetVoiceRecording(deleteFile: false)
+        #expect(state.voiceRecordingSamples.isEmpty)
+        #expect(state.voiceRecordingHistory.isEmpty)
+    }
+
+    @MainActor
+    @Test func voiceRecordingStripAdvancesWithTheAudioNotWithTheMeteringTicks() {
+        // The strip's horizontal speed is one bar per 40 ms of recorded sound. A metering tick that
+        // arrives late owes the bars its silence earned, and one that fires twice for the same audio
+        // owes none — so the waveform cannot speed up when the main actor is busy, which is what made
+        // it accelerate when each wakeup appended exactly one bar and animated the travel.
+        let state = WorkspaceState.preview()
+        let interval = VoiceRecordingLevelMeter.sampleIntervalSeconds
+
+        state.appendVoiceRecordingLevels(averagePower: -20, peakPower: -14, recordedSeconds: interval)
+        #expect(state.voiceRecordingHistory.count == 1)
+
+        // A duplicate tick for the same moment of audio adds nothing.
+        state.appendVoiceRecordingLevels(averagePower: -20, peakPower: -14, recordedSeconds: interval)
+        #expect(state.voiceRecordingHistory.count == 1)
+
+        // A tick four intervals late catches the strip up to the audio exactly.
+        state.appendVoiceRecordingLevels(averagePower: -20, peakPower: -14, recordedSeconds: interval * 5)
+        #expect(state.voiceRecordingHistory.count == 5)
+
+        // And one second of audio is always 25 bars, however many ticks delivered it.
+        state.appendVoiceRecordingLevels(averagePower: -20, peakPower: -14, recordedSeconds: 1)
+        #expect(state.voiceRecordingHistory.count == Int(1 / interval))
+
+        state.resetVoiceRecording(deleteFile: false)
+    }
+
+    @MainActor
     @Test func showSettingsStopsInProgressVoiceRecording() throws {
         // #311: navigating to Settings removes the composer (its Stop/Cancel buttons) from the
         // hierarchy; it must also stop the recorder so the mic is not left hot with no control.

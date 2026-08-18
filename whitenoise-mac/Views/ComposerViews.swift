@@ -933,24 +933,24 @@ nonisolated enum PendingMediaDraftThumbnailDecoder {
 /// cancel here — stopping hands the recording to the voice-draft bar, whose trash can throws it
 /// away, so the one path out is the one the user was going to take anyway.
 struct VoiceRecordingComposerView: View {
+    /// The visible tail of the recording, oldest first.
     let samples: [CGFloat]
     let durationSeconds: Double
     let onStop: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            ComposerAudioWaveformView(
-                samples: samples,
-                progress: 0,
+            VoiceRecordingPulseDot()
+
+            VoiceRecordingWaveformView(
+                levels: samples,
                 // Recording, so every bar is "live" rather than played — one token at full
                 // strength. `backgroundContent*` rather than a fill token because the bars are
                 // drawn straight onto the bar's own surface, and primary rather than the
                 // destructive red this used to be: a recording in progress is the composer doing
                 // what it was asked to, not an error. The voice-draft bar below uses the same two
                 // tokens at two weights, so the two waveforms read as one control.
-                barColor: WNColor.backgroundContentPrimary,
-                playedColor: WNColor.backgroundContentPrimary,
-                mode: .liveRecording
+                barColor: WNColor.backgroundContentPrimary
             )
             .frame(height: 30)
 
@@ -1208,18 +1208,13 @@ struct VoiceMessageDraftComposerView: View {
     }
 }
 
-nonisolated enum ComposerAudioWaveformMode {
-    case playback
-    case liveRecording
-}
-
 nonisolated struct ComposerAudioWaveformBar: Equatable {
-    let amplitude: CGFloat?
+    let amplitude: CGFloat
 }
 
 nonisolated enum ComposerAudioWaveformPresentation {
     static let amplitudeCurveExponent: Double = 0.45
-    static let fallbackPlaybackBars = bars(for: MediaWaveformAnalyzer.fallbackSamples, mode: .playback)
+    static let fallbackPlaybackBars = bars(for: MediaWaveformAnalyzer.fallbackSamples)
 
     static func visiblePlaybackBars(
         loadedBars: [ComposerAudioWaveformBar],
@@ -1229,27 +1224,18 @@ nonisolated enum ComposerAudioWaveformPresentation {
         metadataPayloadID == currentPayloadID ? loadedBars : fallbackPlaybackBars
     }
 
+    /// Bars for a recording that is already on disk, which is every waveform this draws. A live one
+    /// needs bars that keep their identity from one metered sample to the next, so it is built by
+    /// `VoiceRecordingWaveform` instead.
     static func bars(
         for samples: [CGFloat],
-        mode: ComposerAudioWaveformMode,
         count: Int = MediaWaveformAnalyzer.sampleCount
     ) -> [ComposerAudioWaveformBar] {
         let targetCount = max(0, count)
         guard targetCount > 0 else { return [] }
-        switch mode {
-        case .playback:
-            return MediaWaveformAnalyzer.normalized(samples, count: targetCount)
-                .map(displayAmplitude)
-                .map { ComposerAudioWaveformBar(amplitude: $0) }
-        case .liveRecording:
-            // Live recordings grow while the user speaks, so this path intentionally
-            // recomputes from the current samples instead of caching a stale snapshot.
-            let visibleSamples = samples.suffix(targetCount)
-                .map(displayAmplitude)
-                .map { ComposerAudioWaveformBar(amplitude: $0) }
-            let blankCount = max(0, targetCount - visibleSamples.count)
-            return Array(repeating: ComposerAudioWaveformBar(amplitude: nil), count: blankCount) + visibleSamples
-        }
+        return MediaWaveformAnalyzer.normalized(samples, count: targetCount)
+            .map(displayAmplitude)
+            .map { ComposerAudioWaveformBar(amplitude: $0) }
     }
 
     private static func displayAmplitude(_ sample: CGFloat) -> CGFloat {
@@ -1264,17 +1250,16 @@ struct ComposerAudioWaveformView: View {
     let barColor: Color
     let playedColor: Color
 
-    // Convenience path for one-shot previews and live recording. Playback rows pass
-    // precomputed bars so progress ticks only recolor already-prepared amplitudes.
+    // Convenience path for one-shot previews. Playback rows pass precomputed bars so
+    // progress ticks only recolor already-prepared amplitudes.
     init(
         samples: [CGFloat],
         progress: CGFloat,
         barColor: Color,
-        playedColor: Color,
-        mode: ComposerAudioWaveformMode = .playback
+        playedColor: Color
     ) {
         self.init(
-            bars: ComposerAudioWaveformPresentation.bars(for: samples, mode: mode),
+            bars: ComposerAudioWaveformPresentation.bars(for: samples),
             progress: progress,
             barColor: barColor,
             playedColor: playedColor
@@ -1316,14 +1301,12 @@ struct ComposerAudioWaveformView: View {
     }
 
     private func fillColor(for bar: ComposerAudioWaveformBar, index: Int, count: Int) -> Color {
-        guard bar.amplitude != nil else { return .clear }
         let played = CGFloat(index) / CGFloat(max(1, count - 1)) <= progress
         return played ? playedColor : barColor
     }
 
     private func barHeight(for bar: ComposerAudioWaveformBar, in availableHeight: CGFloat) -> CGFloat {
-        guard let amplitude = bar.amplitude else { return 4 }
-        return max(4, availableHeight * min(1, max(0.08, amplitude)))
+        max(4, availableHeight * min(1, max(0.08, bar.amplitude)))
     }
 }
 
