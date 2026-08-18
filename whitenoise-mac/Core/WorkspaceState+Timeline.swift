@@ -1285,27 +1285,42 @@ extension WorkspaceState {
 
     /// Files the plaintext we just published under the same cache key the bubble will look it up
     /// by, so an outgoing attachment renders from disk instead of round-tripping through Blossom.
+    ///
+    /// The same bytes are also held in memory (`outgoingMediaWarmPlaintexts`) until the outgoing
+    /// message is retired. The disk copy is what every later render reads, but reading it is
+    /// asynchronous, so on its own it still left the published row rendering a spinner for its first
+    /// frames — the sender's own image blinking from loaded back to loading as the pending bubble
+    /// gave way to the real row. The in-memory hold is what the row's first frame resolves from.
+    /// Returns the keys it held, so the outgoing message can release them when it is retired.
+    @discardableResult
     func cacheOutgoingMediaPlaintext(
         _ attachments: [PendingMediaAttachment],
         references: [MediaAttachmentReferenceFfi],
         accountId: String,
         groupIdHex: String
-    ) async {
+    ) async -> [MessageMediaDiskCacheKey] {
+        var heldKeys: [MessageMediaDiskCacheKey] = []
         for (attachment, reference) in zip(attachments, references) {
-            await mediaDiskCache.store(
-                MessageMediaDownload(
-                    data: attachment.data,
-                    fileName: attachment.fileName,
-                    mediaType: attachment.mediaType,
-                    sizeBytes: UInt64(attachment.data.count)
-                ),
-                for: MessageMediaDiskCacheKey(
-                    accountId: accountId,
-                    groupIdHex: groupIdHex,
-                    reference: reference
-                )
+            let cacheKey = MessageMediaDiskCacheKey(
+                accountId: accountId,
+                groupIdHex: groupIdHex,
+                reference: reference
             )
+            // The payload carries the id a disk read would give it, so a row that starts from this
+            // hold and one that later re-reads the same attachment from disk share one decoded
+            // image rather than each rasterizing their own.
+            let download = MessageMediaDownload(
+                data: attachment.data,
+                fileName: attachment.fileName,
+                mediaType: attachment.mediaType,
+                sizeBytes: UInt64(attachment.data.count),
+                payloadId: cacheKey.payloadID
+            )
+            outgoingMediaWarmPlaintexts.hold(download, for: cacheKey)
+            heldKeys.append(cacheKey)
+            await mediaDiskCache.store(download, for: cacheKey)
         }
+        return heldKeys
     }
 
     func startTimelineListener(

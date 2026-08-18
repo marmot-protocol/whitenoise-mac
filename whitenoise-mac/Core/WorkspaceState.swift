@@ -99,6 +99,10 @@ final class WorkspaceState {
         return result
     }
     @ObservationIgnored var mediaDownloads: [String: MediaDownloadStateStore] = [:]
+    /// Plaintexts of the media this client is publishing right now, held until the row that carries
+    /// them is retired. `@ObservationIgnored` for the same reason `mediaDownloads` is: it is read
+    /// while a download-state store is being created, which happens inside a transcript body pass.
+    @ObservationIgnored var outgoingMediaWarmPlaintexts = OutgoingMediaWarmPlaintexts()
     @ObservationIgnored let mediaDiskCache: MessageMediaDiskCache
     @ObservationIgnored var hiddenMessageStore: (any HiddenMessageStoring)?
     @ObservationIgnored var pinnedChatStore: (any PinnedChatStoring)?

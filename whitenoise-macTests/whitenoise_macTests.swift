@@ -17126,6 +17126,152 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func aPublishedOwnMediaRowRendersItsImageOnTheFirstFrame() async throws {
+        // The bubble the send hands over already shows the picked image, so the row that replaces it
+        // must show it too — immediately. Seeding only the encrypted disk cache was not enough: that
+        // read is asynchronous (open the container, decrypt, verify the digest), so the published row
+        // came up on a spinner and the sender watched their own photo blink from loaded back to
+        // loading as the placeholder gave way to the real row.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let photo = PendingMediaAttachment(
+            fileName: "photo.png",
+            mediaType: "image/png",
+            data: Data("photo bytes".utf8),
+            dim: "120x80"
+        )
+        state.appendPendingMediaAttachment(photo, for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+
+        // Arm the gate only now, so it holds the publish rather than the upload.
+        runtime.messageActionGateEnabled = true
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+
+        // The row the core commits locally inside the publish carries the reference the send just
+        // published, which is what the held plaintext is keyed by.
+        let publishedReference = try #require(runtime.sentMediaAttachments.last?.attachments.first)
+        runtime.installTimelinePage(
+            TimelinePageFfi(
+                messages: [
+                    timelineMessage(
+                        id: "published-photo",
+                        direction: "outbound",
+                        groupIdHex: "group",
+                        sender: account.accountIdHex,
+                        plaintext: "",
+                        recordedAt: 1_700_000_000,
+                        media: [publishedReference]
+                    )
+                ],
+                hasMoreBefore: false,
+                hasMoreAfter: false
+            ),
+            groupIdHex: "group"
+        )
+        let activeAccount = try #require(state.activeAccount)
+        await state.refreshSelectedTimelineAfterSend(
+            groupIdHex: "group",
+            account: activeAccount,
+            client: runtime
+        )
+
+        let row = try #require(state.selectedMessages.first)
+        let attachment = try #require(row.mediaAttachments.first)
+        let downloadState = state.mediaDownloadStateStore(for: row, attachment: attachment)
+        guard case .loaded(let download) = downloadState.state else {
+            Issue.record("own send's published row must start loaded, not \(downloadState.state)")
+            return
+        }
+        #expect(download.data == photo.data)
+        #expect(download.fileName == "photo.png")
+        // Nothing left to fetch: the bytes never went round-trip, so no spinner and no download.
+        #expect(!downloadState.shouldStartAutomaticDownload)
+
+        runtime.releaseMessageActionGate()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        // The hold is scoped to the send: once the message is retired the plaintext is released, and
+        // the row keeps rendering from the payload it was handed.
+        #expect(state.outgoingMediaWarmPlaintexts.isEmpty)
+        guard case .loaded = downloadState.state else {
+            Issue.record("retiring the send must not walk its published row back to loading")
+            return
+        }
+    }
+
+    @MainActor
+    @Test func thePlaceholderIsRetiredOnlyOnceTheWindowThatReplacesItIsBack() async throws {
+        // The placeholder used to be dropped before the post-send re-window, which on the path where
+        // no projection delta has arrived yet left a frame with neither row in it: the bubble the
+        // user was looking at disappeared and the published one had not been windowed. Retiring it
+        // after the window comes back means something is always on screen for the message.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        state.appendPendingMediaAttachment(
+            PendingMediaAttachment(
+                fileName: "photo.png",
+                mediaType: "image/png",
+                data: Data("photo bytes".utf8),
+                dim: "120x80"
+            ),
+            for: draftKey
+        )
+        await Self.settleComposerMediaUploads(state)
+        runtime.messageActionGateEnabled = true
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+
+        let publishedReference = try #require(runtime.sentMediaAttachments.last?.attachments.first)
+        let publishedPage = TimelinePageFfi(
+            messages: [
+                timelineMessage(
+                    id: "published-photo",
+                    direction: "outbound",
+                    groupIdHex: "group",
+                    sender: account.accountIdHex,
+                    plaintext: "",
+                    recordedAt: 1_700_000_000,
+                    media: [publishedReference]
+                )
+            ],
+            hasMoreBefore: false,
+            hasMoreAfter: false
+        )
+        // Hold the re-window itself, so the assertion lands in the gap the old order left open.
+        let windowGate = BlockingFfiGate()
+        windowGate.isEnabled = true
+        runtime.timelineMessagesHandler = { _ in
+            windowGate.passIfArmed()
+            return publishedPage
+        }
+
+        runtime.releaseMessageActionGate()
+        await Self.waitUntil { windowGate.didReach }
+
+        #expect(!state.selectedMessages.contains { $0.id == "published-photo" })
+        #expect(state.selectedPendingOutgoingMediaMessages.count == 1)
+
+        windowGate.release()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        #expect(state.selectedMessages.map(\.id) == ["published-photo"])
+        #expect(state.selectedPendingOutgoingMediaMessages.isEmpty)
+        #expect(state.pendingOutgoingMediaMessagesByConversation.isEmpty)
+        #expect(state.outgoingMediaWarmPlaintexts.isEmpty)
+    }
+
+    @MainActor
     @Test func pendingBubbleStaysUpWhileADifferentAudioIsPublished() async throws {
         // The suppression is keyed on the blob the message actually uploaded. A neighbouring audio
         // row in the same transcript must not retire a bubble whose own publish is still climbing.
