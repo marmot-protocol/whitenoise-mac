@@ -117,6 +117,15 @@ private struct AccountRailAvatar: View {
                 seed: account.accountIdHex,
                 initials: account.initials,
                 sanitizedPictureURL: account.sanitizedPictureURL,
+                // These are the viewer's *own* identities, so the rail sits with the profile
+                // editor and the account switcher on the exempt side of the "Load Remote Profile
+                // Images" preference — see `RemoteImageDisplayPolicy`. Left on the default, the
+                // rail drew initials for a picture the viewer had just set and could see in
+                // Settings, which reads as a broken avatar rather than as privacy. Signed-out
+                // accounts stay gated, matching the switcher's row list: signing out drops an
+                // identity's relay key packages, so the app should not then put traffic on the
+                // wire on its behalf.
+                isOwnAccountImage: !account.signedOut,
                 size: MessagesLayout.accountRailAvatarSize,
                 isSelected: isActive
             )
