@@ -1,14 +1,16 @@
 import Foundation
 
-/// Writes decrypted attachment bytes into a destination folder (the Downloads folder in the app).
+/// Names for decrypted attachment bytes on their way into the folder the user chose.
 ///
-/// Downloading is deliberately non-interactive: one click puts the file in Downloads, the way a
+/// Downloading is deliberately non-interactive: one click puts the file in that folder, the way a
 /// browser download does. A save panel per file is fine for the single-file "Save file" row in
 /// shared media, but the message action downloads every attachment on a message at once, and a
 /// modal per attachment would be a marathon.
 ///
 /// Nothing is ever overwritten — a taken name gets Finder's " 2" suffix — and file names arrive
 /// over the wire, so they are sanitized down to a single path component before they are used.
+/// These are pure: the write itself is `MediaDownloadWriter.write(_:fileName:into:)`, which is the
+/// only thing that touches the filesystem and is serialized for exactly that reason.
 nonisolated enum MediaFileDownloader {
     /// Used when sanitizing leaves nothing usable (a name that was only slashes or dots).
     static let fallbackFileName = "attachment"
@@ -57,22 +59,6 @@ nonisolated enum MediaFileDownloader {
             }
         }
         return name(stem: stem, suffix: UUID().uuidString, fileExtension: fileExtension)
-    }
-
-    @discardableResult
-    static func write(
-        _ data: Data,
-        fileName: String,
-        into directory: URL,
-        fileManager: FileManager = .default
-    ) throws -> URL {
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let resolvedName = uniqueFileName(for: fileName) { candidate in
-            fileManager.fileExists(atPath: directory.appending(path: candidate).path(percentEncoded: false))
-        }
-        let destination = directory.appending(path: resolvedName)
-        try data.write(to: destination, options: .atomic)
-        return destination
     }
 
     private static func stem(of fileName: String) -> String {

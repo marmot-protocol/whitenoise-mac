@@ -134,16 +134,15 @@ final class WorkspaceState {
     /// attachments rebuild against fresh state stores and shared-media thumbnails re-request data.
     var mediaCacheGeneration: UInt64 = 0
     @ObservationIgnored var mediaCacheFootprintRefreshGeneration: UInt64 = 0
-    /// Messages with a download-to-Downloads gesture in flight. The bubble and gallery buttons
-    /// disable against it, and it serializes writes into the destination folder.
+    /// Messages with a download gesture in flight. The bubble and gallery buttons disable against
+    /// it, and it serializes writes into the folder the user chose.
     var mediaDownloadingMessageIds = Set<String>()
-    /// Tally of the last finished download gesture, shown as a transient toast.
+    /// Tally of the download gestures the visible toast covers. `nil` while no toast is up.
     var mediaDownloadFeedback: MediaDownloadFeedback?
     /// The remembered download folder, as shown in Storage settings. Loaded on demand by
     /// `refreshMediaDownloadDestinationPath()`; `nil` until the user has chosen one.
     var mediaDownloadDestinationPath: String?
     @ObservationIgnored var mediaDownloadFeedbackDismissTask: Task<Void, Never>?
-    @ObservationIgnored var nextMediaDownloadFeedbackId: UInt64 = 0
     /// Error for the user-initiated action on the *current* screen. Rendered by form
     /// surfaces (login, settings, new-chat composer). Must never be written by
     /// background tasks — see `backgroundStatus`.

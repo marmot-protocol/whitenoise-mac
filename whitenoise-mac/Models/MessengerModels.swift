@@ -850,6 +850,21 @@ enum MediaDownloadState: Equatable {
     case loading
     case loaded(MessageMediaDownload)
     case failed(String)
+
+    /// The case name alone, for the public half of a download-failure log line.
+    ///
+    /// Spelled out rather than derived with `String(describing:)`, which would carry the associated
+    /// values along with the case: `.failed`'s reason is the core's own text and `.loaded`'s payload
+    /// is the file, and neither belongs in a `.public` field. A new case has to be named here, which
+    /// is the point.
+    var logLabel: String {
+        switch self {
+        case .idle: "idle"
+        case .loading: "loading"
+        case .loaded: "loaded"
+        case .failed: "failed"
+        }
+    }
 }
 
 /// Blossom upload status for one composer attachment. Attachments upload as soon as they are
@@ -2533,7 +2548,13 @@ nonisolated struct MessageItem: Identifiable, Hashable {
     /// One gesture, two jobs: a lone attachment downloads itself, several download together, and
     /// the hover tooltip and the context menu both have to say which before the click.
     var mediaDownloadActionTitle: String {
-        mediaAttachments.count > 1
+        Self.mediaDownloadActionTitle(forAttachmentCount: mediaAttachments.count)
+    }
+
+    /// The same wording for a gesture that targets a subset of the message: the image gallery's
+    /// button saves the photo on screen, so it is a "Download" even on a message carrying five.
+    static func mediaDownloadActionTitle(forAttachmentCount count: Int) -> String {
+        count > 1
             ? L10n.string("Download attachments")
             : L10n.string("Download")
     }

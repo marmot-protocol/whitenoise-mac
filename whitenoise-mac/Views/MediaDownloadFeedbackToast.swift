@@ -3,8 +3,8 @@ import SwiftUI
 /// Transient confirmation for an attachment download, pinned to the window's bottom-leading
 /// corner.
 ///
-/// It is the only feedback the gesture gives: the file lands in the Downloads folder without a
-/// save panel, so without this the click would look like nothing happened. Non-interactive by
+/// It is the only feedback the gesture gives: the file lands in the folder the user chose without
+/// a save panel, so without this the click would look like nothing happened. Non-interactive by
 /// design — it floats over the transcript and the image gallery, and must never swallow a click
 /// meant for either.
 struct MediaDownloadFeedbackToast: View {
