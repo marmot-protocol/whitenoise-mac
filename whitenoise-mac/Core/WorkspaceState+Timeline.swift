@@ -1052,6 +1052,10 @@ extension WorkspaceState {
         else { return }
         isSending = true
         defer { isSending = false }
+        // Past the guards, so a send the core would refuse never moves the transcript. Both
+        // branches below empty the composer synchronously from here, so the bubble the user is
+        // scrolled to — pending or real — is part of the same view update.
+        outgoingSendScrollGeneration &+= 1
 
         if !mediaAttachments.isEmpty {
             // Hand the send off and return. Staging started every upload the moment the file

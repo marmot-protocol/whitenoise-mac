@@ -17018,6 +17018,66 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func sendingScrollsTheTranscriptToTheLiveEdgeFromThePressItself() async throws {
+        // The transcript jumps to the bottom off this generation rather than off the message the
+        // send produces. A recording is the case that needs it: its pending bubble is appended
+        // below the timeline window, so nothing about `messageIDs` moves when Send is pressed, and
+        // a send made while the user was reading history stayed off the bottom edge until the
+        // publish landed seconds later.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        let beforeAnySend = state.outgoingSendScrollGeneration
+
+        // An empty composer sends nothing, so it must not move the transcript either.
+        await state.sendDraft()
+        #expect(state.outgoingSendScrollGeneration == beforeAnySend)
+
+        state.appendPendingMediaAttachment(recordedVoiceMessage(), for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+        await state.sendDraft()
+        let afterRecording = state.outgoingSendScrollGeneration
+        #expect(afterRecording == beforeAnySend &+ 1)
+        await Self.settlePendingOutgoingMediaSends(state)
+        #expect(runtime.sendMediaAttachmentsCallCount == 1)
+
+        state.draftText = "and one typed after it"
+        await state.sendDraft()
+        #expect(state.outgoingSendScrollGeneration == afterRecording &+ 1)
+        await Self.settleOutgoingTextSends(state)
+        #expect(runtime.publishedTexts.map(\.text) == ["and one typed after it"])
+    }
+
+    @MainActor
+    @Test func editingAMessageLeavesTheTranscriptWhereItIs() async throws {
+        // An edit rewrites a row in place — possibly one well up in the history the user is
+        // reading — so it is the one composer send that must not scroll to the live edge.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let beforeEdit = state.outgoingSendScrollGeneration
+
+        state.startEditingMessage(
+            MessageItem(
+                id: "message-to-edit",
+                senderName: "You",
+                body: "Original text",
+                sentAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isOutgoing: true
+            ))
+        state.draftText = "Updated text"
+        await state.sendDraft()
+
+        #expect(runtime.editedMessage?.targetMessageId == "message-to-edit")
+        #expect(state.outgoingSendScrollGeneration == beforeEdit)
+    }
+
+    @MainActor
     @Test func recordingSentBeforeItsUploadLandsFreesTheComposerToRecordAgain() async throws {
         // Where "a recording is a whole message" meets the hybrid send: the recording keeps
         // uploading from its own bubble, and because the composer empties on the press, the user
