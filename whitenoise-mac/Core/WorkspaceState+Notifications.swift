@@ -58,6 +58,12 @@ extension WorkspaceState {
             return
         }
 
+        // Archiving a chat is the user's word that it should stop interrupting them, so a filed-away
+        // conversation gets no banner however busy it gets. Deliberately below the unread-badge
+        // refresh above: that badge is not a banner preference, and the core already leaves archived
+        // conversations out of the account totals it reports.
+        if await notificationChatIsArchived(update) { return }
+
         if !notificationAuthorizationStatus.canPostNotifications {
             await refreshNotificationAuthorizationStatus()
         }
@@ -183,6 +189,35 @@ extension WorkspaceState {
         return try? await FFIExecutor.run({
             try client.notificationSettings(accountRef: accountRef)
         })
+    }
+
+    /// Whether the conversation an incoming notification belongs to has been archived.
+    ///
+    /// The chat list is the app's only in-memory record of what is filed away, and it is maintained
+    /// for the active account alone — while the notification listener is client-wide. An update for
+    /// a background account therefore asks the core directly; otherwise archiving would only
+    /// silence chats on whichever account happens to be open.
+    ///
+    /// An unreadable archive state answers `false`: a notification the user wanted is worth more
+    /// than one they had already filed away.
+    func notificationChatIsArchived(_ update: NotificationUpdateFfi) async -> Bool {
+        if let activeAccount, activeAccount.accountIdHex == update.accountIdHex {
+            if archivedChatItem(accountId: activeAccount.id, chatId: update.groupIdHex) != nil {
+                return true
+            }
+            // `chatItem(accountId:chatId:)` spans both lists, so a hit once the archived lookup has
+            // missed is a live row — no FFI read needed to know it is not archived.
+            if chatItem(accountId: activeAccount.id, chatId: update.groupIdHex) != nil {
+                return false
+            }
+        }
+
+        guard let client else { return false }
+        let details = try? await client.groupDetails(
+            accountRef: update.accountRef,
+            groupIdHex: update.groupIdHex
+        )
+        return details?.group.archived ?? false
     }
 
     func handleNotificationPermissionError(
