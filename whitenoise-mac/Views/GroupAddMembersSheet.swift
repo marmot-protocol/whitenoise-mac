@@ -18,6 +18,8 @@ struct GroupAddMembersSheet: View {
     @State private var staged: [NewChatRecipient] = []
     @State private var isResolving = false
     @State private var resolveError: String?
+    /// Who the core refused, said once, under the roster that shows them dimmed.
+    @State private var unreachableNotice: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,12 +34,27 @@ struct GroupAddMembersSheet: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 6)
             }
+            // Deliberately not the destructive style, and never shown alongside a red line saying
+            // something different: who can't be added is an answer, not an error.
+            if let unreachableNotice {
+                Text(unreachableNotice)
+                    .wnFont(.medium10)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+                    .accessibilityIdentifier("addMembers.notOnWhiteNoise")
+            }
             Divider()
             stagedList
             Divider()
             footer
         }
         .frame(width: 420, height: 460)
+        // A fresh staging session asks the core again rather than inheriting marks from the last
+        // sheet, which may have been a different group or a different day.
+        .task { workspace.resetInviteRefusals() }
     }
 
     private var header: some View {
@@ -99,7 +116,9 @@ struct GroupAddMembersSheet: View {
     }
 
     private func recipientRow(_ recipient: NewChatRecipient) -> some View {
-        HStack(spacing: 10) {
+        let isExcluded = workspace.unreachableInviteMemberIdHexes.contains(
+            recipient.accountIdHex.lowercased())
+        return HStack(spacing: 10) {
             ProfileImageAvatarView(
                 seed: recipient.accountIdHex,
                 initials: recipient.title,
@@ -111,10 +130,16 @@ struct GroupAddMembersSheet: View {
                 Text(recipient.title)
                     .wnFont(.medium12)
                     .lineLimit(1)
-                Text(DisplayText.short(recipient.npub))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .lineLimit(1)
+                // The key gives way to the reason: someone who can't be added needs explaining
+                // more than they need identifying a second time.
+                Text(
+                    isExcluded
+                        ? L10n.string("Not on White Noise yet")
+                        : DisplayText.short(recipient.npub)
+                )
+                .wnFont(.medium10)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .lineLimit(1)
             }
             Spacer(minLength: 8)
             Button {
@@ -127,6 +152,10 @@ struct GroupAddMembersSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+        // Dimmed rather than dropped, the way the compose panel marks them: "who do I still need to
+        // invite" is the question this sheet has to answer.
+        .opacity(isExcluded ? 0.55 : 1)
+        .help(isExcluded ? L10n.string("Not on White Noise yet — they won't be added to this group.") : "")
     }
 
     private var footer: some View {
@@ -148,12 +177,17 @@ struct GroupAddMembersSheet: View {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// Staged people the core hasn't refused — the roster an invite would actually carry.
+    private var reachableStaged: [NewChatRecipient] {
+        workspace.reachableInviteRecipients(staged)
+    }
+
     private var canInvite: Bool {
-        !staged.isEmpty || pendingQuery
+        !reachableStaged.isEmpty || pendingQuery
     }
 
     private var inviteLabel: String {
-        let count = staged.count + (pendingQuery && !staged.isEmpty ? 1 : 0)
+        let count = reachableStaged.count + (pendingQuery && !reachableStaged.isEmpty ? 1 : 0)
         return count <= 1 ? L10n.string("Invite") : String(format: L10n.string("Invite %lld"), count)
     }
 
@@ -164,12 +198,33 @@ struct GroupAddMembersSheet: View {
             await resolveAndStage()
             guard resolveError == nil else { return }
         }
-        guard !staged.isEmpty else { return }
+        guard !reachableStaged.isEmpty else { return }
+        resolveError = nil
+        unreachableNotice = nil
         if await workspace.inviteMembers(staged) {
             dismiss()
-        } else {
+            return
+        }
+        // One press learns every refusal, so this names all of them at once — and the plain error
+        // line is kept for failures that aren't about who these people are.
+        let refused = workspace.unreachableInviteRecipients(staged)
+        unreachableNotice = unreachableMessage(for: refused)
+        if unreachableNotice == nil {
             resolveError = workspace.lastError ?? L10n.string("Couldn't add members.")
         }
+    }
+
+    private func unreachableMessage(for refused: [NewChatRecipient]) -> String? {
+        if refused.count > 1 {
+            return L10n.plural(
+                "%lld people here aren't on White Noise yet, so they can't be added.", Int64(refused.count))
+        }
+        if let only = refused.first {
+            return String(
+                format: L10n.string("%@ isn't on White Noise yet, so they can't be added."), only.title)
+        }
+        guard workspace.hasUnnamedInviteRefusal else { return nil }
+        return L10n.string("Someone you picked isn't on White Noise yet, so they can't be added.")
     }
 
     private func resolveAndStage() async {

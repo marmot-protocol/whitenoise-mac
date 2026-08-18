@@ -393,6 +393,29 @@ final class WorkspaceState {
     /// Disappearing-message timer chosen on the name-group panel. Not a `createGroup`
     /// parameter, so it is applied right after creation.
     var groupDraftRetentionSecs: UInt64 = 0
+    /// Draft members the core has named as having no usable KeyPackage, by lowercased account
+    /// id. `create_group` stops at the first unreachable member, so an attempt names at most one;
+    /// `createGroupResolvingEveryRefusal` spends as many attempts as it takes to fill this in
+    /// completely. The name-group panel lists them apart and the next attempt leaves them out.
+    var unreachableDraftMemberIdHexes: Set<String> = []
+    /// Staged add-members recipients the core has named as having no usable KeyPackage, by
+    /// lowercased account id. The add-members sheet is the compose draft's twin — `invite_members`
+    /// resolves the roster the same way `create_group` does and reports the same one refusal per
+    /// attempt — so it splits its staged list the same way rather than naming one person per press.
+    var unreachableInviteMemberIdHexes: Set<String> = []
+    /// The add-members counterpart of `hasUnnamedGroupDraftRefusal`.
+    var hasUnnamedInviteRefusal = false
+    /// Set when a group-draft attempt was refused for want of a usable KeyPackage and no draft
+    /// member could be held responsible — a KeyPackage that exists but can't be used names nobody,
+    /// and one can turn up before this press has a refused member to probe with.
+    ///
+    /// It feeds the same notice `unreachableDraftMemberIdHexes` does rather than `lastError`,
+    /// because a red line contradicting the notice above it ("2 people here aren't on White
+    /// Noise") is how the panel came to state two different counts at once.
+    var hasUnnamedGroupDraftRefusal = false
+    /// Shown instead of `lastError` when a one-to-one chat can't start because the recipient
+    /// isn't on White Noise yet — there is nothing to retry, only someone to invite.
+    var startChatInvitePrompt: StartChatInvitePrompt?
     @ObservationIgnored var composeContactsGeneration: UInt64 = 0
     /// People the web-of-trust search found for the current compose query. Deliberately separate
     /// from `composeContacts`: a search result is not a relationship, so nothing here is ever

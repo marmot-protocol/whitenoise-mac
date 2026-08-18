@@ -145,11 +145,16 @@ extension WorkspaceState {
             return false
         }
         newChatRecipients.append(recipient)
+        // An unnamed refusal belongs to the roster it was raised on. Editing that roster is exactly
+        // what the notice asks for, so the claim goes with the edit rather than following a draft
+        // that no longer contains whoever it was about.
+        hasUnnamedGroupDraftRefusal = false
         return true
     }
 
     func removeNewChatRecipient(_ recipient: NewChatRecipient) {
         newChatRecipients.removeAll { $0.accountIdHex == recipient.accountIdHex }
+        hasUnnamedGroupDraftRefusal = false
     }
 
     func createNewChat() async {
@@ -159,6 +164,7 @@ extension WorkspaceState {
         // resolve below). Otherwise two rapid submits both pass the `!isCreatingChat`
         // guard while suspended and each reach `createGroup`, creating duplicate chats.
         lastError = nil
+        startChatInvitePrompt = nil
         isCreatingChat = true
         defer { isCreatingChat = false }
 
@@ -236,7 +242,8 @@ extension WorkspaceState {
             beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
             await loadMessages(groupIdHex: groupIdHex)
         } catch {
-            lastError = error.localizedDescription
+            guard activeAccountId == accountId else { return }
+            applyChatCreationFailure(error, recipients: recipients, surface: isDirect ? .directChat : .groupDraft)
         }
     }
 
@@ -283,6 +290,9 @@ extension WorkspaceState {
         newChatRecipient = nil
         newChatRecipients = []
         groupDraftRetentionSecs = 0
+        unreachableDraftMemberIdHexes = []
+        hasUnnamedGroupDraftRefusal = false
+        startChatInvitePrompt = nil
         creatingDirectChatIdHex = nil
     }
 
@@ -569,6 +579,7 @@ extension WorkspaceState {
         }
         guard let client, let activeAccount, !isCreatingChat else { return }
         lastError = nil
+        startChatInvitePrompt = nil
         isCreatingChat = true
         creatingDirectChatIdHex = recipient.accountIdHex
         defer {
@@ -600,8 +611,40 @@ extension WorkspaceState {
             beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
             await loadMessages(groupIdHex: groupIdHex)
         } catch {
-            lastError = error.localizedDescription
+            guard activeAccountId == accountId else { return }
+            applyChatCreationFailure(error, recipients: [recipient], surface: .directChat)
         }
+    }
+
+    /// The invite prompt to render, or `nil` when it belongs to a query the user has since edited.
+    ///
+    /// Derived rather than cleared on change, because the only hook a clear could use — the
+    /// debounced `resolveNewChatQueryIfReady()` — cancels itself on every keystroke and so does not
+    /// run until typing settles, which is exactly when a stale prompt is most visible. Comparing
+    /// against the live query costs nothing and cannot be forgotten by a future code path. A
+    /// contact-row failure records the empty query it was raised under, so it hides the moment the
+    /// user starts typing and returns if they clear the field again — the person is still not
+    /// reachable, so re-showing it is honest.
+    var visibleStartChatInvitePrompt: StartChatInvitePrompt? {
+        guard let startChatInvitePrompt,
+            startChatInvitePrompt.query == newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        else { return nil }
+        return startChatInvitePrompt
+    }
+
+    /// Members of the group draft the core has not (yet) refused. The `unreachable` split is
+    /// derived from the live roster rather than stored alongside it, so removing someone from
+    /// the draft drops their mark with them and no stale entry can outlive the recipient. Marks
+    /// survive a remove-then-re-add within the same draft, which is the wanted behaviour: the
+    /// core has not changed its mind, and the panel says so without another failed attempt.
+    var reachableDraftMembers: [NewChatRecipient] {
+        newChatRecipients.filter { !unreachableDraftMemberIdHexes.contains($0.accountIdHex.lowercased()) }
+    }
+
+    /// Draft members the core named as having no usable KeyPackage. These are shown apart in the
+    /// name-group panel and left out of the next create attempt.
+    var unreachableDraftMembers: [NewChatRecipient] {
+        newChatRecipients.filter { unreachableDraftMemberIdHexes.contains($0.accountIdHex.lowercased()) }
     }
 
     /// Create the group from the compose-flow draft (chosen members, required name, timer).
@@ -609,49 +652,313 @@ extension WorkspaceState {
     func createGroupFromDraft() async {
         guard let client, let activeAccount, !isCreatingChat else { return }
         let name = newChatName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let members = newChatRecipients
-        guard !name.isEmpty, !members.isEmpty else { return }
+        // Members the core has already refused are left out of the attempt. This is not a silent
+        // drop: the panel lists them under "Not on White Noise yet" and the Create button names
+        // the exclusion, so the composition being submitted is the one the user is looking at.
+        guard !name.isEmpty, !reachableDraftMembers.isEmpty else { return }
         lastError = nil
+        startChatInvitePrompt = nil
+        // Whatever this press learns replaces what the last one did, marks included: an
+        // unattributed refusal that has since been pinned on a member must not keep claiming
+        // there is someone else on top of the ones the panel now names.
+        hasUnnamedGroupDraftRefusal = false
         isCreatingChat = true
         defer { isCreatingChat = false }
         let accountId = activeAccount.id
         let retentionSecs = groupDraftRetentionSecs
-        do {
-            let groupIdHex = try await client.createGroup(
-                accountRef: activeAccount.accountRef,
+        guard
+            let groupIdHex = await createGroupResolvingEveryRefusal(
                 name: name,
-                memberRefs: members.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef },
-                description: nil
+                client: client,
+                activeAccount: activeAccount,
+                accountId: accountId
             )
-            if retentionSecs > 0 {
-                do {
-                    try await client.updateMessageRetention(
-                        accountRef: activeAccount.accountRef,
-                        groupIdHex: groupIdHex,
-                        disappearingMessageSecs: retentionSecs
-                    )
-                } catch {
-                    if activeAccountId == accountId {
-                        backgroundStatus = L10n.string(
-                            "The group was created, but disappearing messages could not be turned on.")
-                    }
+        else { return }
+
+        if retentionSecs > 0 {
+            do {
+                try await client.updateMessageRetention(
+                    accountRef: activeAccount.accountRef,
+                    groupIdHex: groupIdHex,
+                    disappearingMessageSecs: retentionSecs
+                )
+            } catch {
+                if activeAccountId == accountId {
+                    backgroundStatus = L10n.string(
+                        "The group was created, but disappearing messages could not be turned on.")
                 }
             }
-            await reloadChats(forceFreshSnapshot: true)
-            guard activeAccountId == accountId else { return }
-            insertCreatedChatIfNeeded(
-                groupIdHex: groupIdHex,
-                title: name,
-                avatarSeed: groupIdHex,
-                pictureURL: nil,
-                isDirect: false
-            )
-            selection = .chat(groupIdHex)
-            closeNewChatComposer()
-            beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
-            await loadMessages(groupIdHex: groupIdHex)
-        } catch {
-            lastError = error.localizedDescription
+        }
+        await reloadChats(forceFreshSnapshot: true)
+        guard activeAccountId == accountId else { return }
+        insertCreatedChatIfNeeded(
+            groupIdHex: groupIdHex,
+            title: name,
+            avatarSeed: groupIdHex,
+            pictureURL: nil,
+            isDirect: false
+        )
+        selection = .chat(groupIdHex)
+        closeNewChatComposer()
+        beginTimelineInitialLoadIfNeeded(groupIdHex: groupIdHex)
+        await loadMessages(groupIdHex: groupIdHex)
+    }
+
+    /// Create the group, but not before every member the core will refuse is known.
+    ///
+    /// `create_group` resolves the roster in list order and reports only the *first* member with no
+    /// usable KeyPackage, so one attempt per refusal is the only way to learn the whole set — there
+    /// is no FFI that asks whether a given person has a published KeyPackage. Spending those
+    /// attempts one press at a time revealed a draft's unreachable members one by one, and the last
+    /// press — the one whose roster the core finally accepted — created the group before the user
+    /// had ever seen the full list.
+    ///
+    /// So this spends them in a single press, and pins the member the core just refused to the end
+    /// of every follow-up attempt. That member is known-unreachable, which makes each follow-up
+    /// guaranteed to fail: nothing can be created while members are still being checked. And
+    /// because the core reports the first refusal *in list order*, an error naming someone else is
+    /// a new refusal, while an error naming the pinned member means everyone ahead of them
+    /// resolved. Discovery therefore ends on a refusal with nothing created, the panel lists every
+    /// excluded member at once, and the Create the user presses next submits the composition they
+    /// are looking at.
+    ///
+    /// Should the core ever name an arbitrary failing member rather than the first, this degrades
+    /// to the old behaviour — fewer refusals learned per press — and still never creates a group
+    /// mid-discovery, because a pinned refusal keeps every follow-up attempt failing regardless of
+    /// which member the error names.
+    ///
+    /// Returns the new group id, or `nil` when nothing was created: either members were refused
+    /// (they are marked, and the panel explains) or the failure was one `applyChatCreationFailure`
+    /// routes to the error line.
+    private func createGroupResolvingEveryRefusal(
+        name: String,
+        client: any MarmotRuntime,
+        activeAccount: AccountItem,
+        accountId: String
+    ) async -> String? {
+        var candidates = reachableDraftMembers
+        // The most recently refused member, carried into the next attempt to keep it failing.
+        var pinnedRefusal: NewChatRecipient?
+        // Refusals are collected here and published in one go on the way out. Marking them as they
+        // arrive let the panel render each partial answer — one name, then two, then three — which
+        // reads as the panel changing its mind about who can't be added. The press has one answer,
+        // so it says it once.
+        var discovered: Set<String> = []
+        defer { unreachableDraftMemberIdHexes.formUnion(discovered) }
+        while !candidates.isEmpty {
+            let attempt = candidates + (pinnedRefusal.map { [$0] } ?? [])
+            do {
+                let groupIdHex = try await client.createGroup(
+                    accountRef: activeAccount.accountRef,
+                    name: name,
+                    memberRefs: attempt.map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef },
+                    description: nil
+                )
+                // Only the first attempt is expected to reach here. A later one can succeed only if
+                // the pinned member published a KeyPackage between two attempts, and then they are
+                // in the group the core just created — which is the roster the user asked for, and
+                // the mark taken moments earlier goes out with the rest of the draft when the
+                // caller closes the composer.
+                return groupIdHex
+            } catch {
+                guard activeAccountId == accountId else { return nil }
+                let failure = ChatCreationFailure(error)
+                let refused: NewChatRecipient?
+                if case .notOnWhiteNoise(let account) = failure {
+                    refused = ChatCreationFailure.refusedRecipient(named: account, among: attempt)
+                } else {
+                    refused = nil
+                }
+                guard let refused else {
+                    // Nobody to pin this on. Either the refusal named no account — a KeyPackage that
+                    // exists but can't be used — or the member stopping the create fails some other
+                    // way entirely, which reads as a group-wide error while it is really one person.
+                    // Both are answerable by asking about the members one at a time.
+                    switch await attributeRefusalMemberByMember(
+                        among: candidates,
+                        pin: pinnedRefusal ?? unreachableDraftMembers.first,
+                        name: name,
+                        client: client,
+                        activeAccount: activeAccount,
+                        accountId: accountId
+                    ) {
+                    case .created(let groupIdHex):
+                        return groupIdHex
+                    case .attributed(let marks):
+                        discovered.formUnion(marks)
+                        return nil
+                    case .unattributed:
+                        // Nothing owned up to it, so this is reported as what it looked like: a
+                        // refusal the panel can't name, or an error that belongs on the error line.
+                        if case .notOnWhiteNoise = failure {
+                            hasUnnamedGroupDraftRefusal = true
+                        } else {
+                            applyChatCreationFailure(error, recipients: attempt, surface: .groupDraft)
+                        }
+                        return nil
+                    }
+                }
+                // The refusal names someone who is not up for checking — the pinned member, whose
+                // failure is the signal that everyone ahead of them resolved. There is nothing left
+                // to learn and nothing to create until the user presses Create again.
+                guard
+                    let index = candidates.firstIndex(where: {
+                        $0.accountIdHex.caseInsensitiveCompare(refused.accountIdHex) == .orderedSame
+                    })
+                else { return nil }
+                discovered.insert(refused.accountIdHex.lowercased())
+                candidates.remove(at: index)
+                pinnedRefusal = refused
+                // Everyone ahead of a refusal resolved, so only the members behind it are still
+                // unknown. A refusal at the end of the roster leaves none — the common
+                // one-unreachable-member draft therefore costs exactly the one attempt it always
+                // did, and no follow-up is spent confirming what the same error already said.
+                guard index < candidates.count else { return nil }
+            }
+        }
+        return nil
+    }
+
+    /// What a member-by-member pass concluded about a failure no member could be pinned on.
+    enum RefusalAttribution {
+        /// The pin resolved between attempts, so the create the probe asked for went through.
+        case created(String)
+        /// At least one member was named. Carries their account ids for the caller to publish with
+        /// the rest of the press's findings.
+        case attributed(Set<String>)
+        /// Nobody owned up to it. The caller reports the failure as it arrived.
+        case unattributed
+    }
+
+    /// Work out which member a failure belongs to, by asking about one at a time.
+    ///
+    /// `MissingKeyPackage` carries the account it is about, but a KeyPackage that exists and cannot
+    /// be used (`InvalidKeyPackageEvent`, `InvalidIdentity`) names no one — and the core still stops
+    /// the whole create over it. Left there, the panel showed the members it *had* named alongside a
+    /// red line about an unnamed someone, which is two different accounts of the same draft.
+    ///
+    /// Failures of other kinds arrive here too. Member resolution can fail for reasons that look
+    /// nothing like a missing KeyPackage — a person with no relay list to fetch one from, say — and
+    /// those stopped the whole search, leaving the panel naming the one member it had learned about
+    /// before the roster ran into somebody who fails differently.
+    ///
+    /// `pin` is a member already known to be refused, so `[candidate, pin]` cannot create anything:
+    /// an error naming the pin clears that candidate, and any other refusal — named or not — is
+    /// about the candidate, because the core reports the first failure in list order and the
+    /// candidate goes first. Without a pin (an unnamed refusal on the first attempt of the first
+    /// press) there is no safe way to ask, so the notice says as much and names no one.
+    ///
+    /// The pass is exhaustive rather than a bisection: every member is checked, so it also settles
+    /// the members behind the one at fault and the next press has nothing left to discover. What it
+    /// will not do is convict on its own say-so — see the corroboration rule at the end.
+    private func attributeRefusalMemberByMember(
+        among candidates: [NewChatRecipient],
+        pin: NewChatRecipient?,
+        name: String,
+        client: any MarmotRuntime,
+        activeAccount: AccountItem,
+        accountId: String
+    ) async -> RefusalAttribution {
+        guard let pin else { return .unattributed }
+        // Collected rather than published as they are found: the caller reports this press's
+        // findings in one update, so the panel never counts them out loud.
+        var marks: Set<String> = []
+        // The core named a member at some point in this pass — evidence that it is naming them at
+        // all, without which an unnamed probe says nothing about the candidate it was asked about.
+        var didNameAnyone = false
+        // Refusals that named nobody, held back until that evidence arrives.
+        var unattributed: [NewChatRecipient] = []
+        for candidate in candidates {
+            do {
+                let groupIdHex = try await client.createGroup(
+                    accountRef: activeAccount.accountRef,
+                    name: name,
+                    memberRefs: [candidate, pin].map { $0.memberRef.isEmpty ? $0.accountIdHex : $0.memberRef },
+                    description: nil
+                )
+                // The pin resolved after all, so this asked the core to create a real group and it
+                // did. Hand it back rather than leave it unowned; the caller selects it, and the
+                // draft it came from closes with it.
+                return .created(groupIdHex)
+            } catch {
+                // The composer belongs to another account now: stop, and leave the caller with
+                // nothing to report into it.
+                guard activeAccountId == accountId else { return .attributed(marks) }
+                let named: NewChatRecipient?
+                if case .notOnWhiteNoise(let account) = ChatCreationFailure(error) {
+                    named = ChatCreationFailure.refusedRecipient(named: account, among: [candidate, pin])
+                } else {
+                    // A failure of another kind, for a question that only had two members in it and
+                    // resolves them in order. It says the same thing an unnamed refusal does.
+                    named = nil
+                }
+                guard let named else {
+                    unattributed.append(candidate)
+                    continue
+                }
+                didNameAnyone = true
+                if named.accountIdHex.caseInsensitiveCompare(pin.accountIdHex) == .orderedSame {
+                    // The pin is what failed, which it always does — so the candidate ahead of it
+                    // resolved.
+                    continue
+                }
+                marks.insert(candidate.accountIdHex.lowercased())
+            }
+        }
+        // A pass where the core never named anyone is a pass that proves nothing about anyone: the
+        // failure is as likely to be about this account, or the relays, as about the member being
+        // asked after. Marking every candidate on that evidence would empty the group and blame
+        // people who are perfectly reachable, so the notice says there is someone and names no one.
+        if didNameAnyone {
+            for candidate in unattributed {
+                marks.insert(candidate.accountIdHex.lowercased())
+            }
+        }
+        return marks.isEmpty ? .unattributed : .attributed(marks)
+    }
+
+    /// Route a creation failure to the surface that can act on it.
+    ///
+    /// A one-to-one attempt becomes an invite prompt naming the recipient: the composition is
+    /// already minimal, so the only move left is to invite them. A group draft instead pins the
+    /// refusal on the member the core named, which moves them into the panel's "Not on White
+    /// Noise yet" section and takes them out of the next attempt. Anything the taxonomy doesn't
+    /// recognize falls back to the error line, as before.
+    ///
+    /// The group path reaches here only for a refusal that names nobody the draft knows;
+    /// `createGroupResolvingEveryRefusal` handles the named ones itself, because learning them one
+    /// per press was the bug it exists to fix.
+    ///
+    /// Every caller must re-check `activeAccountId` first, the same way the success paths do
+    /// (whitenoise-mac#229): each of them suspends across `createGroup`, so a mid-await A→B
+    /// switch would otherwise land account A's refusal in account B's composer. The draft half of
+    /// that is latent today — the switch closes the composer, and `resetNewChatComposer()` clears
+    /// both fields — but `lastError` survives a close, so the guard closes a real leak and stops
+    /// the rest from depending on teardown order.
+    func applyChatCreationFailure(
+        _ error: Error,
+        recipients: [NewChatRecipient],
+        surface: ChatCreationSurface
+    ) {
+        switch ChatCreationFailure(error) {
+        case .other(let message):
+            lastError = message
+        case .notOnWhiteNoise(let account):
+            if surface == .directChat, let recipient = recipients.first {
+                startChatInvitePrompt = StartChatInvitePrompt(
+                    accountIdHex: recipient.accountIdHex,
+                    recipientName: recipient.displayName,
+                    query: newChatQuery.trimmingCharacters(in: .whitespacesAndNewlines))
+                return
+            }
+            // Without a member to pin it on — an unusable KeyPackage event rather than a missing
+            // one — the panel says there is someone it can't name, in the same notice that lists
+            // the ones it can. A red line beside that notice was two answers to one question.
+            guard let refused = ChatCreationFailure.refusedRecipient(named: account, among: recipients) else {
+                hasUnnamedGroupDraftRefusal = true
+                return
+            }
+            unreachableDraftMemberIdHexes.insert(refused.accountIdHex.lowercased())
         }
     }
 
