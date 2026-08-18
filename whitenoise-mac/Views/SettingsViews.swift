@@ -819,6 +819,7 @@ struct ProfileIdentityHeaderView: View {
                         seed: account.accountIdHex,
                         initials: displayName,
                         sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
+                        isOwnAccountImage: true,
                         size: avatarSize,
                         isSelected: false
                     )
@@ -873,6 +874,7 @@ struct ProfileImagePickerSheet: View {
                         seed: account.accountIdHex,
                         initials: account.displayName,
                         sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
+                        isOwnAccountImage: true,
                         size: 46,
                         isSelected: false
                     )
@@ -1013,6 +1015,7 @@ struct IdentityKeysSettingsView: View {
                             seed: account.accountIdHex,
                             initials: account.initials,
                             sanitizedPictureURL: account.sanitizedPictureURL,
+                            isOwnAccountImage: true,
                             size: 52,
                             isSelected: false
                         )

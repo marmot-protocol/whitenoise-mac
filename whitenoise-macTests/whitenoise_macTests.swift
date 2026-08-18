@@ -21638,6 +21638,9 @@ struct whitenoise_macTests {
         #expect(runtime.uploadedProfileImageMediaType == "image/jpeg")
         #expect(runtime.uploadedProfileImageBlossomServer == nil)
         #expect(state.profileDraft.picture == runtime.uploadedProfileImageURL)
+        // The avatar draws `sanitizedPictureURL`, not `picture`. Asserting only the raw string
+        // leaves the form free to show initials for an image that uploaded perfectly well.
+        #expect(state.profileDraft.sanitizedPictureURL?.absoluteString == runtime.uploadedProfileImageURL)
         #expect(!state.isProfileImagePickerPresented)
     }
 
@@ -21666,6 +21669,7 @@ struct whitenoise_macTests {
         #expect(runtime.uploadedProfileImageData?.isEmpty == false)
         #expect(runtime.uploadedProfileImageMediaType == "image/jpeg")
         #expect(state.profileDraft.picture == runtime.uploadedProfileImageURL)
+        #expect(state.profileDraft.sanitizedPictureURL?.absoluteString == runtime.uploadedProfileImageURL)
         #expect(!state.isProfileImagePickerPresented)
     }
 
