@@ -440,6 +440,9 @@ extension WorkspaceState {
             purgeRememberedDirectPeers(accountId: removedAccountId)
             await mediaDiskCache.purgeAccount(removedAccountId)
             clearMediaReferenceResolutionCache(forAccountId: removedAccountId)
+            // Purging the account's media must take the plaintexts its in-flight sends were holding
+            // in memory with it, not just the encrypted copies on disk.
+            outgoingMediaWarmPlaintexts.removeAll(forAccountId: removedAccountId)
             accounts = try await accountItemsFromRuntime(client: client)
             removeChats(forAccountId: removedAccountId)
             accountUnreadByIdHex[removedAccountIdHex] = nil

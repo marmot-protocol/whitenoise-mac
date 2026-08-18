@@ -87,12 +87,14 @@ extension WorkspaceState {
     }
 
     func cancelPendingOutgoingMediaSends(for draftKey: ComposerDraftKey) {
-        for message in pendingOutgoingMediaMessagesByConversation[draftKey] ?? [] {
+        let messages = pendingOutgoingMediaMessagesByConversation[draftKey] ?? []
+        for message in messages {
             pendingOutgoingMediaSendTasks.removeValue(forKey: message.id)?.cancel()
             for upload in pendingOutgoingMediaUploadTasks.removeValue(forKey: message.id) ?? [] {
                 upload.cancel()
             }
         }
+        releaseWarmPlaintexts(ofMessagesMatching: nil, in: messages)
         pendingOutgoingMediaMessagesByConversation[draftKey] = nil
     }
 
@@ -155,14 +157,16 @@ extension WorkspaceState {
         // We are holding the plaintext that produced these references, so the sender's own bubble
         // has no reason to fetch its own image back from Blossom and decrypt it. Seed before
         // publishing: the real row can render the moment the send returns, and it must find a warm
-        // cache when it does.
-        await cacheOutgoingMediaPlaintext(
+        // cache when it does — in memory as well as on disk, so its first frame is the image rather
+        // than a spinner over bytes this process is still holding.
+        let heldPlaintextKeys = await cacheOutgoingMediaPlaintext(
             message.attachments,
             references: references,
             accountId: account.id,
             groupIdHex: draftKey.chatId
         )
         guard !Task.isCancelled, pendingOutgoingMediaMessage(id, in: draftKey) != nil else { return }
+        setPendingOutgoingMediaWarmPlaintextKeys(heldPlaintextKeys, for: id, in: draftKey)
 
         do {
             _ = try await client.sendMediaAttachments(
@@ -181,14 +185,18 @@ extension WorkspaceState {
         }
 
         clearMediaReferenceResolutionCache(forAccountId: account.id, groupIdHex: draftKey.chatId)
-        // Drop the placeholder before the refresh, not after: the core commits an own send locally
-        // as part of publishing, so a subscription delta can already be carrying the real row.
-        removePendingOutgoingMediaMessage(id, in: draftKey)
+        // Re-window first, then drop the placeholder. Either order is safe on the delta path — the
+        // core commits an own send locally as part of publishing, so a subscription delta may
+        // already have put the real row on screen, where the digest match hides this bubble anyway.
+        // What the old order cost was the *other* path: dropping the placeholder before the window
+        // came back left a frame with neither row in it, so the transcript flashed where the
+        // message had been. Retiring it afterwards makes the swap seamless in both directions.
         await refreshSelectedTimelineAfterSend(
             groupIdHex: draftKey.chatId,
             account: account,
             client: client
         )
+        removePendingOutgoingMediaMessage(id, in: draftKey)
     }
 
     /// A Blossom upload owned by an outgoing message rather than by the composer.
@@ -257,6 +265,23 @@ extension WorkspaceState {
         pendingOutgoingMediaMessagesByConversation[draftKey]?[index].publishedPlaintextSHAs = digests
     }
 
+    private func setPendingOutgoingMediaWarmPlaintextKeys(
+        _ keys: [MessageMediaDiskCacheKey],
+        for id: PendingOutgoingMediaMessage.ID,
+        in draftKey: ComposerDraftKey
+    ) {
+        guard let index = pendingOutgoingMediaMessagesByConversation[draftKey]?.firstIndex(where: { $0.id == id })
+        else { return }
+        // A retry re-uploads, so it seeds under fresh keys (a new nonce means a new ciphertext
+        // digest). Let go of the attempt this one replaces, or its plaintexts would be held with
+        // nothing left to claim them.
+        let superseded = pendingOutgoingMediaMessagesByConversation[draftKey]?[index].warmPlaintextKeys ?? []
+        for key in superseded where !keys.contains(key) {
+            outgoingMediaWarmPlaintexts.remove(for: key)
+        }
+        pendingOutgoingMediaMessagesByConversation[draftKey]?[index].warmPlaintextKeys = keys
+    }
+
     private func removePendingOutgoingMediaMessage(
         _ id: PendingOutgoingMediaMessage.ID,
         in draftKey: ComposerDraftKey
@@ -266,7 +291,22 @@ extension WorkspaceState {
             upload.cancel()
         }
         var messages = pendingOutgoingMediaMessagesByConversation[draftKey] ?? []
+        releaseWarmPlaintexts(ofMessagesMatching: id, in: messages)
         messages.removeAll { $0.id == id }
         pendingOutgoingMediaMessagesByConversation[draftKey] = messages.isEmpty ? nil : messages
+    }
+
+    /// Lets go of the plaintexts a retired message was holding for its published row. By this point
+    /// the row has either rendered from them or is about to read the same bytes back from the
+    /// encrypted disk cache, which is where they durably live.
+    private func releaseWarmPlaintexts(
+        ofMessagesMatching id: PendingOutgoingMediaMessage.ID?,
+        in messages: [PendingOutgoingMediaMessage]
+    ) {
+        for message in messages where id == nil || message.id == id {
+            for key in message.warmPlaintextKeys {
+                outgoingMediaWarmPlaintexts.remove(for: key)
+            }
+        }
     }
 }
