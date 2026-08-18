@@ -254,12 +254,52 @@ extension WorkspaceState {
         for message: MessageItem,
         attachment: MessageMediaAttachment
     ) -> MediaDownloadStateStore {
-        mediaDownloadStateStore(forKey: mediaDownloadKey(message: message, attachment: attachment))
+        let key = mediaDownloadKey(message: message, attachment: attachment)
+        if let store = mediaDownloads[key] {
+            return store
+        }
+        let store = mediaDownloadStateStore(forKey: key)
+        primeOwnSendMediaDownload(store, message: message, attachment: attachment)
+        return store
+    }
+
+    /// Starts a just-sent attachment's download state at `.loaded`, from the plaintext the send is
+    /// still holding.
+    ///
+    /// The send seeds the disk cache before it publishes, so the row that replaces the pending
+    /// bubble does find its bytes — but that read is asynchronous, so the row rendered a spinner
+    /// first and the sender watched their own image blink from loaded back to loading as the
+    /// placeholder gave way. Handing the plaintext over synchronously makes the row's *first* frame
+    /// the image, which is what makes the swap invisible.
+    ///
+    /// Gated on `isMediaDisplayAllowed` exactly like every other published download state: media
+    /// must not appear for an account or a conversation the user is no longer looking at.
+    private func primeOwnSendMediaDownload(
+        _ store: MediaDownloadStateStore,
+        message: MessageItem,
+        attachment: MessageMediaAttachment
+    ) {
+        guard case .idle = store.state,
+            let accountId = activeAccountId,
+            !message.groupIdHex.isEmpty,
+            !outgoingMediaWarmPlaintexts.isEmpty,
+            isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: message.groupIdHex),
+            let download = outgoingMediaWarmPlaintexts.download(
+                for: MessageMediaDiskCacheKey(
+                    accountId: accountId,
+                    groupIdHex: message.groupIdHex,
+                    reference: attachment.reference
+                )
+            )
+        else { return }
+        store.update(.loaded(download))
     }
 
     func loadMediaAttachment(_ attachment: MessageMediaAttachment, for message: MessageItem) async {
         let key = mediaDownloadKey(message: message, attachment: attachment)
-        let stateStore = mediaDownloadStateStore(forKey: key)
+        // The priming variant, so a tap or an automatic download that reaches a just-sent
+        // attachment before its row was ever rendered still resolves from the plaintext in hand.
+        let stateStore = mediaDownloadStateStore(for: message, attachment: attachment)
         if case .loaded = stateStore.state {
             return
         }
@@ -1006,6 +1046,7 @@ extension WorkspaceState {
             store.update(.idle)
         }
         mediaDownloads.removeAll()
+        outgoingMediaWarmPlaintexts.removeAll()
         cancelAllMediaAttachmentDownloadTasks()
         clearMediaReferenceResolutionCache()
         MessageAudioMetadataCache.shared.clear()

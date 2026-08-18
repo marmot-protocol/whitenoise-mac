@@ -948,6 +948,13 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
     /// locally *inside* the publish call, so the real row can arrive through the timeline
     /// subscription while the relay round-trip is still in flight — and until then both rendered.
     var publishedPlaintextSHAs: Set<String> = []
+    /// Cache keys of the plaintexts this message is holding in memory for its published row to
+    /// render from, stamped when the send seeds the media cache.
+    ///
+    /// Kept here so every path that retires the message — publish, discard, account switch — releases
+    /// the hold with it. The bytes are also on disk, so releasing them costs a later render one
+    /// asynchronous cache read, never the attachment.
+    var warmPlaintextKeys: [MessageMediaDiskCacheKey] = []
 
     init(
         id: UUID = UUID(),

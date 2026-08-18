@@ -5148,6 +5148,93 @@ struct PureValueTests {
         #expect(updated.pictureURL == "https://example.com/old.png")
         #expect(updated.sanitizedPictureURL == original.sanitizedPictureURL)
     }
+
+    @Test func warmOutgoingPlaintextsAreHeldPerSendAndReleasedWithIt() {
+        // The hold is what lets a published own-send row show its image on the first frame. It is
+        // keyed by the same content-addressed key the row looks the attachment up by, and reading it
+        // must not consume it: a reprojection that changes a message's media prunes the download
+        // state stores, and the rebuilt row has to find the bytes again.
+        var holds = OutgoingMediaWarmPlaintexts()
+        let key = warmPlaintextKey(
+            accountId: "account-1", groupIdHex: "group", fileName: "photo.png", digestSeed: "1")
+        let other = warmPlaintextKey(
+            accountId: "account-1", groupIdHex: "group", fileName: "clip.mp4", digestSeed: "2")
+
+        holds.hold(warmPlaintextDownload(fileName: "photo.png", byteCount: 32), for: key)
+
+        #expect(holds.download(for: key)?.fileName == "photo.png")
+        #expect(holds.download(for: key)?.fileName == "photo.png")
+        #expect(holds.download(for: other) == nil)
+        #expect(holds.heldByteCount == 32)
+
+        // Re-holding the same key replaces rather than double-counts it.
+        holds.hold(warmPlaintextDownload(fileName: "photo.png", byteCount: 8), for: key)
+        #expect(holds.heldByteCount == 8)
+
+        holds.remove(for: key)
+        #expect(holds.isEmpty)
+        #expect(holds.heldByteCount == 0)
+    }
+
+    @Test func warmOutgoingPlaintextsDropTheOldestHoldOverBudgetAndPurgePerAccount() {
+        // Every hold is released when its message is retired, so the budget only bounds the
+        // pathological case — messages whose rows never arrive. Overflowing must drop the oldest
+        // hold, never the one the newest send is waiting to render.
+        var holds = OutgoingMediaWarmPlaintexts(byteLimit: 64)
+        let oldest = warmPlaintextKey(
+            accountId: "account-1", groupIdHex: "group", fileName: "oldest.png", digestSeed: "3")
+        let newest = warmPlaintextKey(
+            accountId: "account-2", groupIdHex: "group", fileName: "newest.png", digestSeed: "4")
+        let overBudget = 63
+
+        holds.hold(warmPlaintextDownload(fileName: "oldest.png", byteCount: overBudget), for: oldest)
+        holds.hold(warmPlaintextDownload(fileName: "newest.png", byteCount: overBudget), for: newest)
+
+        #expect(holds.download(for: oldest) == nil)
+        #expect(holds.download(for: newest)?.fileName == "newest.png")
+        #expect(holds.heldByteCount == overBudget)
+
+        // Purging an account takes its plaintexts with it, and leaves the byte count honest.
+        holds.removeAll(forAccountId: "account-2")
+        #expect(holds.isEmpty)
+        #expect(holds.heldByteCount == 0)
+    }
+}
+
+private func warmPlaintextKey(
+    accountId: String,
+    groupIdHex: String,
+    fileName: String,
+    digestSeed: String
+) -> MessageMediaDiskCacheKey {
+    MessageMediaDiskCacheKey(
+        accountId: accountId,
+        groupIdHex: groupIdHex,
+        reference: MediaAttachmentReferenceFfi(
+            locators: [MediaLocatorFfi(kind: "blossom", value: "https://blob.example/\(fileName)")],
+            // Distinct 64-hex digests per attachment. No real hashing: nothing here reads the disk
+            // cache, which is the one place a digest has to match the bytes it guards.
+            ciphertextSha256: String(repeating: digestSeed, count: 64),
+            plaintextSha256: String(repeating: digestSeed, count: 64),
+            nonceHex: "cccccccccccccccccccccccc",
+            fileName: fileName,
+            mediaType: "image/png",
+            version: .v1,
+            sourceEpoch: 0,
+            dim: nil,
+            thumbhash: nil
+        )
+    )
+}
+
+private func warmPlaintextDownload(fileName: String, byteCount: Int) -> MessageMediaDownload {
+    let data = Data(repeating: 0x11, count: byteCount)
+    return MessageMediaDownload(
+        data: data,
+        fileName: fileName,
+        mediaType: "image/png",
+        sizeBytes: UInt64(data.count)
+    )
 }
 
 /// 64-char hex built from a short seed, so tests read as `hex("a")` rather than a wall of digits.
