@@ -840,6 +840,138 @@
         }
       }
     },
+    "%@ isn't on White Noise yet, so they can't be added.": {
+      "comment": "Shown when the core refuses a member because they have no usable KeyPackage.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist noch nicht bei White Noise und kann nicht hinzugefügt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ isn't on White Noise yet, so they can't be added."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ todavía no está en White Noise, así que no se puede añadir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n'est pas encore sur White Noise : impossible de l'ajouter pour l'instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è ancora su White Noise, quindi non si può aggiungere."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ainda não está no White Noise, por isso não é possível adicionar essa pessoa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ пока не в White Noise, поэтому добавить не получится."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ henüz White Noise'da değil, bu yüzden eklenemiyor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 还没有加入 White Noise，因此无法添加。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 還沒有加入 White Noise，因此無法新增。"
+          }
+        }
+      }
+    },
+    "%@ isn't on White Noise yet. Share the app so you can chat securely.": {
+      "comment": "Direct-chat invite prompt naming the recipient.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist noch nicht bei White Noise. Teile die App, damit ihr sicher chatten könnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ isn't on White Noise yet. Share the app so you can chat securely."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ todavía no está en White Noise. Comparte la app para poder chatear de forma segura."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n'est pas encore sur White Noise. Partagez l'app pour discuter en toute sécurité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è ancora su White Noise. Condividi l'app per chattare in modo sicuro."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ainda não está no White Noise. Compartilhe o app para vocês conversarem com segurança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ пока не в White Noise. Поделитесь приложением, чтобы общаться защищённо."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ henüz White Noise'da değil. Güvenli sohbet edebilmek için uygulamayı paylaşın."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 还没有加入 White Noise。分享这个应用，你们就能安全聊天了。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 還沒有加入 White Noise。分享這個應用程式，你們就能安全聊天了。"
+          }
+        }
+      }
+    },
     "%@ joined": {
       "extractionState": "manual",
       "localizations": {
@@ -3444,6 +3576,286 @@
                     "stringUnit": {
                       "state": "translated",
                       "value": "%lld 位成員"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld people here aren't on White Noise yet, so they can't be added.": {
+      "comment": "Headline of the group-draft invite notice when several members were refused.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld Person hier ist noch nicht bei White Noise und kann nicht hinzugefügt werden."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld Personen hier sind noch nicht bei White Noise und können nicht hinzugefügt werden."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld person here isn't on White Noise yet, so they can't be added."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld people here aren't on White Noise yet, so they can't be added."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld persona de aquí todavía no está en White Noise, así que no se puede añadir."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld personas de aquí todavía no están en White Noise, así que no se pueden añadir."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld personne ici n'est pas encore sur White Noise et ne peut pas être ajoutée."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld personnes ici ne sont pas encore sur White Noise et ne peuvent pas être ajoutées."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld persona qui non è ancora su White Noise, quindi non può essere aggiunta."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld persone qui non sono ancora su White Noise, quindi non possono essere aggiunte."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld pessoa aqui ainda não está no White Noise, por isso não pode ser adicionada."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld pessoas aqui ainda não estão no White Noise, por isso não podem ser adicionadas."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "few": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld человека здесь пока не в White Noise, поэтому добавить их не получится."
+                    }
+                  },
+                  "many": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld человек здесь пока не в White Noise, поэтому добавить их не получится."
+                    }
+                  },
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld человек здесь пока не в White Noise, поэтому добавить его не получится."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%lld человека здесь пока не в White Noise, поэтому добавить их не получится."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "Buradaki %lld kişi henüz White Noise'da değil, bu yüzden eklenemiyor."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "这里有 %lld 人还没有加入 White Noise，因此无法添加。"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@count@"
+          },
+          "substitutions": {
+            "count": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "這裡有 %lld 人還沒有加入 White Noise，因此無法新增。"
                     }
                   }
                 }
@@ -24585,6 +24997,72 @@
         }
       }
     },
+    "Invite them to White Noise, then add them to the group once they're set up.": {
+      "comment": "Secondary line of the group-draft invite notice.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade sie zu White Noise ein und füge sie der Gruppe hinzu, sobald sie eingerichtet sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invite them to White Noise, then add them to the group once they're set up."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invítalos a White Noise y añádelos al grupo cuando ya lo tengan configurado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitez-les sur White Noise, puis ajoutez-les au groupe une fois qu'ils sont installés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitali su White Noise e aggiungili al gruppo quando avranno completato la configurazione."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convide-os para o White Noise e adicione-os ao grupo assim que estiverem configurados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пригласите их в White Noise и добавьте в группу, когда они всё настроят."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onları White Noise'a davet edin, kurulumu tamamladıklarında gruba ekleyin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀请他们加入 White Noise，等他们设置好后再添加到群组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邀請他們加入 White Noise，等他們設定好後再加入群組。"
+          }
+        }
+      }
+    },
     "Invited %lld members": {
       "extractionState": "manual",
       "localizations": {
@@ -26296,6 +26774,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "已離開"
+          }
+        }
+      }
+    },
+    "Let's chat on White Noise — private, secure messaging. Get it at https://whitenoise.chat": {
+      "comment": "The invite message shared from the compose flow.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lass uns auf White Noise chatten – private, sichere Nachrichten. Hier gibt es die App: https://whitenoise.chat"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let's chat on White Noise — private, secure messaging. Get it at https://whitenoise.chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chateemos en White Noise: mensajería privada y segura. Descárgala en https://whitenoise.chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discutons sur White Noise — messagerie privée et sécurisée. À télécharger sur https://whitenoise.chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chattiamo su White Noise: messaggistica privata e sicura. Scaricala da https://whitenoise.chat"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vamos conversar no White Noise — mensagens privadas e seguras. Baixe em https://whitenoise.chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Давай общаться в White Noise — приватные и защищённые сообщения. Скачать: https://whitenoise.chat"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise'da sohbet edelim — özel ve güvenli mesajlaşma. İndirmek için: https://whitenoise.chat"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来 White Noise 聊天吧——私密、安全的消息应用。下载地址：https://whitenoise.chat"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來 White Noise 聊天吧——私密、安全的訊息應用程式。下載網址：https://whitenoise.chat"
           }
         }
       }
@@ -33925,6 +34469,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "未交付"
+          }
+        }
+      }
+    },
+    "Not on White Noise yet": {
+      "comment": "Heading over the draft members who cannot be added.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht bei White Noise"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not on White Noise yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no está en White Noise"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore sur White Noise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ancora su White Noise"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não está no White Noise"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока не в White Noise"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henüz White Noise'da değil"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未加入 White Noise"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未加入 White Noise"
+          }
+        }
+      }
+    },
+    "Not on White Noise yet — they won't be added to this group.": {
+      "comment": "Tooltip on a dimmed draft member row.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht bei White Noise – wird dieser Gruppe nicht hinzugefügt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not on White Noise yet — they won't be added to this group."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no está en White Noise: no se añadirá a este grupo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore sur White Noise — cette personne ne sera pas ajoutée au groupe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ancora su White Noise: non si può aggiungere a questo gruppo."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não está no White Noise — essa pessoa não será adicionada ao grupo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока не в White Noise — в эту группу не попадёт."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henüz White Noise'da değil — bu gruba eklenmeyecek."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未加入 White Noise——不会被添加到这个群组。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未加入 White Noise——不會被加入這個群組。"
           }
         }
       }
@@ -47238,6 +47914,138 @@
         }
       }
     },
+    "Someone in this group isn't on White Noise yet, so it can't be created.": {
+      "comment": "Group-create failure the app could not pin on a specific member.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jemand in dieser Gruppe ist noch nicht bei White Noise, deshalb kann sie nicht erstellt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Someone in this group isn't on White Noise yet, so it can't be created."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguien de este grupo todavía no está en White Noise, así que no se puede crear."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une personne de ce groupe n'est pas encore sur White Noise, il est donc impossible de le créer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una persona di questo gruppo non è ancora su White Noise, quindi il gruppo non può essere creato."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguém neste grupo ainda não está no White Noise, por isso ele não pode ser criado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто-то в этой группе пока не в White Noise, поэтому создать её не получится."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu gruptaki biri henüz White Noise'da değil, bu yüzden grup oluşturulamıyor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个群组里有人还没有加入 White Noise，因此无法创建。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個群組裡有人還沒有加入 White Noise，因此無法建立。"
+          }
+        }
+      }
+    },
+    "Someone you picked isn't on White Noise yet, so they can't be added.": {
+      "comment": "Add-member failure when the app has no display name for the refused recipient.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jemand, den du ausgewählt hast, ist noch nicht bei White Noise und kann nicht hinzugefügt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Someone you picked isn't on White Noise yet, so they can't be added."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguien que elegiste todavía no está en White Noise, así que no se puede añadir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une personne que vous avez choisie n'est pas encore sur White Noise et ne peut pas être ajoutée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una persona che hai scelto non è ancora su White Noise, quindi non può essere aggiunta."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguém que você escolheu ainda não está no White Noise, por isso não pode ser adicionado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто-то из выбранных пока не в White Noise, поэтому добавить не получится."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçtiğiniz kişilerden biri henüz White Noise'da değil, bu yüzden eklenemiyor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你选择的某个人还没有加入 White Noise，因此无法添加。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你選擇的某個人還沒有加入 White Noise，因此無法新增。"
+          }
+        }
+      }
+    },
     "Something went wrong": {
       "extractionState": "manual",
       "localizations": {
@@ -50601,6 +51409,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "主題"
+          }
+        }
+      }
+    },
+    "They aren't on White Noise yet. Share the app so you can chat securely.": {
+      "comment": "Direct-chat invite prompt when the recipient has no display name.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Person ist noch nicht bei White Noise. Teile die App, damit ihr sicher chatten könnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They aren't on White Noise yet. Share the app so you can chat securely."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no está en White Noise. Comparte la app para poder chatear de forma segura."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette personne n'est pas encore sur White Noise. Partagez l'app pour discuter en toute sécurité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è ancora su White Noise. Condividi l'app per chattare in modo sicuro."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não está no White Noise. Compartilhe o app para vocês conversarem com segurança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот человек пока не в White Noise. Поделитесь приложением, чтобы общаться защищённо."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu kişi henüz White Noise'da değil. Güvenli sohbet edebilmek için uygulamayı paylaşın."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对方还没有加入 White Noise。分享这个应用，你们就能安全聊天了。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對方還沒有加入 White Noise。分享這個應用程式，你們就能安全聊天了。"
           }
         }
       }
