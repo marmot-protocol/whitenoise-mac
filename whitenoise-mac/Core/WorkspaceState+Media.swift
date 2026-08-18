@@ -263,36 +263,69 @@ extension WorkspaceState {
         return store
     }
 
-    /// Starts a just-sent attachment's download state at `.loaded`, from the plaintext the send is
-    /// still holding.
+    /// Starts a just-sent attachment's download state at `.loaded`, from the plaintext the send that
+    /// is publishing it still holds.
     ///
-    /// The send seeds the disk cache before it publishes, so the row that replaces the pending
-    /// bubble does find its bytes — but that read is asynchronous, so the row rendered a spinner
-    /// first and the sender watched their own image blink from loaded back to loading as the
-    /// placeholder gave way. Handing the plaintext over synchronously makes the row's *first* frame
-    /// the image, which is what makes the swap invisible.
+    /// The send seeds the disk cache before it publishes, so the row that replaces the pending bubble
+    /// does find its bytes — but that read is asynchronous, so the row rendered a spinner first and
+    /// the sender watched their own image blink from loaded back to loading as the placeholder gave
+    /// way. Handing the plaintext over synchronously makes the row's *first* frame the image, which
+    /// is what makes the swap invisible.
     ///
-    /// Gated on `isMediaDisplayAllowed` exactly like every other published download state: media
-    /// must not appear for an account or a conversation the user is no longer looking at.
+    /// The plaintext is read out of the outgoing message itself rather than copied into a cache of
+    /// its own: that message is the one thing whose lifetime is already exactly right. It exists from
+    /// the Send press until the published row has been windowed, and every path that retires it —
+    /// publish, discard, account switch, chat teardown — already lets its attachments go.
+    ///
+    /// Gated on `isMediaDisplayAllowed` exactly like every other published download state: media must
+    /// not appear for an account or a conversation the user is no longer looking at.
     private func primeOwnSendMediaDownload(
         _ store: MediaDownloadStateStore,
         message: MessageItem,
         attachment: MessageMediaAttachment
     ) {
         guard case .idle = store.state,
+            !pendingOutgoingMediaMessagesByConversation.isEmpty,
             let accountId = activeAccountId,
             !message.groupIdHex.isEmpty,
-            !outgoingMediaWarmPlaintexts.isEmpty,
             isMediaDisplayAllowed(forAccountId: accountId, groupIdHex: message.groupIdHex),
-            let download = outgoingMediaWarmPlaintexts.download(
-                for: MessageMediaDiskCacheKey(
-                    accountId: accountId,
-                    groupIdHex: message.groupIdHex,
-                    reference: attachment.reference
-                )
+            let plaintext = outgoingMediaPlaintext(
+                digest: attachment.reference.plaintextSha256.lowercased(),
+                accountId: accountId,
+                groupIdHex: message.groupIdHex
             )
         else { return }
-        store.update(.loaded(download))
+        store.update(
+            .loaded(
+                MessageMediaDownload(
+                    data: plaintext.data,
+                    fileName: plaintext.fileName,
+                    mediaType: plaintext.mediaType,
+                    sizeBytes: UInt64(plaintext.data.count),
+                    // The id a disk read of the same attachment would give it, so a row primed from
+                    // here and one that later re-reads from disk share one decoded image.
+                    payloadId: MessageMediaDiskCacheKey(
+                        accountId: accountId,
+                        groupIdHex: message.groupIdHex,
+                        reference: attachment.reference
+                    ).payloadID
+                )
+            )
+        )
+    }
+
+    /// The staged attachment behind a published row's blob, while the send that published it is still
+    /// in flight. `nil` once that send has been retired, which is when the disk cache takes over.
+    private func outgoingMediaPlaintext(
+        digest: String,
+        accountId: String,
+        groupIdHex: String
+    ) -> PendingMediaAttachment? {
+        let draftKey = ComposerDraftKey(accountId: accountId, chatId: groupIdHex)
+        return pendingOutgoingMediaMessagesByConversation[draftKey]?
+            .lazy
+            .flatMap(\.attachments)
+            .first { $0.plaintextSHA256 == digest }
     }
 
     func loadMediaAttachment(_ attachment: MessageMediaAttachment, for message: MessageItem) async {
@@ -1084,7 +1117,6 @@ extension WorkspaceState {
             store.update(.idle)
         }
         mediaDownloads.removeAll()
-        outgoingMediaWarmPlaintexts.removeAll()
         cancelAllMediaAttachmentDownloadTasks()
         clearMediaReferenceResolutionCache()
         MessageAudioMetadataCache.shared.clear()

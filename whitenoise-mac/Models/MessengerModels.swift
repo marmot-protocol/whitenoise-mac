@@ -948,13 +948,6 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
     /// locally *inside* the publish call, so the real row can arrive through the timeline
     /// subscription while the relay round-trip is still in flight — and until then both rendered.
     var publishedPlaintextSHAs: Set<String> = []
-    /// Cache keys of the plaintexts this message is holding in memory for its published row to
-    /// render from, stamped when the send seeds the media cache.
-    ///
-    /// Kept here so every path that retires the message — publish, discard, account switch — releases
-    /// the hold with it. The bytes are also on disk, so releasing them costs a later render one
-    /// asynchronous cache read, never the attachment.
-    var warmPlaintextKeys: [MessageMediaDiskCacheKey] = []
 
     init(
         id: UUID = UUID(),
@@ -998,6 +991,12 @@ nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
     let fileName: String
     let mediaType: String
     let data: Data
+    /// SHA-256 of `data`, the digest a media reference carries as `plaintextSha256`.
+    ///
+    /// Computed once here rather than on demand: it is how a published row is recognized as one of
+    /// *these* bytes — by `MessageBubble` looking for a plaintext it already holds, and by the
+    /// placeholder's own retirement — and both would otherwise rehash megabytes inside a render.
+    let plaintextSHA256: String
     let dim: String?
     let thumbhash: String?
     let durationSeconds: Double?
@@ -1023,6 +1022,7 @@ nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
         self.fileName = fileName
         self.mediaType = mediaType
         self.data = data
+        self.plaintextSHA256 = MessageMediaDiskCacheKey.plaintextDigest(for: data)
         self.dim = dim
         self.thumbhash = thumbhash
         self.durationSeconds = durationSeconds
