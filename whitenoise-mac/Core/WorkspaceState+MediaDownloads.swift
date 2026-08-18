@@ -14,9 +14,14 @@ extension WorkspaceState {
     /// How long a download toast stays up before it dismisses itself.
     static let mediaDownloadFeedbackDuration: Duration = .seconds(4)
 
-    /// Bounded wait for an attachment whose automatic download is already in flight. See
-    /// `resolvedMediaDownload(_:for:)`.
-    private static let mediaDownloadResolutionAttempts = 6
+    /// Bounded retry for the two gaps in which a load has published `.loading` but has registered
+    /// neither task `resolvedMediaDownload(_:for:)` could await: before reference resolution
+    /// starts, and between it finishing and the download being registered. The first covers a
+    /// disk-cache read that verifies the plaintext hash of a file that may be several megabytes,
+    /// so the budget is half a second rather than the handful of milliseconds the second needs.
+    ///
+    /// It does not bound the waits themselves — those are awaited. See `resolvedMediaDownload`.
+    private static let mediaDownloadResolutionAttempts = 10
     private static let mediaDownloadResolutionPollInterval: Duration = .milliseconds(50)
 
     /// Ask the user which folder downloads go to.
@@ -51,15 +56,22 @@ extension WorkspaceState {
         refreshMediaDownloadDestinationPath()
     }
 
+    /// Whether a download gesture is running on this message.
+    ///
+    /// Deliberately per message rather than per attachment: it is the double-click guard, and the
+    /// bubble's action takes every attachment at once, so the message is the unit the gesture
+    /// works in. The gallery's single-photo button shares the lock, which means saving one photo
+    /// briefly disables the button for the next — the cost of never writing two copies of the same
+    /// file.
     func isDownloadingMediaAttachments(for message: MessageItem) -> Bool {
         mediaDownloadingMessageIds.contains(message.id)
     }
 
-    /// Download `attachments` into the Downloads folder and report the tally as a toast.
+    /// Download `attachments` into the folder the user chose and report the tally as a toast.
     ///
     /// One gesture per message at a time: the gallery's single-attachment button and the bubble's
     /// download-everything button both target the same message, and a double click should not
-    /// leave two copies of the same photo in Downloads. Writes across *different* messages are
+    /// leave two copies of the same photo in that folder. Writes across *different* messages are
     /// serialized a level down, by `MediaDownloadWriter`.
     func downloadMediaAttachments(_ attachments: [MessageMediaAttachment], for message: MessageItem) async {
         guard !attachments.isEmpty, !mediaDownloadingMessageIds.contains(message.id) else { return }
@@ -131,19 +143,8 @@ extension WorkspaceState {
         _ attachment: MessageMediaAttachment,
         for message: MessageItem
     ) -> String {
-        let stateDescription: String
-        switch mediaDownloadStateStore(for: message, attachment: attachment).state {
-        case .idle:
-            stateDescription = "idle"
-        case .loading:
-            stateDescription = "loading"
-        case .loaded:
-            stateDescription = "loaded"
-        case .failed:
-            stateDescription = "failed"
-        }
-        return
-            "state=\(stateDescription) outgoing=\(message.isOutgoing) kind=\(String(describing: attachment.kind))"
+        let state = mediaDownloadStateStore(for: message, attachment: attachment).state
+        return "state=\(state.logLabel) outgoing=\(message.isOutgoing) kind=\(String(describing: attachment.kind))"
     }
 
     /// The core's own words for why the fetch failed, which is what makes a report diagnosable —
@@ -161,19 +162,25 @@ extension WorkspaceState {
         return reason
     }
 
+    /// Report a finished gesture, folding the tally into a toast that is still up.
+    ///
+    /// Downloads on different messages run concurrently, so a second gesture can finish while the
+    /// first one's toast is still on screen. Replacing the count there would report one file when
+    /// two were saved, so the counts add and the dismissal timer restarts — the toast describes
+    /// everything it has had time to tell the user about.
     func presentMediaDownloadFeedback(savedCount: Int, failedCount: Int) {
-        nextMediaDownloadFeedbackId &+= 1
-        let feedback = MediaDownloadFeedback(
-            id: nextMediaDownloadFeedbackId,
-            savedCount: savedCount,
-            failedCount: failedCount
+        let showing = mediaDownloadFeedback
+        mediaDownloadFeedback = MediaDownloadFeedback(
+            savedCount: savedCount + (showing?.savedCount ?? 0),
+            failedCount: failedCount + (showing?.failedCount ?? 0)
         )
-        mediaDownloadFeedback = feedback
+        // Cancelling is the whole of the handover: the previous timer is flagged before it can
+        // resume, so it cannot close a toast it no longer describes.
         mediaDownloadFeedbackDismissTask?.cancel()
         mediaDownloadFeedbackDismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.mediaDownloadFeedbackDuration)
-            guard !Task.isCancelled, let self, self.mediaDownloadFeedback?.id == feedback.id else { return }
-            self.mediaDownloadFeedback = nil
+            guard !Task.isCancelled else { return }
+            self?.mediaDownloadFeedback = nil
         }
     }
 
@@ -187,8 +194,12 @@ extension WorkspaceState {
     ///
     /// `loadMediaAttachment` returns immediately when a tile's automatic download is already in
     /// flight, so a click that lands mid-download would otherwise read a `.loading` store and
-    /// report a failure for a file that is seconds from arriving. Wait on the tracked download
-    /// task instead, bounded so a stalled download reports rather than hangs the toast.
+    /// report a failure for a file that is seconds from arriving. The tracked task is that value,
+    /// though, so it is awaited directly rather than watched for through the published store.
+    ///
+    /// The loop covers one window and no more: `loadMediaAttachment` publishes `.loading` before
+    /// `resolvedMediaReference` has registered the download it is about to start, so a click that
+    /// lands inside it sees `.loading` with nothing to await yet. Every other state is terminal.
     private func resolvedMediaDownload(
         _ attachment: MessageMediaAttachment,
         for message: MessageItem
@@ -198,41 +209,46 @@ extension WorkspaceState {
             if case .loaded(let download) = stateStore.state {
                 return download
             }
+            if let task = inFlightMediaAttachmentDownloadTask(attachment, for: message) {
+                // The task itself carries no deadline — every other waiter on it supplies one, and
+                // this one must too. An FFI download that never returns would otherwise hold
+                // `mediaDownloadingMessageIds` for the rest of the session: no toast, and the
+                // download control disabled on a message the user can still see.
+                //
+                // A download that fails or runs out of time is reported rather than started again
+                // here: the retry would be a second wait of the same length on the same gesture,
+                // and the control comes back enabled for the user to ask again.
+                return try? await withMediaAttachmentDownloadTimeout { [task] in
+                    try await task.value
+                }
+            }
+            // `.loading` with no download task is a load still resolving the attachment's
+            // reference — a `listMedia` FFI call with a 60-second ceiling of its own. That wait is
+            // awaited, not polled past: sleeping a few times and giving up would report a failure
+            // for a download that had not been started yet, which is the case this whole method
+            // exists to avoid.
+            //
+            // Deliberately falls through to the poll below rather than looping straight back: a
+            // task that has already finished but is still registered would otherwise return at
+            // once, and spend every attempt doing it before anything had a chance to change.
+            if case .loading = stateStore.state,
+                let resolution = inFlightMediaReferenceIndexTask(for: message)
+            {
+                _ = try? await withMediaAttachmentDownloadTimeout { [resolution] in
+                    try await resolution.value
+                }
+            }
+
             await loadMediaAttachment(attachment, for: message)
             if case .loaded(let download) = stateStore.state {
                 return download
             }
             guard case .loading = stateStore.state else { return nil }
-            await awaitInFlightMediaAttachmentDownload(attachment, for: message)
+            try? await Task.sleep(for: Self.mediaDownloadResolutionPollInterval)
         }
         if case .loaded(let download) = stateStore.state {
             return download
         }
         return nil
-    }
-
-    private func awaitInFlightMediaAttachmentDownload(
-        _ attachment: MessageMediaAttachment,
-        for message: MessageItem
-    ) async {
-        if let accountId = activeAccountId {
-            let cacheKey = MessageMediaDiskCacheKey(
-                accountId: accountId,
-                groupIdHex: message.groupIdHex,
-                reference: attachment.reference
-            )
-            if let task = mediaAttachmentDownloadTasks[cacheKey.cacheID]?.task {
-                // The task itself carries no deadline — every other waiter on it supplies one, and
-                // this one must too. An FFI download that never returns would otherwise hold
-                // `mediaDownloadingMessageIds` for the rest of the session: no toast, and the
-                // download control disabled on a message the user can still see.
-                _ = try? await withMediaAttachmentDownloadTimeout { [task] in
-                    try await task.value
-                }
-            }
-        }
-        // The state store is published by whichever task started the load, one hop after the
-        // download task returns, so yielding once is not enough to observe `.loaded`.
-        try? await Task.sleep(for: Self.mediaDownloadResolutionPollInterval)
     }
 }

@@ -1120,6 +1120,35 @@ extension WorkspaceState {
         return tracked
     }
 
+    /// The download already running for `attachment`, if there is one.
+    ///
+    /// `mediaAttachmentDownloadTask(cacheID:…)` coalesces by cache ID, so this is the very task a
+    /// tile's automatic load is waiting on — and its value *is* the download. A caller that finds
+    /// one here has something to await rather than a published state to watch for.
+    func inFlightMediaAttachmentDownloadTask(
+        _ attachment: MessageMediaAttachment,
+        for message: MessageItem
+    ) -> Task<MessageMediaDownload, Error>? {
+        guard let accountId = activeAccountId else { return nil }
+        let cacheKey = MessageMediaDiskCacheKey(
+            accountId: accountId,
+            groupIdHex: message.groupIdHex,
+            reference: attachment.reference
+        )
+        return mediaAttachmentDownloadTasks[cacheKey.cacheID]?.task
+    }
+
+    /// The `listMedia` reference resolution already running for `message`'s group, if there is one.
+    ///
+    /// A load that has published `.loading` spends most of that state in here — resolving the
+    /// attachment's reference — and registers no download task until it returns. This is what a
+    /// second caller has to wait on to tell "not started yet" from "never going to start".
+    func inFlightMediaReferenceIndexTask(for message: MessageItem) -> Task<MediaReferenceIndex, Error>? {
+        guard let accountId = activeAccountId else { return nil }
+        let cacheKey = MediaReferenceCacheKey(accountId: accountId, groupIdHex: message.groupIdHex)
+        return mediaReferenceIndexTasks[cacheKey]?.task
+    }
+
     private func finishMediaAttachmentDownloadTask(cacheID: String, token: UInt64) {
         guard mediaAttachmentDownloadTasks[cacheID]?.token == token else { return }
         mediaAttachmentDownloadTasks[cacheID] = nil
