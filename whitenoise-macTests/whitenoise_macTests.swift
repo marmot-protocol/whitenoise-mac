@@ -30843,6 +30843,142 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func archivedChatSuppressesIncomingNotification() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        var archivedGroup = messageGroup()
+        archivedGroup.archived = true
+        runtime.installGroups([archivedGroup, directGroup()])
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.archivedChats.map(\.id) == [archivedGroup.groupIdHex])
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "archived-notice",
+                groupIdHex: archivedGroup.groupIdHex,
+                senderName: "Alice",
+                previewText: "Still talking in here."
+            ))
+
+        #expect(notificationCenter.postedRequests.isEmpty)
+
+        // The gate is per chat, not per account: an unarchived conversation still rings.
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "active-notice",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "Over here though."
+            ))
+
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["active-notice"])
+    }
+
+    @MainActor
+    @Test func archivedChatOnBackgroundAccountSuppressesIncomingNotification() async throws {
+        // The notification listener is client-wide, but the chat list — the app's only in-memory
+        // record of what is filed away — is maintained for the active account alone. A background
+        // account's archive state therefore has to come from the core, or archived chats on every
+        // account but the open one keep interrupting.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let accountA = desktopAccount()
+        let accountB = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [accountA, accountB])
+        runtime.installNotificationSettings(
+            accountRef: accountA.label,
+            settings: notificationSettings(for: accountA, localEnabled: true)
+        )
+        runtime.installNotificationSettings(
+            accountRef: accountB.label,
+            settings: notificationSettings(for: accountB, localEnabled: true)
+        )
+        UserDefaults.standard.set(accountA.label, forKey: WorkspaceState.activeAccountKey)
+        var archivedGroup = messageGroup()
+        archivedGroup.archived = true
+        runtime.installGroups([archivedGroup, directGroup()])
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == accountA.label)
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: accountB,
+                notificationKey: "background-archived-notice",
+                groupIdHex: archivedGroup.groupIdHex,
+                senderName: "Alice",
+                previewText: "Still talking in here."
+            ))
+
+        #expect(notificationCenter.postedRequests.isEmpty)
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: accountB,
+                notificationKey: "background-active-notice",
+                groupIdHex: "direct-group",
+                senderName: "Alice",
+                previewText: "Over here though."
+            ))
+
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["background-active-notice"])
+    }
+
+    @MainActor
+    @Test func unreadableArchiveStateStillPostsNotification() async throws {
+        // A chat the app has no row for (nothing loaded yet, or a conversation that arrives with
+        // the notification) whose archive state cannot be read must still ring: a notification the
+        // user wanted is worth more than one they had filed away.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        runtime.groupDetailsFailureGroupIds.insert("unknown-group")
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.chatItem(accountId: account.label, chatId: "unknown-group") == nil)
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "unknown-notice",
+                groupIdHex: "unknown-group",
+                senderName: "Alice",
+                previewText: "Who is this?"
+            ))
+
+        #expect(notificationCenter.postedRequests.map(\.identifier) == ["unknown-notice"])
+    }
+
+    @MainActor
     @Test func notificationPreviewSanitizesAndIsolatesPeerControlledMessageText() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
