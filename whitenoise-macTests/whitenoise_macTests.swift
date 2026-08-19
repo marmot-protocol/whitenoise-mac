@@ -526,6 +526,65 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func reactionChipRidesOnlyASurfaceWithAnEdge() {
+        // A caption bubble and a bare media card both give the pill an edge to ride on.
+        #expect(
+            MessageReactionChipPlacement.value(usesSurface: true, usesStickerStyle: false)
+                == .ridingSurfaceEdge
+        )
+        // A sticker is drawn with no surface behind it, so the pill sits below it.
+        #expect(
+            MessageReactionChipPlacement.value(usesSurface: true, usesStickerStyle: true) == .ownRow
+        )
+        // Nothing above the pill but a timestamp: the case that drew reactions over the time on an
+        // image with no caption.
+        #expect(
+            MessageReactionChipPlacement.value(usesSurface: false, usesStickerStyle: false) == .ownRow
+        )
+    }
+
+    @Test func reactionChipOverlapCancelsTheStackSpacingBeforeBiting() {
+        // The pill's negative top padding has to eat the stack's own spacing first, or the overlap
+        // it actually achieves is short by that spacing.
+        #expect(
+            MessageReactionChipPlacement.ridingSurfaceEdge.topPadding(contentSpacing: 6, overlap: 7)
+                == -13
+        )
+        #expect(MessageReactionChipPlacement.ownRow.topPadding(contentSpacing: 6, overlap: 7) == 0)
+        // The shipped overlap is the chip's own metric, not a number restated at the call site.
+        #expect(
+            MessageReactionChipPlacement.ridingSurfaceEdge.topPadding(contentSpacing: 6)
+                == -(6 + MessageReactionChips.bubbleOverlap)
+        )
+    }
+
+    @Test func mediaOnlyRowsDrawReactionsAboveTheStandaloneTimestamp() throws {
+        // The reaction pill overlaps whatever is above it. On a message with no caption the row's
+        // last element used to be the compact timestamp, so the pill was pulled up over the time
+        // itself. Guard the order: the standalone metadata row is emitted after the chips, which
+        // leaves the pill riding the media card's bottom edge instead.
+        let viewsURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("MessageMediaViews.swift")
+        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let bubbleStart = try #require(source.range(of: "struct MessageBubble: View {"))
+        let rest = source[bubbleStart.upperBound...]
+        let bubbleEnd = try #require(rest.range(of: "\nprivate extension View {")?.lowerBound)
+        let bubbleSource = String(source[bubbleStart.lowerBound..<bubbleEnd])
+
+        let chips = try #require(bubbleSource.range(of: "MessageReactionChips(reactions: message.reactions)"))
+        let standaloneMetadata = try #require(bubbleSource.range(of: "if !message.hasBubbleContent {"))
+        #expect(chips.lowerBound < standaloneMetadata.lowerBound)
+
+        // And the overlap is decided by the placement helper above rather than by an inline
+        // ternary that cannot be tested.
+        #expect(bubbleSource.contains("reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing)"))
+    }
+
     @MainActor
     @Test func emptyRuntimeBootstrapsToOnboarding() async throws {
         let runtime = FakeMarmotRuntime(accounts: [])

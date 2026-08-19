@@ -100,6 +100,43 @@ extension MessageReactionChips {
     static let bubbleOverlap: CGFloat = 7
 }
 
+/// What the reaction pill hangs on in a message row.
+///
+/// The pill is bubble-bound: it rides `MessageReactionChips.bubbleOverlap` up onto the bottom edge
+/// of the thing above it. That thing is the caption bubble when the message has one and the media
+/// card when it does not — never the compact timestamp, which is a bare line of text with no edge
+/// to ride onto. Pulling the pill up over *that* is what drew the reactions on top of the time on
+/// an image sent without a caption: the row ended with the timestamp, so the overlap meant for a
+/// bubble's padding bit into the metadata instead. The row now emits the chips before the
+/// standalone timestamp, and this decides whether they overlap at all.
+enum MessageReactionChipPlacement: Equatable {
+    /// Overlapping the bottom edge of the bubble or media card above it.
+    case ridingSurfaceEdge
+    /// Its own row at the stack's normal spacing, because nothing above it has an edge to take the
+    /// pill: a sticker is drawn with no surface behind it, and a row that is only a timestamp has
+    /// nothing to hang on.
+    case ownRow
+
+    static func value(usesSurface: Bool, usesStickerStyle: Bool) -> Self {
+        usesSurface && !usesStickerStyle ? .ridingSurfaceEdge : .ownRow
+    }
+
+    /// Top padding for the pill inside a stack of `contentSpacing`. The overlap has to cancel that
+    /// spacing before it can bite into the surface, so the two are one number here rather than a
+    /// subtraction repeated at the call site.
+    func topPadding(
+        contentSpacing: CGFloat,
+        overlap: CGFloat = MessageReactionChips.bubbleOverlap
+    ) -> CGFloat {
+        switch self {
+        case .ownRow:
+            return 0
+        case .ridingSurfaceEdge:
+            return -(contentSpacing + overlap)
+        }
+    }
+}
+
 /// Reaction viewer: a horizontal "All / per-emoji" filter row over a list of reactors (avatar +
 /// name + their emoji). Your own row can be tapped to remove your reaction.
 struct MessageReactionDetailsView: View {
