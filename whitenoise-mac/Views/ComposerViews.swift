@@ -944,6 +944,7 @@ struct VoiceRecordingComposerView: View {
 
             VoiceRecordingWaveformView(
                 levels: samples,
+                window: .liveTail,
                 // Recording, so every bar is "live" rather than played — one token at full
                 // strength. `backgroundContent*` rather than a fill token because the bars are
                 // drawn straight onto the bar's own surface, and primary rather than the
@@ -1039,14 +1040,23 @@ struct VoiceMessageDraftComposerView: View {
             .accessibilityLabel(playbackActionLabel)
             .accessibilityIdentifier("composer.voiceDraft.playback")
 
+            // The strip the mic was drawing a moment ago, standing still: the same view, the same
+            // bar width and pitch, the same length the take had reached. The transcript's playback
+            // waveform is drawn on other terms — a fixed bar count divided into whatever width it
+            // is given — and across a composer-wide bar that lands each bar about as wide as a
+            // finger, which is not what the user just watched themselves record.
+            //
             // Unplayed bars are de-emphasized, played bars are full-strength content — the same
             // reading the transcript's audio rows use, so progress is legible as one hue at two
             // weights rather than two competing colors.
-            ComposerAudioWaveformView(
-                samples: attachment.waveformSamples,
-                progress: playbackProgress,
+            VoiceRecordingWaveformView(
+                levels: attachment.waveformSamples,
+                window: .stopped(recordedSeconds: attachment.durationSeconds),
                 barColor: WNColor.backgroundContentTertiary,
-                playedColor: WNColor.backgroundContentPrimary
+                playback: VoiceRecordingWaveformView.PlaybackTint(
+                    progress: playbackProgress,
+                    playedColor: WNColor.backgroundContentPrimary
+                )
             )
             .frame(height: 30)
 

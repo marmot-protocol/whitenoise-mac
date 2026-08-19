@@ -41,4 +41,46 @@ nonisolated enum VoiceRecordingWaveform {
         guard barCount > 0 else { return [] }
         return window.suffix(barCount).map(VoiceRecordingLevelMeter.clamped)
     }
+
+    /// The bars a stopped take draws: as many as fit, but never more than the take earned at the
+    /// live strip's pace.
+    ///
+    /// The cap is what keeps the staged recording recognisable as the one just recorded. A
+    /// two-second take was 50 bars of the composer's width while the mic was hot; stretching those
+    /// two seconds across the whole bar once it stops changes the bar width, the spacing and the
+    /// shape of the sound all at once, and the strip reads as a different control. `nil` seconds —
+    /// a recorder that could not report a duration — fills the width instead of drawing nothing.
+    static func stoppedBarCount(width: CGFloat, recordedSeconds: Double?) -> Int {
+        let fitting = barCount(forWidth: width)
+        guard let recordedSeconds else { return fitting }
+        return min(
+            fitting,
+            VoiceRecordingLevelMeter.barsOwed(
+                recordedSeconds: recordedSeconds,
+                alreadyMetered: 0,
+                maximum: maximumWindowSampleCount
+            )
+        )
+    }
+
+    /// The whole take on `barCount` bars, oldest first — the counterpart to `visibleLevels`, which
+    /// keeps only the tail. Once the mic is off there is nothing left to travel past, so the strip
+    /// shows the recording end to end rather than its last few seconds.
+    static func condensedLevels(history: [CGFloat], barCount: Int) -> [CGFloat] {
+        guard barCount > 0, !history.isEmpty else { return [] }
+        return MediaWaveformAnalyzer.normalized(history, count: barCount)
+            .map(VoiceRecordingLevelMeter.clamped)
+    }
+
+    /// How many metered levels a finished recording carries with it.
+    ///
+    /// Not the playback waveform's 36: the staged recording draws its own bar per 40 ms, and 36
+    /// buckets spread over a minute-long take repeat each value across seven neighbouring bars —
+    /// which rebuilds the wide stepped waveform out of thin bars. A take shorter than the ceiling
+    /// keeps every bar it metered. Metering that never ran keeps the playback count, so the
+    /// synthetic fallback waveform stays the size the transcript draws.
+    static func storedSampleCount(forMeteredCount count: Int) -> Int {
+        guard count > 0 else { return MediaWaveformAnalyzer.sampleCount }
+        return min(count, maximumWindowSampleCount)
+    }
 }

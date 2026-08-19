@@ -1538,7 +1538,15 @@ nonisolated enum OutgoingMediaDraftProcessor {
                     data: data,
                     dim: nil,
                     durationSeconds: recording.durationSeconds,
-                    waveformSamples: MediaWaveformAnalyzer.normalized(recording.waveformSamples),
+                    // Kept at the resolution the meter recorded it at, not folded down to the
+                    // playback waveform's buckets: the staged recording draws one bar per 40 ms of
+                    // sound, and it has to have a level per bar to draw.
+                    waveformSamples: MediaWaveformAnalyzer.normalized(
+                        recording.waveformSamples,
+                        count: VoiceRecordingWaveform.storedSampleCount(
+                            forMeteredCount: recording.waveformSamples.count
+                        )
+                    ),
                     isVoiceMessage: true
                 ))
         }.value
