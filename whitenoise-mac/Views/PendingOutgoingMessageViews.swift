@@ -16,6 +16,9 @@ private let pendingMediaThumbnailOversample: CGFloat = 1.5
 
 struct PendingOutgoingMessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
+    @State private var isHovering = false
+    @State private var isOverflowPresented = false
+    @State private var overflowWidth: CGFloat = 0
     let message: PendingOutgoingMediaMessage
     let timestampReferenceDate: Date
     let timestampLocale: Locale
@@ -28,21 +31,73 @@ struct PendingOutgoingMessageBubble: View {
             content
 
             if message.state == .failed {
-                // "Remove", not "Delete": nothing has been committed anywhere yet, so dropping the
-                // bubble takes the message with it rather than hiding a message the group has.
-                MessageSendFailureActions(
-                    onRetry: { workspace.retryPendingOutgoingMediaMessage(message.id) },
-                    discardTitle: L10n.string("Remove"),
-                    onDiscard: { workspace.discardPendingOutgoingMediaMessage(message.id) }
-                )
+                // Retry only, and in both places deliberately: the ⋯ has to be reached for, and a
+                // failed send is worth answering where the failure already is. Remove stays in the
+                // menu with the other destructive actions.
+                MessageSendFailureActions {
+                    workspace.retryPendingOutgoingMediaMessage(message.id)
+                }
             }
         }
+        .overlay(alignment: .leading) { overflowControl }
+        .animation(.smooth(duration: 0.12), value: showsOverflowControl)
         .frame(maxWidth: maxContentWidth, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
         .padding(.leading, bubbleGutter)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
+        // The whole row is the hover target, matching `MessageBubble`: the ⋯ appears when the
+        // pointer is anywhere on the message, not only over the media itself.
+        .contentShape(.rect)
+        .onHover { isHovering = $0 }
     }
+
+    /// The recovery menu for a send that never reached the core, in the ⋯ control every other row
+    /// in the transcript carries. This was the one failed row with no ⋯ at all, whichever way its
+    /// retry went: a failed retry lands it back on `.failed`, so it stayed a bubble whose only
+    /// actions were the link row under it.
+    ///
+    /// Revealed on hover, and held open while its popover is: the pointer leaves the row to reach
+    /// the menu it just opened.
+    @ViewBuilder
+    private var overflowControl: some View {
+        if showsOverflowControl {
+            Button {
+                isOverflowPresented = true
+            } label: {
+                MessageInlineActionIcon(systemName: "ellipsis", label: L10n.string("More"))
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string("More"))
+            .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
+                MessageOverflowMenu(
+                    actions: MessageRowAction.all(for: message, workspace: workspace) {
+                        isOverflowPresented = false
+                    }
+                )
+            }
+            // Pushed clear of the bubble by the width SwiftUI measured, the way `MessageBubble`
+            // places its own hover strip — `.alignmentGuide` does not survive the `ViewBuilder`
+            // conditional above it, and would leave the control drawn on top of the message.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                overflowWidth = width
+            }
+            .offset(x: -(overflowWidth + Self.overflowBubbleGap))
+            .opacity(overflowWidth > 0 ? 1 : 0)
+            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
+        }
+    }
+
+    /// Failed sends only: a message still on its way out has nothing to retry and no cancellation
+    /// story in the core, so an open menu would offer two actions that do nothing.
+    private var showsOverflowControl: Bool {
+        message.state == .failed && (isHovering || isOverflowPresented)
+    }
+
+    /// Breathing room between the ⋯ control and the bubble edge, matching `MessageBubble`.
+    private static let overflowBubbleGap: CGFloat = 8
 
     private var accessibilityLabel: String {
         message.state == .failed ? L10n.string("Not delivered") : L10n.string("Sending")
