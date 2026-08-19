@@ -17267,13 +17267,43 @@ struct whitenoise_macTests {
         runtime.releaseMessageActionGate()
         await Self.settlePendingOutgoingMediaSends(state)
 
-        // The hold is scoped to the send: once the message is retired the plaintext is released, and
-        // the row keeps rendering from the payload it was handed.
-        #expect(state.outgoingMediaWarmPlaintexts.isEmpty)
+        // The plaintext is the outgoing message's own, so retiring the send lets it go — and the row
+        // keeps rendering from the payload it was already handed.
+        #expect(state.pendingOutgoingMediaMessagesByConversation.isEmpty)
         guard case .loaded = downloadState.state else {
             Issue.record("retiring the send must not walk its published row back to loading")
             return
         }
+    }
+
+    @MainActor
+    @Test func aStagedAttachmentCarriesTheDigestItsPublishedReferenceIsKeyedBy() async throws {
+        // What lets a published row find the plaintext the send is still holding: the digest the
+        // composer stamped on the staged attachment is the same `plaintextSha256` the core puts in the
+        // reference it publishes. Nothing else ties the two together, and a divergence would not fail
+        // anywhere else — it would quietly put the spinner back.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let photo = PendingMediaAttachment(
+            fileName: "photo.png",
+            mediaType: "image/png",
+            data: Data("photo bytes".utf8),
+            dim: "120x80"
+        )
+        state.appendPendingMediaAttachment(photo, for: draftKey)
+        await Self.settleComposerMediaUploads(state)
+        await state.sendDraft()
+        await Self.settlePendingOutgoingMediaSends(state)
+
+        let publishedReference = try #require(runtime.sentMediaAttachments.last?.attachments.first)
+        #expect(photo.plaintextSHA256 == publishedReference.plaintextSha256.lowercased())
+        // And it is the digest the disk cache verifies a plaintext it read back against.
+        #expect(photo.plaintextSHA256 == MessageMediaDiskCacheKey.plaintextDigest(for: photo.data))
     }
 
     @MainActor
@@ -17339,7 +17369,6 @@ struct whitenoise_macTests {
         #expect(state.selectedMessages.map(\.id) == ["published-photo"])
         #expect(state.selectedPendingOutgoingMediaMessages.isEmpty)
         #expect(state.pendingOutgoingMediaMessagesByConversation.isEmpty)
-        #expect(state.outgoingMediaWarmPlaintexts.isEmpty)
     }
 
     @MainActor

@@ -28,6 +28,13 @@ nonisolated struct MessageMediaDiskCacheKey: Hashable, Sendable {
         "disk|\(cacheID)"
     }
 
+    /// The digest bytes are addressed by — `plaintextSha256` in a media reference, and what the cache
+    /// verifies a plaintext it read back against. Shared so an attachment staged in the composer and
+    /// the published row that carries it are keyed by the same one value.
+    static func plaintextDigest(for data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     private static func hexDigest(_ parts: String...) -> String {
         var data = Data()
         for part in parts {
@@ -830,7 +837,7 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         symmetricKey: SymmetricKey,
         cachedAtUnixSeconds: TimeInterval
     ) -> PreparedEntry? {
-        guard hexSHA256(plaintext) == key.plaintextSha256 else { return nil }
+        guard MessageMediaDiskCacheKey.plaintextDigest(for: plaintext) == key.plaintextSha256 else { return nil }
 
         let stagingDirectory =
             root
@@ -1300,7 +1307,4 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         Data("white-noise-media-cache-payload-v1|\(cacheID)".utf8)
     }
 
-    private static func hexSHA256(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
 }
