@@ -678,6 +678,23 @@ extension WorkspaceState {
         )
     }
 
+    /// The delivery marker a row should wear at `now`, with an in-flight retry folded in.
+    ///
+    /// A retry puts the send back in the state a first attempt is in, so the row goes back to
+    /// reading "Sending" — the clock in the bubble's own footer — rather than keeping the failure
+    /// marker and announcing the retry in a line underneath it. That also takes the recovery row
+    /// down for the length of the retry, since it is gated on the same marker: there is nothing to
+    /// retry or delete while the retry is the thing running.
+    ///
+    /// Group-scoped through `isRetryingDelivery`, like the core call: every failed row in the chat
+    /// is being carried by this retry, so they all go back to "Sending" together. Rows that are not
+    /// failed are left exactly as they were.
+    func deliveryIndicator(for message: MessageItem, at now: Date) -> MessageDeliveryIndicator {
+        let indicator = message.deliveryIndicator(at: now)
+        guard indicator == .failed, isRetryingDelivery(of: message) else { return indicator }
+        return .sending
+    }
+
     func retryDelivery(of message: MessageItem) async {
         guard message.canRetryDelivery(at: .now),
             let client,

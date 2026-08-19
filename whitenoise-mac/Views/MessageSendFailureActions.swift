@@ -2,57 +2,34 @@
 //  MessageSendFailureActions.swift
 //  whitenoise-mac
 //
-//  The recovery row under a send that did not make it out: run it again, or take it off the
-//  transcript.
+//  The recovery control under a send that did not make it out: run it again.
 //
 
 import SwiftUI
 
-/// Recovery controls for an outgoing message that failed, rendered under the bubble they act on.
+/// Retry for an outgoing message that failed, rendered under the bubble it acts on.
 ///
 /// Shared by the two kinds of failed own row so they read as one thing: the locally staged media
 /// message that never published (`PendingOutgoingMessageBubble`) and the core-committed message
 /// stranded before its relay round-trip (`MessageBubble`). This is the macOS answer to the iOS
-/// clients' tap-the-bubble action sheet — on a pointer platform the options belong in the open,
-/// under the row, not behind a gesture and a dialog.
+/// clients' tap-the-bubble action sheet — on a pointer platform the one thing worth doing about a
+/// failure belongs in the open, under the row, not behind a gesture and a dialog.
 ///
-/// Both actions are optional because the two rows disagree about what a failure allows: an
-/// invalidated message can only be removed, and a message in a conversation the account may not act
-/// in can only be retried. A row with neither action left renders nothing.
+/// Only retry. Deleting a failed message is not a recovery — it is the same destructive action
+/// every other row has, and it lives where every other row keeps it: the ⋯ menu
+/// (`MessageRowAction.all`). Putting it here as well made the one control under a failure a
+/// two-way choice, with the destructive half a click away from the one the user came for.
+///
+/// Nothing here covers a retry that is already running: both rows put the bubble back into their
+/// respective sending state for that window — clock in the footer, or the staged bubble's own
+/// spinner — so this control is simply not rendered while one is in flight.
 struct MessageSendFailureActions: View {
-    let onRetry: (() -> Void)?
-    let discardTitle: String
-    let onDiscard: (() -> Void)?
-    /// Swaps the controls for a progress line while the retry runs. The only feedback the click
-    /// gets on a core-committed row: its delivery marker is derived from `sentAt`, so it cannot be
-    /// walked back to "Sending" the way the sibling clients walk back an optimistic one.
-    var isRetrying = false
+    let onRetry: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            if isRetrying {
-                ProgressView()
-                    .controlSize(.mini)
-                Text(L10n.string("Retrying…"))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentTertiary)
-            } else {
-                if let onRetry {
-                    Button(L10n.string("Retry"), systemImage: "arrow.clockwise", action: onRetry)
-                }
-                if let onDiscard {
-                    Button(discardTitle, systemImage: "trash", action: onDiscard)
-                }
-            }
-        }
-        .buttonStyle(.link)
-        .wnFont(.medium10)
-        .labelStyle(.titleOnly)
-    }
-
-    /// Nothing to offer — the caller should leave the row out entirely rather than reserve empty
-    /// space under the bubble.
-    var isEmpty: Bool {
-        !isRetrying && onRetry == nil && onDiscard == nil
+        Button(L10n.string("Retry"), systemImage: "arrow.clockwise", action: onRetry)
+            .buttonStyle(.link)
+            .wnFont(.medium10)
+            .labelStyle(.titleOnly)
     }
 }
