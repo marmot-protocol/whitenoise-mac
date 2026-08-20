@@ -353,13 +353,34 @@ enum MessagesLayout {
     static let accountRailControlSize: CGFloat = 44
     static let accountRailAvatarSize: CGFloat = 46
     static let accountRailAvatarFrameSize: CGFloat = 58
+    /// Room a top-of-window header leaves for the traffic lights, which float over the content
+    /// in a `.hiddenTitleBar` window.
     static let sidebarTitlebarTopPadding: CGFloat = 42
+    /// The same header once a window-level notice band holds the top edge. The band contains the
+    /// traffic lights, so a header below it needs only its own breathing room — keeping the full
+    /// clearance would open 42pt of dead air under the band.
+    static let sidebarTitlebarPaddingBelowNoticeBand: CGFloat = 12
+    /// Least height at which a full-width top notice still covers the traffic lights rather than
+    /// being crossed by them: measured with `standardWindowButton`, the buttons run from 9pt to
+    /// 23pt below the window's top edge, so this leaves 15pt under them. A *minimum* — the
+    /// notice's own padding wins when its content is taller.
+    static let windowTopNoticeBandMinimumHeight: CGFloat = 38
+    /// Horizontal strip the traffic lights own: they end 69pt in, plus their own 9pt margin
+    /// again on the far side. Centred notice content is held out of it so a narrow window
+    /// slides the text right rather than under the buttons.
+    static let windowTrafficLightZoneWidth: CGFloat = 78
     static let chatRowAvatarSize: CGFloat = 46
     /// Grab width of the drawer's resize handle. The divider itself stays 1pt in layout —
     /// the grab area is an overlay, so widening it never opens a gutter between the drawer
     /// and the detail pane; it only reaches a few points into each.
     static let chatListResizeGrabWidth: CGFloat = 11
     static let chatListResizeGrabberHeight: CGFloat = 34
+
+    /// Top padding for a header on the window's top edge, given whether a window-level notice
+    /// band is already there holding the traffic lights.
+    nonisolated static func sidebarTitlebarPadding(hasWindowTopNoticeBand: Bool) -> CGFloat {
+        hasWindowTopNoticeBand ? sidebarTitlebarPaddingBelowNoticeBand : sidebarTitlebarTopPadding
+    }
 }
 
 /// Semantic type ramp for the messenger chrome, naming the roles the shell uses so a view

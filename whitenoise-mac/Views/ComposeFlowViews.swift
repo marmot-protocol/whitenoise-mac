@@ -728,7 +728,7 @@ private struct ComposePaneHeader: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, 12)
-        .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+        .sidebarTitlebarClearance()
         .padding(.bottom, 12)
     }
 }
