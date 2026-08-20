@@ -23246,6 +23246,51 @@ struct whitenoise_macTests {
         #expect(source.contains("ContactFollowControl(accountIdHex: contactAccountIdHex)"))
     }
 
+    @Test func bothInvitePromptsAnswerThroughTheSharedActionButtons() throws {
+        // These are private SwiftUI views, so this source-shape regression guards the wiring
+        // directly. The composer prompt and chat info answer the same invite, and answering it was
+        // written out twice — which is how the two came to disagree about the icon, the label and,
+        // visibly, the shape: `Accept` named no border shape at all and drew as the platform's
+        // capsule beside an 8pt rounded-rectangle `Decline`.
+        let viewsDirURL =
+            URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("whitenoise-mac")
+            .appendingPathComponent("Views")
+
+        for (fileName, acceptCall) in [
+            ("ComposerViews.swift", "await workspace.acceptGroupInvite(for: chat)"),
+            ("GroupViews.swift", "await workspace.acceptSelectedGroupInvite()"),
+        ] {
+            let source = try String(
+                contentsOf: viewsDirURL.appendingPathComponent(fileName),
+                encoding: .utf8
+            )
+            #expect(source.contains("PendingInviteActionButtons("))
+            #expect(source.contains(acceptCall))
+        }
+
+        // The pair is one tier each, and the primary half carries the shape modifier rather than the
+        // bare glass style — without it the capsule comes back.
+        let pairSource = try String(
+            contentsOf: viewsDirURL.appendingPathComponent("PendingInviteActionButtons.swift"),
+            encoding: .utf8
+        )
+        #expect(pairSource.contains(".wnPrimaryButtonStyle()"))
+        #expect(pairSource.contains(".buttonStyle(.wnSecondary)"))
+
+        // Neither tier names a radius of its own any more: one table, or they drift apart again.
+        for fileName in ["WNPrimaryButtonSize.swift", "WNSecondaryButtonStyle.swift"] {
+            let source = try String(
+                contentsOf: viewsDirURL.appendingPathComponent(fileName),
+                encoding: .utf8
+            )
+            #expect(source.contains("WNButtonMetrics.cornerRadius(for:"))
+            #expect(!source.contains("cornerRadius: CGFloat = "))
+        }
+    }
+
     @MainActor
     @Test func followStatusReportsLoadingWhileTheReadIsInFlight() async throws {
         let account = desktopAccount()
