@@ -3,18 +3,16 @@
 //  whitenoise-mac
 //
 //  How the type ramp is applied. Prefer `.wnFont(.semiBold14)` over reaching for
-//  `.font(...)` directly: a rung is a size *and* the tracking that size is set at,
-//  and `.font()` alone would drop half of it.
+//  `.font(...)` directly: the rung is the ramp's vocabulary, and a call site that
+//  names a size instead is one the ladder can no longer move.
 //
 
 import SwiftUI
 
 extension View {
-    /// Applies a rung of the Manrope type ramp — face, size, and the letter spacing
-    /// that size is designed to be set at.
+    /// Applies a rung of the type ramp — the system face at that rung's size and weight.
     func wnFont(_ style: WNTextStyle) -> some View {
         font(style.font)
-            .tracking(style.tracking)
     }
 }
 
@@ -23,6 +21,5 @@ extension Text {
     /// composed into a larger string, where the modifier has to stay on `Text`.
     func wnFont(_ style: WNTextStyle) -> Text {
         font(style.font)
-            .tracking(style.tracking)
     }
 }

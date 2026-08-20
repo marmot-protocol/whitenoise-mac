@@ -24,12 +24,6 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<!-- Registers the bundled Manrope faces at launch. Relative to Contents/Resources, and
-	     "." because the target's synchronized folder flattens Resources/Fonts into the
-	     Resources root; point this at "Fonts" and registration silently no-ops, leaving
-	     every view on the system font while the build still succeeds. -->
-	<key>ATSApplicationFontsPath</key>
-	<string>.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

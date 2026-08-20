@@ -4196,10 +4196,10 @@ struct PureValueTests {
     /// composer's typing attributes carry a foreground color for every character, so enumerating
     /// color alone would match the entire draft, while only a mention is bold.
     ///
-    /// The baseline is the composer's *own* plain typing face, not the system body font. Those
-    /// were the same thing while the composer typed in the system face; now that it types in
-    /// Manrope Medium — which AppKit ranks a step above system regular — a system-font baseline
-    /// would rank every plain character as styled and match the whole draft.
+    /// The baseline is the composer's *own* plain typing face, not the system body font. The
+    /// composer types at the ramp's Medium rung, which AppKit ranks a step above system regular,
+    /// so a plain-system baseline would rank every plain character as styled and match the whole
+    /// draft.
     @MainActor
     private func mentionStyledRanges(in textView: NSTextView) -> [NSRange] {
         guard let storage = textView.textStorage else { return [] }

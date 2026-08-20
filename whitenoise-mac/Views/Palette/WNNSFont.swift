@@ -3,50 +3,29 @@
 //  whitenoise-mac
 //
 //  The AppKit face of the type ramp — the `NSFont` twin of `WNTextStyle`, so the
-//  TextKit-backed composer is set in the same Manrope, at the same rung, as the
+//  TextKit-backed composer is set at the same rung, in the same face, as the
 //  SwiftUI views around it. Same relationship `WNNSColor` has to `WNColor`: one
 //  set of values, two frameworks.
 //
-//  Tracking travels as the `.kern` attribute, which TextKit applies per run, so
-//  `attributes(for:)` hands back the font and the kern together for the same
-//  reason `View.wnFont(_:)` does: a rung applied without its tracking is not the
-//  design.
+//  Both twins ask the framework for the system face by weight rather than for a
+//  face by name. That is the supported route — CoreText answers a name lookup for
+//  a system font with a warning and a substitute — and it is what keeps the two
+//  sides in step: they read the same `WNFontWeight` and neither can resolve to a
+//  face the other cannot.
 //
 
 import AppKit
 
 nonisolated enum WNNSFont {
-    /// The Manrope face for a rung, falling back to the system face at the same size
-    /// and nearest weight if the bundled fonts somehow failed to register.
+    /// The system face at a rung's size and weight.
     static func font(for style: WNTextStyle) -> NSFont {
-        let face =
-            NSFont(name: style.weight.postScriptName, size: style.size)
-            ?? .systemFont(ofSize: style.size, weight: systemWeight(for: style.weight))
-        guard style.usesMonospacedDigits else { return face }
-        let descriptor = face.fontDescriptor.addingAttributes([
-            .featureSettings: [
-                [
-                    NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
-                    NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector,
-                ]
-            ]
-        ])
-        return NSFont(descriptor: descriptor, size: style.size) ?? face
+        style.usesMonospacedDigits
+            ? .monospacedDigitSystemFont(ofSize: style.size, weight: style.weight.appKit)
+            : .systemFont(ofSize: style.size, weight: style.weight.appKit)
     }
 
-    /// Font plus tracking for a rung, ready to drop into a `TextKit` attribute dictionary.
+    /// A rung as a `TextKit` attribute dictionary, ready to drop into text storage.
     static func attributes(for style: WNTextStyle) -> [NSAttributedString.Key: Any] {
-        [
-            .font: font(for: style),
-            .kern: style.tracking,
-        ]
-    }
-
-    private static func systemWeight(for weight: WNFontWeight) -> NSFont.Weight {
-        switch weight {
-        case .medium: .medium
-        case .semiBold: .semibold
-        case .bold: .bold
-        }
+        [.font: font(for: style)]
     }
 }
