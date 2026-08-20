@@ -152,8 +152,11 @@ struct QRCodeInk: Equatable, Sendable {
     let green: Double
     let blue: Double
 
-    init(_ color: NSColor) {
-        let resolved = color.usingColorSpace(.sRGB) ?? .black
+    /// `fallback` is what an unconvertible color becomes. It has to be per-ink: defaulting both
+    /// halves of the pair to black would turn a failed conversion into a black code on a black
+    /// card, which is unscannable rather than merely wrong-looking.
+    init(_ color: NSColor, fallback: NSColor = .black) {
+        let resolved = color.usingColorSpace(.sRGB) ?? fallback
         red = resolved.redComponent
         green = resolved.greenComponent
         blue = resolved.blueComponent
@@ -178,13 +181,13 @@ struct QRCodePalette: Equatable, Sendable {
     static func resolved(for colorScheme: ColorScheme) -> QRCodePalette {
         let name: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
         var modules = QRCodeInk(WNNSColor.qrCode)
-        var background = QRCodeInk(WNNSColor.backgroundPrimary)
+        var background = QRCodeInk(WNNSColor.backgroundPrimary, fallback: .white)
         // Resolving under the *view's* scheme rather than the drawing appearance already current:
         // the two can disagree while an appearance override is settling, and a code rendered under
         // the wrong one would sit inverted against the sheet until the payload changed.
         NSAppearance(named: name)?.performAsCurrentDrawingAppearance {
             modules = QRCodeInk(WNNSColor.qrCode)
-            background = QRCodeInk(WNNSColor.backgroundPrimary)
+            background = QRCodeInk(WNNSColor.backgroundPrimary, fallback: .white)
         }
         return QRCodePalette(modules: modules, background: background)
     }

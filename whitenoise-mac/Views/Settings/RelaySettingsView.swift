@@ -31,6 +31,11 @@ struct RelaySettingsView: View {
                         RelayRow(url: relay, isInsecure: workspace.isInsecureRelay(relay)) {
                             workspace.removeRelayDraftURL(relay)
                         }
+                        // `saveRelaySettings` snapshots the draft before its first `await` and
+                        // overwrites it with what the relays echo back, so an edit made while the
+                        // save is in flight is published by nobody and then silently discarded.
+                        // Save and Restore defaults are already closed for the same window.
+                        .disabled(workspace.isSavingRelays)
                     }
                 }
             }
@@ -67,6 +72,7 @@ struct RelaySettingsView: View {
                     .buttonStyle(.wnSecondary)
                     .help(L10n.string("Add relay"))
                 }
+                .disabled(workspace.isSavingRelays)
             }
 
             Section {
