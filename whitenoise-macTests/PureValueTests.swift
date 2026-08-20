@@ -1094,6 +1094,61 @@ struct PureValueTests {
         )
     }
 
+    @Test func aStoppedRecordingKeepsTheStripLengthItHadWhenTheMicWentOff() {
+        // The strip is 25 bars a second while it is being recorded, so a two-second take is 50
+        // bars once it is stopped too. Stretching the take across the whole composer instead is
+        // what made the staged recording read as a different control from the one the user had
+        // been watching a moment earlier.
+        #expect(VoiceRecordingWaveform.stoppedBarCount(width: 440, recordedSeconds: 2) == 50)
+
+        // A take longer than the bar fills it and no more.
+        #expect(VoiceRecordingWaveform.stoppedBarCount(width: 440, recordedSeconds: 60) == 88)
+
+        // Nothing recorded draws nothing, and a duration the recorder could not report falls back
+        // to filling the width rather than to an empty strip.
+        #expect(VoiceRecordingWaveform.stoppedBarCount(width: 440, recordedSeconds: 0) == 0)
+        #expect(VoiceRecordingWaveform.stoppedBarCount(width: 440, recordedSeconds: .nan) == 0)
+        #expect(VoiceRecordingWaveform.stoppedBarCount(width: 440, recordedSeconds: nil) == 88)
+        #expect(VoiceRecordingWaveform.stoppedBarCount(width: 0, recordedSeconds: 2) == 0)
+    }
+
+    @Test func aStoppedRecordingDrawsTheWholeTakeNotItsTail() {
+        let history: [CGFloat] = [0.25, 0.5, 0.75, 1]
+
+        // Averaged onto the bars there are, so the opening of the take survives — unlike the live
+        // window, which keeps only the newest levels.
+        #expect(VoiceRecordingWaveform.condensedLevels(history: history, barCount: 2) == [0.375, 0.875])
+        #expect(VoiceRecordingWaveform.condensedLevels(history: history, barCount: 4) == history)
+
+        #expect(VoiceRecordingWaveform.condensedLevels(history: history, barCount: 0).isEmpty)
+        #expect(VoiceRecordingWaveform.condensedLevels(history: [], barCount: 8).isEmpty)
+
+        // Heights are clamped the same way the live strip clamps them, so the two draw one take at
+        // one scale.
+        #expect(
+            VoiceRecordingWaveform.condensedLevels(history: [-1, 5], barCount: 2)
+                == [VoiceRecordingLevelMeter.minimumAmplitude, 1]
+        )
+    }
+
+    @Test func aFinishedRecordingKeepsEnoughSamplesForItsOwnBars() {
+        // The staged recording draws one thin bar per 40 ms, so the 36 buckets a playback waveform
+        // needs would repeat each value across seven neighbours of a long take — the stepped, fat
+        // look these bars replaced, rebuilt out of thin ones.
+        #expect(VoiceRecordingWaveform.storedSampleCount(forMeteredCount: 250) == 250)
+        #expect(
+            VoiceRecordingWaveform.storedSampleCount(forMeteredCount: 5_000)
+                == VoiceRecordingWaveform.maximumWindowSampleCount
+        )
+
+        // Metering that never ran keeps the playback waveform's own count, so the synthetic
+        // fallback stays the size the transcript bubble expects to draw.
+        #expect(
+            VoiceRecordingWaveform.storedSampleCount(forMeteredCount: 0)
+                == MediaWaveformAnalyzer.sampleCount
+        )
+    }
+
     @Test func recordedAudioNotTheSchedulerDecidesHowFarTheStripTravels() {
         // This is the constant-speed guarantee, and the bug it answers: the strip used to advance one
         // bar per metering wakeup, with the travel handed to an implicit animation that was
