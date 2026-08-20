@@ -113,20 +113,25 @@ just sync-bindings 235c8ade2920414679e59d7a5f1a0e78651756a4  # a master snapshot
 ```
 
 The script downloads the macOS XCFramework, the shared generated Swift source,
-and the release manifest, then refuses to install anything unless all three
-checks pass: `swift package compute-checksum` matches the published
-`.swiftpm-checksum`, the Swift source matches its `sha256` in
-`checksums.txt`, and the manifest's `source_sha` matches the requested SHA. It
-then rewrites the pin in `Package.swift` and stamps `MARMOT_VERSION` and
-`MarmotKitVersion.swift` from the manifest.
+and the release manifest, then refuses to install anything unless two checks
+pass: `swift package compute-checksum` matches the published
+`.swiftpm-checksum`, and the Swift source matches its `sha256` in
+`checksums.txt`. Given a full SHA rather than a version, it additionally
+requires the manifest's `source_sha` to equal the SHA you asked for — a tagged
+version carries no SHA to compare against, so that check only applies to the
+snapshot form. It then rewrites the pin in `Package.swift` and stamps
+`MARMOT_VERSION` and `MarmotKitVersion.swift` from the manifest.
 
 Requires only `curl` and Xcode command-line tools — no Rust toolchain, no mdk
 checkout. `scripts/ci/macos-sanity-checks.sh` verifies that the pin in
-`Package.swift` and the provenance in `MARMOT_VERSION` still agree, so editing
-one by hand without the other fails CI.
+`Package.swift` and the provenance in `MARMOT_VERSION` still agree, and that
+the vendored `MarmotKit.swift` still hashes to the `swift-vendored-sha256`
+stamped next to it, so hand-editing either the pin or the generated source
+fails CI.
 
-The generated `MarmotKit.swift` is platform-independent and byte-identical to
-the copy `whitenoise-ios` vendors from the same release.
+The generated `MarmotKit.swift` is platform-independent: it is the same source
+`whitenoise-ios` vendors from the same release, save for the trailing
+whitespace the install step strips.
 
 ## Testing
 

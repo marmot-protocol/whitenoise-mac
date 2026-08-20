@@ -9,6 +9,8 @@ macos-deployment-target: 15.0
 rust-release-opt-level: 3
 rust-release-codegen-units: 16
 swiftpm-checksum: 889834776d9129e658eda04cecc07ae2abfeeab6a116e6052464108c67d5e815
+swift-published-sha256: bd0d57795bd21a88f1457f8476890e09fb3c3b9d04cb53dc7f294480d5e978c5
+swift-vendored-sha256: 275e7e0f5c87db0f3b1919d198ecd07393618e2530b64c7fb770da5454f199fe
 
 Notes:
 - Refresh from a published immutable artifact with:
