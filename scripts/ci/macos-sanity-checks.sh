@@ -10,6 +10,7 @@ INFO_PLIST="Config/Info.plist"
 ENTITLEMENTS="whitenoise-mac/whitenoise-mac.entitlements"
 MARMOT_PACKAGE="Vendored/MarmotKit/Package.swift"
 MARMOT_VERSION_FILE="Vendored/MarmotKit/MARMOT_VERSION"
+MARMOT_SWIFT_SOURCE="Vendored/MarmotKit/Sources/MarmotKit/MarmotKit.swift"
 
 fail() {
   echo "error: $*" >&2
@@ -128,6 +129,18 @@ stamped_floor="$(sed -nE 's/^macos-deployment-target: (.*)$/\1/p' "$MARMOT_VERSI
   || fail "$MARMOT_VERSION_FILE tag '$stamped_tag' does not match $MARMOT_PACKAGE tag '$marmot_release_tag'"
 [[ "$stamped_checksum" == "$marmot_checksum" ]] \
   || fail "$MARMOT_VERSION_FILE checksum does not match the checksum pinned in $MARMOT_PACKAGE"
+
+# The generated Swift source is the one part of the package that is tracked as
+# text and so can be edited by hand. Nothing else notices if it is: the checks
+# above only compare the pin against the stamp. Note this is the digest of the
+# *installed* file, taken after sync-bindings.sh strips trailing whitespace, not
+# the published digest in the release's checksums.txt.
+stamped_swift_sha="$(sed -nE 's/^swift-vendored-sha256: (.*)$/\1/p' "$MARMOT_VERSION_FILE")"
+[[ "$stamped_swift_sha" =~ ^[0-9a-f]{64}$ ]] \
+  || fail "$MARMOT_VERSION_FILE is missing a valid swift-vendored-sha256 stamp"
+computed_swift_sha="$(shasum -a 256 "$MARMOT_SWIFT_SOURCE" | awk '{ print $1 }')"
+[[ "$computed_swift_sha" == "$stamped_swift_sha" ]] \
+  || fail "$MARMOT_SWIFT_SOURCE digest $computed_swift_sha does not match the $MARMOT_VERSION_FILE stamp $stamped_swift_sha"
 
 # The published macOS artifact is Apple Silicon only. If that ever changes
 # upstream this fires, rather than the app silently staying arm64-only.

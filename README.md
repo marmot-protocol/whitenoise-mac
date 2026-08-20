@@ -124,8 +124,10 @@ snapshot form. It then rewrites the pin in `Package.swift` and stamps
 
 Requires only `curl` and Xcode command-line tools — no Rust toolchain, no mdk
 checkout. `scripts/ci/macos-sanity-checks.sh` verifies that the pin in
-`Package.swift` and the provenance in `MARMOT_VERSION` still agree, so editing
-one by hand without the other fails CI.
+`Package.swift` and the provenance in `MARMOT_VERSION` still agree, and that
+the vendored `MarmotKit.swift` still hashes to the `swift-vendored-sha256`
+stamped next to it, so hand-editing either the pin or the generated source
+fails CI.
 
 The generated `MarmotKit.swift` is platform-independent: it is the same source
 `whitenoise-ios` vendors from the same release, save for the trailing

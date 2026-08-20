@@ -124,6 +124,11 @@ echo "==> Installing generated Swift source"
 mkdir -p "$PACKAGE_DIR/Sources/MarmotKit"
 cp "$TEMP_DIR/$SWIFT_ASSET" "$PACKAGE_DIR/Sources/MarmotKit/MarmotKit.swift"
 perl -pi -e 's/[ \t]+$//' "$PACKAGE_DIR/Sources/MarmotKit/MarmotKit.swift"
+# The strip above means the installed copy is deliberately *not* byte-identical
+# to the published asset, so its digest has to be taken here, after the rewrite.
+# `just sanity` compares the vendored file against this value; the published
+# digest is stamped alongside it for provenance only.
+VENDORED_SWIFT_SHA="$(shasum -a 256 "$PACKAGE_DIR/Sources/MarmotKit/MarmotKit.swift" | awk '{ print $1 }')"
 
 echo "==> Pinning remote binary target"
 sed -i '' -E \
@@ -148,6 +153,8 @@ macos-deployment-target: $MACOS_DEPLOYMENT_TARGET
 rust-release-opt-level: $RUST_OPT_LEVEL
 rust-release-codegen-units: $RUST_CODEGEN_UNITS
 swiftpm-checksum: $EXPECTED_BINARY_CHECKSUM
+swift-published-sha256: $EXPECTED_SWIFT_SHA
+swift-vendored-sha256: $VENDORED_SWIFT_SHA
 
 Notes:
 - Refresh from a published immutable artifact with:
@@ -172,4 +179,5 @@ echo ""
 echo "Installed MarmotKit $RELEASE_TAG"
 echo "  source:   $SOURCE_SHA"
 echo "  checksum: $EXPECTED_BINARY_CHECKSUM"
+echo "  swift:    $VENDORED_SWIFT_SHA (published $EXPECTED_SWIFT_SHA)"
 echo "  macOS:    $MACOS_TARGETS (deployment target $MACOS_DEPLOYMENT_TARGET)"
