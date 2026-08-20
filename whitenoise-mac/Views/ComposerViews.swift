@@ -227,7 +227,6 @@ struct ComposerMessageTextViewRepresentable: NSViewRepresentable {
     static var plainTypingAttributes: [NSAttributedString.Key: Any] {
         [
             .font: WNNSFont.font(for: Self.typingStyle),
-            .kern: Self.typingStyle.tracking,
             .foregroundColor: WNNSColor.backgroundContentPrimary,
         ]
     }

@@ -364,9 +364,8 @@ enum MessagesLayout {
 
 /// Semantic type ramp for the messenger chrome, naming the roles the shell uses so a view
 /// asks for "the row title" rather than for a size. Each role resolves to a rung of the
-/// shared Manrope ramp (`WNTextStyle`), which is the Flutter client's ladder, so the two
-/// clients agree on sizes and weights. Rungs still scale with the reader's text-size
-/// setting, so naming a base size here does not freeze the rendered one.
+/// shared ramp (`WNTextStyle`), which is the Flutter client's ladder, so the two clients
+/// agree on sizes and weights.
 enum MessagesType {
     static let paneTitle = WNTextStyle.semiBold18
     static let rowTitle = WNTextStyle.semiBold14

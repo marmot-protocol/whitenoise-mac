@@ -99,10 +99,9 @@ private struct MarkdownBlockView: View {
         }
     }
 
-    /// Headings carry their weight in the rung itself. Manrope ships as three separate
-    /// faces rather than as a weight axis, so stacking `.fontWeight(.semibold)` on top of
-    /// a rung would ask the renderer to synthesize an emboldened Medium instead of using
-    /// the SemiBold face that is already in the bundle.
+    /// Headings carry their weight in the rung itself rather than stacking
+    /// `.fontWeight(.semibold)` on top of a rung: a rung is a size *and* a weight, and a
+    /// weight applied over it is one the ladder no longer controls.
     private static func headingStyle(for level: UInt8) -> WNTextStyle {
         switch level {
         case 1: return .semiBold18

@@ -2,30 +2,44 @@
 //  WNFontWeight.swift
 //  whitenoise-mac
 //
-//  The weights of Manrope that ship inside the app bundle. The Flutter client
-//  vendors exactly these three faces (`pubspec.yaml`), so these three are the
-//  whole vocabulary — there is no regular, light, or italic Manrope to fall back
-//  on. Body copy is `medium`; anything lighter in a design maps up to it.
+//  The weights the type ramp is set in. The app typesets in the system face — the
+//  same choice `wn-ios-prototype` makes, where no face is registered and every run
+//  is `systemFont` — so a weight here is a point on San Francisco's weight axis
+//  rather than a separate file in the bundle.
 //
-//  Each face is addressed by its PostScript name rather than by the family name
-//  plus a `.weight()` modifier: all three faces share the family "Manrope", and
-//  both SemiBold and Bold report the same symbolic bold trait, so a family-plus-
-//  weight lookup cannot tell them apart and silently collapses one into the other.
+//  The vocabulary stays three deep because the ramp is the Flutter client's ladder
+//  and that ladder names three: body copy is `medium`, and anything a design draws
+//  lighter maps up to it. Each case carries both frameworks' spelling of the same
+//  weight, so `WNTextStyle` and `WNNSFont` cannot drift apart on what "semiBold"
+//  means.
 //
 
-import Foundation
+import AppKit
+import SwiftUI
 
 nonisolated enum WNFontWeight: String, CaseIterable, Sendable {
-    /// Manrope Medium (500) — body copy and every non-emphasised run.
-    case medium = "Manrope-Medium"
-    /// Manrope SemiBold (600) — titles, row headings, and emphasised labels.
-    case semiBold = "Manrope-SemiBold"
-    /// Manrope Bold (700) — badges, counters, and the loudest emphasis only.
-    case bold = "Manrope-Bold"
+    /// Medium (500) — body copy and every non-emphasised run.
+    case medium
+    /// SemiBold (600) — titles, row headings, and emphasised labels.
+    case semiBold
+    /// Bold (700) — badges, counters, and the loudest emphasis only.
+    case bold
 
-    /// The PostScript name the face is registered under once the bundle's fonts are loaded.
-    var postScriptName: String { rawValue }
+    /// The SwiftUI spelling of the weight.
+    var swiftUI: Font.Weight {
+        switch self {
+        case .medium: .medium
+        case .semiBold: .semibold
+        case .bold: .bold
+        }
+    }
 
-    /// The file the face is vendored as, under `Resources/Fonts`.
-    var fileName: String { "\(rawValue).ttf" }
+    /// The AppKit spelling of the same weight, for the TextKit-backed composer.
+    var appKit: NSFont.Weight {
+        switch self {
+        case .medium: .medium
+        case .semiBold: .semibold
+        case .bold: .bold
+        }
+    }
 }
