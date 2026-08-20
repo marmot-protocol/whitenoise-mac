@@ -707,8 +707,14 @@ final class WorkspaceState {
     var notificationSettingsGeneration: UInt64 = 0
     /// Monotonic token for privacy/security settings writes. Each setter bumps it on entry, so a
     /// load whose FFI read resolved before the save committed abandons its stale snapshot instead
-    /// of reverting the just-saved toggle.
+    /// of reverting the just-saved toggle. An active-account transition bumps it too, so a save
+    /// started under the previous identity cannot commit into the new one.
     var privacySecuritySettingsGeneration: UInt64 = 0
+    /// The account whose save currently holds `isSavingPrivacySecurity`, or `nil` when no save is
+    /// in flight. The flag alone cannot say *whose* save it is, and both the page's loader and
+    /// both setters refuse to run while it is raised — so a save left standing across an account
+    /// switch would lock the new identity's toggles out of a page it never saved on.
+    var privacySecuritySaveAccountId: String?
     var timelineTask: Task<Void, Never>?
     var timelineTaskGroupId: String?
     /// Single-owner coalescing for initial timeline loads (issue #332). `loadMessages` can be

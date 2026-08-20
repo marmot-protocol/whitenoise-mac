@@ -759,13 +759,15 @@ struct ChatRowContent: View {
                     switch rowStatus {
                     case .leaving:
                         LeavingGroupBadge()
-                    case .membershipEnded(let membership):
+                    case .membershipEnded(let membership)
+                    where !membership.reportsInChatRowPreviewLine:
                         MembershipEndedBadge(membership: membership)
                     // A pending invite reports itself on the line below instead — the invite text
                     // where the last message would be, the `+` badge where the unread count would
                     // be. The two capsules above stay here because they report a settled state
-                    // about the chat rather than something waiting on the reader.
-                    case .pendingInvite, nil:
+                    // about the chat rather than something waiting on the reader. A removal is the
+                    // one settled state that goes to the line below too, in the chat's own words.
+                    case .membershipEnded, .pendingInvite, nil:
                         EmptyView()
                     }
                     if chat.muted {
@@ -793,7 +795,9 @@ struct ChatRowContent: View {
                         .foregroundStyle(WNColor.backgroundContentSecondary)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if searchResult == nil {
+                    // The marker describes the message on this line, so it only appears when the
+                    // line is actually showing one — not beside a removal notice or a placeholder.
+                    if searchResult == nil, chat.previewNotice(locale: locale) == nil {
                         ChatDeliveryStateIcon(state: chat.latestMessageDelivery)
                     }
                     // An unanswered invite takes this slot outright, the way the other clients
@@ -838,9 +842,10 @@ struct ChatRowContent: View {
         // last-message glyph would describe the wrong message.
         guard let searchResult else {
             // What an empty chat says here depends on why it is empty, and an unanswered invite
-            // says so in words rather than in a badge beside the title.
-            if let placeholder = chat.previewPlaceholder(locale: locale) {
-                return Text(placeholder)
+            // says so in words rather than in a badge beside the title — as does a removal, which
+            // takes this line even when the chat has messages behind it.
+            if let notice = chat.previewNotice(locale: locale) {
+                return Text(notice)
             }
             return Self.attributedPreview(for: chat)
         }
@@ -1062,8 +1067,12 @@ struct LeavingGroupBadge: View {
     }
 }
 
-/// "Left" / "Removed" capsule on rows for groups the local account is no longer a
-/// member of; the chat stays listed so the history remains readable.
+/// "Left" capsule on rows for groups the local account walked out of; the chat stays listed so
+/// the history remains readable.
+///
+/// It renders any ended membership it is handed — the label, symbol and tooltip all come from
+/// `ChatSelfMembership` — but the sidebar row only hands it the memberships that
+/// `reportsInChatRowPreviewLine` leaves to a capsule. A removal takes the preview line instead.
 struct MembershipEndedBadge: View {
     let membership: ChatSelfMembership
 

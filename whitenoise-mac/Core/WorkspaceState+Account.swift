@@ -195,6 +195,7 @@ extension WorkspaceState {
         clearEnteredLoginIdentity()
         activeAccountId = account.id
         invalidateNotificationSettingsOperations()
+        invalidatePrivacySecurityOperations()
         UserDefaults.standard.set(account.id, forKey: Self.activeAccountKey)
         chatListFilter = .active
         archivingChatId = nil
@@ -969,6 +970,7 @@ extension WorkspaceState {
         observabilityRuntimeConfiguration = nil
         activeAccountId = nil
         invalidateNotificationSettingsOperations()
+        invalidatePrivacySecurityOperations()
         selection = nil
         invalidateSidebarMessageSearch(clearQuery: true)
         isChatListVisible = true

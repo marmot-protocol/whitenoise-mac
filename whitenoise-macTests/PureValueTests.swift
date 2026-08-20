@@ -5072,6 +5072,75 @@ struct PureValueTests {
         #expect(spanish != chat.previewPlaceholder(locale: Locale(identifier: "en")))
     }
 
+    /// A removal takes the preview line outright — the chat is closed to the reader, so the row
+    /// reports that instead of whatever was said before it, in the same words the chat's own
+    /// composer notice uses. The "Removed" capsule beside the title goes away with it.
+    @Test func removalTakesThePreviewLineFromTheLastMessage() {
+        let removed = invitePreviewChat(
+            isDirect: false,
+            preview: "Alice: see you Monday",
+            pendingConfirmation: false,
+            membership: .removed
+        )
+
+        #expect(
+            removed.previewNotice(locale: Locale(identifier: "en"))
+                == "You were removed from this group"
+        )
+        #expect(ChatSelfMembership.removed.reportsInChatRowPreviewLine)
+    }
+
+    /// Leaving is the reader's own doing and stays a capsule, so its rows keep showing the last
+    /// message — the one thing a row can say that the reader does not already know.
+    @Test func leavingKeepsItsCapsuleAndItsLastMessage() {
+        let left = invitePreviewChat(
+            isDirect: false,
+            preview: "Alice: see you Monday",
+            pendingConfirmation: false,
+            membership: .left
+        )
+
+        #expect(left.previewNotice(locale: Locale(identifier: "en")) == nil)
+        #expect(ChatSelfMembership.left.reportsInChatRowPreviewLine == false)
+        #expect(ChatSelfMembership.member.reportsInChatRowPreviewLine == false)
+    }
+
+    /// Everything the line said before still reaches it: a chat with no last message keeps the
+    /// placeholder wording, and the removal notice does not displace an unanswered invite's.
+    @Test func previewNoticeStillDefersToThePlaceholderWordingItReplaced() {
+        let english = Locale(identifier: "en")
+
+        #expect(
+            invitePreviewChat(isDirect: true, preview: "").previewNotice(locale: english)
+                == "Has invited you to a secure chat"
+        )
+        #expect(
+            invitePreviewChat(isDirect: false, preview: "", pendingConfirmation: false)
+                .previewNotice(locale: english) == "No messages yet"
+        )
+        #expect(
+            invitePreviewChat(isDirect: true, preview: "Alice: Welcome in")
+                .previewNotice(locale: english) == nil
+        )
+    }
+
+    /// Resolved against the caller's locale for the same reason the invite line is: the chat list
+    /// is not rebuilt on a language switch.
+    @Test func removalPreviewLineFollowsTheRequestedLocale() {
+        let removed = invitePreviewChat(
+            isDirect: false,
+            preview: "Alice: see you Monday",
+            pendingConfirmation: false,
+            membership: .removed
+        )
+        let spanish = removed.previewNotice(
+            locale: Locale(identifier: AppLanguage.spanish.rawValue)
+        )
+
+        #expect(spanish == "Te eliminaron de este grupo")
+        #expect(spanish != removed.previewNotice(locale: Locale(identifier: "en")))
+    }
+
     // MARK: - PeerProfileRefreshGate
 
     @Test func peerProfileGateDedupesInFlightAttemptsForTheSameAccount() {
