@@ -241,6 +241,44 @@ extension WorkspaceState {
             && notificationSettingsGeneration == generation
     }
 
+    /// Claims the privacy/security page for one account's save, returning the token that save must
+    /// present to commit anything.
+    func beginPrivacySecuritySave(accountId: String) -> UInt64 {
+        isSavingPrivacySecurity = true
+        privacySecuritySaveAccountId = accountId
+        privacySecuritySettingsGeneration &+= 1
+        return privacySecuritySettingsGeneration
+    }
+
+    /// Whether the save holding this token still speaks for the active account. Checked after every
+    /// suspension point: the FFI write lands in the account that asked for it either way, but the
+    /// published snapshot and `lastError` belong to whoever is on screen now.
+    func ownsPrivacySecuritySave(accountId: String, generation: UInt64) -> Bool {
+        activeAccountId == accountId
+            && privacySecuritySaveAccountId == accountId
+            && privacySecuritySettingsGeneration == generation
+    }
+
+    /// Drops the claim, but only if this save still holds it — an account switch, or the new
+    /// identity's own save, has already taken it over, and clearing it from here would leave that
+    /// save running with the toggles enabled behind it.
+    func endPrivacySecuritySave(accountId: String, generation: UInt64) {
+        guard privacySecuritySaveAccountId == accountId,
+            privacySecuritySettingsGeneration == generation
+        else { return }
+        isSavingPrivacySecurity = false
+        privacySecuritySaveAccountId = nil
+    }
+
+    /// Hands the privacy/security page to a new active account: whatever save was in flight no
+    /// longer owns it, so the incoming identity can load and save on a page the outgoing one was
+    /// midway through writing to.
+    func invalidatePrivacySecurityOperations() {
+        privacySecuritySettingsGeneration &+= 1
+        privacySecuritySaveAccountId = nil
+        isSavingPrivacySecurity = false
+    }
+
     func requestLocalNotificationPermission() async {
         lastError = nil
         do {
@@ -721,7 +759,7 @@ extension WorkspaceState {
     }
 
     func setRelayTelemetryEnabled(_ enabled: Bool) async {
-        guard let client, !isSavingPrivacySecurity else { return }
+        guard let client, let accountId = activeAccountId, !isSavingPrivacySecurity else { return }
         let config = telemetryBuildConfig
         guard enabled == false || config.telemetryCredentialsAvailable else {
             lastError = TelemetrySettingsActionError.telemetryNotConfigured.localizedDescription
@@ -729,9 +767,8 @@ extension WorkspaceState {
         }
 
         lastError = nil
-        isSavingPrivacySecurity = true
-        privacySecuritySettingsGeneration &+= 1
-        defer { isSavingPrivacySecurity = false }
+        let generation = beginPrivacySecuritySave(accountId: accountId)
+        defer { endPrivacySecuritySave(accountId: accountId, generation: generation) }
 
         do {
             try await configureObservabilityRuntime()
@@ -743,16 +780,18 @@ extension WorkspaceState {
                 exportIntervalSeconds: current.exportIntervalSeconds
             )
             let stored = try await client.setRelayTelemetrySettings(settings: settings)
+            guard ownsPrivacySecuritySave(accountId: accountId, generation: generation) else { return }
             privacySecuritySettings.relayTelemetryEnabled = stored.exportEnabled
             privacySecuritySettings.relayTelemetryIntervalSeconds = stored.exportIntervalSeconds
             privacySecuritySettings.telemetryCredentialsAvailable = telemetryBuildConfig.telemetryCredentialsAvailable
         } catch {
+            guard ownsPrivacySecuritySave(accountId: accountId, generation: generation) else { return }
             lastError = error.localizedDescription
         }
     }
 
     func setAuditLoggingEnabled(_ enabled: Bool) async {
-        guard let client, !isSavingPrivacySecurity else { return }
+        guard let client, let accountId = activeAccountId, !isSavingPrivacySecurity else { return }
         let config = telemetryBuildConfig
         guard enabled == false || config.auditLogCredentialsAvailable else {
             lastError = TelemetrySettingsActionError.auditLogNotConfigured.localizedDescription
@@ -760,9 +799,8 @@ extension WorkspaceState {
         }
 
         lastError = nil
-        isSavingPrivacySecurity = true
-        privacySecuritySettingsGeneration &+= 1
-        defer { isSavingPrivacySecurity = false }
+        let generation = beginPrivacySecuritySave(accountId: accountId)
+        defer { endPrivacySecuritySave(accountId: accountId, generation: generation) }
 
         do {
             try await configureObservabilityRuntime()
@@ -772,10 +810,12 @@ extension WorkspaceState {
             let stored = try await client.setAuditLogSettings(
                 settings: AuditLogSettingsFfi(enabled: enabled, dataMode: .obfuscatedSensitiveData)
             )
+            guard ownsPrivacySecuritySave(accountId: accountId, generation: generation) else { return }
             privacySecuritySettings.auditLoggingEnabled = stored.enabled
             privacySecuritySettings.auditLogCredentialsAvailable = telemetryBuildConfig.auditLogCredentialsAvailable
             await loadAuditLogFiles()
         } catch {
+            guard ownsPrivacySecuritySave(accountId: accountId, generation: generation) else { return }
             lastError = error.localizedDescription
         }
     }
