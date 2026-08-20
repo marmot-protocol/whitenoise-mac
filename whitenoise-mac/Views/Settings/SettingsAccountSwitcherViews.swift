@@ -219,9 +219,17 @@ struct AccountSwitcherPopover: View {
                             )
                         }
                     }
+                    .padding(.horizontal, Self.rowChromeInset)
                 }
                 .scrollIndicators(.hidden)
                 .frame(maxHeight: 260)
+                // A `ScrollView` clips to its bounds, and the active row's avatar is seated flush
+                // against the leading one: the selection ring is drawn *outside* the avatar's
+                // frame, so it came out with a flat left side. The content is inset by the ring's
+                // reach and the scroll view widened by the same amount, which leaves the rows
+                // where they were — aligned with the header and the button — while giving the
+                // chrome somewhere to draw. Insetting alone would indent every row instead.
+                .padding(.horizontal, -Self.rowChromeInset)
             }
 
             Divider()
@@ -236,12 +244,23 @@ struct AccountSwitcherPopover: View {
         .padding(14)
         .frame(width: 320)
     }
+
+    /// Slack the scrolling row list leaves on each side for the avatar chrome that draws outside
+    /// its frame. Vertically the rows' own `.padding(.vertical, 4)` already covers the ring, so
+    /// only the horizontal edges need it.
+    private static var rowChromeInset: CGFloat {
+        AvatarChromeModifier.overhang(forAvatarSize: AccountSwitcherRow.avatarSize)
+    }
 }
 
 /// One identity in the switcher. Tapping switches to it (or signs it back in when
 /// it was signed out); the trailing menu carries the actions that need a
 /// confirmation.
 struct AccountSwitcherRow: View {
+    /// Diameter of the row's avatar. Read by `AccountSwitcherPopover.rowChromeInset`, which sizes
+    /// the scroll inset from it — the chrome's reach scales with the avatar.
+    static let avatarSize: CGFloat = 32
+
     @Environment(\.locale) private var locale
     let account: AccountItem
     let isActive: Bool
@@ -266,7 +285,7 @@ struct AccountSwitcherRow: View {
                         // for an identity that is supposed to be off, so it drops back to initials
                         // (the row is already dimmed to 0.4). Signed-in rows are unaffected.
                         isOwnAccountImage: !account.signedOut,
-                        size: 32,
+                        size: Self.avatarSize,
                         isSelected: isActive
                     )
                     .opacity(account.signedOut ? 0.4 : 1)

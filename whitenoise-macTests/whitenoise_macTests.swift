@@ -1126,6 +1126,71 @@ struct whitenoise_macTests {
         #expect(normalized.contains(".onDisappear{workspace.clearEnteredLoginIdentity()}"))
     }
 
+    /// The avatar's selection ring and drop shadow are both drawn outside the frame they are
+    /// applied to, so every clipping container has to be told how far they reach. Pinned to the
+    /// effects that produce it: a hand-written literal that stopped tracking `selectedScale`
+    /// would hand those containers a slack that no longer covers the ring.
+    @MainActor
+    @Test func avatarChromeOverhangCoversTheSelectionRingAndTheShadow() {
+        let size: CGFloat = 32
+        // `scaleEffect` grows about the center, so each side moves out by half the added width.
+        let ringReach = size * (AvatarChromeModifier.selectedScale - 1) / 2
+
+        #expect(ringReach > 0)
+        #expect(
+            AvatarChromeModifier.overhang(forAvatarSize: size)
+                == ringReach + AvatarChromeModifier.shadowRadius)
+        // The shadow's blur is on top of the ring, not inside it.
+        #expect(AvatarChromeModifier.overhang(forAvatarSize: size) > ringReach)
+        // A bigger avatar's ring reaches further, so the slack it needs has to scale with it.
+        #expect(
+            AvatarChromeModifier.overhang(forAvatarSize: 64)
+                > AvatarChromeModifier.overhang(forAvatarSize: 32))
+    }
+
+    /// The rail buys its slack with an oversized frame, and `AvatarChromeModifier` documents that
+    /// arrangement as the reason `selectedScale` is safe to apply. Shrinking the frame — or
+    /// raising the scale — without the other would clip the active account's ring against the
+    /// rail's own bounds.
+    @MainActor
+    @Test func accountRailAvatarFrameLeavesRoomForTheSelectedAvatarsChrome() {
+        let slackPerSide =
+            (MessagesLayout.accountRailAvatarFrameSize - MessagesLayout.accountRailAvatarSize) / 2
+
+        #expect(
+            slackPerSide
+                >= AvatarChromeModifier.overhang(
+                    forAvatarSize: MessagesLayout.accountRailAvatarSize))
+    }
+
+    /// The switcher's rows scroll, and a `ScrollView` clips to its bounds — with the avatar seated
+    /// flush against the leading edge, the active account's ring came out with a flat left side.
+    /// Only the source can hold this contract: SwiftUI's clipping is not observable from a test,
+    /// and the fix is a pair of paddings that cancel in layout, so any assertion on the rows'
+    /// position would pass just as well with both of them deleted.
+    @MainActor
+    @Test func accountSwitcherScrollListInsetsItsRowsForTheAvatarChrome() throws {
+        let sourceURL =
+            URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "whitenoise-mac")
+            .appending(path: "Views")
+            .appending(path: "Settings")
+            .appending(path: "SettingsAccountSwitcherViews.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        let popoverStart = try #require(source.range(of: "struct AccountSwitcherPopover: View {"))
+        let popoverEnd = try #require(source.range(of: "struct AccountSwitcherRow: View {"))
+        let normalized = String(source[popoverStart.lowerBound..<popoverEnd.lowerBound])
+            .components(separatedBy: .whitespacesAndNewlines).joined()
+
+        // The rows are inset so the chrome has somewhere to draw...
+        #expect(normalized.contains(".padding(.horizontal,Self.rowChromeInset)"))
+        // ...and the scroll view is widened by the same amount so they stay put.
+        #expect(normalized.contains(".padding(.horizontal,-Self.rowChromeInset)"))
+    }
+
     @MainActor
     @Test func removeActiveAccountCallsRuntimeAndSelectsNextAccount() async throws {
         let primary = AccountSummaryFfi(
