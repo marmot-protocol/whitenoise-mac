@@ -75,6 +75,11 @@ nonisolated protocol MarmotRuntime: Sendable {
     func updateGroupProfile(accountRef: String, groupIdHex: String, name: String?, description: String?) async throws
         -> SendSummaryFfi
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription
+    /// One-shot read of an account's chat-list projection, for accounts the app is not
+    /// subscribed to. Like `accountUnreadSummary`, this is a local read that materializes the
+    /// projection if needed and never requires the account to be running, so it can answer for
+    /// an account other than the active one.
+    func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi]
     func subscribeNotifications() async throws -> NotificationsSubscription
     /// The one MarmotRuntime call that is not a local DB read: it traverses the searcher's web of
     /// trust over relays and streams matches as each radius resolves. Note the parameter is an
@@ -485,6 +490,10 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func subscribeChatList(accountRef: String, includeArchived: Bool) async throws -> ChatListSubscription {
         try await marmot.subscribeChatList(accountRef: accountRef, includeArchived: includeArchived)
+    }
+
+    func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
+        try marmot.chatList(accountRef: accountRef, includeArchived: includeArchived)
     }
 
     func subscribeNotifications() async throws -> NotificationsSubscription {

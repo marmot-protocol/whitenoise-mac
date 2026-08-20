@@ -444,6 +444,7 @@ extension WorkspaceState {
             accounts = try await accountItemsFromRuntime(client: client)
             removeChats(forAccountId: removedAccountId)
             accountUnreadByIdHex[removedAccountIdHex] = nil
+            pendingInviteCountByIdHex[removedAccountIdHex] = nil
 
             // `activeAccountId` may have changed during the await above — e.g. the user
             // selected an account from settings while this removal was in flight. Decide
@@ -529,6 +530,9 @@ extension WorkspaceState {
         // badges the teardown just cleared.
         lastSummarizedAccountUnread = nil
         accountUnreadSummaryGeneration &+= 1
+        // The other half of the same badges, and the same reason for the generation bump.
+        pendingInviteCountByIdHex.removeAll()
+        pendingInviteCountGeneration &+= 1
         // Read markers are keyed by groupIdHex; leaving them behind both retains a
         // record of which messages the signed-out identity read and lets a recurring
         // group id suppress the first legitimate read-mark advance after re-login. The
@@ -667,6 +671,47 @@ extension WorkspaceState {
     /// Refresh per-account unread totals without loading each account's full session.
     func refreshAccountUnreadSummary() async {
         await refreshAccountUnreadSummary(reflecting: currentAccountUnreadSignal())
+        await refreshPendingInviteCounts()
+    }
+
+    /// Re-read the unanswered-invitation counts behind the non-active accounts' avatar badges.
+    ///
+    /// Deliberately absent from `refreshAccountUnreadSummaryIfChatRowsMovedIt`: that gate fires on
+    /// the *active* account's row deltas, and no delta of its rows can move another account's
+    /// invitations, while its own are counted off those very rows. Every path that can move them —
+    /// a full chat-list reload, an account switch, a sign-in, and a notification landing on a
+    /// background account — goes through `refreshAccountUnreadSummary()` above.
+    ///
+    /// The unread summary answers for every account in one call; invitations have no such
+    /// aggregate in this binding, so each account is read separately. That is the same cost class
+    /// (one local projection read per account, no session load, no network), which is why this is
+    /// kept off the per-read-marker path.
+    private func refreshPendingInviteCounts() async {
+        guard let client else { return }
+        // Same race as the unread summary: two refreshes can be in flight and the FFI answers in
+        // whatever order it finishes, so only the newest request may commit.
+        pendingInviteCountGeneration &+= 1
+        let generation = pendingInviteCountGeneration
+        // The active account is excluded here and answered from its rows; a signed-out account has
+        // no badge count at all (the rail draws it a pause glyph instead).
+        let targets = accounts.filter { !$0.signedOut && $0.id != activeAccountId }
+        var counts: [String: Int] = [:]
+        for target in targets {
+            do {
+                let rows = try await FFIExecutor.run {
+                    try client.chatList(accountRef: target.accountRef, includeArchived: false)
+                }
+                counts[target.accountIdHex] = PendingInviteBadgeCount.count(inRows: rows)
+            } catch {
+                // Badges are best-effort: keep this account's previous count rather than dropping
+                // an invitation off the rail because one projection read failed.
+                if let previous = pendingInviteCountByIdHex[target.accountIdHex] {
+                    counts[target.accountIdHex] = previous
+                }
+            }
+        }
+        guard pendingInviteCountGeneration == generation else { return }
+        pendingInviteCountByIdHex = counts
     }
 
     /// Re-run the summary only when the active account's own chat rows have moved its unread total.
@@ -753,9 +798,32 @@ extension WorkspaceState {
         )
     }
 
-    /// Aggregate unread count for an account's avatar badge in the switcher.
+    /// Aggregate attention count for an account's avatar badge in the rail and the switcher:
+    /// unread messages plus one for each invitation the account has not answered yet.
+    ///
+    /// An unaccepted invite has no timeline, so it adds nothing to the unread total however long
+    /// it sits there — the badge said "nothing to see" while the chat list was showing an invite.
+    /// Counting it as +1 matches how the core aggregates its own badge attention
+    /// (`attention_only_conversations`) and how the row already presents it.
     func unreadCount(forAccountIdHex accountIdHex: String) -> Int {
-        accountUnreadByIdHex[accountIdHex] ?? 0
+        let unread = accountUnreadByIdHex[accountIdHex] ?? 0
+        // Wrapping addition: both sides are clamped row totals, so a pathological unread count
+        // must not trap here for the sake of a badge that reads "99+" either way.
+        return unread &+ pendingInviteCount(forAccountIdHex: accountIdHex)
+    }
+
+    /// Unanswered invitations for one account, live for the active account and from the last
+    /// projection read for the others.
+    ///
+    /// The active account is answered from its loaded rows rather than from
+    /// `pendingInviteCountByIdHex`, so accepting or declining an invite — or receiving one —
+    /// moves its badge on the chat-list update that changed the row, with no FFI round trip to
+    /// wait through and no window where the two disagree.
+    func pendingInviteCount(forAccountIdHex accountIdHex: String) -> Int {
+        if let activeAccount, activeAccount.accountIdHex == accountIdHex {
+            return PendingInviteBadgeCount.count(inUnarchived: activeChats)
+        }
+        return pendingInviteCountByIdHex[accountIdHex] ?? 0
     }
 
     func deleteAllData() async {
@@ -958,6 +1026,8 @@ extension WorkspaceState {
         accountUnreadByIdHex.removeAll()
         lastSummarizedAccountUnread = nil
         accountUnreadSummaryGeneration &+= 1
+        pendingInviteCountByIdHex.removeAll()
+        pendingInviteCountGeneration &+= 1
         // "Delete All Local Data" must also evict decoded peer/group avatars held in the
         // process-lifetime decoded-image cache; those images derive from attacker-controlled
         // peer `picture` URLs and would otherwise survive the wipe in memory. See #177.

@@ -2883,6 +2883,170 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func theAvatarBadgeCountsAnUnansweredInviteAsOne() async throws {
+        // An unaccepted invite has no timeline, so it moves no unread total however long it sits in
+        // the chat list: the rail badge read "nothing to see" while rows were asking to be answered.
+        // Each one is worth +1, matching the core's own badge aggregate and the `+` the row draws.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 2)
+        ]
+        let (state, account) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 2,
+            additionalChats: [
+                pendingInviteChatItem(id: "invite-one"),
+                pendingInviteChatItem(id: "invite-two"),
+            ]
+        )
+
+        await state.refreshAccountUnreadSummary()
+
+        #expect(state.pendingInviteCount(forAccountIdHex: account.accountIdHex) == 2)
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 4)
+    }
+
+    @MainActor
+    @Test func theAvatarBadgeSkipsArchivedAndEndedInvites() async throws {
+        // Parity with the core's `attention_only_conversations`, which counts a pending row only
+        // while it is unarchived and the local membership has not ended. Both exclusions matter to
+        // the badge too: an archived invite was put away deliberately, and an ended membership
+        // supersedes a pending invite outright — the sidebar row draws "Removed" in its place, so a
+        // badge counting it would point at a row that never mentions an invite.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        let (state, account) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 0,
+            additionalChats: [pendingInviteChatItem(id: "invite-removed", selfMembership: .removed)],
+            archivedChats: [pendingInviteChatItem(id: "invite-archived")]
+        )
+
+        await state.refreshAccountUnreadSummary()
+
+        #expect(state.archivedChats.count == 1)
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+    }
+
+    @MainActor
+    @Test func answeringAnInviteMovesTheBadgeOnTheRowAlone() async throws {
+        // The active account's invites are counted off its live rows rather than off the summary,
+        // so accepting one moves the badge on the chat-row update itself — no FFI round trip to
+        // wait through, and no window where the badge and the list disagree.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        let (state, account) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 0,
+            additionalChats: [pendingInviteChatItem(id: "invite")]
+        )
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 1)
+        let queriesSoFar = runtime.accountUnreadSummaryCallCount
+
+        // The answered invite comes back as an ordinary row.
+        await state.applyChatRow(
+            pendingInviteRow(groupIdHex: "invite", pendingConfirmation: false),
+            account: account,
+            shouldEnrich: false
+        )
+
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar)
+    }
+
+    @MainActor
+    @Test func aBackgroundAccountsUnansweredInviteMovesItsAvatarBadge() async throws {
+        // Only the active account runs a chat-list subscription, so a background account's invites
+        // can never arrive as row deltas — its badge would have kept counting messages alone. The
+        // full summary pass reads them off that account's projection, which needs no session load.
+        let backup = backupAccountSummary()
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0),
+            unreadSummaryRow(accountIdHex: backup.accountIdHex, unreadCount: 3),
+        ]
+        runtime.chatListRowsByAccountRef = [
+            backup.label: [
+                pendingInviteRow(groupIdHex: "invite-for-backup"),
+                // The exclusions have to hold on this path too, where the rows arrive unmapped.
+                pendingInviteRow(groupIdHex: "invite-archived", archived: true),
+                pendingInviteRow(groupIdHex: "invite-left", selfMembership: .left),
+                unreadBadgeFixtureRow(timelineAt: 1_700_000_000, unreadCount: 3),
+            ]
+        ]
+        let (state, active) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 0)
+        state.accounts.append(AccountItem(summary: backup))
+
+        await state.refreshAccountUnreadSummary()
+
+        #expect(state.unreadCount(forAccountIdHex: backup.accountIdHex) == 4)
+        #expect(state.unreadCount(forAccountIdHex: active.accountIdHex) == 0)
+        // The active account is answered from its live rows, so it is never read one-shot here.
+        #expect(runtime.chatListAccountRefs == [backup.label])
+    }
+
+    @MainActor
+    @Test func aFailedInviteReadKeepsTheBadgeItLastRecorded() async throws {
+        // Badges are best-effort. One projection read failing must not drop an invitation off the
+        // rail, which would read as the invite having been answered somewhere else.
+        let backup = backupAccountSummary()
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0),
+            unreadSummaryRow(accountIdHex: backup.accountIdHex, unreadCount: 0),
+        ]
+        runtime.chatListRowsByAccountRef = [backup.label: [pendingInviteRow(groupIdHex: "invite-for-backup")]]
+        let (state, _) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 0)
+        state.accounts.append(AccountItem(summary: backup))
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: backup.accountIdHex) == 1)
+
+        runtime.chatListError = FakeMarmotRuntimeError.unused
+        await state.refreshAccountUnreadSummary()
+
+        #expect(state.unreadCount(forAccountIdHex: backup.accountIdHex) == 1)
+    }
+
+    @MainActor
+    @Test func chatRowDeltasDoNotRereadTheOtherAccountsInviteCounts() async throws {
+        // The row-gated refresh exists so the badge does not put an FFI call on every read-marker
+        // advance. Invitations must not reintroduce one: no delta of the active account's rows can
+        // move another account's invites, and its own are counted off those very rows.
+        let backup = backupAccountSummary()
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 3),
+            unreadSummaryRow(accountIdHex: backup.accountIdHex, unreadCount: 0),
+        ]
+        let (state, account) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 3)
+        state.accounts.append(AccountItem(summary: backup))
+
+        await state.refreshAccountUnreadSummary()
+        let readsSoFar = runtime.chatListCallCount
+
+        // The seeded row, now read: the unread total moved, so the summary itself is re-queried.
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0),
+            unreadSummaryRow(accountIdHex: backup.accountIdHex, unreadCount: 0),
+        ]
+        await state.applyChatRow(
+            unreadBadgeFixtureRow(timelineAt: 1_700_000_100, unreadCount: 0),
+            account: account,
+            shouldEnrich: false
+        )
+
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+        #expect(runtime.chatListCallCount == readsSoFar)
+    }
+
+    @MainActor
     @Test func resetActiveAccountUIStateClearsReadMarkersAndDeliveredNotificationKeys() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
@@ -35172,6 +35336,23 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             .map { chatListRow(for: $0) }
     }
 
+    /// Per-account one-shot chat lists, for the accounts the app never subscribes to. An account
+    /// with no entry answers from the shared `groups`, the way `subscribeChatList` does.
+    var chatListRowsByAccountRef: [String: [ChatListRowFfi]] = [:]
+    var chatListCallCount = 0
+    var chatListAccountRefs: [String] = []
+    var chatListError: Error?
+
+    func chatList(accountRef: String, includeArchived: Bool) throws -> [ChatListRowFfi] {
+        chatListCallCount += 1
+        chatListAccountRefs.append(accountRef)
+        if let chatListError { throw chatListError }
+        guard let installed = chatListRowsByAccountRef[accountRef] else {
+            return chatListRows(includeArchived: includeArchived)
+        }
+        return installed.filter { includeArchived || !$0.archived }
+    }
+
     private func groupMutationResult(groupIdHex: String, messageId: String) throws -> GroupMutationResultFfi {
         guard let details = groupDetailsById[groupIdHex] else {
             throw FakeMarmotRuntimeError.unused
@@ -36650,12 +36831,14 @@ private func chatListRow(
     attachmentCount: UInt32 = 0,
     deleted: Bool = false,
     unreadCount: UInt64 = 0,
-    hasUnread: Bool = false
+    hasUnread: Bool = false,
+    archived: Bool = false,
+    pendingConfirmation: Bool = false
 ) -> ChatListRowFfi {
     ChatListRowFfi(
         groupIdHex: groupIdHex,
-        archived: false,
-        pendingConfirmation: false,
+        archived: archived,
+        pendingConfirmation: pendingConfirmation,
         title: title,
         groupName: "",
         avatarUrl: nil,
@@ -36690,14 +36873,18 @@ private func chatListOrderingTestItem(
     title: String,
     preview: String = "preview",
     updatedAt: UInt64,
-    unreadCount: Int = 1
+    unreadCount: Int = 1,
+    pendingConfirmation: Bool = false,
+    selfMembership: ChatSelfMembership = .member
 ) -> ChatItem {
     chatListOrderingTestItem(
         id: id,
         title: title,
         preview: preview,
         date: Date(timeIntervalSince1970: TimeInterval(updatedAt)),
-        unreadCount: unreadCount
+        unreadCount: unreadCount,
+        pendingConfirmation: pendingConfirmation,
+        selfMembership: selfMembership
     )
 }
 
@@ -36706,7 +36893,9 @@ private func chatListOrderingTestItem(
     title: String,
     preview: String = "preview",
     date: Date?,
-    unreadCount: Int = 1
+    unreadCount: Int = 1,
+    pendingConfirmation: Bool = false,
+    selfMembership: ChatSelfMembership = .member
 ) -> ChatItem {
     ChatItem(
         id: id,
@@ -36718,7 +36907,45 @@ private func chatListOrderingTestItem(
         pictureURL: nil,
         unreadCount: unreadCount,
         isDirect: false,
-        pendingConfirmation: false
+        pendingConfirmation: pendingConfirmation,
+        selfMembership: selfMembership
+    )
+}
+
+/// An unanswered invitation as the chat list holds it: no last message, no unread count, and — by
+/// default — a membership that has not ended, which is what makes it worth a badge.
+private func pendingInviteChatItem(
+    id: String,
+    selfMembership: ChatSelfMembership = .member
+) -> ChatItem {
+    chatListOrderingTestItem(
+        id: id,
+        title: "Invite \(id)",
+        preview: "",
+        updatedAt: 1_700_000_000,
+        unreadCount: 0,
+        pendingConfirmation: true,
+        selfMembership: selfMembership
+    )
+}
+
+/// The same invitation as a raw projection row, for the accounts read one-shot rather than
+/// subscribed to.
+private func pendingInviteRow(
+    groupIdHex: String,
+    pendingConfirmation: Bool = true,
+    archived: Bool = false,
+    selfMembership: SelfMembershipFfi = .member
+) -> ChatListRowFfi {
+    chatListRow(
+        groupIdHex: groupIdHex,
+        title: "Invite \(groupIdHex)",
+        preview: "",
+        sender: unreadBadgeFixtureAccountIdHex,
+        timelineAt: 1_700_000_000,
+        selfMembership: selfMembership,
+        archived: archived,
+        pendingConfirmation: pendingConfirmation
     )
 }
 
@@ -37023,6 +37250,8 @@ private func backupAccountSummary() -> AccountSummaryFfi {
 private func unreadBadgeFixture(
     runtime: FakeMarmotRuntime,
     seededUnreadCount: Int,
+    additionalChats: [ChatItem] = [],
+    archivedChats: [ChatItem] = [],
     localNotificationCenter: (any LocalNotificationCenter)? = nil
 ) -> (state: WorkspaceState, account: AccountItem) {
     let account = AccountItem(
@@ -37039,12 +37268,15 @@ private func unreadBadgeFixture(
     )
     let state = WorkspaceState(
         accounts: [account],
-        chatsByAccount: [account.id: [chat]],
+        chatsByAccount: [account.id: [chat] + additionalChats],
         localNotificationCenter: localNotificationCenter,
         clientFactory: { runtime }
     )
     state.client = runtime
     state.activeAccountId = account.id
+    if !archivedChats.isEmpty {
+        state.setArchivedChats(archivedChats, forAccountId: account.id)
+    }
     return (state, account)
 }
 
