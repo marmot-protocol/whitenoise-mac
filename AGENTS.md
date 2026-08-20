@@ -67,18 +67,28 @@ build.
 ## The MarmotKit / MDK FFI boundary
 
 - The Rust core lives in the [mdk](https://github.com/marmot-protocol/mdk)
-  workspace (formerly "darkmatter"), expected at `~/code/mdk` (override with
-  `MDK_DIR`). The app consumes it through the vendored, generated `MarmotKit`
-  Swift bindings in `Vendored/MarmotKit/` (committed as generated).
-- To pull core changes: `git pull` in mdk, then
-  `./scripts/sync-bindings.sh` (release Rust build + UniFFI generation + xcframework
-  assembly; stamps `Vendored/MarmotKit/MARMOT_VERSION` with the MDK SHA).
+  workspace (formerly "darkmatter"). The app consumes it through one pinned,
+  published release: `Vendored/MarmotKit/Package.swift` declares the macOS
+  XCFramework as a remote `binaryTarget` (URL + SwiftPM checksum), and the
+  generated UniFFI Swift bindings are tracked next to it. **No mdk checkout is
+  needed to build**, and nothing binary is committed.
+- To move to another core release: `just sync-bindings <version-or-full-sha>`.
+  The script verifies the binary checksum, the generated Swift source hash, and
+  the manifest's `source_sha` before installing anything, then rewrites the pin
+  and stamps `Vendored/MarmotKit/MARMOT_VERSION`. `just sanity` cross-checks
+  that the pin and the stamp still agree.
+- The published macOS XCFramework is `aarch64-apple-darwin` only — there is no
+  Intel or universal build upstream, so the app stays arm64-only.
   This is a multi-minute Rust build; run it in the background.
 - `MarmotRuntime` (in `Core/MarmotClient.swift`) is the `nonisolated` protocol the
   app calls; the concrete `MarmotClient` forwards thinly to the generated `Marmot`
   object, and `FakeMarmotRuntime` in the tests mirrors it. **Adding an FFI method
   means updating all three.**
 - FFI value records crossing the off-main boundary (`WorkspaceState.runOffMain`)
-  need `@retroactive @unchecked Sendable` conformances in
-  `Core/MarmotConcurrency.swift`. Conversions from FFI types into app view models
-  live in `Core/MarmotMapping.swift`.
+  no longer need app-side `Sendable` conformances: since UniFFI 0.29 the
+  generated module declares (checked) `Sendable` on them itself, which is why
+  `Core/MarmotConcurrency.swift` is gone. If a new FFI type is rejected as
+  non-`Sendable`, check the generated `MarmotKit.swift` before adding a
+  retroactive conformance here — a duplicate is a build warning, not a fix.
+  Conversions from FFI types into app view models live in
+  `Core/MarmotMapping.swift`.

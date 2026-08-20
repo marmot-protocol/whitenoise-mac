@@ -80,6 +80,11 @@ analyze:
         -destination "{{DESTINATION}}" \
         CODE_SIGNING_ALLOWED=NO
 
+# Repin MarmotKit to a published mdk release (version or full master SHA).
+# Not part of precommit — run it deliberately when moving the core.
+sync-bindings REF:
+    scripts/sync-bindings.sh {{REF}}
+
 # CI step: Show Xcode environment (informational; not part of precommit)
 env:
     sw_vers

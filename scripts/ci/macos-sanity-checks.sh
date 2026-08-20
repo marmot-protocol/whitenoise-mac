@@ -8,7 +8,8 @@ PROJECT="whitenoise-mac.xcodeproj"
 APP_TARGET="whitenoise-mac"
 INFO_PLIST="Config/Info.plist"
 ENTITLEMENTS="whitenoise-mac/whitenoise-mac.entitlements"
-MARMOT_XCFRAMEWORK_INFO="Vendored/MarmotKit/MarmotKit.xcframework/Info.plist"
+MARMOT_PACKAGE="Vendored/MarmotKit/Package.swift"
+MARMOT_VERSION_FILE="Vendored/MarmotKit/MARMOT_VERSION"
 
 fail() {
   echo "error: $*" >&2
@@ -75,7 +76,6 @@ assert_build_setting_equals() {
 
 plutil -lint "$INFO_PLIST" >/dev/null
 plutil -lint "$ENTITLEMENTS" >/dev/null
-plutil -lint "$MARMOT_XCFRAMEWORK_INFO" >/dev/null
 
 assert_plist_equals "$INFO_PLIST" "CFBundleDisplayName" "White Noise"
 assert_plist_equals "$INFO_PLIST" "CFBundlePackageType" "APPL"
@@ -102,9 +102,42 @@ assert_build_setting_equals "ENABLE_APP_SANDBOX" "YES"
 assert_build_setting_equals "ENABLE_USER_SELECTED_FILES" "readwrite"
 assert_build_setting_equals "MACOSX_DEPLOYMENT_TARGET" "15.6"
 
-marmot_platform="$(plist_value "$MARMOT_XCFRAMEWORK_INFO" "AvailableLibraries:0:SupportedPlatform")"
-marmot_arch="$(plist_value "$MARMOT_XCFRAMEWORK_INFO" "AvailableLibraries:0:SupportedArchitectures:0")"
-[[ "$marmot_platform" == "macos" ]] || fail "MarmotKit platform expected macos but found '$marmot_platform'"
-[[ "$marmot_arch" == "arm64" ]] || fail "MarmotKit architecture expected arm64 but found '$marmot_arch'"
+# MarmotKit is a pinned remote binary target, so there is no XCFramework in the
+# repo to inspect. What can drift instead is the pin itself: the three `let`s in
+# Package.swift and the provenance stamped into MARMOT_VERSION are written
+# together by scripts/sync-bindings.sh, and editing one by hand without the
+# other is the failure this guards against.
+marmot_release_id="$(sed -nE 's/^let marmotKitReleaseID = "(.*)"$/\1/p' "$MARMOT_PACKAGE")"
+marmot_release_tag="$(sed -nE 's/^let marmotKitReleaseTag = "(.*)"$/\1/p' "$MARMOT_PACKAGE")"
+marmot_checksum="$(sed -nE 's/^let marmotKitChecksum = "(.*)"$/\1/p' "$MARMOT_PACKAGE")"
+
+[[ -n "$marmot_release_id" ]] || fail "$MARMOT_PACKAGE is missing marmotKitReleaseID"
+[[ "$marmot_release_tag" == "marmotkit-"* ]] || fail "$MARMOT_PACKAGE has an unexpected release tag '$marmot_release_tag'"
+[[ "$marmot_checksum" =~ ^[0-9a-f]{64}$ ]] || fail "$MARMOT_PACKAGE checksum is not a 64-character hex digest"
+grep -q 'url: marmotKitBinaryURL' "$MARMOT_PACKAGE" \
+  || fail "$MARMOT_PACKAGE must declare MarmotKitFFI as a remote binaryTarget, not a local path"
+grep -q 'MarmotKitFFI-macos-' "$MARMOT_PACKAGE" \
+  || fail "$MARMOT_PACKAGE must pin the macOS asset; an unprefixed MarmotKitFFI asset is the iOS build"
+
+stamped_tag="$(sed -nE 's/^mdk-tag: (.*)$/\1/p' "$MARMOT_VERSION_FILE")"
+stamped_checksum="$(sed -nE 's/^swiftpm-checksum: (.*)$/\1/p' "$MARMOT_VERSION_FILE")"
+stamped_targets="$(sed -nE 's/^macos-targets: (.*)$/\1/p' "$MARMOT_VERSION_FILE")"
+stamped_floor="$(sed -nE 's/^macos-deployment-target: (.*)$/\1/p' "$MARMOT_VERSION_FILE")"
+
+[[ "$stamped_tag" == "$marmot_release_tag" ]] \
+  || fail "$MARMOT_VERSION_FILE tag '$stamped_tag' does not match $MARMOT_PACKAGE tag '$marmot_release_tag'"
+[[ "$stamped_checksum" == "$marmot_checksum" ]] \
+  || fail "$MARMOT_VERSION_FILE checksum does not match the checksum pinned in $MARMOT_PACKAGE"
+
+# The published macOS artifact is Apple Silicon only. If that ever changes
+# upstream this fires, rather than the app silently staying arm64-only.
+[[ "$stamped_targets" == "aarch64-apple-darwin" ]] \
+  || fail "MarmotKit macOS targets expected 'aarch64-apple-darwin' but found '$stamped_targets'"
+
+# The app may require a newer macOS than the library was built for, never older.
+app_floor="$(build_setting "MACOSX_DEPLOYMENT_TARGET")"
+lowest_floor="$(printf '%s\n%s\n' "$app_floor" "$stamped_floor" | sort -t. -k1,1n -k2,2n | head -1)"
+[[ "$lowest_floor" == "$stamped_floor" ]] \
+  || fail "app deployment target $app_floor is older than the MarmotKit artifact floor $stamped_floor"
 
 echo "macOS project sanity checks passed"
