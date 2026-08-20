@@ -469,6 +469,7 @@ extension WorkspaceState {
             if accounts.isEmpty {
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
+                invalidatePrivacySecurityOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 selection = nil
                 phase = .onboarding
@@ -613,6 +614,7 @@ extension WorkspaceState {
             } else {
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
+                invalidatePrivacySecurityOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 selection = nil
                 phase = .ready
@@ -867,6 +869,7 @@ extension WorkspaceState {
         }
         activeAccountId = accounts.first(where: { !$0.signedOut })?.id
         invalidateNotificationSettingsOperations()
+        invalidatePrivacySecurityOperations()
         if let activeAccountId {
             UserDefaults.standard.set(activeAccountId, forKey: Self.activeAccountKey)
         } else {
@@ -910,6 +913,7 @@ extension WorkspaceState {
         clearFollows()
         activeAccountId = preferredAccount.id
         invalidateNotificationSettingsOperations()
+        invalidatePrivacySecurityOperations()
         UserDefaults.standard.set(preferredAccount.id, forKey: Self.activeAccountKey)
         invalidateSidebarMessageSearch(clearQuery: true)
         clearAllComposerDrafts()

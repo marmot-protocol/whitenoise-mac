@@ -30290,6 +30290,175 @@ struct whitenoise_macTests {
         #expect(!state.privacySecuritySettings.auditLoggingEnabled)
     }
 
+    /// The telemetry switch renders from `privacySecuritySettings`, so that value has to move when
+    /// the user flips it, not a relay round trip later — otherwise the switch springs back under the
+    /// pointer and then flips on its own. The gate here holds the FFI read open so "before the write
+    /// lands" is a state we can actually stand in, rather than something inferred from timing.
+    @MainActor
+    @Test func relayTelemetryToggleMovesBeforeTheWriteLands() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(telemetryToken: "otlp-token", auditToken: "audit-token")
+            },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+
+        runtime.relayTelemetrySettingsGateEnabled = true
+        async let enabling: Void = state.setRelayTelemetryEnabled(true)
+        while !runtime.didReachRelayTelemetrySettingsGate {
+            await Task.yield()
+        }
+
+        // Parked inside the FFI read, so nothing has been written anywhere yet.
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(!runtime.storedRelayTelemetrySettings.exportEnabled)
+
+        runtime.releaseRelayTelemetrySettingsGate()
+        await enabling
+
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(runtime.storedRelayTelemetrySettings.exportEnabled)
+    }
+
+    /// The other half of moving early: a write that never lands has to put the switch back, or the
+    /// user is left looking at a setting the core does not have. Both toggles roll back, and the
+    /// failure still surfaces through `lastError`.
+    @MainActor
+    @Test func privacySecurityTogglesRollBackWhenTheWriteFails() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.setRelayTelemetrySettingsError = FakeMarmotRuntimeError.unused
+        runtime.setAuditLogSettingsError = FakeMarmotRuntimeError.unused
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(telemetryToken: "otlp-token", auditToken: "audit-token")
+            },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.setRelayTelemetryEnabled(true)
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(state.lastError != nil)
+
+        state.lastError = nil
+        await state.setAuditLoggingEnabled(true)
+        #expect(!state.privacySecuritySettings.auditLoggingEnabled)
+        #expect(state.lastError != nil)
+    }
+
+    /// Moving the toggle early buys a second obligation: the write that lands late must check it is
+    /// still wanted. `privacySecuritySettings` is per-account UI state — `resetActiveAccountUIState`
+    /// puts it back to `.defaults` — so a save suspended across a switch that then writes anything,
+    /// success or rollback, hands the incoming account a value it never loaded and an error from an
+    /// identity it never used. Same protocol as `saveRelaySettings` and `saveProfile`.
+    @MainActor
+    @Test func privacySecurityToggleWritesNothingAfterAnAccountSwitch() async throws {
+        // `selectAccount` persists the incoming id through `WorkspaceState.activeAccountKey`, so
+        // this test would otherwise leave a fake account id in the host's defaults for whatever
+        // runs next. Same guard every other switch test in this suite takes.
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let first = desktopAccount()
+        let second = AccountSummaryFfi(
+            label: "Secondary Account",
+            accountIdHex: String(repeating: "7", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        // The outgoing account has telemetry on, so a rollback that escapes writes `true` — which
+        // the incoming account's `.defaults` snapshot does not carry. That difference is the witness.
+        runtime.storedRelayTelemetrySettings = RelayTelemetrySettingsFfi(
+            exportEnabled: true,
+            exportIntervalSeconds: 120
+        )
+        runtime.setRelayTelemetrySettingsError = FakeMarmotRuntimeError.unused
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        await state.loadPrivacySecuritySettings()
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+
+        // Turning telemetry *off* needs no credentials, so the guard at the top of the save is not
+        // in the way. The gate parks the save inside its first FFI read, which is where a real
+        // switch would catch it.
+        runtime.relayTelemetrySettingsGateEnabled = true
+        async let disabling: Void = state.setRelayTelemetryEnabled(false)
+        while !runtime.didReachRelayTelemetrySettingsGate {
+            await Task.yield()
+        }
+
+        let incoming = try #require(state.accounts.first { $0.id != state.activeAccountId })
+        state.selectAccount(incoming)
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+        state.lastError = nil
+
+        runtime.releaseRelayTelemetrySettingsGate()
+        await disabling
+
+        // The failed save belongs to the identity that started it, and that identity is gone.
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(state.lastError == nil)
+    }
+
+    /// Refusing a stale completion is only half of it: nobody must be left holding the save flag.
+    /// A switch does not clear `isSavingPrivacySecurity` — `prepareForActiveAccountSwitch` never
+    /// touches it — so if the outgoing account's completion is refused *and* nothing invalidates the
+    /// flag, it stays true for the rest of the session and `guard !isSavingPrivacySecurity` silently
+    /// kills both toggles for every account. The incoming account has to be able to save while the
+    /// outgoing account's write is still in the air.
+    @MainActor
+    @Test func privacySecuritySaveFlagDoesNotOutliveTheAccountThatOwnsIt() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+        let first = desktopAccount()
+        let second = AccountSummaryFfi(
+            label: "Secondary Account",
+            accountIdHex: String(repeating: "7", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(telemetryToken: "otlp-token", auditToken: "audit-token")
+            },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        // Park the outgoing account's save inside its first FFI read and switch out from under it.
+        runtime.relayTelemetrySettingsGateEnabled = true
+        async let outgoing: Void = state.setRelayTelemetryEnabled(true)
+        while !runtime.didReachRelayTelemetrySettingsGate {
+            await Task.yield()
+        }
+        let incoming = try #require(state.accounts.first { $0.id != state.activeAccountId })
+        state.selectAccount(incoming)
+
+        // The incoming account owns the pane now, so its toggle has to work — the gate is already
+        // spent, so this save runs to completion while the outgoing one is still suspended.
+        #expect(!state.isSavingPrivacySecurity)
+        await state.setRelayTelemetryEnabled(true)
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(runtime.storedRelayTelemetrySettings.exportEnabled)
+
+        runtime.releaseRelayTelemetrySettingsGate()
+        await outgoing
+
+        // And the refused completion did not take the incoming account's flag down with it.
+        #expect(!state.isSavingPrivacySecurity)
+        #expect(state.privacySecuritySettings.relayTelemetryEnabled)
+    }
+
     @MainActor
     @Test func privacySecuritySettingsLoadSurvivesObservabilityConfigurationFailure() async throws {
         let account = desktopAccount()
@@ -34445,7 +34614,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         relayTelemetrySettingsGate.release()
     }
 
+    var setAuditLogSettingsError: Error?
+
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi {
+        if let setAuditLogSettingsError { throw setAuditLogSettingsError }
         storedAuditLogSettings = settings
         return storedAuditLogSettings
     }
@@ -34488,7 +34660,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
         relayTelemetryRuntimeConfig = config
     }
 
+    var setRelayTelemetrySettingsError: Error?
+
     func setRelayTelemetrySettings(settings: RelayTelemetrySettingsFfi) async throws -> RelayTelemetrySettingsFfi {
+        if let setRelayTelemetrySettingsError { throw setRelayTelemetrySettingsError }
         storedRelayTelemetrySettings = settings
         return storedRelayTelemetrySettings
     }
