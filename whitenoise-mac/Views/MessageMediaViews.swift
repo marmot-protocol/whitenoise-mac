@@ -265,11 +265,6 @@ struct MessageBubble: View {
                 bubbleContent
             }
 
-            if !message.hasBubbleContent {
-                compactMetadata
-                    .padding(.horizontal, 5)
-            }
-
             if message.supportsChatActions && !message.reactions.isEmpty {
                 MessageReactionChips(reactions: message.reactions) { emoji in
                     reactionViewerEmoji = emoji
@@ -280,13 +275,18 @@ struct MessageBubble: View {
                 // The overlap comes from the chip so the pill's height and how much of it rides on
                 // the bubble stay one decision.
                 .padding(.horizontal, 10)
-                .padding(
-                    .top,
-                    usesStickerStyle ? 0 : -(Self.contentSpacing + MessageReactionChips.bubbleOverlap)
-                )
+                .padding(.top, reactionChipPlacement.topPadding(contentSpacing: Self.contentSpacing))
                 .popover(isPresented: $isReactionViewerPresented, arrowEdge: .bottom) {
                     MessageReactionDetailsView(message: message, selectedEmoji: $reactionViewerEmoji)
                 }
+            }
+
+            // After the chips, not before them: the pill rides up onto whatever precedes it, and a
+            // caption-less row's metadata is a bare line of text rather than a surface with an edge
+            // to spare. Emitted first, it was what the pill overlapped.
+            if !message.hasBubbleContent {
+                compactMetadata
+                    .padding(.horizontal, 5)
             }
 
             sendFailureActions
@@ -375,6 +375,16 @@ struct MessageBubble: View {
 
     private var usesStickerStyle: Bool {
         stickerEmoji != nil
+    }
+
+    /// The pill rides the caption bubble when there is one and the media card when there is not.
+    /// A sticker carries no surface, and a row that is only a timestamp offers no edge — both take
+    /// their own row instead of overlapping the text above them.
+    private var reactionChipPlacement: MessageReactionChipPlacement {
+        .value(
+            usesSurface: usesBubbleSurface || !message.mediaAttachments.isEmpty,
+            usesStickerStyle: usesStickerStyle
+        )
     }
 
     /// Incoming messages in a group carry the sender's avatar in a leading gutter; DMs and the
