@@ -76,14 +76,32 @@ nonisolated enum ChatSelfMembership: Hashable {
     /// One-line explanation of the ended membership, used by the sidebar badge
     /// tooltip and the composer notice. `nil` while still a member.
     var endedDescription: String? {
+        endedDescription(locale: AppLanguage.currentLocale)
+    }
+
+    /// The same line resolved against a caller-supplied locale, for the surfaces that are not
+    /// rebuilt on a language switch — see `ChatItem.previewNotice(locale:)`.
+    func endedDescription(locale: Locale) -> String? {
         switch self {
         case .member:
             return nil
         case .left:
-            return L10n.string("You left this group")
+            return L10n.string("You left this group", locale: locale)
         case .removed:
-            return L10n.string("You were removed from this group")
+            return L10n.string("You were removed from this group", locale: locale)
         }
+    }
+
+    /// Whether this ended membership says so on the row's preview line instead of in a capsule
+    /// beside the title.
+    ///
+    /// Only removal does. Being removed is the one ended state the reader did not choose, so the
+    /// row spends its widest slot saying it in the same words the chat itself does
+    /// (`MembershipEndedComposerNotice`) rather than compressing it to a "Removed" capsule the
+    /// reader has to hover to expand. Leaving stays a capsule: the reader already knows they left,
+    /// and the last message is still the more useful thing for that row to show.
+    var reportsInChatRowPreviewLine: Bool {
+        self == .removed
     }
 
     /// SF Symbol shown alongside the ended state, `nil` while still a member.
@@ -165,6 +183,19 @@ nonisolated struct ChatItem: Identifiable, Hashable {
 
     /// True when the local account can use the outbound composer for this chat.
     var canUseComposer: Bool { !pendingConfirmation && !isNoLongerMember }
+
+    /// What the row draws where the last message would go, whenever something other than the last
+    /// message belongs there. `nil` means `preview` speaks for itself.
+    ///
+    /// A removal outranks the last message: the chat is closed to the reader, so what the row has
+    /// to report is that fact rather than whatever was said before it. Every other state only
+    /// fills the line when there is no message to draw — see `previewPlaceholder(locale:)`.
+    func previewNotice(locale: Locale = AppLanguage.currentLocale) -> String? {
+        if selfMembership.reportsInChatRowPreviewLine {
+            return selfMembership.endedDescription(locale: locale)
+        }
+        return previewPlaceholder(locale: locale)
+    }
 
     /// What the row draws where the last message would go, for a chat that has no last message.
     /// `nil` means `preview` carries a real message and should be drawn as-is.

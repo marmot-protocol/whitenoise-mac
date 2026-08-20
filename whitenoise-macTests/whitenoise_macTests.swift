@@ -30399,6 +30399,79 @@ struct whitenoise_macTests {
         #expect(state.privacySecuritySettings.relayTelemetryEnabled)
     }
 
+    /// A telemetry save that is still mid-flight when the user switches identity must not follow
+    /// them there. `isSavingPrivacySecurity` gates the whole page — the loader and both setters
+    /// refuse to run while it is raised — so a save left owning it locked the incoming account out
+    /// of a page it had never touched, and the outgoing account's answer then published into it.
+    @MainActor
+    @Test func privacySecuritySaveInFlightDoesNotFollowTheUserToTheNextAccount() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let backup = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, backup])
+        runtime.storedRelayTelemetrySettings = RelayTelemetrySettingsFfi(
+            exportEnabled: false,
+            exportIntervalSeconds: 120
+        )
+        // Pinned so a value another test left behind cannot decide which account boots active.
+        UserDefaults.standard.set(primary.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(
+            telemetryBuildConfigProvider: {
+                telemetryBuildConfig(
+                    telemetryToken: "otlp-token",
+                    auditToken: "audit-token",
+                    environment: "production"
+                )
+            },
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == primary.label)
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+
+        runtime.relayTelemetrySettingsGateEnabled = true
+        async let save: Void = state.setRelayTelemetryEnabled(true)
+        while !runtime.didReachRelayTelemetrySettingsGate {
+            await Task.yield()
+        }
+        #expect(state.isSavingPrivacySecurity)
+
+        let backupAccount = try #require(state.accounts.first { $0.id == backup.label })
+        state.selectAccount(backupAccount)
+
+        // The page is the new identity's from the moment it is active, not once the old save
+        // happens to finish.
+        #expect(state.activeAccountId == backup.label)
+        #expect(!state.isSavingPrivacySecurity)
+
+        runtime.releaseRelayTelemetrySettingsGate()
+        await save
+
+        // The write still lands where the user asked for it — what it must not do is publish into
+        // the account now on screen, re-raise its saving flag, or report its errors there.
+        #expect(runtime.storedRelayTelemetrySettings.exportEnabled)
+        #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
+        #expect(!state.isSavingPrivacySecurity)
+        #expect(state.lastError == nil)
+    }
+
     @MainActor
     @Test func observabilityRuntimeConfigurationSkipsUnchangedRequests() async throws {
         let previousActiveAccount = UserDefaults.standard.object(forKey: "whitenoise.mac.activeAccountId")
