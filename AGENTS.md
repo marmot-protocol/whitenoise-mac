@@ -76,10 +76,11 @@ build.
   The script verifies the binary checksum, the generated Swift source hash, and
   the manifest's `source_sha` before installing anything, then rewrites the pin
   and stamps `Vendored/MarmotKit/MARMOT_VERSION`. `just sanity` cross-checks
-  that the pin and the stamp still agree.
+  that the pin and the stamp still agree, and re-hashes the vendored
+  `MarmotKit.swift` against the stamp — so never hand-edit the generated
+  source, re-run the sync instead.
 - The published macOS XCFramework is `aarch64-apple-darwin` only — there is no
   Intel or universal build upstream, so the app stays arm64-only.
-  This is a multi-minute Rust build; run it in the background.
 - `MarmotRuntime` (in `Core/MarmotClient.swift`) is the `nonisolated` protocol the
   app calls; the concrete `MarmotClient` forwards thinly to the generated `Marmot`
   object, and `FakeMarmotRuntime` in the tests mirrors it. **Adding an FFI method
