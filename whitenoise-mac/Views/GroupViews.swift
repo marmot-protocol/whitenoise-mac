@@ -202,33 +202,10 @@ struct GroupDetailsSheet: View {
                                 .foregroundStyle(WNColor.backgroundContentSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
 
-                                HStack(spacing: 10) {
-                                    Button {
-                                        Task { await workspace.acceptSelectedGroupInvite() }
-                                    } label: {
-                                        Label(
-                                            workspace.isAcceptingGroupInvite
-                                                ? L10n.string("Accepting...") : L10n.string("Accept Invite"),
-                                            systemImage: "checkmark.circle"
-                                        )
-                                    }
-                                    .nativeGlassProminentButtonStyle()
-                                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-
-                                    Button {
-                                        Task { await workspace.declineSelectedGroupInvite() }
-                                    } label: {
-                                        Label(
-                                            workspace.isDecliningGroupInvite
-                                                ? L10n.string("Declining...") : L10n.string("Decline"),
-                                            systemImage: "xmark.circle"
-                                        )
-                                    }
-                                    .buttonStyle(.wnSecondary)
-                                    .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-
-                                    Spacer()
-                                }
+                                PendingInviteActionButtons(
+                                    accept: { await workspace.acceptSelectedGroupInvite() },
+                                    decline: { await workspace.declineSelectedGroupInvite() }
+                                )
                             }
                         }
                     }
@@ -1014,7 +991,7 @@ private struct ContactProfileActionsRow: View {
                 Label(L10n.string("Message"), systemImage: "message")
                     .frame(maxWidth: .infinity)
             }
-            .nativeGlassProminentButtonStyle()
+            .wnPrimaryButtonStyle()
             .disabled(workspace.isCreatingChat)
         }
         .controlSize(.large)

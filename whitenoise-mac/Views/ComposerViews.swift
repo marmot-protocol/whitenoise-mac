@@ -1486,48 +1486,10 @@ struct PendingGroupInviteComposerNotice: View {
                 Spacer(minLength: 0)
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    Task { await workspace.acceptGroupInvite(for: chat) }
-                } label: {
-                    HStack(spacing: 8) {
-                        if workspace.isAcceptingGroupInvite {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill")
-                        }
-                        Text(workspace.isAcceptingGroupInvite ? L10n.string("Accepting...") : L10n.string("Accept"))
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 40)
-                }
-                .controlSize(.large)
-                .nativeGlassProminentButtonStyle()
-                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                .help(L10n.string("Accept invite"))
-
-                // No destructive `role`: `chat_invite_screen.dart` builds Decline as `outline`,
-                // and the group-details Decline already dropped it. Marking it destructive while
-                // rendering it secondary is a trap — see `WNSecondaryButtonStyle`.
-                Button {
-                    Task { await workspace.declineGroupInvite(for: chat) }
-                } label: {
-                    HStack(spacing: 8) {
-                        if workspace.isDecliningGroupInvite {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "xmark.circle")
-                        }
-                        Text(workspace.isDecliningGroupInvite ? L10n.string("Declining...") : L10n.string("Decline"))
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 40)
-                }
-                .controlSize(.large)
-                .buttonStyle(.wnSecondary)
-                .disabled(workspace.isAcceptingGroupInvite || workspace.isDecliningGroupInvite)
-                .help(L10n.string("Decline invite"))
-            }
+            PendingInviteActionButtons(
+                accept: { await workspace.acceptGroupInvite(for: chat) },
+                decline: { await workspace.declineGroupInvite(for: chat) }
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
