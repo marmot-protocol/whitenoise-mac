@@ -3,7 +3,7 @@
 A native macOS client for **Marmot Protocol** — MLS-based end-to-end encrypted
 group messaging over Nostr. White Noise is a SwiftUI app that wraps the
 [mdk](https://github.com/marmot-protocol/mdk) Rust core (the MLS/CGKA
-engine) through a vendored `MarmotKit` framework, giving you sovereign, private
+engine) through the `MarmotKit` framework, giving you sovereign, private
 communications in a single-window Mac experience.
 
 > Bundle identifier: `dev.ipf.whitenoise.mac` · Display name: **White Noise**
@@ -20,10 +20,11 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 - **macOS 15.6+** (deployment target; the app is sandboxed and arm64-only)
 - **Xcode** with the Swift 6 toolchain (project compiles in Swift 5 language
   mode against the Swift 6 tools)
-- Apple Silicon Mac — the vendored `MarmotKit.xcframework` ships
-  `aarch64-apple-darwin` artifacts only
-- A checkout of the [mdk](https://github.com/marmot-protocol/mdk) Rust
-  workspace *only if you need to regenerate the MarmotKit bindings* (see below)
+- Apple Silicon Mac — the published `MarmotKit` XCFramework ships
+  `aarch64-apple-darwin` only; there is no Intel or universal build upstream
+- Network access on the first build, to fetch the pinned `MarmotKit`
+  XCFramework. **No mdk checkout is needed** — see
+  [Updating MarmotKit bindings](#updating-marmotkit-bindings).
 
 ## Repository structure
 
@@ -35,13 +36,12 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 │   ├── AppSecrets.xcconfig.example  Template for local-only secrets (gitignored copy)
 │   └── Info.plist              App bundle metadata + telemetry keys
 ├── scripts/
-│   └── sync-bindings.sh        Rebuilds & re-vendors MarmotKit from mdk
+│   └── sync-bindings.sh        Repins MarmotKit to a published mdk release
 ├── Vendored/
-│   └── MarmotKit/              SwiftPM binary target wrapping the Rust core
-│       ├── Package.swift        Kept in git; the rest is generated/gitignored
-│       ├── MarmotKit.xcframework/   Compiled Rust static lib + headers (generated)
-│       ├── Sources/MarmotKit/   Generated UniFFI Swift bindings (generated)
-│       └── MARMOT_VERSION        Provenance stamp of the vendored core (generated)
+│   └── MarmotKit/              SwiftPM package wrapping the Rust core
+│       ├── Package.swift        Pins the remote XCFramework by URL + checksum
+│       ├── Sources/MarmotKit/   Generated UniFFI Swift bindings (tracked)
+│       └── MARMOT_VERSION        Provenance of the pinned release (tracked)
 ├── whitenoise-mac/            App target source
 │   ├── whitenoise_macApp.swift  @main entry; single `Window` scene
 │   ├── ContentView.swift        Root view
@@ -63,7 +63,6 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 | `MarmotClient.swift` | Bridge protocol/runtime into the Rust core; `nonisolated` so FFI calls run off the main thread. |
 | `WorkspaceState.swift` | The single observable app state (selection, search, drafts, reply context, sheet flags). Drives the whole UI. |
 | `MarmotMapping.swift` | Maps Rust/FFI value types into app view models. |
-| `MarmotConcurrency.swift` | `@retroactive` unchecked-`Sendable` conformances for UniFFI value records crossing the off-main boundary. |
 | `RemoteImageLoader.swift` | Off-main remote image loading + downsampling + caching (an `AsyncImage` replacement). |
 | `AppLanguage.swift` / `L10n.swift` | In-app language selection and localized string lookup. |
 | `NativeAppearanceController.swift` | Light/dark appearance control. |
@@ -80,9 +79,10 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
    open whitenoise-mac.xcodeproj
    ```
 
-   The vendored `MarmotKit.xcframework` is committed-as-generated and resolved
-   through the local SwiftPM package in `Vendored/MarmotKit`, so a fresh clone
-   builds without an mdk checkout in the common case.
+   `MarmotKit` resolves through the local SwiftPM package in
+   `Vendored/MarmotKit`, whose binary target points at a pinned, checksummed
+   XCFramework on the mdk releases page. SwiftPM downloads it on the first
+   build and caches it, so a fresh clone builds with no mdk checkout at all.
 
 2. **(Optional) configure local secrets.** Telemetry/audit-log tokens are
    build-time secrets. Copy the example and fill in values if you have them —
@@ -100,22 +100,33 @@ cryptographic and protocol heavy lifting lives in the Rust core surfaced via
 > whole UI is driven by one shared `WorkspaceState`, so multi-window is
 > disabled by design (no ⌘N).
 
-## Regenerating MarmotKit bindings
+## Updating MarmotKit bindings
 
-The contents of `Vendored/MarmotKit/` (the `.xcframework`, the generated Swift
-bindings, and `MARMOT_VERSION`) are produced from the `marmot-uniffi` crate in
-the mdk Rust workspace. To rebuild them after a core change:
+Nothing is built locally and nothing binary is committed. `Vendored/MarmotKit`
+pins one immutable, published mdk release: `Package.swift` carries the release
+id, tag, and SwiftPM checksum of the macOS XCFramework, and the generated
+UniFFI Swift bindings are tracked alongside it. To move to another release:
 
 ```sh
-# Assumes mdk is checked out at ~/code/mdk; override with MDK_DIR.
-MDK_DIR=/path/to/mdk ./scripts/sync-bindings.sh
+just sync-bindings 0.9.14                                    # a tagged version
+just sync-bindings 235c8ade2920414679e59d7a5f1a0e78651756a4  # a master snapshot
 ```
 
-The script builds the Rust crate in release mode, generates the UniFFI Swift
-bindings, assembles the `MarmotKit.xcframework`, and stamps `MARMOT_VERSION`
-with the mdk commit SHA, branch, and build time. A `-dirty` suffix in
-`MARMOT_VERSION` means the mdk working tree had uncommitted changes at
-build time. Requires the Rust toolchain (`cargo`) and Xcode command-line tools.
+The script downloads the macOS XCFramework, the shared generated Swift source,
+and the release manifest, then refuses to install anything unless all three
+checks pass: `swift package compute-checksum` matches the published
+`.swiftpm-checksum`, the Swift source matches its `sha256` in
+`checksums.txt`, and the manifest's `source_sha` matches the requested SHA. It
+then rewrites the pin in `Package.swift` and stamps `MARMOT_VERSION` and
+`MarmotKitVersion.swift` from the manifest.
+
+Requires only `curl` and Xcode command-line tools — no Rust toolchain, no mdk
+checkout. `scripts/ci/macos-sanity-checks.sh` verifies that the pin in
+`Package.swift` and the provenance in `MARMOT_VERSION` still agree, so editing
+one by hand without the other fails CI.
+
+The generated `MarmotKit.swift` is platform-independent and byte-identical to
+the copy `whitenoise-ios` vendors from the same release.
 
 ## Testing
 

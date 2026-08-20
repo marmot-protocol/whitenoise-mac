@@ -1,112 +1,175 @@
 #!/usr/bin/env bash
-# Rebuild the MarmotKit bindings from the MDK Rust workspace and
-# re-vendor them into this macOS app.
+# Install a published immutable MarmotKit release into the local Swift package.
+#
+# No mdk checkout is required: the macOS XCFramework is fetched from the pinned
+# GitHub release by SwiftPM, and this script only installs the generated Swift
+# source and rewrites the pin in Package.swift.
 #
 # Usage:
-#   ./scripts/sync-bindings.sh
-#   MDK_DIR=/path/to/mdk ./scripts/sync-bindings.sh
+#   ./scripts/sync-bindings.sh <full-master-sha>
+#   ./scripts/sync-bindings.sh <version>
+#
+# Examples:
+#   ./scripts/sync-bindings.sh 235c8ade2920414679e59d7a5f1a0e78651756a4
+#   ./scripts/sync-bindings.sh 0.9.14
 
 set -euo pipefail
 
+if [[ $# -ne 1 ]]; then
+    echo "usage: $0 <version-or-full-master-sha>" >&2
+    exit 2
+fi
+
+RELEASE="$1"
+if [[ "$RELEASE" =~ ^[0-9a-f]{40}$ ]]; then
+    RELEASE_ID="snapshot-$RELEASE"
+    RELEASE_TAG="marmotkit-snapshot-$RELEASE"
+    REQUESTED_SHA="$RELEASE"
+elif [[ "$RELEASE" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)$ ]]; then
+    RELEASE_ID="${BASH_REMATCH[1]}"
+    RELEASE_TAG="marmotkit-v$RELEASE_ID"
+    REQUESTED_SHA=""
+else
+    echo "error: release must be a semantic version or a full lowercase 40-character SHA" >&2
+    exit 2
+fi
+
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-MDK_DIR="${MDK_DIR:-$HOME/code/mdk}"
+PACKAGE_DIR="$APP_DIR/Vendored/MarmotKit"
+BASE_URL="https://github.com/marmot-protocol/mdk/releases/download/$RELEASE_TAG"
+# macOS assets carry an explicit `-macos-` token. The generated Swift is shared
+# with the iOS artifact and is published once, without a platform token — there
+# is no `MarmotKit-macos-<id>.swift` asset, and looking for one is the common
+# mistake.
+BINARY_ASSET="MarmotKitFFI-macos-$RELEASE_ID.xcframework.zip"
+SWIFT_ASSET="MarmotKit-$RELEASE_ID.swift"
+MANIFEST_ASSET="marmotkit-macos-$RELEASE_ID.manifest.json"
+CHECKSUMS_ASSET="marmotkit-macos-$RELEASE_ID.checksums.txt"
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
-CRATE_DIR="$MDK_DIR/crates/marmot-uniffi"
-TARGET_DIR="${CARGO_TARGET_DIR:-$MDK_DIR/target}"
-VENDOR_DIR="$APP_DIR/Vendored/MarmotKit"
-BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marmotkit-macos.XXXXXX")"
-trap 'rm -rf "$BUILD_DIR"' EXIT
+download() {
+    local asset="$1"
+    curl --fail --location --retry 3 --silent --show-error \
+        "$BASE_URL/$asset" \
+        --output "$TEMP_DIR/$asset"
+}
 
-CRATE_NAME="marmot-uniffi"
-LIB_BASENAME="marmot_uniffi"
-FRAMEWORK_NAME="MarmotKit"
-MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-15.6}"
+echo "==> Downloading immutable MarmotKit release $RELEASE_TAG"
+download "$BINARY_ASSET"
+download "$BINARY_ASSET.swiftpm-checksum"
+download "$SWIFT_ASSET"
+download "$MANIFEST_ASSET"
+download "$CHECKSUMS_ASSET"
 
-if [[ ! -d "$CRATE_DIR" ]]; then
-    echo "error: can't find marmot-uniffi crate at $CRATE_DIR" >&2
-    echo "       set MDK_DIR to point at the mdk repo." >&2
+SOURCE_SHA="$(plutil -extract source_sha raw -o - "$TEMP_DIR/$MANIFEST_ASSET")"
+if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "error: manifest contains an invalid source SHA: $SOURCE_SHA" >&2
+    exit 1
+fi
+if [[ -n "$REQUESTED_SHA" && "$SOURCE_SHA" != "$REQUESTED_SHA" ]]; then
+    echo "error: snapshot source SHA $SOURCE_SHA does not match $REQUESTED_SHA" >&2
     exit 1
 fi
 
-export PATH="$HOME/.cargo/bin:$PATH"
-export MACOSX_DEPLOYMENT_TARGET
-export CFLAGS_aarch64_apple_darwin="${CFLAGS_aarch64_apple_darwin:--mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}}"
-export CXXFLAGS_aarch64_apple_darwin="${CXXFLAGS_aarch64_apple_darwin:--mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}}"
-export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
-
-mkdir -p "$BUILD_DIR/headers" "$BUILD_DIR/swift" "$VENDOR_DIR/Sources/MarmotKit"
-
-ENDPOINTS_ENV="$CRATE_DIR/marmotkit-endpoints.env"
-if [[ -f "$ENDPOINTS_ENV" ]]; then
-    # Public route defaults are compiled into MarmotKit; host apps provide tokens.
-    # shellcheck source=/dev/null
-    source "$ENDPOINTS_ENV"
+EXPECTED_BINARY_CHECKSUM="$(tr -d '[:space:]' < "$TEMP_DIR/$BINARY_ASSET.swiftpm-checksum")"
+if [[ ! "$EXPECTED_BINARY_CHECKSUM" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "error: release contains an invalid SwiftPM checksum" >&2
+    exit 1
+fi
+COMPUTED_BINARY_CHECKSUM="$(swift package compute-checksum "$TEMP_DIR/$BINARY_ASSET")"
+if [[ "$COMPUTED_BINARY_CHECKSUM" != "$EXPECTED_BINARY_CHECKSUM" ]]; then
+    echo "error: binary checksum mismatch" >&2
+    exit 1
 fi
 
-echo "==> Building host MarmotKit artifacts from $MDK_DIR"
-(
-    cd "$MDK_DIR"
-    cargo build --release -p "$CRATE_NAME"
-    cargo run --release -p "$CRATE_NAME" --features cli --bin uniffi-bindgen -- \
-      generate \
-      --library "$TARGET_DIR/release/lib${LIB_BASENAME}.dylib" \
-      --language swift \
-      --out-dir "$BUILD_DIR/swift"
-)
-
-echo "==> Staging headers + modulemap"
-cp "$BUILD_DIR/swift/${LIB_BASENAME}FFI.h" "$BUILD_DIR/headers/"
-cp "$BUILD_DIR/swift/${LIB_BASENAME}FFI.modulemap" "$BUILD_DIR/headers/module.modulemap"
-
-echo "==> Stripping release debug symbols"
-STATIC_LIB="$BUILD_DIR/lib${LIB_BASENAME}.a"
-cp "$TARGET_DIR/release/lib${LIB_BASENAME}.a" "$STATIC_LIB"
-xcrun strip -S "$STATIC_LIB"
-
-echo "==> Creating macOS $FRAMEWORK_NAME.xcframework"
-rm -rf "$VENDOR_DIR/$FRAMEWORK_NAME.xcframework"
-xcodebuild -create-xcframework \
-  -library "$STATIC_LIB" \
-  -headers "$BUILD_DIR/headers" \
-  -output "$VENDOR_DIR/$FRAMEWORK_NAME.xcframework"
-
-echo "==> Copying generated Swift bindings"
-cp "$BUILD_DIR/swift/${LIB_BASENAME}.swift" "$VENDOR_DIR/Sources/MarmotKit/$FRAMEWORK_NAME.swift"
-
-echo "==> Stamping MARMOT_VERSION"
-MDK_SHA="$(git -C "$MDK_DIR" rev-parse --short HEAD)"
-MDK_BRANCH="$(git -C "$MDK_DIR" rev-parse --abbrev-ref HEAD)"
-MDK_DIRTY=""
-if ! git -C "$MDK_DIR" diff --quiet || ! git -C "$MDK_DIR" diff --cached --quiet; then
-    MDK_DIRTY="-dirty"
+EXPECTED_SWIFT_SHA="$(awk -v file="$SWIFT_ASSET" '$1 == "sha256" && $3 == file { print $2 }' "$TEMP_DIR/$CHECKSUMS_ASSET")"
+COMPUTED_SWIFT_SHA="$(shasum -a 256 "$TEMP_DIR/$SWIFT_ASSET" | awk '{ print $1 }')"
+if [[ -z "$EXPECTED_SWIFT_SHA" || "$COMPUTED_SWIFT_SHA" != "$EXPECTED_SWIFT_SHA" ]]; then
+    echo "error: generated Swift source checksum mismatch" >&2
+    exit 1
 fi
-BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-cat > "$VENDOR_DIR/MARMOT_VERSION" <<EOF
-mdk-sha: ${MDK_SHA}${MDK_DIRTY}
-mdk-branch: ${MDK_BRANCH}
-built-at: ${BUILT_AT}
-uniffi-version: 0.28.3
-macos-targets: aarch64-apple-darwin
-macos-deployment-target: ${MACOSX_DEPLOYMENT_TARGET}
+# The macOS artifact is Apple Silicon only by design upstream; assert it rather
+# than letting a future universal build land unnoticed.
+MACOS_TARGETS_JSON="$(plutil -extract macos_targets json -o - "$TEMP_DIR/$MANIFEST_ASSET")"
+MACOS_TARGETS="$(printf '%s' "$MACOS_TARGETS_JSON" | sed -E 's/^\["//; s/"\]$//; s/","/, /g')"
+MACOS_DEPLOYMENT_TARGET="$(plutil -extract macos_deployment_target raw -o - "$TEMP_DIR/$MANIFEST_ASSET")"
+if [[ -z "$MACOS_TARGETS" || -z "$MACOS_DEPLOYMENT_TARGET" ]]; then
+    echo "error: manifest is missing macOS target metadata" >&2
+    exit 1
+fi
+
+RELEASE_JSON="$TEMP_DIR/release.json"
+curl --fail --location --retry 3 --silent --show-error \
+    "https://api.github.com/repos/marmot-protocol/mdk/releases/tags/$RELEASE_TAG" \
+    --output "$RELEASE_JSON"
+PUBLISHED_AT="$(plutil -extract published_at raw -o - "$RELEASE_JSON")"
+RUST_OPT_LEVEL="$(plutil -extract rust_release_profile.opt_level raw -o - "$TEMP_DIR/$MANIFEST_ASSET")"
+RUST_CODEGEN_UNITS="$(plutil -extract rust_release_profile.codegen_units raw -o - "$TEMP_DIR/$MANIFEST_ASSET")"
+FEATURES_JSON="$(plutil -extract features json -o - "$TEMP_DIR/$MANIFEST_ASSET")"
+FEATURES="$(printf '%s' "$FEATURES_JSON" | sed -E 's/^\["//; s/"\]$//; s/","/,/g')"
+
+CARGO_TOML="$TEMP_DIR/marmot-uniffi-Cargo.toml"
+curl --fail --location --retry 3 --silent --show-error \
+    "https://raw.githubusercontent.com/marmot-protocol/mdk/$SOURCE_SHA/crates/marmot-uniffi/Cargo.toml" \
+    --output "$CARGO_TOML"
+UNIFFI_VERSION="$(sed -nE 's/^uniffi = \{ version = "([^"]+)".*/\1/p' "$CARGO_TOML" | head -1)"
+if [[ -z "$UNIFFI_VERSION" ]]; then
+    echo "error: could not determine UniFFI version for $SOURCE_SHA" >&2
+    exit 1
+fi
+
+echo "==> Installing generated Swift source"
+mkdir -p "$PACKAGE_DIR/Sources/MarmotKit"
+cp "$TEMP_DIR/$SWIFT_ASSET" "$PACKAGE_DIR/Sources/MarmotKit/MarmotKit.swift"
+perl -pi -e 's/[ \t]+$//' "$PACKAGE_DIR/Sources/MarmotKit/MarmotKit.swift"
+
+echo "==> Pinning remote binary target"
+sed -i '' -E \
+    "s|^let marmotKitReleaseID = \".*\"|let marmotKitReleaseID = \"$RELEASE_ID\"|" \
+    "$PACKAGE_DIR/Package.swift"
+sed -i '' -E \
+    "s|^let marmotKitReleaseTag = \".*\"|let marmotKitReleaseTag = \"$RELEASE_TAG\"|" \
+    "$PACKAGE_DIR/Package.swift"
+sed -i '' -E \
+    "s|^let marmotKitChecksum = \".*\"|let marmotKitChecksum = \"$EXPECTED_BINARY_CHECKSUM\"|" \
+    "$PACKAGE_DIR/Package.swift"
+
+cat > "$PACKAGE_DIR/MARMOT_VERSION" <<EOF
+mdk-sha: $SOURCE_SHA
+mdk-branch: master
+mdk-tag: $RELEASE_TAG
+published-at: $PUBLISHED_AT
+uniffi-version: $UNIFFI_VERSION
+features: $FEATURES
+macos-targets: $MACOS_TARGETS
+macos-deployment-target: $MACOS_DEPLOYMENT_TARGET
+rust-release-opt-level: $RUST_OPT_LEVEL
+rust-release-codegen-units: $RUST_CODEGEN_UNITS
+swiftpm-checksum: $EXPECTED_BINARY_CHECKSUM
 
 Notes:
-- Regenerate with: whitenoise-mac/scripts/sync-bindings.sh
-- A "-dirty" suffix means the mdk working tree had uncommitted
-  changes when this bundle was built.
+- Refresh from a published immutable artifact with:
+  whitenoise-mac/scripts/sync-bindings.sh <version-or-full-master-sha>
 EOF
 
-cat > "$VENDOR_DIR/Sources/MarmotKit/MarmotKitVersion.swift" <<EOF
+cat > "$PACKAGE_DIR/Sources/MarmotKit/MarmotKitVersion.swift" <<EOF
 import Foundation
 
-/// Build-time provenance for this vendored MarmotKit bundle.
-/// Regenerated by whitenoise-mac/scripts/sync-bindings.sh on every rebuild.
+/// Build-time provenance for the pinned MarmotKit release.
+/// Regenerated by whitenoise-mac/scripts/sync-bindings.sh on every refresh.
 public enum MarmotKitVersion {
-    public static let mdkSHA = "${MDK_SHA}${MDK_DIRTY}"
-    public static let builtAt = "${BUILT_AT}"
-    public static let uniffiVersion = "0.28.3"
+    public static let mdkSHA = "$SOURCE_SHA"
+    public static let mdkTag = "$RELEASE_TAG"
+    public static let builtAt = "$PUBLISHED_AT"
+    public static let uniffiVersion = "$UNIFFI_VERSION"
+    public static let features = "$FEATURES"
 }
 EOF
 
 echo ""
-echo "Done. Vendored MarmotKit @ ${MDK_SHA}${MDK_DIRTY} (${MDK_BRANCH})."
+echo "Installed MarmotKit $RELEASE_TAG"
+echo "  source:   $SOURCE_SHA"
+echo "  checksum: $EXPECTED_BINARY_CHECKSUM"
+echo "  macOS:    $MACOS_TARGETS (deployment target $MACOS_DEPLOYMENT_TARGET)"
