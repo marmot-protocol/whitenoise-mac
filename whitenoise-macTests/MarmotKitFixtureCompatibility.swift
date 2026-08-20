@@ -3,8 +3,31 @@ import MarmotKit
 
 nonisolated extension SendSummaryFfi {
     /// Test convenience for fixtures that do not exercise maintenance deferral.
+    /// These fixtures all report a published count, so the accept disposition
+    /// is `.published` rather than `.acceptedPending`.
     init(published: UInt32, messageIds: [String]) {
-        self.init(published: published, messageIds: messageIds, maintenanceDisposition: .ready)
+        self.init(
+            published: published,
+            messageIds: messageIds,
+            acceptDisposition: .published,
+            maintenanceDisposition: .ready
+        )
+    }
+}
+
+nonisolated extension AccountUnreadFfi {
+    /// Test convenience for fixtures predating `attentionOnlyConversations`.
+    /// These fixtures model conversations with real unread messages, so none of
+    /// them draws badge attention from a manual-unread or pending-invite row
+    /// alone — which is exactly what a zero here means.
+    init(accountIdHex: String, unreadCount: UInt64, unreadConversations: UInt64, hasUnread: Bool) {
+        self.init(
+            accountIdHex: accountIdHex,
+            unreadCount: unreadCount,
+            unreadConversations: unreadConversations,
+            attentionOnlyConversations: 0,
+            hasUnread: hasUnread
+        )
     }
 }
 
