@@ -37,8 +37,9 @@ import SwiftUI
 ///    phone metrics (`large` is 18pt of vertical padding, a thumb-sized full-width CTA). A mac push
 ///    button that tall next to a `.glassProminent` sibling would tower over it. These values are
 ///    matched to AppKit's bordered-button heights instead, so a secondary button and a primary one
-///    on the same row line up. The *visual language* is what carries over — the 8pt continuous
-///    radius, the hairline ring, the `fillSecondary` ground — not the phone's spacing.
+///    on the same row line up. The *visual language* is what carries over — the continuous radius
+///    (`WNButtonMetrics`, shared with the primary tier), the hairline ring, the `fillSecondary`
+///    ground — not the phone's spacing.
 /// 3. **`isHovering` lives on a nested `View`, not on the style.** `makeBody` is not a `View`, so
 ///    `@State` declared on the `ButtonStyle` itself has no identity to attach to and will not
 ///    reliably track. The body is a real view struct for that reason.
@@ -77,14 +78,14 @@ private struct WNSecondaryButtonBody: View {
             .padding(.vertical, verticalPadding)
             .padding(.horizontal, horizontalPadding)
             .background {
-                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(fill)
                     .overlay {
-                        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(border, lineWidth: 1)
                     }
             }
-            .contentShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
+            .contentShape(.rect(cornerRadius: cornerRadius, style: .continuous))
             .onHover { isHovering = $0 }
             .animation(.easeOut(duration: 0.12), value: isHovering)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -130,8 +131,12 @@ private struct WNSecondaryButtonBody: View {
         }
     }
 
-    /// `WnButton`'s radius at every size but `xsmall`.
-    private static let cornerRadius: CGFloat = 8
+    /// Shared with the primary tier so a pair in one row draws one shape — the radius this style
+    /// used to hold as a flat 8, which is why an outline button beside a `.large` primary one came
+    /// out squarer than its sibling.
+    private var cornerRadius: CGFloat {
+        WNButtonMetrics.cornerRadius(for: controlSize)
+    }
     private static let disabledOpacity: Double = 0.25
 }
 

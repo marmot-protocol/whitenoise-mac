@@ -62,6 +62,27 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func bothPushButtonTiersDrawOneRadiusAtEveryControlSize() {
+        // The two tiers are seen side by side — `Accept` beside `Decline`, `Message` beside
+        // `Follow` — so the radius has to come out of one table. It did not: the outline style held
+        // a flat 8 while the primary one asked for 12 at `.large`, and a primary button written as a
+        // bare glass `Button` asked for nothing at all and got the platform's capsule.
+        for controlSize in [ControlSize.mini, .small, .regular, .large, .extraLarge] {
+            // `WnButton` uses 8 at every size but `xsmall`, which the mac app has no use for, so 8
+            // is the floor rather than a value any size may drop below.
+            #expect(WNButtonMetrics.cornerRadius(for: controlSize) >= 8)
+        }
+
+        // `.large` is the one size that opens up, and both tiers have to open up with it.
+        #expect(WNButtonMetrics.cornerRadius(for: .large) == 12)
+        #expect(WNButtonMetrics.cornerRadius(for: .regular) == 8)
+
+        for size in WNPrimaryButtonSize.allCases {
+            #expect(size.cornerRadius == WNButtonMetrics.cornerRadius(for: size.controlSize))
+        }
+    }
+
+    @MainActor
     @Test func primaryButtonSizesKeepWnButtonsRadiusFloorAndPositivePadding() {
         for size in WNPrimaryButtonSize.allCases {
             // `WnButton` uses 8 at every size but `xsmall`, which the mac app has no use for, so 8

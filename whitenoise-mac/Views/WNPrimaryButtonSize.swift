@@ -49,13 +49,10 @@ enum WNPrimaryButtonSize: CaseIterable {
         }
     }
 
-    /// `WnButton` uses 8 at every size but `xsmall`. `large` opens it up to 12: the radius that
-    /// reads as an 8 on a 28pt control reads as a hairline crease on a 44pt one.
+    /// Read from `WNButtonMetrics`, not chosen here: a primary button and the `.wnSecondary` one
+    /// beside it have to draw the same shape, and only a shared table can promise that.
     var cornerRadius: CGFloat {
-        switch self {
-        case .medium: 8
-        case .large: 12
-        }
+        WNButtonMetrics.cornerRadius(for: controlSize)
     }
 
     var controlSize: ControlSize {
