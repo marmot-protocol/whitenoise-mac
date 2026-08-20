@@ -277,6 +277,10 @@ extension WorkspaceState {
         privacySecuritySettingsGeneration &+= 1
         privacySecuritySaveAccountId = nil
         isSavingPrivacySecurity = false
+        // The toggles move optimistically, so the outgoing account can leave a value here that it
+        // never committed anywhere — and the save that put it there is refused on the way out and
+        // cannot take it back down. Clear the pane instead; the incoming identity's load fills it.
+        privacySecuritySettings = .defaults
     }
 
     func requestLocalNotificationPermission() async {
@@ -769,6 +773,11 @@ extension WorkspaceState {
         lastError = nil
         let generation = beginPrivacySecuritySave(accountId: accountId)
         defer { endPrivacySecuritySave(accountId: accountId, generation: generation) }
+        // The toggle renders from this value, so leaving it at the old one until the relay write
+        // returns makes the switch spring back under the pointer and then flip a moment later.
+        // Move it now; the `catch` puts it back if the write never lands.
+        let previousEnabled = privacySecuritySettings.relayTelemetryEnabled
+        privacySecuritySettings.relayTelemetryEnabled = enabled
 
         do {
             try await configureObservabilityRuntime()
@@ -786,6 +795,7 @@ extension WorkspaceState {
             privacySecuritySettings.telemetryCredentialsAvailable = telemetryBuildConfig.telemetryCredentialsAvailable
         } catch {
             guard ownsPrivacySecuritySave(accountId: accountId, generation: generation) else { return }
+            privacySecuritySettings.relayTelemetryEnabled = previousEnabled
             lastError = error.localizedDescription
         }
     }
@@ -801,6 +811,10 @@ extension WorkspaceState {
         lastError = nil
         let generation = beginPrivacySecuritySave(accountId: accountId)
         defer { endPrivacySecuritySave(accountId: accountId, generation: generation) }
+        // Same as the telemetry toggle above: the switch reads this value, so it moves now and
+        // the `catch` puts it back, rather than lagging a round trip behind the pointer.
+        let previousEnabled = privacySecuritySettings.auditLoggingEnabled
+        privacySecuritySettings.auditLoggingEnabled = enabled
 
         do {
             try await configureObservabilityRuntime()
@@ -816,6 +830,7 @@ extension WorkspaceState {
             await loadAuditLogFiles()
         } catch {
             guard ownsPrivacySecuritySave(accountId: accountId, generation: generation) else { return }
+            privacySecuritySettings.auditLoggingEnabled = previousEnabled
             lastError = error.localizedDescription
         }
     }
