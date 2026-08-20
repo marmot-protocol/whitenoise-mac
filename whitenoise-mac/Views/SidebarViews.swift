@@ -849,9 +849,9 @@ struct ChatRowContent: View {
             }
             return Self.attributedPreview(for: chat)
         }
-        // The emphasised runs name the Bold rung outright instead of taking `.bold()`: Manrope
-        // ships as three separate faces, so asking for a bolder version of the row's Medium
-        // would synthesize one rather than reach for the Bold already in the bundle.
+        // The emphasised runs name the Bold rung outright instead of taking `.bold()`: a rung
+        // carries its own weight, and `.bold()` on top of one is a weight the ladder no
+        // longer controls.
         return Text(verbatim: "\(searchResult.senderName): ").wnFont(.bold12)
             + Text(searchResult.snippet.leading)
             + Text(searchResult.snippet.match).wnFont(.bold12)
@@ -883,9 +883,8 @@ struct ChatRowContent: View {
         guard let parts = chat.previewAttributionParts else {
             return glyph + Text(chat.preview)
         }
-        // The Bold rung is named outright rather than taken with `.bold()`: Manrope ships as three
-        // separate faces, so asking for a bolder version of the row's Medium would synthesize one
-        // rather than reach for the Bold already in the bundle.
+        // The Bold rung is named outright rather than taken with `.bold()`: a rung carries its
+        // own weight, and `.bold()` on top of one is a weight the ladder no longer controls.
         return Text(verbatim: parts.senderName).wnFont(.bold12)
             + Text(verbatim: ": ")
             + glyph

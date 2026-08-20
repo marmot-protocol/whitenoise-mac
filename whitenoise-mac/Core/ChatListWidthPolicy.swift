@@ -26,10 +26,12 @@ nonisolated enum ChatListWidthPolicy {
     static let collapsedWidth: CGFloat = 84
     /// Narrowest full row: measured as the width at which the title column still holds a
     /// short group name whole next to its timestamp. Below it names like "Search Load 4"
-    /// start ellipsizing, which is the thing the rail exists to avoid. Manrope is wider-set
-    /// than the system face this drawer used to be typeset in, so this is 30pt further out
-    /// than the same measurement gave before the type ramp landed — re-measure it here
-    /// (`ImageRenderer` over `ChatRowContent`) if the ramp moves again.
+    /// start ellipsizing, which is the thing the rail exists to avoid. It sits 30pt further
+    /// out than the same measurement gave before the type ramp landed, which is the ladder's
+    /// sizes rather than its face: moving off the bundled Manrope onto the system face buys
+    /// back under 8pt across the title and the widest timestamp together, so the threshold
+    /// stays where it is. Re-measure here (`ImageRenderer` over `ChatRowContent`) if the
+    /// ramp's *sizes* move.
     static let minimumExpandedWidth: CGFloat = 250
     /// The width the drawer shipped at, kept as the widest allowed so the detail
     /// pane never loses room it had before the drawer became resizable.
