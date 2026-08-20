@@ -373,6 +373,14 @@ final class WorkspaceState {
     @ObservationIgnored var lastSummarizedAccountUnread: AccountUnreadSignal?
     /// Bumped per summary request so only the newest one may commit its answer.
     @ObservationIgnored var accountUnreadSummaryGeneration: UInt64 = 0
+    /// Unanswered invitations per account, keyed by `accountIdHex`, for the same avatar badges.
+    ///
+    /// Holds only the accounts that are **not** active: the active account's invitations are
+    /// counted off its live chat rows instead (`pendingInviteCount(forAccountIdHex:)`), which
+    /// answers without an FFI hop and cannot go stale between refreshes.
+    var pendingInviteCountByIdHex: [String: Int] = [:]
+    /// Bumped per invitation-count request so only the newest one may commit its answer.
+    @ObservationIgnored var pendingInviteCountGeneration: UInt64 = 0
     var isSavingRelays = false
     var isPublishingKeyPackage = false
     var isRepublishingKeyPackage = false
