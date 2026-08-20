@@ -59,6 +59,23 @@ struct AvatarChromeModifier: ViewModifier {
     /// the selection moves.
     static let selectedScale: CGFloat = 1.15
 
+    /// Blur radius of the drop shadow. Named because `overhang(forAvatarSize:)` has to add it —
+    /// a literal here and a literal there would drift apart.
+    static let shadowRadius: CGFloat = 2
+
+    /// How far this chrome reaches *outside* the avatar's own frame, per side: half of the width
+    /// `selectedScale` adds, plus the shadow's blur.
+    ///
+    /// Both effects draw beyond the frame they are applied to, so an avatar seated flush against
+    /// a clipping container's edge loses that much of its ring — a circle with a flat side, which
+    /// is what it looks like rather than a subtle one. Any container that clips (a `ScrollView`,
+    /// a `clipShape`) has to leave this much slack around an avatar on its edge. The account rail
+    /// buys the slack with a bigger frame (`accountRailAvatarSize` inside
+    /// `accountRailAvatarFrameSize`); the account switcher's rows inset their scroll content.
+    static func overhang(forAvatarSize size: CGFloat) -> CGFloat {
+        size * (selectedScale - 1) / 2 + shadowRadius
+    }
+
     @ViewBuilder
     func body(content: Content) -> some View {
         if isEnabled {
@@ -67,7 +84,7 @@ struct AvatarChromeModifier: ViewModifier {
                     Circle()
                         .strokeBorder(strokeColor, lineWidth: isSelected ? 3 : 1)
                 }
-                .shadow(color: WNColor.shadow.opacity(0.1), radius: 2, y: 1)
+                .shadow(color: WNColor.shadow.opacity(0.1), radius: Self.shadowRadius, y: 1)
                 .scaleEffect(isSelected ? Self.selectedScale : 1)
         } else {
             content
