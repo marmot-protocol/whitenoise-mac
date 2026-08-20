@@ -79,7 +79,6 @@ build.
   that the pin and the stamp still agree.
 - The published macOS XCFramework is `aarch64-apple-darwin` only — there is no
   Intel or universal build upstream, so the app stays arm64-only.
-  This is a multi-minute Rust build; run it in the background.
 - `MarmotRuntime` (in `Core/MarmotClient.swift`) is the `nonisolated` protocol the
   app calls; the concrete `MarmotClient` forwards thinly to the generated `Marmot`
   object, and `FakeMarmotRuntime` in the tests mirrors it. **Adding an FFI method
