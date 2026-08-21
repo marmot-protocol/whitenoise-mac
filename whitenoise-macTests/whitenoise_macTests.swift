@@ -558,6 +558,49 @@ struct whitenoise_macTests {
         )
     }
 
+    @Test func reactionChipsDrawOnePillPerEmojiRatherThanOneMergedCluster() {
+        // The tally arrives already grouped by emoji, and each group is its own pill: a row that
+        // merges them (👍❤️😂 over a total of 4) says four people reacted without saying that two
+        // of them agreed, which is the only thing the row is read for.
+        let tally = [
+            MessageReaction(emoji: "👍", count: 2, isOwn: true, senders: ["a", "b"]),
+            MessageReaction(emoji: "❤️", count: 1, isOwn: false, senders: ["c"]),
+            MessageReaction(emoji: "😂", count: 1, isOwn: false, senders: ["d"]),
+        ]
+
+        let row = MessageReactionChipRow.value(reactions: tally)
+
+        #expect(row.visible.map(\.emoji) == ["👍", "❤️", "😂"])
+        #expect(row.visible.map(\.count) == [2, 1, 1])
+        // Own-ness is per pill, not per cluster: only the emoji you actually sent is selected.
+        #expect(row.visible.map(\.isOwn) == [true, false, false])
+        #expect(row.hiddenGroupCount == 0)
+    }
+
+    @Test func reactionChipsFoldEmojisPastTheCapIntoAnOverflowPill() {
+        let tally = (0..<7).map { index in
+            MessageReaction(emoji: "e\(index)", count: index + 1, isOwn: false, senders: ["a"])
+        }
+
+        let row = MessageReactionChipRow.value(reactions: tally)
+
+        // The core's order is kept as given — `byEmoji` is deterministic, and a pill that sorted
+        // itself by count would move under the pointer when someone else reacted.
+        #expect(row.visible.map(\.emoji) == ["e0", "e1", "e2", "e3"])
+        #expect(row.visible.count == MessageReactionChipRow.maxVisibleGroups)
+        #expect(row.hiddenGroupCount == 3)
+
+        // Exactly at the cap there is no overflow pill.
+        #expect(MessageReactionChipRow.value(reactions: Array(tally.prefix(4))).hiddenGroupCount == 0)
+        #expect(MessageReactionChipRow.value(reactions: []).visible.isEmpty)
+    }
+
+    @Test func reactionChipCountClampsSoOnePillCannotWidenTheRowWithoutBound() {
+        #expect(MessageReactionChipRow.countLabel(for: 2) == "2")
+        #expect(MessageReactionChipRow.countLabel(for: 99) == "99")
+        #expect(MessageReactionChipRow.countLabel(for: 100) == "99+")
+    }
+
     @Test func mediaOnlyRowsDrawReactionsAboveTheStandaloneTimestamp() throws {
         // The reaction pill overlaps whatever is above it. On a message with no caption the row's
         // last element used to be the compact timestamp, so the pill was pulled up over the time

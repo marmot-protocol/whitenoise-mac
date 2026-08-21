@@ -8,9 +8,16 @@
 
 import SwiftUI
 
-/// A tight, clustered row of reaction chips (emoji + count). Tapping a chip opens the viewer
-/// filtered to that emoji; the overflow chip opens it on "All". Chips are view-only —
-/// adding/removing is done from the hover React control.
+/// A tight row of reaction chips — **one pill per emoji**, each carrying that emoji's own count.
+/// Tapping a pill opens the viewer filtered to that emoji; the trailing overflow pill opens it on
+/// "All". Chips are view-only — adding/removing is done from the hover React control.
+///
+/// This replaced a single merged pill that ran every reacted emoji together in one capsule
+/// (`👍❤️😂`) over the *total* count. That shape is what iOS draws, and on a phone-width bubble it
+/// is a reasonable compression, but it destroys the only thing a reaction row is read for: it says
+/// three people reacted without saying that two of them agreed. Per-emoji pills are what the
+/// Flutter client draws (`WnMessageReactions`), and they restore the tally — including which of
+/// the emojis is *yours*, which the merged pill could only state for the whole cluster at once.
 ///
 /// The pill is the iOS prototype's: a 22pt capsule on the app's own surface inside the palette's
 /// hairline, one step off whichever bubble it overlaps rather than a tint of it.
@@ -29,7 +36,7 @@ import SwiftUI
 /// `backgroundPrimary` and `fillPrimary` are each other's inverse — the fill and the border take
 /// turns carrying the shape depending on which bubble is underneath.
 ///
-/// A chip carrying the local account's own reaction steps to `fillSecondaryActive` and swaps its
+/// A pill carrying the local account's own reaction steps to `fillSecondaryActive` and swaps its
 /// hairline for `borderPrimary`, the palette's selected outline. The fill step alone would not
 /// carry it: one neutral rung off the surface measures about 1.2:1, where the outline swap is
 /// better than 15:1.
@@ -38,54 +45,43 @@ struct MessageReactionChips: View {
     /// emoji to focus the viewer on, or nil for the "All" tab.
     let onOpenViewer: (String?) -> Void
 
-    private let maxVisibleEmojis = 6
-
-    /// All reacted emojis run together in one pill (deduped by emoji), matching the sibling
-    /// clients' single grouped chip rather than a spread of separate capsules.
-    private var emojis: String {
-        reactions.prefix(maxVisibleEmojis).map(\.emoji).joined()
-    }
-
-    private var totalCount: Int {
-        reactions.reduce(0) { $0 + $1.count }
-    }
-
-    private var isOwn: Bool {
-        reactions.contains { $0.isOwn }
-    }
-
     var body: some View {
-        Button {
-            onOpenViewer(nil)
-        } label: {
-            HStack(spacing: 2) {
-                Text(emojis)
-                if totalCount > 1 {
-                    Text(verbatim: "\(totalCount)")
-                        .wnFont(.semiBold10.monospacedDigit())
-                        // Paired with the pill's own fill: the resting pill is a `background*`
-                        // surface, the selected one a `fill*`. The two tokens resolve alike today,
-                        // which is exactly why naming the right one matters — see the pairing rule
-                        // in `WNNSColor`.
-                        .foregroundStyle(
-                            isOwn ? WNColor.fillContentSecondary : WNColor.backgroundContentPrimary)
+        let row = MessageReactionChipRow.value(reactions: reactions)
+        HStack(spacing: Self.pillSpacing) {
+            ForEach(row.visible) { reaction in
+                MessageReactionChipPill(isSelected: reaction.isOwn) {
+                    onOpenViewer(reaction.emoji)
+                } label: {
+                    Text(reaction.emoji)
+                    if reaction.count > 1 {
+                        Text(verbatim: MessageReactionChipRow.countLabel(for: reaction.count))
+                            .wnFont(.semiBold10.monospacedDigit())
+                            // Paired with the pill's own fill: the resting pill is a `background*`
+                            // surface, the selected one a `fill*`. The two tokens resolve alike
+                            // today, which is exactly why naming the right one matters — see the
+                            // pairing rule in `WNNSColor`.
+                            .foregroundStyle(
+                                reaction.isOwn
+                                    ? WNColor.fillContentSecondary
+                                    : WNColor.backgroundContentPrimary)
+                    }
                 }
             }
-            .wnFont(.medium12)
-            .padding(.horizontal, Self.horizontalInset)
-            .frame(height: Self.pillHeight)
-            .background {
-                GlassCapsuleBackground(
-                    fill: isOwn ? WNColor.fillSecondaryActive : WNColor.backgroundPrimary,
-                    // The selection signal. A fill step alone is too quiet here — one neutral rung
-                    // off the surface is roughly 1.2:1 — so the state is carried by the palette's
-                    // selected outline, which is what `borderPrimary` is for.
-                    borderColor: isOwn ? WNColor.borderPrimary : WNColor.borderTertiary
-                )
+            if row.hiddenGroupCount > 0 {
+                MessageReactionChipPill(isSelected: false) {
+                    onOpenViewer(nil)
+                } label: {
+                    Text(verbatim: "+\(row.hiddenGroupCount)")
+                        .wnFont(.semiBold10.monospacedDigit())
+                        .foregroundStyle(WNColor.backgroundContentPrimary)
+                }
+                // "+2" alone says nothing out loud, and the pill's job is to open the full list.
+                // The catalog's existing "More" — the message overflow control's label — rather
+                // than a reactions-specific string: it is the same plain adjective in all nine
+                // translations, and it is what this pill means.
+                .accessibilityLabel(L10n.string("More"))
             }
         }
-        .buttonStyle(.plain)
-        .contentShape(Capsule(style: .continuous))
     }
 }
 
@@ -98,6 +94,82 @@ extension MessageReactionChips {
     /// How far the pill rides up onto the bubble — about a third of it, enough to read as bound to
     /// the message rather than floating under it.
     static let bubbleOverlap: CGFloat = 7
+    /// Gap between adjacent pills. Tight enough that the row still reads as one attachment to the
+    /// bubble rather than as separate buttons.
+    static let pillSpacing: CGFloat = 3
+}
+
+/// One reaction pill: emoji (+ its count, or the overflow marker) on the shared capsule.
+///
+/// Generic over its label rather than taking an emoji and a count, because the overflow pill is
+/// the same capsule with different contents — duplicating the background would let the two drift
+/// apart, and the palette tests assert the capsule's two states, not the pill's contents.
+private struct MessageReactionChipPill<Label: View>: View {
+    let isSelected: Bool
+    let action: () -> Void
+    @ViewBuilder let label: Label
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 2) {
+                label
+            }
+            .wnFont(.medium12)
+            .padding(.horizontal, MessageReactionChips.horizontalInset)
+            .frame(height: MessageReactionChips.pillHeight)
+            .background {
+                GlassCapsuleBackground(
+                    fill: isSelected ? WNColor.fillSecondaryActive : WNColor.backgroundPrimary,
+                    // The selection signal. A fill step alone is too quiet here — one neutral rung
+                    // off the surface is roughly 1.2:1 — so the state is carried by the palette's
+                    // selected outline, which is what `borderPrimary` is for.
+                    borderColor: isSelected ? WNColor.borderPrimary : WNColor.borderTertiary
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Capsule(style: .continuous))
+    }
+}
+
+/// How a reaction tally is split into the pills a chips row actually draws.
+///
+/// Pure, so the cap and the count clamp are testable without rendering: the row itself only maps
+/// this onto pills. The tally arrives from the core already grouped by emoji
+/// (`TimelineReactionSummaryFfi.byEmoji`, a `BTreeMap` keyed on the emoji), so this neither groups
+/// nor sorts — it keeps the core's deterministic order so a pill does not move under the pointer
+/// when someone else reacts.
+nonisolated struct MessageReactionChipRow: Equatable {
+    /// Emoji groups drawn as their own pill, in the core's order.
+    let visible: [MessageReaction]
+    /// Emoji groups past the cap, folded into the trailing overflow pill.
+    let hiddenGroupCount: Int
+
+    /// How many distinct emojis get a pill before the rest collapse into `+N`.
+    ///
+    /// One more than the Flutter client's three: a desktop bubble is wider than a phone's, and
+    /// four pills come to about 160pt, which still sits inside a typical bubble. Past that the row
+    /// would start outgrowing the message it hangs off.
+    static let maxVisibleGroups = 4
+
+    static func value(
+        reactions: [MessageReaction],
+        maxVisibleGroups: Int = Self.maxVisibleGroups
+    ) -> Self {
+        guard reactions.count > maxVisibleGroups else {
+            return Self(visible: reactions, hiddenGroupCount: 0)
+        }
+        return Self(
+            visible: Array(reactions.prefix(maxVisibleGroups)),
+            hiddenGroupCount: reactions.count - maxVisibleGroups
+        )
+    }
+
+    /// A pill's count, clamped so a runaway tally cannot widen the row without bound — the same
+    /// ceiling the Flutter client uses.
+    static func countLabel(for count: Int) -> String {
+        count > 99 ? "99+" : "\(count)"
+    }
 }
 
 /// What the reaction pill hangs on in a message row.
