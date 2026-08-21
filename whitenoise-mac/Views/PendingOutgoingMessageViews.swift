@@ -18,7 +18,6 @@ struct PendingOutgoingMessageBubble: View {
     @Environment(WorkspaceState.self) private var workspace
     @State private var isHovering = false
     @State private var isOverflowPresented = false
-    @State private var overflowWidth: CGFloat = 0
     let message: PendingOutgoingMediaMessage
     let timestampReferenceDate: Date
     let timestampLocale: Locale
@@ -56,37 +55,11 @@ struct PendingOutgoingMessageBubble: View {
     /// in the transcript carries. This was the one failed row with no ⋯ at all, whichever way its
     /// retry went: a failed retry lands it back on `.failed`, so it stayed a bubble whose only
     /// actions were the link row under it.
-    ///
-    /// Revealed on hover, and held open while its popover is: the pointer leaves the row to reach
-    /// the menu it just opened.
-    @ViewBuilder
     private var overflowControl: some View {
-        if showsOverflowControl {
-            Button {
-                isOverflowPresented = true
-            } label: {
-                MessageInlineActionIcon(systemName: "ellipsis", label: L10n.string("More"))
+        PendingOutgoingOverflowControl(isVisible: showsOverflowControl, isPresented: $isOverflowPresented) {
+            MessageRowAction.all(for: message, workspace: workspace) {
+                isOverflowPresented = false
             }
-            .buttonStyle(.plain)
-            .help(L10n.string("More"))
-            .popover(isPresented: $isOverflowPresented, arrowEdge: .bottom) {
-                MessageOverflowMenu(
-                    actions: MessageRowAction.all(for: message, workspace: workspace) {
-                        isOverflowPresented = false
-                    }
-                )
-            }
-            // Pushed clear of the bubble by the width SwiftUI measured, the way `MessageBubble`
-            // places its own hover strip — `.alignmentGuide` does not survive the `ViewBuilder`
-            // conditional above it, and would leave the control drawn on top of the message.
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.width
-            } action: { width in
-                overflowWidth = width
-            }
-            .offset(x: -(overflowWidth + Self.overflowBubbleGap))
-            .opacity(overflowWidth > 0 ? 1 : 0)
-            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
         }
     }
 
@@ -95,9 +68,6 @@ struct PendingOutgoingMessageBubble: View {
     private var showsOverflowControl: Bool {
         message.state == .failed && (isHovering || isOverflowPresented)
     }
-
-    /// Breathing room between the ⋯ control and the bubble edge, matching `MessageBubble`.
-    private static let overflowBubbleGap: CGFloat = 8
 
     private var accessibilityLabel: String {
         message.state == .failed ? L10n.string("Not delivered") : L10n.string("Sending")
@@ -426,6 +396,155 @@ private struct PendingOutgoingMediaAttachmentRow: View {
             }
 
             Spacer(minLength: 0)
+        }
+    }
+}
+/// The bubble a text message wears while the core cannot speak for it: queued behind an earlier send,
+/// or rolled back after its publish failed.
+///
+/// Shaped by the same `MessageBubbleShape`/`sentBubble` pair as a media caption and a committed own
+/// row, so the swap to the real row does not change the row's shape. Deliberately *not* dimmed the
+/// way a pending media bubble is: there is no preview here whose readiness is in question, only the
+/// user's own sentence, and the footer clock already says it is on its way.
+struct PendingOutgoingTextBubble: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var isHovering = false
+    @State private var isOverflowPresented = false
+    let message: PendingOutgoingTextMessage
+    let timestampReferenceDate: Date
+    let timestampLocale: Locale
+
+    private let maxContentWidth: CGFloat = 660
+    private let bubbleGutter: CGFloat = 72
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            bubble
+
+            if message.state == .failed {
+                MessageSendFailureActions {
+                    workspace.retryPendingOutgoingTextMessage(message.id)
+                }
+            }
+        }
+        .overlay(alignment: .leading) { overflowControl }
+        .animation(.smooth(duration: 0.12), value: showsOverflowControl)
+        .frame(maxWidth: maxContentWidth, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.leading, bubbleGutter)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityLabel)
+        .contentShape(.rect)
+        .onHover { isHovering = $0 }
+    }
+
+    /// The sentence and its footer on the sent-bubble fill.
+    ///
+    /// Not `PendingOutgoingMessageCaption`: that surface stretches its text to the full proposed
+    /// width so a caption lines up with the media grid above it, which for a bubble with no grid
+    /// would render every "ok" as a 540pt-wide slab. The width cap is applied *outside* the
+    /// background here, so the fill hugs the text and the cap only bounds how far it may wrap.
+    private var bubble: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Text(displayText)
+                .wnFont(.medium16)
+                .foregroundStyle(MessagesPalette.sentBubbleContent)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            PendingOutgoingMessageMetadata(
+                createdAt: message.createdAt,
+                isFailed: message.state == .failed,
+                timestampReferenceDate: timestampReferenceDate,
+                timestampLocale: timestampLocale
+            )
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background {
+            // The bubble's own shape, not a copy of it: a pending row and the committed message
+            // that replaces it have to be the same shape.
+            MessageBubbleShape()
+                .fill(MessagesPalette.sentBubble)
+        }
+        .frame(maxWidth: 540, alignment: .trailing)
+    }
+
+    private var overflowControl: some View {
+        PendingOutgoingOverflowControl(isVisible: showsOverflowControl, isPresented: $isOverflowPresented) {
+            MessageRowAction.all(for: message, workspace: workspace) {
+                isOverflowPresented = false
+            }
+        }
+    }
+
+    /// Failed sends only, matching the media bubble: a message still on its way out has nothing to
+    /// retry and no cancellation story in the core.
+    private var showsOverflowControl: Bool {
+        message.state == .failed && (isHovering || isOverflowPresented)
+    }
+
+    private var accessibilityLabel: String {
+        message.state == .failed ? L10n.string("Not delivered") : L10n.string("Sending")
+    }
+
+    /// The message with its mention tokens read back as names.
+    ///
+    /// `message.text` is the wire form — Send canonicalizes every mention to an npub — so rendering
+    /// it raw would put `@npub1…` in the bubble and then swap it for `@Alice` the moment the real row
+    /// arrived. Resolved here rather than stored on the message so a nickname written while the send
+    /// is still out is picked up too, exactly as the committed rows do it.
+    private var displayText: String {
+        guard let groupIdHex = workspace.selectedChat?.id else { return message.text }
+        return MentionDisplayResolver.resolve(
+            in: message.text,
+            mentionNames: workspace.cachedMentionNames(groupIdHex: groupIdHex)
+        )
+    }
+}
+
+/// The ⋯ control both pending bubbles wear, revealed on hover and held open while its popover is:
+/// the pointer leaves the row to reach the menu it just opened.
+///
+/// One implementation for the media and text bubbles because the two had drifted into a copy each,
+/// down to a private gap constant apiece. The visibility gate stays with the caller — each bubble
+/// animates on it, so it has to be readable from the bubble's own body — and the measured width
+/// stays here, where the control that is measured lives.
+private struct PendingOutgoingOverflowControl: View {
+    let isVisible: Bool
+    @Binding var isPresented: Bool
+    /// Built when the menu opens rather than on every body pass, which is the contract
+    /// `MessageRowAction.all` documents for its clock-sensitive actions.
+    let actions: () -> [MessageRowAction]
+
+    @State private var overflowWidth: CGFloat = 0
+
+    /// Breathing room between the ⋯ control and the bubble edge, matching `MessageBubble`.
+    private static let overflowBubbleGap: CGFloat = 8
+
+    var body: some View {
+        if isVisible {
+            Button {
+                isPresented = true
+            } label: {
+                MessageInlineActionIcon(systemName: "ellipsis", label: L10n.string("More"))
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string("More"))
+            .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+                MessageOverflowMenu(actions: actions())
+            }
+            // Pushed clear of the bubble by the width SwiftUI measured, the way `MessageBubble`
+            // places its own hover strip — `.alignmentGuide` does not survive the `ViewBuilder`
+            // conditional above it, and would leave the control drawn on top of the message.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                overflowWidth = width
+            }
+            .offset(x: -(overflowWidth + Self.overflowBubbleGap))
+            .opacity(overflowWidth > 0 ? 1 : 0)
+            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .trailing)))
         }
     }
 }

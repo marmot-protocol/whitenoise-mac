@@ -396,7 +396,7 @@ private struct ConversationView: View {
         let messageIDs = workspace.selectedMessageIDs
         let paging = workspace.selectedTimelinePaging
         let isLoadingInitialPage = workspace.selectedTimelineIsLoadingInitialPage
-        let pendingOutgoingMediaMessages = workspace.selectedPendingOutgoingMediaMessages
+        let pendingOutgoingRows = workspace.selectedPendingOutgoingMessageRows
 
         ZStack {
             VStack(spacing: 0) {
@@ -416,7 +416,7 @@ private struct ConversationView: View {
                         // class of hang; if a large window's eager build ever costs too much, the fix
                         // is cheaper rows, not a return to lazy estimation.
                         VStack(spacing: 12) {
-                            if messageIDs.isEmpty && pendingOutgoingMediaMessages.isEmpty {
+                            if messageIDs.isEmpty && pendingOutgoingRows.isEmpty {
                                 if isLoadingInitialPage {
                                     TimelineInitialLoadingView()
                                 } else {
@@ -454,16 +454,28 @@ private struct ConversationView: View {
                                 }
                             }
 
-                            // Media the user has already sent whose blobs are still going up.
-                            // Rendered after the real window rather than inside it: these rows
-                            // exist only on this client, and the published message that replaces
-                            // one arrives through the timeline store like any other.
-                            ForEach(pendingOutgoingMediaMessages) { pending in
-                                PendingOutgoingMessageBubble(
-                                    message: pending,
-                                    timestampReferenceDate: timestampReferenceDate,
-                                    timestampLocale: locale
-                                )
+                            // Messages the user has already sent that the core has no row for yet
+                            // — media whose blobs are still going up, and text still queued behind
+                            // an earlier send or rolled back by a failed publish. Rendered after
+                            // the real window rather than inside it: these rows exist only on this
+                            // client, and the published message that replaces one arrives through
+                            // the timeline store like any other. One `ForEach` over both kinds so
+                            // they stay in the order they were sent.
+                            ForEach(pendingOutgoingRows) { pending in
+                                switch pending {
+                                case .text(let message):
+                                    PendingOutgoingTextBubble(
+                                        message: message,
+                                        timestampReferenceDate: timestampReferenceDate,
+                                        timestampLocale: locale
+                                    )
+                                case .media(let message):
+                                    PendingOutgoingMessageBubble(
+                                        message: message,
+                                        timestampReferenceDate: timestampReferenceDate,
+                                        timestampLocale: locale
+                                    )
+                                }
                             }
 
                             // Scroll-to-bottom target. Pure layout: pin/pagination state is
