@@ -392,6 +392,9 @@ enum MessagesLayout {
     /// and the detail pane; it only reaches a few points into each.
     static let chatListResizeGrabWidth: CGFloat = 11
     static let chatListResizeGrabberHeight: CGFloat = 34
+    /// Footprint of `GlassCircleCloseButton`. Named because a pane header has to reserve the
+    /// same width on the opposite side to keep its title centred in the pane.
+    static let circleControlSize: CGFloat = 28
 
     /// Top padding for a header on the window's top edge, given whether a window-level notice
     /// band is already there holding the traffic lights.
@@ -918,7 +921,7 @@ struct GlassCircleCloseButton: View {
             Button(action: action) {
                 Image(systemName: symbol)
                     .wnFont(.semiBold12)
-                    .frame(width: 28, height: 28)
+                    .frame(width: MessagesLayout.circleControlSize, height: MessagesLayout.circleControlSize)
             }
             .nativeGlassCircleButtonStyle()
             .help(L10n.string(helpText))
@@ -932,7 +935,7 @@ struct GlassCircleCloseButton: View {
                     // is `backgroundContentPrimary`, which currently resolves to the same value —
                     // true by coincidence, not by construction. See the pairing rule in `WNNSColor`.
                     .foregroundStyle(WNColor.fillContentSecondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: MessagesLayout.circleControlSize, height: MessagesLayout.circleControlSize)
                     .background { MessagesCircleControlBackground() }
             }
             .buttonStyle(.plain)
