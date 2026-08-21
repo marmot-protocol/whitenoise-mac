@@ -2859,6 +2859,147 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func archivingAnUnreadChatDropsItFromTheAvatarBadge() async throws {
+        // The summary counts unarchived conversations alone, so archiving an unread chat has to
+        // take its messages off the rail badge. It did not: the row gate compared totals that
+        // counted the archived list too, so the move left the signal untouched — the chat's unread
+        // was still in it, just under a different key — and the badge kept counting a chat the user
+        // had put away until the next full reload or account switch.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 3)
+        ]
+        let (state, account) = unreadBadgeFixture(runtime: runtime, seededUnreadCount: 3)
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 3)
+        let queriesSoFar = runtime.accountUnreadSummaryCallCount
+
+        // The archived row keeps its unread count — the core does not clear it, it stops counting
+        // it — which is exactly what made this move invisible to a signal spanning both lists.
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        await state.applyChatRow(
+            unreadBadgeFixtureRow(timelineAt: 1_700_000_100, unreadCount: 3, archived: true),
+            account: account,
+            shouldEnrich: false
+        )
+
+        #expect(state.activeChats.isEmpty)
+        #expect(state.archivedChats.map(\.unreadCount) == [3])
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar + 1)
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+    }
+
+    @MainActor
+    @Test func unarchivingAnUnreadChatPutsItBackOnTheAvatarBadge() async throws {
+        // The other direction of the same move: restoring a chat that was archived unread returns
+        // its messages to the total the badge shows, and the gate has to notice that too.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        let (state, account) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 0,
+            archivedChats: [
+                chatListOrderingTestItem(
+                    id: "archived-group",
+                    title: "Archived Group",
+                    updatedAt: 1_700_000_000,
+                    unreadCount: 4
+                )
+            ]
+        )
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+        let queriesSoFar = runtime.accountUnreadSummaryCallCount
+
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 4)
+        ]
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: "archived-group",
+                title: "Archived Group",
+                preview: "A message from before it was archived",
+                sender: unreadBadgeFixtureAccountIdHex,
+                timelineAt: 1_700_000_100,
+                unreadCount: 4,
+                hasUnread: true
+            ),
+            account: account,
+            shouldEnrich: false
+        )
+
+        #expect(state.archivedChats.isEmpty)
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar + 1)
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 4)
+    }
+
+    @MainActor
+    @Test func readingAnArchivedChatDoesNotRequeryTheAccountUnreadSummary() async throws {
+        // The flip side of scoping the gate to unarchived rows: nothing an archived chat's unread
+        // does can move a total that excludes it, so scrolling through one must not put a summary
+        // query on every read-marker advance it produces.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        runtime.accountUnreadSummaryRows = [
+            unreadSummaryRow(accountIdHex: unreadBadgeFixtureAccountIdHex, unreadCount: 0)
+        ]
+        let (state, account) = unreadBadgeFixture(
+            runtime: runtime,
+            seededUnreadCount: 0,
+            archivedChats: [
+                chatListOrderingTestItem(
+                    id: "archived-group",
+                    title: "Archived Group",
+                    updatedAt: 1_700_000_000,
+                    unreadCount: 6
+                )
+            ]
+        )
+
+        await state.refreshAccountUnreadSummary()
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+        let queriesSoFar = runtime.accountUnreadSummaryCallCount
+
+        // A marker advance inside the archived chat, then a newer message arriving in it.
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: "archived-group",
+                title: "Archived Group",
+                preview: "Read now",
+                sender: unreadBadgeFixtureAccountIdHex,
+                timelineAt: 1_700_000_100,
+                unreadCount: 0,
+                archived: true
+            ),
+            account: account,
+            shouldEnrich: false
+        )
+        await state.applyChatRow(
+            chatListRow(
+                groupIdHex: "archived-group",
+                title: "Archived Group",
+                preview: "And a new one",
+                sender: unreadBadgeFixtureAccountIdHex,
+                timelineAt: 1_700_000_200,
+                unreadCount: 1,
+                hasUnread: true,
+                archived: true
+            ),
+            account: account,
+            shouldEnrich: false
+        )
+
+        #expect(state.archivedChats.map(\.unreadCount) == [1])
+        #expect(runtime.accountUnreadSummaryCallCount == queriesSoFar)
+        #expect(state.unreadCount(forAccountIdHex: account.accountIdHex) == 0)
+    }
+
+    @MainActor
     @Test func aLateAccountUnreadSummaryAnswerDoesNotRestoreTheClearedBadge() async throws {
         // A read-marker advance and a chat-list reload race routinely, so two summary queries can
         // be in flight and answer out of order. A late pre-read answer landing last must not put
@@ -37345,8 +37486,13 @@ private func unreadBadgeFixture(
     return (state, account)
 }
 
-/// A delta for the fixture's seeded chat, carrying only a fresh timestamp and unread count.
-private func unreadBadgeFixtureRow(timelineAt: UInt64, unreadCount: UInt64) -> ChatListRowFfi {
+/// A delta for the fixture's seeded chat, carrying only a fresh timestamp, unread count, and
+/// archive flag.
+private func unreadBadgeFixtureRow(
+    timelineAt: UInt64,
+    unreadCount: UInt64,
+    archived: Bool = false
+) -> ChatListRowFfi {
     chatListRow(
         groupIdHex: "group",
         title: "Test Group",
@@ -37354,7 +37500,8 @@ private func unreadBadgeFixtureRow(timelineAt: UInt64, unreadCount: UInt64) -> C
         sender: unreadBadgeFixtureAccountIdHex,
         timelineAt: timelineAt,
         unreadCount: unreadCount,
-        hasUnread: unreadCount > 0
+        hasUnread: unreadCount > 0,
+        archived: archived
     )
 }
 
