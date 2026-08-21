@@ -90,23 +90,22 @@ private struct ChatDestructiveActionsConfirmationModifier: ViewModifier {
             }
     }
 
+    // The wording lives on `ChatConfirmationSubject` rather than here: a group with no name and a
+    // one-to-one chat need different *sentences*, not a different name dropped into one, and that
+    // choice has to be testable without standing up a dialog.
+
     private func leaveTitle(_ target: ChatLeaveTarget?) -> String {
         guard let target else { return L10n.string("Leave this chat?") }
-        return String(format: L10n.string("Leave “%@”?"), target.title)
+        return target.subject.leaveConfirmationTitle
     }
 
     private func leaveMessage(_ target: ChatLeaveTarget) -> String {
-        if target.requiresSelfDemote {
-            return L10n.string(
-                "You'll step down as admin first, then stop receiving messages from this group."
-            )
-        }
-        return L10n.string("You will no longer receive messages from this group on this account.")
+        target.subject.leaveConfirmationMessage(requiresSelfDemote: target.requiresSelfDemote)
     }
 
     private func localDeleteTitle(_ target: ChatLocalDeleteTarget?) -> String {
         guard let target else { return L10n.string("Remove this conversation from this device?") }
-        return String(format: L10n.string("Delete “%@” from this device?"), target.title)
+        return target.subject.localDeleteConfirmationTitle
     }
 }
 

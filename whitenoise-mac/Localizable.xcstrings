@@ -16838,6 +16838,65 @@
         }
       }
     },
+    "Delete your chat with %@ from this device?": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat mit %@ von diesem Gerät löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar el chat con %@ de este dispositivo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer votre chat avec %@ de cet appareil ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminare la chat con %@ da questo dispositivo?"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir o bate-papo com %@ deste dispositivo?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить чат с %@ с этого устройства?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ile olan sohbet bu cihazdan silinsin mi?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要将与%@的聊天从此设备删除吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要將與%@的聊天從此裝置刪除嗎？"
+          }
+        }
+      }
+    },
     "Delete “%@” from this device?": {
       "extractionState": "manual",
       "localizations": {
@@ -26300,6 +26359,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "離開這個群嗎？"
+          }
+        }
+      }
+    },
+    "Leave your chat with %@?": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deinen Chat mit %@ verlassen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Salir del chat con %@?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitter votre chat avec %@ ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lasciare la chat con %@?"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair do bate-papo com %@?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покинуть чат с %@?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ile olan sohbetten ayrılmak mı istiyorsunuz?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要离开与%@的聊天吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要離開與%@的聊天嗎？"
           }
         }
       }
@@ -56444,6 +56562,65 @@
         }
       }
     },
+    "You will no longer receive messages from this chat on this account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du erhältst mit diesem Account keine Nachrichten mehr aus diesem Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya no recibirás mensajes de este chat en esta cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous ne recevrez plus les messages de ce chat sur ce compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non riceverai più messaggi da questa chat su questo account."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você não receberá mais mensagens deste bate-papo nesta conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы больше не будете получать сообщения этого чата в этом аккаунте."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesapta bu sohbetten artık mesaj almayacaksınız."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你将不再在此账户中接收此聊天的消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你將不再在此帳號中接收此聊天的訊息。"
+          }
+        }
+      }
+    },
     "You will no longer receive messages from this group on this account.": {
       "extractionState": "manual",
       "localizations": {
@@ -56558,6 +56735,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "您將留在群組中，但另一位管理員需要恢復您的管理員狀態。"
+          }
+        }
+      }
+    },
+    "You'll step down as admin first, then stop receiving messages from this chat.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du gibst zuerst deine Admin-Rolle ab und erhältst dann keine Nachrichten mehr aus diesem Chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero dejarás de ser administrador y luego dejarás de recibir mensajes de este chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous quitterez d’abord votre poste d’administrateur, puis cesserez de recevoir des messages de ce chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima dimetterai la carica di amministratore, poi smetterai di ricevere messaggi da questa chat."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você primeiro deixará o cargo de administrador e depois deixará de receber mensagens deste bate-papo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала вы уйдете с поста администратора, а затем перестанете получать сообщения из этого чата."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce yöneticilikten ayrılacaksınız, ardından bu sohbetten mesaj almayı bırakacaksınız."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您将首先辞去管理员身份，然后停止接收来自该聊天的消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您將首先辭去管理員身份，然後停止接收來自該聊天的訊息。"
           }
         }
       }
@@ -56680,6 +56916,65 @@
         }
       }
     },
+    "You're the only admin of this chat. Pick who takes over, and you'll leave once they're admin.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist der einzige Admin dieses Chats. Wähle aus, wer übernimmt – du verlässt den Chat, sobald diese Person Admin ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eres el único administrador de este chat. Elige quién toma el relevo y saldrás en cuanto esa persona sea administradora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous êtes le seul administrateur de ce chat. Choisissez qui prend le relais : vous quitterez la discussion dès que cette personne sera administratrice."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sei l'unico amministratore di questa chat. Scegli chi prende il tuo posto: uscirai appena sarà amministratore."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você é o único administrador deste bate-papo. Escolha quem vai assumir e você sairá assim que essa pessoa for administradora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы единственный администратор этого чата. Выберите, кто примет эту роль, — вы выйдете, как только этот человек станет администратором."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin tek yöneticisisin. Devralacak kişiyi seç; o yönetici olur olmaz sohbetten çıkacaksın."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是此聊天的唯一管理员。选择接手的人，对方成为管理员后你就会退出。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你是此聊天的唯一管理員。選擇接手的人，對方成為管理員後你就會退出。"
+          }
+        }
+      }
+    },
     "You're the only admin of “%@”. Pick who takes over, and you'll leave once they're admin.": {
       "extractionState": "manual",
       "localizations": {
@@ -56716,7 +57011,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы единственный администратор «%@». Выберите, кто примет эту роль, — вы выйдете, как только он станет администратором."
+            "value": "Вы единственный администратор «%@». Выберите, кто примет эту роль, — вы выйдете, как только этот человек станет администратором."
           }
         },
         "tr": {

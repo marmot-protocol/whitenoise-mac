@@ -1822,11 +1822,13 @@ final class WorkspaceState {
                 return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
             }
         let avatarURL = firstNonBlank([details.group.avatarUrl])
+        let customName = PeerDisplayText.sanitize(details.group.name)
 
         return GroupDetailsSnapshot(
             groupIdHex: details.group.groupIdHex,
             endpoint: details.group.endpoint,
-            name: PeerDisplayText.sanitize(details.group.name) ?? L10n.string("Unnamed group"),
+            name: customName ?? L10n.string("Unnamed group"),
+            customName: customName,
             description: details.group.description,
             avatarURL: avatarURL,
             sanitizedAvatarURL: RemoteImageURLPolicy.sanitizedURL(from: avatarURL),

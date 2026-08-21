@@ -538,7 +538,14 @@ struct GroupMemberItem: Identifiable, Hashable {
 struct GroupDetailsSnapshot: Hashable {
     let groupIdHex: String
     let endpoint: String
+    /// The group's name as the inspector header draws it, falling back to a localized "Unnamed
+    /// group" so the header is never blank. A display label, not a name — read `customName` for
+    /// anything that has to put the group's own name into a sentence.
     let name: String
+    /// The name the group actually carries, or `nil` when it has none. Kept alongside `name`
+    /// because the placeholder above is both localized and indistinguishable from a group somebody
+    /// really did call "Unnamed group".
+    let customName: String?
     let description: String
     let avatarURL: String?
     /// Pre-sanitized once from the group profile avatar URL for details/header rendering.
@@ -565,6 +572,7 @@ struct GroupDetailsSnapshot: Hashable {
         groupIdHex: String,
         endpoint: String,
         name: String,
+        customName: String? = nil,
         description: String,
         avatarURL: String?,
         sanitizedAvatarURL: URL?,
@@ -588,6 +596,7 @@ struct GroupDetailsSnapshot: Hashable {
         self.groupIdHex = groupIdHex
         self.endpoint = endpoint
         self.name = name
+        self.customName = customName
         self.description = description
         self.avatarURL = avatarURL
         self.sanitizedAvatarURL = sanitizedAvatarURL

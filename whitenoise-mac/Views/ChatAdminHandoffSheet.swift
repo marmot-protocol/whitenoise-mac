@@ -58,20 +58,13 @@ struct ChatAdminHandoffSheet: View {
     }
 
     private var explanation: some View {
-        Text(
-            String(
-                format: L10n.string(
-                    "You're the only admin of “%@”. Pick who takes over, and you'll leave once they're admin."
-                ),
-                PeerDisplayText.templateFragment(target.title)
-            )
-        )
-        .wnFont(.medium12)
-        .foregroundStyle(WNColor.backgroundContentSecondary)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        Text(target.subject.adminHandoffExplanation)
+            .wnFont(.medium12)
+            .foregroundStyle(WNColor.backgroundContentSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
     }
 
     private var candidateList: some View {
