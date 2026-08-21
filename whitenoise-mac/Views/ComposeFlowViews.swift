@@ -320,7 +320,7 @@ struct NameGroupPanelView: View {
         @Bindable var workspace = workspace
 
         VStack(spacing: 0) {
-            ComposePaneHeader(title: L10n.string("Name this group")) {
+            ComposePaneHeader(title: L10n.string("Name group")) {
                 workspace.composeGoBack()
             }
 
@@ -720,12 +720,21 @@ private struct ComposePaneHeader: View {
     var body: some View {
         HStack(spacing: 8) {
             GlassCircleCloseButton(symbol: "chevron.backward", help: "Back", appearance: .outline, action: onBack)
-            Spacer()
-        }
-        .overlay {
+
+            // Laid out beside the back button rather than centred as an overlay over it. As an
+            // overlay the title had no width to fit into, so a long localized title grew until it
+            // ran under the chevron — Spanish and Italian titles overlapped it even at the pane's
+            // full width. Here the title gets the space that is actually free and truncates at its
+            // own edge instead.
             Text(title)
                 .wnFont(MessagesType.paneTitle)
                 .lineLimit(1)
+                .frame(maxWidth: .infinity)
+
+            // Mirrors the back button's footprint so the title stays centred in the pane rather
+            // than in what is left of it.
+            Color.clear
+                .frame(width: MessagesLayout.circleControlSize, height: MessagesLayout.circleControlSize)
         }
         .padding(.horizontal, 12)
         .sidebarTitlebarClearance()
