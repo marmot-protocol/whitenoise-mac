@@ -86,7 +86,7 @@ struct AccountRailView: View {
             )
             .help(L10n.string("Settings"))
         }
-        .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+        .sidebarTitlebarClearance()
         .padding(.bottom, 14)
         .frame(width: MessagesLayout.accountRailWidth)
         .background {
@@ -340,7 +340,7 @@ private struct ChatListHeader: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+        .sidebarTitlebarClearance()
         .padding(.bottom, 12)
     }
 }
@@ -388,7 +388,7 @@ private struct CollapsedChatListHeader: View {
             ChatListFilterMenu()
         }
         .padding(.horizontal, 8)
-        .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+        .sidebarTitlebarClearance()
         .padding(.bottom, 12)
     }
 }
@@ -654,7 +654,7 @@ struct SettingsListDrawerView: View {
                 SettingsAccountSwitcherCard()
             }
             .padding(.horizontal, 14)
-            .padding(.top, MessagesLayout.sidebarTitlebarTopPadding)
+            .sidebarTitlebarClearance()
             .padding(.bottom, 12)
 
             GlassSeparator(axis: .horizontal)

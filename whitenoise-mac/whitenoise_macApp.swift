@@ -31,6 +31,12 @@ struct whitenoise_macApp: App {
                 .environment(workspace)
                 .task {
                     if shouldBootstrapWorkspace {
+                        // Started before the bootstrap it runs alongside, not after: a cold start
+                        // with no network is exactly when the offline notice has something to say,
+                        // and bootstrap is the part that will be sitting there waiting on relays.
+                        // Gated on the same flag as bootstrap so a UI fixture launch stays offline
+                        // in the literal sense — it opens no sockets at all.
+                        workspace.startConnectivityMonitoring()
                         await workspace.bootstrap()
                     }
                 }

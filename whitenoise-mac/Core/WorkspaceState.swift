@@ -153,6 +153,16 @@ final class WorkspaceState {
     /// per-screen error view, preventing misattribution and clobbering of `lastError`.
     var backgroundStatus: String?
 
+    /// `true` while nothing this app talks to is reachable: either macOS reports no network
+    /// interface at all, or one exists and no default relay answers a TCP handshake. Drives the
+    /// "Waiting for internet connection" notice, which the Flutter and mobile clients show on
+    /// every screen. Stays `false` until `startConnectivityMonitoring()` runs, so a workspace
+    /// that never asks for monitoring never claims to know.
+    var isOffline = false
+    @ObservationIgnored let networkInterfaceMonitor: any NetworkInterfaceMonitoring
+    @ObservationIgnored let relayHostProbe: any RelayHostReachabilityProbing
+    @ObservationIgnored var connectivityMonitorTask: Task<Void, Never>?
+
     /// Profile reference from a marmot:// deep link that arrived before the workspace
     /// reached `.ready` (cold start or signed out). Never read by a view body; flushed
     /// by `flushPendingDeepLinkIfReady()` from `activateReadyState()`.
@@ -1170,7 +1180,12 @@ final class WorkspaceState {
         chatRestorationStore: (any ChatRestorationStoring)? = nil,
         quickReactionStore: (any QuickReactionStoring)? = nil,
         mediaDownloadDestinationStore: (any MediaDownloadDestinationStoring)? = nil,
-        clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() }
+        clientFactory: @escaping @MainActor () throws -> any MarmotRuntime = { try MarmotClient() },
+        // Constructing either of these is inert — the monitor starts no path observation and the
+        // probe opens no socket until `startConnectivityMonitoring()` asks — so the production
+        // implementations are safe as defaults even in tests that never go near the network.
+        networkInterfaceMonitor: any NetworkInterfaceMonitoring = NWPathInterfaceMonitor(),
+        relayHostProbe: any RelayHostReachabilityProbing = TCPRelayHostProbe()
     ) {
         self.accounts = accounts
         self.chatsByAccount = chatsByAccount.mapValues { Self.deduplicatedChats($0) }
@@ -1205,6 +1220,8 @@ final class WorkspaceState {
         self.mediaDownloadDestinationStore =
             mediaDownloadDestinationStore ?? UserDefaultsMediaDownloadDestinationStore()
         self.clientFactory = clientFactory
+        self.networkInterfaceMonitor = networkInterfaceMonitor
+        self.relayHostProbe = relayHostProbe
         self.developerMode = UserDefaults.standard.bool(forKey: Self.developerModeKey)
         self.streamingDebugMode = UserDefaults.standard.bool(forKey: Self.streamingDebugModeKey)
         // Defaults to false: bool(forKey:) returns false when the key is absent, which is the

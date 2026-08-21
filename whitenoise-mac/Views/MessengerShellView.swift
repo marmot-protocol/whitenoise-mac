@@ -14,56 +14,72 @@ struct MessengerShellView: View {
     var body: some View {
         let ignoredEdges: Edge.Set = workspace.showsMessengerChrome ? .top : []
 
-        Group {
-            if workspace.showsMessengerChrome {
-                HStack(spacing: 0) {
-                    AccountRailView()
-                    GlassSeparator()
+        VStack(spacing: 0) {
+            // Laid out above the content rather than floating over it: being offline is a
+            // standing condition, and a card on this edge sits on the pane title and the
+            // conversation header for as long as it lasts. Outside the `showsMessengerChrome`
+            // branch so it also reaches the onboarding and login surfaces, which is where a
+            // user with no network is most likely to be stuck.
+            if workspace.isOffline {
+                OfflineNoticeBand()
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
-                    Group {
-                        if workspace.isChatListVisible {
-                            ChatListDrawerView()
-                                // Deliberately un-animated: the width is dragged, so animating
-                                // it would re-wrap the non-lazy transcript on every frame of the
-                                // drag *and* again through the collapse snap — the same layout
-                                // storm the `isChatListVisible` transition below is scoped away
-                                // from. The snap is a single jump instead.
-                                .frame(width: workspace.chatListDrawerWidth, alignment: .leading)
-                                .transition(.move(edge: .leading).combined(with: .opacity))
+            Group {
+                if workspace.showsMessengerChrome {
+                    HStack(spacing: 0) {
+                        AccountRailView()
+                        GlassSeparator()
 
-                            ChatListResizeHandle()
-                                .transition(.opacity)
-                                // The handle's grab area is an overlay reaching a few points
-                                // into both neighbours, and later siblings in an `HStack` are
-                                // hit-tested first — without this the detail pane would swallow
-                                // the right half of the strip and the divider would only be
-                                // grabbable from the drawer side.
-                                .zIndex(1)
+                        Group {
+                            if workspace.isChatListVisible {
+                                ChatListDrawerView()
+                                    // Deliberately un-animated: the width is dragged, so animating
+                                    // it would re-wrap the non-lazy transcript on every frame of the
+                                    // drag *and* again through the collapse snap — the same layout
+                                    // storm the `isChatListVisible` transition below is scoped away
+                                    // from. The snap is a single jump instead.
+                                    .frame(width: workspace.chatListDrawerWidth, alignment: .leading)
+                                    .transition(.move(edge: .leading).combined(with: .opacity))
+
+                                ChatListResizeHandle()
+                                    .transition(.opacity)
+                                    // The handle's grab area is an overlay reaching a few points
+                                    // into both neighbours, and later siblings in an `HStack` are
+                                    // hit-tested first — without this the detail pane would swallow
+                                    // the right half of the strip and the divider would only be
+                                    // grabbable from the drawer side.
+                                    .zIndex(1)
+                            }
                         }
-                    }
-                    // Scope the sidebar transition to the drawer. The detail pane
-                    // width should jump once, not animate through every intermediate
-                    // width and force the non-lazy transcript to re-wrap each frame.
-                    .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
+                        // Scope the sidebar transition to the drawer. The detail pane
+                        // width should jump once, not animate through every intermediate
+                        // width and force the non-lazy transcript to re-wrap each frame.
+                        .animation(.smooth(duration: 0.18), value: workspace.isChatListVisible)
 
+                        DetailPaneView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else {
                     DetailPaneView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                // Background-task failures (subscription listeners, observability
-                // refresh, read-marking) surface here as a non-modal banner rather
-                // than on the per-screen error view, so they are never misattributed
-                // to a user action on the login/settings/new-chat forms.
-                .overlay(alignment: .top) {
-                    BackgroundStatusBanner()
-                }
-            } else {
-                DetailPaneView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            // A dismissible, transient failure keeps floating over the content instead of
+            // shifting the transcript down and back up for a few seconds. It hangs off the top
+            // of the content, which the band above has already moved, so the two cannot
+            // collide the way two views claiming the same edge would.
+            .overlay(alignment: .top) {
+                BackgroundStatusBanner()
             }
         }
         .background {
             MessagesWindowBackground()
         }
+        // The band has taken the strip the traffic lights float in, so the headers it pushed
+        // down must drop the clearance they keep for those buttons.
+        .environment(\.hasWindowTopNoticeBand, workspace.isOffline)
+        .animation(.smooth(duration: 0.2), value: workspace.isOffline)
         // Above the conversation pane rather than inside it: the image gallery is an overlay on
         // the transcript, and a download started from the gallery has to confirm itself over the
         // gallery, not underneath it.
@@ -71,40 +87,6 @@ struct MessengerShellView: View {
             MediaDownloadFeedbackToast()
         }
         .ignoresSafeArea(.container, edges: ignoredEdges)
-    }
-}
-
-private struct BackgroundStatusBanner: View {
-    @Environment(WorkspaceState.self) private var workspace
-
-    var body: some View {
-        if let status = workspace.backgroundStatus {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(WNColor.intentionWarningContent)
-                Text(status)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Button {
-                    workspace.clearBackgroundStatus()
-                } label: {
-                    Image(systemName: "xmark")
-                        .wnFont(.semiBold12)
-                }
-                .buttonStyle(.plain)
-                .help(L10n.string("Dismiss"))
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(maxWidth: 520)
-            .glassCard(cornerRadius: 10)
-            .padding(.top, 12)
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .animation(.smooth(duration: 0.2), value: workspace.backgroundStatus)
-        }
     }
 }
 
