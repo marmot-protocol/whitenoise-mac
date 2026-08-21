@@ -778,9 +778,13 @@ extension WorkspaceState {
     /// displayed summary went stale.
     func currentAccountUnreadSignal() -> AccountUnreadSignal? {
         guard let activeAccountId else { return nil }
-        // Archived chats carry unread counts too, and the chat-list subscription loads them in the
-        // same snapshot, so a signal built from the active list alone would miss their changes.
-        let chats = (chatsByAccount[activeAccountId] ?? []) + (archivedChatsByAccount[activeAccountId] ?? [])
+        // Unarchived chats only, matching what the summary this guards counts: the core sums
+        // unread over `WHERE row.archived = 0`, so an archived chat's unread messages are not in
+        // the displayed total and a change confined to them cannot move it. Counting them here as
+        // well made archiving invisible to the gate — the row moved from one counted list to the
+        // other, leaving the totals identical — so the badge went on counting a chat the user had
+        // just archived until the next full reload or account switch.
+        let chats = chatsByAccount[activeAccountId] ?? []
         var totalUnreadCount = 0
         var unreadChatCount = 0
         for chat in chats {
@@ -794,7 +798,8 @@ extension WorkspaceState {
         return AccountUnreadSignal(
             accountId: activeAccountId,
             totalUnreadCount: totalUnreadCount,
-            unreadChatCount: unreadChatCount
+            unreadChatCount: unreadChatCount,
+            chatCount: chats.count
         )
     }
 
