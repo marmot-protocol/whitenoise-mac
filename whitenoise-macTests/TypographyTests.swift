@@ -92,7 +92,7 @@ private let allTokens: [WNTextStyle] = [
     func bothFrameworksSpellTheSameWeight(weight: WNFontWeight) {
         let expected: (Font.Weight, NSFont.Weight) =
             switch weight {
-            case .medium: (.medium, .medium)
+            case .medium: (.regular, .regular)
             case .semiBold: (.semibold, .semibold)
             case .bold: (.bold, .bold)
             }
