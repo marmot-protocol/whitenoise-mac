@@ -2385,6 +2385,28 @@ struct MessageRowAction: Identifiable {
             },
         ]
     }
+
+    /// The same two recovery actions again, for a text message that never got out. Text reaches this
+    /// state two ways media cannot: queued behind a send that is still timing out, or rolled back by
+    /// the core after its own publish failed.
+    @MainActor
+    static func all(
+        for message: PendingOutgoingTextMessage,
+        workspace: WorkspaceState,
+        dismiss: @escaping () -> Void = {}
+    ) -> [MessageRowAction] {
+        guard message.state == .failed else { return [] }
+        return [
+            MessageRowAction(kind: .retry, title: L10n.string("Retry"), systemImage: "arrow.clockwise", role: nil) {
+                dismiss()
+                workspace.retryPendingOutgoingTextMessage(message.id)
+            },
+            MessageRowAction(kind: .delete, title: L10n.string("Remove"), systemImage: "trash", role: .destructive) {
+                dismiss()
+                workspace.discardPendingOutgoingTextMessage(message.id)
+            },
+        ]
+    }
 }
 
 struct MessageOverflowPopover: View {

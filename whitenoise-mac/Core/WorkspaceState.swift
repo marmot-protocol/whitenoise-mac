@@ -621,10 +621,23 @@ final class WorkspaceState {
     @ObservationIgnored var pendingOutgoingMediaUploadTasks:
         [PendingOutgoingMediaMessage.ID: [Task<MediaAttachmentReferenceFfi?, Never>]] = [:]
     /// The publish task for the last text message handed off from each conversation's composer.
-    /// Text needs no pending-bubble list the way media does — the local projection puts the real
-    /// row on screen the moment the message is stored — so one entry per composer is enough: it is
-    /// what the *next* send in that conversation chains behind, and what teardown drops.
+    /// One entry per composer is enough: it is what the *next* send in that conversation chains
+    /// behind, and what teardown drops.
     @ObservationIgnored var outgoingTextSendTasks: [ComposerDraftKey: Task<Void, Never>] = [:]
+    /// Text messages the user has already sent that the core cannot yet speak for, keyed by the
+    /// composer they left.
+    ///
+    /// Text used to go without this on the grounds that the local projection puts the real row on
+    /// screen as soon as the message is stored. It does — but only once the send has *reached* the
+    /// core, and a send chained behind a predecessor that is timing out against an unreachable
+    /// relay has not. That message was in neither the composer nor the transcript for the length of
+    /// the failure, and the restore that should have returned it found the composer occupied by the
+    /// predecessor's own restored draft and dropped it.
+    var pendingOutgoingTextMessagesByConversation: [ComposerDraftKey: [PendingOutgoingTextMessage]] = [:]
+    /// The retry task per pending text message. The first attempt runs inside the conversation's
+    /// `outgoingTextSendTasks` chain, so only retries — which deliberately do not re-queue behind
+    /// anything — need a handle of their own.
+    @ObservationIgnored var pendingOutgoingTextSendTasks: [PendingOutgoingTextMessage.ID: Task<Void, Never>] = [:]
     /// Bumped once per send the local user commits from the selected conversation's composer —
     /// text, media or a recording. The transcript scrolls to the live edge off this rather than off
     /// the message that follows it, because neither of the newest-message rules covers a send made
@@ -1736,6 +1749,72 @@ final class WorkspaceState {
             }
         }
         return digests
+    }
+
+    /// Text messages sent from the selected conversation that the core has not committed a visible
+    /// row for, oldest first.
+    ///
+    /// A publishing message is withheld once an own row carrying its exact body has appeared since
+    /// the publish began: the core commits an own send locally *inside* that call, so the real row
+    /// arrives while the relay round-trip is still going and the two would otherwise render the
+    /// same sentence twice. Queued and failed messages are never withheld — in both of those states
+    /// this row is the only copy of the message there is.
+    var selectedPendingOutgoingTextMessages: [PendingOutgoingTextMessage] {
+        guard let selectedComposerDraftKey else { return [] }
+        let pending = pendingOutgoingTextMessagesByConversation[selectedComposerDraftKey] ?? []
+        // Nothing is mid-publish in the common case, so the timeline is never walked.
+        guard pending.contains(where: { $0.state == .publishing && $0.ownBodyCountBeforePublish != nil })
+        else { return pending }
+        return pending.filter { message in
+            guard message.state == .publishing, let before = message.ownBodyCountBeforePublish else { return true }
+            return ownBodyCount(of: message.text, inChat: selectedComposerDraftKey.chatId) <= before
+        }
+    }
+
+    /// How many own rows `chatId`'s timeline holds carrying exactly `body`.
+    ///
+    /// Matched on `wireBody` rather than `body`: that is the text handed to the core, before mention
+    /// npubs are resolved back to display names, so it is the same string the pending message holds.
+    ///
+    /// Keyed by chat rather than read off the selection, so the count a publish stamps and the count
+    /// it is later compared against describe the same conversation even if the user navigated away
+    /// mid-round-trip.
+    func ownBodyCount(of body: String, inChat chatId: String) -> Int {
+        messageTimelineStores[chatId]?.messages.reduce(into: 0) { count, message in
+            if message.isOutgoing, message.wireBody == body {
+                count += 1
+            }
+        } ?? 0
+    }
+
+    /// Both kinds of pending own row in one list, in the order the user sent them — the tail the
+    /// transcript appends after its real rows.
+    ///
+    /// Merged rather than concatenated: each source list is already in send order, so walking them
+    /// together by `createdAt` interleaves a photo and a sentence the way they were actually sent,
+    /// and keeps equal timestamps in list order instead of leaving it to an unstable sort.
+    var selectedPendingOutgoingMessageRows: [PendingOutgoingMessageRow] {
+        let text = selectedPendingOutgoingTextMessages
+        let media = selectedPendingOutgoingMediaMessages
+        if text.isEmpty { return media.map(PendingOutgoingMessageRow.media) }
+        if media.isEmpty { return text.map(PendingOutgoingMessageRow.text) }
+
+        var rows: [PendingOutgoingMessageRow] = []
+        rows.reserveCapacity(text.count + media.count)
+        var textIndex = text.startIndex
+        var mediaIndex = media.startIndex
+        while textIndex < text.endIndex, mediaIndex < media.endIndex {
+            if media[mediaIndex].createdAt < text[textIndex].createdAt {
+                rows.append(.media(media[mediaIndex]))
+                mediaIndex += 1
+            } else {
+                rows.append(.text(text[textIndex]))
+                textIndex += 1
+            }
+        }
+        rows.append(contentsOf: text[textIndex...].map(PendingOutgoingMessageRow.text))
+        rows.append(contentsOf: media[mediaIndex...].map(PendingOutgoingMessageRow.media))
+        return rows
     }
 
     var showsMessengerChrome: Bool {

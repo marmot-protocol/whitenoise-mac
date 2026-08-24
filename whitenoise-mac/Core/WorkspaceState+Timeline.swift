@@ -1098,144 +1098,53 @@ extension WorkspaceState {
         // Clearing only once `sendText`/`replyToMessage` returned meant the draft sat in the
         // input for the whole relay round-trip — and since the message's own bubble appears
         // from the local projection as soon as it is stored, the user saw the same text twice.
-        let restorePoint = ComposerSendSnapshot(
-            text: draftTextByConversation[draftKey] ?? "",
-            mentionSelections: composerMentionSelectionsByConversation[draftKey] ?? [],
+        // What the composer gives up, the pending message below takes over: the transcript carries
+        // the message from here until the core has a row of its own for it.
+        let pending = PendingOutgoingTextMessage(
+            text: text,
             replyContext: replyDraftContextByConversation[draftKey]
         )
         clearComposerAfterSend(for: draftKey, mediaAttachments: mediaAttachments)
+        // Parked in the same view update that empties the composer, and before the `await` below:
+        // deleting the persisted draft yields the main actor, so registering the row after it would
+        // leave a frame with the message in neither place — the disappearance this whole path
+        // exists to prevent. The media branch above hands off ahead of its own delete for the
+        // same reason.
+        beginPendingOutgoingTextSend(
+            pending,
+            for: draftKey,
+            account: activeAccount,
+            client: client
+        )
         await deletePersistedComposerDraft(
             for: draftKey,
             accountRef: activeAccount.accountRef,
             client: client
         )
-
-        handOffTextSend(
-            restorePoint,
-            text: text,
-            draftKey: draftKey,
-            groupIdHex: selectedChat.id,
-            account: activeAccount,
-            client: client
-        )
     }
 
-    /// Moves a just-sent text message out of the Send button's hands and into a detached publish,
-    /// then returns — the same hand-off media already does, for the same reason. Waiting here held
-    /// the button spinning and every composer control disabled for the length of the relay
-    /// round-trip, so the user could not start their next message; the wait belongs to the
-    /// message's own bubble, which the local projection has already put on screen carrying its
-    /// delivery state.
-    ///
-    /// Chained per conversation so back-to-back sends publish in the order Send was pressed. A
-    /// failed predecessor still releases its successor — it just leaves `lastError` and a restored
-    /// draft behind it.
-    private func handOffTextSend(
-        _ restorePoint: ComposerSendSnapshot,
-        text: String,
-        draftKey: ComposerDraftKey,
-        groupIdHex: String,
-        account: AccountItem,
-        client: any MarmotRuntime
-    ) {
-        let predecessor = outgoingTextSendTasks[draftKey]
-        outgoingTextSendTasks[draftKey] = Task { [weak self] in
-            await predecessor?.value
-            guard !Task.isCancelled else { return }
-            await self?.completeTextSend(
-                restorePoint,
-                text: text,
-                draftKey: draftKey,
-                groupIdHex: groupIdHex,
-                account: account,
-                client: client
-            )
-        }
-    }
-
-    private func completeTextSend(
-        _ restorePoint: ComposerSendSnapshot,
-        text: String,
-        draftKey: ComposerDraftKey,
-        groupIdHex: String,
-        account: AccountItem,
-        client: any MarmotRuntime
-    ) async {
-        do {
-            if let replyContext = restorePoint.replyContext {
-                _ = try await client.replyToMessage(
-                    accountRef: account.accountRef,
-                    groupIdHex: groupIdHex,
-                    targetMessageId: replyContext.targetMessageId,
-                    text: text
-                )
-            } else {
-                _ = try await client.sendText(
-                    accountRef: account.accountRef,
-                    groupIdHex: groupIdHex,
-                    text: text
-                )
-            }
-        } catch {
-            restoreComposerAfterFailedSend(restorePoint, for: draftKey)
-            lastError = error.localizedDescription
-            return
-        }
-        // One authoritative re-window so the user sees their just-sent message
-        // immediately, even if the live projection for it is momentarily in flight.
-        // The follow-on delivery-state transitions then arrive as projection deltas
-        // and are applied incrementally by `applyTimelineProjection` — no longer a
-        // full re-map per delivery. Guarded on the live selection inside, so a send the
-        // user navigated away from does not re-window whatever they navigated to.
-        await refreshSelectedTimelineAfterSend(groupIdHex: groupIdHex, account: account, client: client)
-    }
-
+    /// Drops both halves of every outgoing text send: the publish chain and the pending rows that
+    /// chain is carrying. They are torn down together because a parked message whose publish task is
+    /// gone is a bubble that can never resolve — it would sit in the transcript claiming to be on its
+    /// way out with nothing left to send it.
     func cancelAllOutgoingTextSends() {
         for task in outgoingTextSendTasks.values {
             task.cancel()
         }
         outgoingTextSendTasks.removeAll()
+        cancelAllPendingOutgoingTextSends()
     }
 
     func cancelOutgoingTextSends(for draftKey: ComposerDraftKey) {
         outgoingTextSendTasks.removeValue(forKey: draftKey)?.cancel()
+        cancelPendingOutgoingTextSends(for: draftKey)
     }
 
     func cancelOutgoingTextSends(forAccountId accountId: String) {
         for draftKey in outgoingTextSendTasks.keys.filter({ $0.accountId == accountId }) {
             outgoingTextSendTasks.removeValue(forKey: draftKey)?.cancel()
         }
-    }
-
-    /// What a text send took out of the composer, kept only long enough to put it back if the
-    /// publish fails. Media sends have no equivalent: their attachments move into a pending
-    /// bubble that owns its own retry.
-    private struct ComposerSendSnapshot {
-        let text: String
-        let mentionSelections: [ComposerMentionSelection]
-        let replyContext: MessageReplyContext?
-    }
-
-    /// Returns a failed text send's draft to the composer it was sent from, so the relay being
-    /// unreachable costs a retry rather than the message.
-    ///
-    /// Skipped when that composer is no longer empty: the user started their next message during
-    /// the round-trip, and overwriting live typing is worse than losing the failed draft, which
-    /// `lastError` reports either way. Keyed by the captured `draftKey` for the same reason
-    /// `clearComposerAfterSend` is — the selection may have moved on.
-    private func restoreComposerAfterFailedSend(
-        _ snapshot: ComposerSendSnapshot,
-        for draftKey: ComposerDraftKey
-    ) {
-        guard (draftTextByConversation[draftKey] ?? "").isEmpty,
-            (pendingMediaAttachmentsByConversation[draftKey] ?? []).isEmpty
-        else { return }
-        draftTextByConversation[draftKey] = snapshot.text.isEmpty ? nil : snapshot.text
-        composerMentionSelectionsByConversation[draftKey] =
-            snapshot.mentionSelections.isEmpty ? nil : snapshot.mentionSelections
-        replyDraftContextByConversation[draftKey] = snapshot.replyContext
-        // Re-persist: the send already deleted the stored draft on the way out.
-        composerDraftDidChange(for: draftKey)
+        cancelPendingOutgoingTextSends(forAccountId: accountId)
     }
 
     /// Moves a media draft out of the composer and into a pending outgoing message, then returns.
