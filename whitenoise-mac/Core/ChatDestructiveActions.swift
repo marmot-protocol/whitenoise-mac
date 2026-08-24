@@ -91,6 +91,28 @@ extension GroupDetailsSnapshot {
         ChatDestructiveActions.lastAdminResolution(members: members)
     }
 
+    /// How a leave/delete confirmation names this chat.
+    ///
+    /// Decided from `customName` rather than from `name`, which carries the localized "Unnamed
+    /// group" placeholder the inspector header needs — reading that placeholder back as a title is
+    /// what produced `Leave “Unnamed group”?`.
+    ///
+    /// With no name of its own, the roster decides, exactly the way MDK's `conversation_kind` does:
+    /// a non-blank name makes a conversation a group whatever its size, so only an *unnamed* one
+    /// with a single other member is a direct chat. The peer is named from this snapshot's own
+    /// roster, which is the roster the user is looking at.
+    var confirmationSubject: ChatConfirmationSubject {
+        if let customName { return .namedGroup(customName) }
+        let others = members.filter { !$0.isSelf }
+        guard others.count <= 1 else { return .unnamedGroup }
+        // Nobody else on the roster: an emptied-out direct chat, or the last member of a group
+        // everyone left. Neither has a name and neither has a peer, so the sentence says neither.
+        guard let peerName = others.first.flatMap({ PeerDisplayText.sanitize($0.displayName) }) else {
+            return .unnamedChat
+        }
+        return .directChat(peerName: peerName)
+    }
+
     /// What the inspector says beneath the leave button. Prefers the resolution over the raw
     /// `.lastAdmin` blocker, so a sole admin who can still get out — by promoting someone, or by
     /// dropping the local copy of a chat nobody else is in — is told what to do rather than that
@@ -104,12 +126,134 @@ extension GroupDetailsSnapshot {
     }
 }
 
+extension ChatItem {
+    /// How a leave/delete confirmation names this chat.
+    ///
+    /// `title` cannot be quoted blind. When nothing has named a conversation, MDK projects its raw
+    /// conversation id as the title (`chat_title` in the storage layer's chat-list projection), and
+    /// every fallback this app layers on top is derived from that same id — so `title == id` is
+    /// precisely "nothing named this row", whether that is a group nobody titled or a direct chat
+    /// whose peer profile has not arrived. Anything else is a real name: the group's own for a
+    /// group, and the peer's — or the private nickname overriding them — for a direct chat.
+    ///
+    /// `nonisolated` because `ChatItem` is, and an extension would otherwise pick up the module's
+    /// MainActor default.
+    nonisolated var confirmationSubject: ChatConfirmationSubject {
+        guard title != id, let name = PeerDisplayText.sanitize(title) else {
+            return isDirect ? .unnamedChat : .unnamedGroup
+        }
+        return isDirect ? .directChat(peerName: name) : .namedGroup(name)
+    }
+}
+
+/// How a destructive-action dialog names the chat it is about.
+///
+/// Deliberately not a `String`. The four cases need *different sentences*, not one sentence with a
+/// different name substituted in, and collapsing them into a display label is what produced
+/// `Leave “Unnamed group”? Are you sure you want to leave…`:
+///
+/// * A group the user named is quoted, because the name is the group's own.
+/// * A group with no name has nothing to quote. Its row label is a stand-in — the localized
+///   "Unnamed group" in the inspector, MDK's raw conversation id in the sidebar — and a stand-in
+///   reads as a name in a list but as noise in a sentence, so the sentence drops the slot instead.
+/// * A one-to-one chat is named by the person on the other end, and a person is addressed rather
+///   than quoted like a group title.
+/// * A one-to-one chat whose peer has never resolved has nobody to address either.
+///
+/// The two "unnamed" cases differ only in whether the sentence may say "group": MDK classifies any
+/// conversation carrying a name as a group whatever its member count, so an *unnamed* conversation
+/// is the one case where member count decides, and calling a two-person chat a group there would
+/// be wrong in the one place the user can see it.
+nonisolated enum ChatConfirmationSubject: Equatable {
+    case namedGroup(String)
+    case unnamedGroup
+    /// `peerName` is non-blank by construction — the factories below fall back to `.unnamedChat`
+    /// rather than interpolating an empty slot.
+    case directChat(peerName: String)
+    case unnamedChat
+
+    /// The dialog title for leaving this chat.
+    var leaveConfirmationTitle: String {
+        switch self {
+        case .namedGroup(let name):
+            return String(format: L10n.string("Leave “%@”?"), PeerDisplayText.templateFragment(name))
+        case .unnamedGroup:
+            return L10n.string("Leave this group?")
+        case .directChat(let peerName):
+            return String(
+                format: L10n.string("Leave your chat with %@?"),
+                PeerDisplayText.templateFragment(peerName)
+            )
+        case .unnamedChat:
+            return L10n.string("Leave this chat?")
+        }
+    }
+
+    /// What leaving costs, spelled for the kind of conversation it is. A direct chat is not a group
+    /// and must not be told it will stop receiving messages "from this group".
+    func leaveConfirmationMessage(requiresSelfDemote: Bool) -> String {
+        switch self {
+        case .namedGroup, .unnamedGroup:
+            return requiresSelfDemote
+                ? L10n.string(
+                    "You'll step down as admin first, then stop receiving messages from this group."
+                )
+                : L10n.string("You will no longer receive messages from this group on this account.")
+        case .directChat, .unnamedChat:
+            return requiresSelfDemote
+                ? L10n.string(
+                    "You'll step down as admin first, then stop receiving messages from this chat."
+                )
+                : L10n.string("You will no longer receive messages from this chat on this account.")
+        }
+    }
+
+    /// The dialog title for dropping this chat's local copy. Reached from a leave as well as from
+    /// the menu: an account alone in a chat it cannot leave is offered this instead.
+    var localDeleteConfirmationTitle: String {
+        switch self {
+        case .namedGroup(let name):
+            return String(
+                format: L10n.string("Delete “%@” from this device?"),
+                PeerDisplayText.templateFragment(name)
+            )
+        case .directChat(let peerName):
+            return String(
+                format: L10n.string("Delete your chat with %@ from this device?"),
+                PeerDisplayText.templateFragment(peerName)
+            )
+        case .unnamedGroup, .unnamedChat:
+            return L10n.string("Remove this conversation from this device?")
+        }
+    }
+
+    /// The successor picker's explanation. Only the named case can quote a title; the rest say
+    /// "this chat", which is true of an unnamed group and of a direct chat alike.
+    var adminHandoffExplanation: String {
+        switch self {
+        case .namedGroup(let name):
+            return String(
+                format: L10n.string(
+                    "You're the only admin of “%@”. Pick who takes over, and you'll leave once they're admin."
+                ),
+                PeerDisplayText.templateFragment(name)
+            )
+        case .unnamedGroup, .directChat, .unnamedChat:
+            return L10n.string(
+                "You're the only admin of this chat. Pick who takes over, and you'll leave once they're admin."
+            )
+        }
+    }
+}
+
 /// Chat awaiting a leave confirmation. `requiresSelfDemote` is captured at preparation time so the
 /// dialog can say so, and re-derived before the leave actually runs — eligibility can move between
 /// the two taps.
 nonisolated struct ChatLeaveTarget: Equatable, Identifiable {
     let groupIdHex: String
-    let title: String
+    /// How the confirmation names this chat. A `ChatConfirmationSubject` rather than the row's
+    /// display label, so the dialog can pick a sentence instead of quoting a placeholder.
+    let subject: ChatConfirmationSubject
     let requiresSelfDemote: Bool
 
     var id: String { groupIdHex }
@@ -123,7 +267,7 @@ nonisolated struct ChatLeaveTarget: Equatable, Identifiable {
 /// of the chat it belongs to, so it cannot read `groupDetailsSnapshot`.
 struct ChatAdminHandoffTarget: Equatable, Identifiable {
     let groupIdHex: String
-    let title: String
+    let subject: ChatConfirmationSubject
     /// Never empty — a target with no candidate is the genuine dead end, reported as the
     /// `.lastAdmin` blocker instead of opening a picker with nothing in it.
     let candidates: [GroupMemberItem]
@@ -147,7 +291,7 @@ struct ChatAdminHandoffTarget: Equatable, Identifiable {
 /// Chat awaiting a local-delete confirmation.
 nonisolated struct ChatLocalDeleteTarget: Equatable, Identifiable {
     let groupIdHex: String
-    let title: String
+    let subject: ChatConfirmationSubject
 
     var id: String { groupIdHex }
 }
