@@ -239,6 +239,43 @@ import Testing
         #expect(LoginIdentityDraft("note1abc") == .invalid)
     }
 
+    // MARK: - What the line under the field says
+
+    /// The complaint has to fit both doors the field opens. It named only `nsec`, so a truncated
+    /// `npub1…` — the watch-only path — was answered with a sentence about the user's private key.
+    ///
+    /// Matched case-insensitively against the *localized* value rather than the English key: the
+    /// test host runs under whatever app language is persisted, and every translation keeps both
+    /// bech32 prefixes verbatim, which is the property being asserted.
+    @Test func theComplaintNamesBothPrefixesItRejectedTheKeyFor() throws {
+        let complaint = try #require(LoginIdentityDraft.invalid.message(lastError: nil)).lowercased()
+
+        #expect(complaint.contains("nsec"))
+        #expect(complaint.contains("npub"))
+    }
+
+    /// The stale-error defect. `login()` scrubs the field on every exit path (#32), so a failure
+    /// leaves an empty field with the core's complaint under it — and the complaint has to go the
+    /// moment the user puts a fresh key in its place, not survive until the next submit.
+    @Test func theCoresComplaintDoesNotOutliveTheIdentityItWasAbout() {
+        let failure = "Could not log in."
+
+        // Straight after the failure: empty field, and the core gets the line.
+        #expect(LoginIdentityDraft.empty.message(lastError: failure) == failure)
+
+        // A well-formed replacement typed over it. The previous attempt is not about this one.
+        #expect(LoginIdentityDraft.valid.message(lastError: failure) == nil)
+
+        // Half-typed, and the field's own complaint outranks a core error it has outlived.
+        #expect(LoginIdentityDraft.invalid.message(lastError: failure) != failure)
+    }
+
+    /// A pane that has never been submitted says nothing at all. An empty field is not a wrong one.
+    @Test func aPaneWithNothingToComplainAboutStaysQuiet() {
+        #expect(LoginIdentityDraft.empty.message(lastError: nil) == nil)
+        #expect(LoginIdentityDraft.valid.message(lastError: nil) == nil)
+    }
+
     // MARK: - Rendering helpers
 
     /// Rasterize `content` in `appearance`.

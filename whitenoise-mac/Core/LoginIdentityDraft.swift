@@ -52,4 +52,27 @@ enum LoginIdentityDraft: Equatable {
 
     /// Whether the pane's primary action can fire.
     var isSubmittable: Bool { self == .valid }
+
+    /// The line under the field: this draft's own complaint, or the core's from the last attempt.
+    ///
+    /// The core's complaint is shown only under an `.empty` draft, and that is the part worth
+    /// keeping. `login()` scrubs the field on every exit path, failures included (#32), so the
+    /// field is always empty at the instant `lastError` lands — which makes anything in it
+    /// afterwards a fresh identity the core was never complaining about. Showing `lastError`
+    /// regardless left the previous attempt's error sitting under the well-formed key the user
+    /// had just pasted to replace it, until the next submit finally cleared it.
+    ///
+    /// Associating the error with the identity that produced it, rather than clearing it on every
+    /// edit, is also what keeps the scrub from eating it: the scrub *is* an edit, and it runs
+    /// after the `catch` that sets `lastError`.
+    func message(lastError: String?) -> String? {
+        switch self {
+        case .empty:
+            return lastError
+        case .invalid:
+            return L10n.string("Invalid nsec or npub. Make sure you entered it correctly.")
+        case .valid:
+            return nil
+        }
+    }
 }
