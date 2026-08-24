@@ -8,17 +8,20 @@
 //  rather than a separate file in the bundle.
 //
 //  The vocabulary stays three deep because the ramp is the Flutter client's ladder
-//  and that ladder names three: body copy is `medium`, and anything a design draws
-//  lighter maps up to it. Each case carries both frameworks' spelling of the same
-//  weight, so `WNTextStyle` and `WNNSFont` cannot drift apart on what "semiBold"
-//  means.
+//  and that ladder names three. The mac client typesets its medium rung one step
+//  lighter than the Flutter source, though: where Flutter draws body copy at Medium
+//  (500), San Francisco reads heavy at that point on a desktop display, so this
+//  app's `.medium` resolves to Regular (400). Each case carries both frameworks'
+//  spelling of the same weight, so `WNTextStyle` and `WNNSFont` cannot drift apart
+//  on what "semiBold" means.
 //
 
 import AppKit
 import SwiftUI
 
 nonisolated enum WNFontWeight: String, CaseIterable, Sendable {
-    /// Medium (500) — body copy and every non-emphasised run.
+    /// Body copy and every non-emphasised run. Named for the Flutter rung it
+    /// descends from (Medium), resolved one step lighter — Regular (400).
     case medium
     /// SemiBold (600) — titles, row headings, and emphasised labels.
     case semiBold
@@ -28,7 +31,7 @@ nonisolated enum WNFontWeight: String, CaseIterable, Sendable {
     /// The SwiftUI spelling of the weight.
     var swiftUI: Font.Weight {
         switch self {
-        case .medium: .medium
+        case .medium: .regular
         case .semiBold: .semibold
         case .bold: .bold
         }
@@ -37,7 +40,7 @@ nonisolated enum WNFontWeight: String, CaseIterable, Sendable {
     /// The AppKit spelling of the same weight, for the TextKit-backed composer.
     var appKit: NSFont.Weight {
         switch self {
-        case .medium: .medium
+        case .medium: .regular
         case .semiBold: .semibold
         case .bold: .bold
         }
