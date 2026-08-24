@@ -91,6 +91,61 @@ enum OnboardingLayout {
         }
     }
 
+    // MARK: - The sign-up pane
+
+    /// The avatar that stands where the mark stands on the other two panes.
+    ///
+    /// Sized against the mark rather than against the settings page's 96pt avatar: it is the same
+    /// slot, and a hero that changed height between panes would move the whole column under it.
+    /// At 88 the avatar plus its badge comes out within a few points of `minimumMarkWidth`'s
+    /// 136pt-tall mark, which is as close as two different shapes get.
+    static let signUpAvatarSize: CGFloat = 88
+
+    /// The camera badge in the avatar's bottom-trailing corner. 30, the same size Settings →
+    /// Profile draws it: this avatar is 8pt smaller than that page's, so a badge scaled to match
+    /// would only be heavier than the one the app already has.
+    static let signUpAvatarBadgeSize: CGFloat = 30
+
+    /// Between a field's label and the field itself.
+    static let fieldLabelSpacing: CGFloat = 6
+
+    /// Between one labelled field and the next.
+    static let fieldSpacing: CGFloat = 16
+
+    /// Between the sign-up pane's title block and the first field.
+    static let titleToFieldsSpacing: CGFloat = 20
+
+    /// `OnboardingKeyField`'s inset, so a name field and a key field line their text up.
+    static let fieldHorizontalPadding: CGFloat = 12
+    static let fieldVerticalPadding: CGFloat = 8
+
+    /// A single-line field's height — `OnboardingKeyField.Metrics.height`, restated here because
+    /// that one is `private` to a view that owns an accessory this field does not have.
+    static let singleLineFieldHeight: CGFloat = 40
+
+    /// How tall a field with `lineLimit` lines of `medium14` draws, chrome included.
+    ///
+    /// The one-line case is pinned to `singleLineFieldHeight` rather than computed, because a
+    /// field that submits the same form as the key field beside it has to be exactly as tall as
+    /// that field, not approximately.
+    static func fieldHeight(forLineLimit lineLimit: Int) -> CGFloat {
+        guard lineLimit > 1 else { return singleLineFieldHeight }
+        return CGFloat(lineLimit) * multilineFieldLineHeight + 2 * fieldVerticalPadding
+    }
+
+    /// One line of `medium14`, rounded up.
+    static let multilineFieldLineHeight: CGFloat = 18
+
+    /// The corner a multi-line field takes: the radius a `singleLineFieldHeight` capsule has, so
+    /// the two fields in the sign-up column share a corner without the taller one becoming a
+    /// lozenge. See `OnboardingFormField`.
+    static let multilineFieldCornerRadius: CGFloat = singleLineFieldHeight / 2
+
+    /// How many lines the About field shows before it scrolls. Three, the same as the prototype's
+    /// `lineLimit(3...6)` floor — a bio is a sentence or two, and every extra line here is a line
+    /// the pane has to find inside a 620pt window.
+    static let aboutFieldLineLimit = 3
+
     /// The narrowest the mark is allowed to draw, so it survives a pane squeezed by a wide
     /// account rail. Slightly above the source SVG's own 171pt width.
     static let minimumMarkWidth: CGFloat = 176

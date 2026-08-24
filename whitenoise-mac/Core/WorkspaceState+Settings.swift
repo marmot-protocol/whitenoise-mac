@@ -38,6 +38,25 @@ private struct ProfileImageUploadContext {
     let generation: UInt64
 }
 
+/// Where a picked image is going, resolved once at the start of a selection.
+///
+/// Resolved up front rather than read again at commit time, for the same reason
+/// `ProfileImageUploadContext` captures its account: the picker's work is `await`-heavy — a
+/// download, a decode, a re-encode — and the destination must not be able to change underneath it.
+private enum ProfileImageSelectionContext {
+    /// Upload under the active account and set `profileDraft.picture` to the returned URL.
+    case upload(ProfileImageUploadContext)
+    /// Stage the bytes in `signUpDraft`; there is no account to upload them under yet.
+    case stage(generation: UInt64)
+
+    var generation: UInt64 {
+        switch self {
+        case .upload(let context): context.generation
+        case .stage(let generation): generation
+        }
+    }
+}
+
 @MainActor
 extension WorkspaceState {
     /// Loads the aggregate settings snapshot (profile, relays, notifications, privacy/security)
@@ -515,11 +534,19 @@ extension WorkspaceState {
 
     func showProfileImagePicker() {
         guard activeAccount != nil else { return }
+        presentProfileImagePicker(destination: .activeAccount)
+    }
+
+    /// The shared body of `showProfileImagePicker()` and `showSignUpImagePicker()`. The caller
+    /// owns the precondition — an account for one, the sign-up pane for the other — because the
+    /// two have nothing in common beyond opening the same sheet.
+    func presentProfileImagePicker(destination: ProfileImagePickerDestination) {
         lastError = nil
         profileImageSearchGeneration &+= 1
         profileImageSearchQuery = ""
         profileImageResults = []
         isSearchingProfileImages = false
+        profileImagePickerDestination = destination
         isProfileImagePickerPresented = true
     }
 
@@ -564,8 +591,8 @@ extension WorkspaceState {
     }
 
     func setProfileImage(_ result: GroupImageSearchResult) async {
-        guard let context = beginProfileImageUpload() else { return }
-        defer { finishProfileImageUpload(context) }
+        guard let context = beginProfileImageSelection() else { return }
+        defer { finishProfileImageSelection(context) }
 
         guard let sourceURL = RemoteImageURLPolicy.sanitizedURL(from: result.imageURL) else {
             lastError = ProfileImageSelectionError.invalidWebImage.localizedDescription
@@ -581,7 +608,7 @@ extension WorkspaceState {
                 fromPastedImageData: data,
                 typeIdentifier: nil
             )
-            try await uploadSelectedProfileImage(attachment, context: context)
+            try await commitSelectedProfileImage(attachment, context: context)
         } catch is CancellationError {
             return
         } catch {
@@ -590,8 +617,8 @@ extension WorkspaceState {
     }
 
     func setProfileImage(fileURL: URL) async {
-        guard let context = beginProfileImageUpload() else { return }
-        defer { finishProfileImageUpload(context) }
+        guard let context = beginProfileImageSelection() else { return }
+        defer { finishProfileImageSelection(context) }
 
         let isSecurityScoped = fileURL.startAccessingSecurityScopedResource()
         defer {
@@ -602,7 +629,7 @@ extension WorkspaceState {
 
         do {
             let attachment = try await OutgoingMediaDraftProcessor.preparedAttachment(fromFileURL: fileURL)
-            try await uploadSelectedProfileImage(attachment, context: context)
+            try await commitSelectedProfileImage(attachment, context: context)
         } catch is CancellationError {
             return
         } catch {
@@ -610,47 +637,78 @@ extension WorkspaceState {
         }
     }
 
-    private func beginProfileImageUpload() -> ProfileImageUploadContext? {
-        guard let client, let activeAccount, !isUploadingProfileImage else { return nil }
-        profileImageUploadGeneration &+= 1
-        lastError = nil
-        isUploadingProfileImage = true
-        return ProfileImageUploadContext(
-            client: client,
-            accountId: activeAccount.id,
-            accountRef: activeAccount.accountRef,
-            generation: profileImageUploadGeneration
-        )
+    private func beginProfileImageSelection() -> ProfileImageSelectionContext? {
+        guard !isUploadingProfileImage else { return nil }
+        switch profileImagePickerDestination {
+        case .activeAccount:
+            guard let client, let activeAccount else { return nil }
+            profileImageUploadGeneration &+= 1
+            lastError = nil
+            isUploadingProfileImage = true
+            return .upload(
+                ProfileImageUploadContext(
+                    client: client,
+                    accountId: activeAccount.id,
+                    accountRef: activeAccount.accountRef,
+                    generation: profileImageUploadGeneration
+                )
+            )
+        case .signUpDraft:
+            profileImageUploadGeneration &+= 1
+            lastError = nil
+            isUploadingProfileImage = true
+            return .stage(generation: profileImageUploadGeneration)
+        }
     }
 
-    private func finishProfileImageUpload(_ context: ProfileImageUploadContext) {
+    private func finishProfileImageSelection(_ context: ProfileImageSelectionContext) {
         if profileImageUploadGeneration == context.generation {
             isUploadingProfileImage = false
         }
     }
 
-    private func uploadSelectedProfileImage(
+    /// Turn prepared bytes into whatever the destination stores: a Blossom URL on
+    /// `profileDraft.picture`, or the bytes themselves on `signUpDraft.image`.
+    ///
+    /// `isUploadingProfileImage` covers both, despite the name — it is what the sheet disables its
+    /// controls on, and on the sign-up path it still spans the download-and-re-encode that a web
+    /// image goes through before it can be staged.
+    private func commitSelectedProfileImage(
         _ attachment: PendingMediaAttachment,
-        context: ProfileImageUploadContext
+        context: ProfileImageSelectionContext
     ) async throws {
         guard attachment.kind == .image else {
             throw ProfileImageSelectionError.notAnImage
         }
-        guard activeAccountId == context.accountId,
-            profileImageUploadGeneration == context.generation
-        else { return }
 
-        let url = try await context.client.uploadProfileImage(
-            accountRef: context.accountRef,
-            data: attachment.data,
-            mediaType: attachment.mediaType,
-            blossomServer: nil
-        )
-        guard activeAccountId == context.accountId,
-            profileImageUploadGeneration == context.generation
-        else { return }
-        profileDraft.picture = url
-        closeProfileImagePicker()
+        switch context {
+        case .stage(let generation):
+            // The pane check is the one the generation cannot make: backing out of sign-up
+            // discards the draft without touching this counter, and a selection that was still
+            // downloading would otherwise write a photo into a draft the user has abandoned.
+            guard profileImageUploadGeneration == generation, authenticationMode == .signUp else {
+                return
+            }
+            signUpDraft.image = SignUpProfileImage(attachment: attachment)
+            closeProfileImagePicker()
+
+        case .upload(let uploadContext):
+            guard activeAccountId == uploadContext.accountId,
+                profileImageUploadGeneration == uploadContext.generation
+            else { return }
+
+            let url = try await uploadContext.client.uploadProfileImage(
+                accountRef: uploadContext.accountRef,
+                data: attachment.data,
+                mediaType: attachment.mediaType,
+                blossomServer: nil
+            )
+            guard activeAccountId == uploadContext.accountId,
+                profileImageUploadGeneration == uploadContext.generation
+            else { return }
+            profileDraft.picture = url
+            closeProfileImagePicker()
+        }
     }
 
     func loadNotificationSettings() async {

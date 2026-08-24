@@ -25,31 +25,46 @@ import SwiftUI
 /// transition between them a small local one rather than a whole-pane replacement.
 ///
 /// The mark's width is measured rather than proportional; see `OnboardingLayout.markWidth`.
-struct OnboardingScaffold<Content: View, Actions: View>: View {
+///
+/// **The hero is the one part of the scaffold a pane may replace.** Both the prototype's sign-up
+/// screen and Flutter's `SignupScreen` drop the logo there and put the avatar being created in its
+/// place — the subject of that screen is the identity, not the app — and they can, because on a
+/// phone it is a pushed screen with a nav bar to carry the way back. A window has neither, so the
+/// swap happens inside the same scaffold: same header row, same two `Spacer`s, same action column,
+/// and only the thing they are arranged around changes. `OnboardingMarkHero` is the default, so a
+/// pane that says nothing gets the mark.
+struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
+    /// What this pane is called, drawn in the header row. `nil` on the panes that do not need one:
+    /// a screen whose whole content is a mark over two buttons is not asking a question.
+    ///
+    /// The header row is where it goes because the header row is already there — 28pt reserved on
+    /// every pane so the hero cannot jump — and a title inside it therefore costs the column below
+    /// nothing. That matters on the sign-up pane, which is 13pt too tall for a 620pt window with
+    /// its title in the content and comfortably inside it with the title up here. It is also where
+    /// both phone clients put the same string: `wn-ios-prototype` as a `navigationTitle`, Flutter
+    /// as its `WnSlateNavigationHeader` title, both beside the same back control.
+    var title: String?
     /// Supplied only by a pane that has somewhere to go back to. The welcome pane is the root and
     /// passes `nil`, which removes the control while keeping the row it stood in.
     var backAction: (() -> Void)?
-    /// Whatever sits between the mark and the actions — the sign-in pane's key field. Empty on
-    /// the welcome pane, which contributes no subview and therefore no spacing.
+    /// What the pane is arranged around. Defaults to the mark.
+    @ViewBuilder var hero: Hero
+    /// Whatever sits between the hero and the actions — the sign-in pane's key field, the sign-up
+    /// pane's form. Empty on the welcome pane, which contributes no subview and therefore no
+    /// spacing.
     @ViewBuilder var content: Content
     @ViewBuilder var actions: Actions
 
-    /// The pane's own width, not the window's: the account rail and the chat drawer are siblings,
-    /// so on the signed-in "add another account" path this pane is narrower than the window.
-    @State private var paneWidth: CGFloat = 0
-
     var body: some View {
         VStack(spacing: 0) {
-            OnboardingHeaderRow(backAction: backAction)
+            OnboardingHeaderRow(title: title, backAction: backAction)
 
             Spacer(minLength: OnboardingLayout.edgePadding)
 
-            WhiteNoiseMarkView(
-                width: OnboardingLayout.markWidth(forContainerWidth: paneWidth)
-            )
+            hero
 
-            // Capped, unlike the `Spacer` above the mark, so the pane's spare height collects at
-            // the top instead of being split evenly across the mark. See
+            // Capped, unlike the `Spacer` above the hero, so the pane's spare height collects at
+            // the top instead of being split evenly across the hero. See
             // `OnboardingLayout.markToActionsMaximumSpacing`.
             Spacer(minLength: OnboardingLayout.edgePadding)
                 .frame(maxHeight: OnboardingLayout.markToActionsMaximumSpacing)
@@ -63,19 +78,14 @@ struct OnboardingScaffold<Content: View, Actions: View>: View {
             }
             .frame(width: OnboardingLayout.contentWidth)
 
-            // Flexible, and the twin of the `Spacer` above the mark rather than a fixed inset.
-            // A fixed one made every point of spare height land *above* the mark, so a tall
+            // Flexible, and the twin of the `Spacer` above the hero rather than a fixed inset.
+            // A fixed one made every point of spare height land *above* the hero, so a tall
             // window pushed the whole group onto the bottom edge; two flexible ends split it and
             // the group sits centred with real air under the buttons. `edgePadding` is the floor,
             // for the short window where there is nothing to split.
             Spacer(minLength: OnboardingLayout.edgePadding)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { width in
-            paneWidth = width
-        }
         .background {
             // `backgroundPrimary`, the app's reading surface — the same ground the transcript and
             // the settings pages stand on, and what the other clients' sign-in screen uses. The
@@ -87,16 +97,38 @@ struct OnboardingScaffold<Content: View, Actions: View>: View {
     }
 }
 
-/// The scaffold's top row, present on **both** panes whether or not it has a control in it.
+extension OnboardingScaffold where Hero == OnboardingMarkHero {
+    /// The scaffold as both existing panes use it: the mark as the hero.
+    init(
+        title: String? = nil,
+        backAction: (() -> Void)? = nil,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder actions: () -> Actions
+    ) {
+        self.init(
+            title: title,
+            backAction: backAction,
+            hero: { OnboardingMarkHero() },
+            content: content,
+            actions: actions
+        )
+    }
+}
+
+/// The scaffold's top row, present on **every** pane whether or not it has a control in it.
 ///
-/// Reserving the height unconditionally is what keeps the mark from jumping when the pane swaps:
-/// the scaffold's two `Spacer`s centre the mark in whatever is left below this row, so a row that
-/// appeared only on sign-in would shift the mark down by its height on the way in and back up on
+/// Reserving the height unconditionally is what keeps the hero from jumping when the pane swaps:
+/// the scaffold's two `Spacer`s centre the hero in whatever is left below this row, so a row that
+/// appeared only on sign-in would shift the hero down by its height on the way in and back up on
 /// the way out.
 private struct OnboardingHeaderRow: View {
+    let title: String?
     let backAction: (() -> Void)?
 
     var body: some View {
+        // Overlaid rather than a third `HStack` member, so the title is centred on the *pane* and
+        // not on whatever is left of it beside the back control — which would move it sideways
+        // between a pane that has a back control and one that does not.
         HStack {
             if let backAction {
                 GlassCircleCloseButton(
@@ -110,6 +142,18 @@ private struct OnboardingHeaderRow: View {
             }
 
             Spacer(minLength: 0)
+        }
+        .overlay {
+            if let title {
+                Text(title)
+                    .wnFont(.semiBold14)
+                    .foregroundStyle(WNColor.backgroundContentPrimary)
+                    .lineLimit(1)
+                    // Never under the back control, however narrow the pane gets.
+                    .padding(.horizontal, MessagesLayout.circleControlSize + OnboardingLayout.actionSpacing)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("onboarding.title")
+            }
         }
         .frame(height: MessagesLayout.circleControlSize)
         .padding(.horizontal, OnboardingLayout.edgePadding)
