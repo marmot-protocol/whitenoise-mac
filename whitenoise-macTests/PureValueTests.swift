@@ -56,9 +56,15 @@ struct PureValueTests {
         #expect(large.font.size > medium.font.size)
         #expect(large.verticalPadding > medium.verticalPadding)
         #expect(large.horizontalPadding > medium.horizontalPadding)
-        #expect(large.cornerRadius > medium.cornerRadius)
         #expect(large.controlSize == .large)
         #expect(medium.controlSize == .regular)
+
+        // The radius is the fourth axis, and it is no longer the size's to hold: it comes from the
+        // shared table by way of `controlSize`, which is what keeps a primary button and the
+        // `.wnSecondary` one beside it cut alike.
+        #expect(
+            WNButtonMetrics.cornerRadius(for: large.controlSize)
+                > WNButtonMetrics.cornerRadius(for: medium.controlSize))
     }
 
     @MainActor
@@ -77,17 +83,17 @@ struct PureValueTests {
         #expect(WNButtonMetrics.cornerRadius(for: .large) == 12)
         #expect(WNButtonMetrics.cornerRadius(for: .regular) == 8)
 
+        // The sizes hold no radius to compare against any more — `WNPrimaryButtonSize` names only
+        // a `controlSize`, and `WNPrimaryButton` takes its outline from the table above. Drift is
+        // impossible rather than merely asserted.
         for size in WNPrimaryButtonSize.allCases {
-            #expect(size.cornerRadius == WNButtonMetrics.cornerRadius(for: size.controlSize))
+            #expect(WNButtonMetrics.cornerRadius(for: size.controlSize) >= 8)
         }
     }
 
     @MainActor
     @Test func primaryButtonSizesKeepWnButtonsRadiusFloorAndPositivePadding() {
         for size in WNPrimaryButtonSize.allCases {
-            // `WnButton` uses 8 at every size but `xsmall`, which the mac app has no use for, so 8
-            // is the floor rather than a value any size may drop below.
-            #expect(size.cornerRadius >= 8)
             // Interior padding is what grows the native chrome; zero would silently make a size
             // indistinguishable from the platform default.
             #expect(size.verticalPadding > 0)

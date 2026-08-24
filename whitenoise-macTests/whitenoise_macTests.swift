@@ -23892,15 +23892,28 @@ struct whitenoise_macTests {
         #expect(pairSource.contains(".wnPrimaryButtonStyle()"))
         #expect(pairSource.contains(".buttonStyle(.wnSecondary)"))
 
-        // Neither tier names a radius of its own any more: one table, or they drift apart again.
-        for fileName in ["WNPrimaryButtonSize.swift", "WNSecondaryButtonStyle.swift"] {
+        // Neither tier names a shape of its own any more: one table, or they drift apart again.
+        // The primary size still asks the table for a radius; the tiers that draw their own ground
+        // ask it for the whole outline, so that a pane can switch both to a capsule at once.
+        for (fileName, call) in [
+            ("WNPrimaryButton.swift", "WNButtonMetrics.borderShape("),
+            ("WNSecondaryButtonStyle.swift", "WNButtonMetrics.backgroundShape("),
+            ("WNElevatedButtonStyle.swift", "WNButtonMetrics.backgroundShape("),
+        ] {
             let source = try String(
                 contentsOf: viewsDirURL.appendingPathComponent(fileName),
                 encoding: .utf8
             )
-            #expect(source.contains("WNButtonMetrics.cornerRadius(for:"))
+            #expect(source.contains(call), "\(fileName) no longer reads the shared table")
             #expect(!source.contains("cornerRadius: CGFloat = "))
         }
+
+        // And no tier keeps a radius of its own to drift back to.
+        let sizeSource = try String(
+            contentsOf: viewsDirURL.appendingPathComponent("WNPrimaryButtonSize.swift"),
+            encoding: .utf8
+        )
+        #expect(!sizeSource.contains("cornerRadius"), "a size is naming a radius again")
     }
 
     @MainActor
