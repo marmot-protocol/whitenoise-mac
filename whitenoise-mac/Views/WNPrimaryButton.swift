@@ -24,6 +24,11 @@ struct WNPrimaryButton<Label: View>: View {
     let action: () -> Void
     @ViewBuilder let label: Label
 
+    /// Read even though this component names its own `controlSize`: the shape and the size are
+    /// different questions. A pane that asked for pills gets pills here too, rather than one
+    /// rounded rectangle among them.
+    @Environment(\.wnButtonShape) private var buttonShape
+
     var body: some View {
         Button(action: action) {
             label
@@ -31,7 +36,7 @@ struct WNPrimaryButton<Label: View>: View {
                 .padding(.vertical, size.verticalPadding)
                 .padding(.horizontal, size.horizontalPadding)
         }
-        .buttonBorderShape(.roundedRectangle(radius: size.cornerRadius))
+        .buttonBorderShape(WNButtonMetrics.borderShape(buttonShape, for: size.controlSize))
         .controlSize(size.controlSize)
         .nativeGlassProminentButtonStyle()
     }
