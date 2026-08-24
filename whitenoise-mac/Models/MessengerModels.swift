@@ -1026,6 +1026,97 @@ nonisolated struct PendingOutgoingMediaMessage: Identifiable, Hashable, Sendable
     }
 }
 
+/// Where a sent-but-not-yet-published text message has got to.
+///
+/// Text has no upload leg, so this looks thinner than the media states — but it carries a wait
+/// media does not: `.queued`. Sends in one conversation publish in the order Send was pressed,
+/// which means a message can be waiting on the one ahead of it without having reached the core at
+/// all. While it is there, nothing else on screen represents it: the composer emptied on the Send
+/// press and the core has no row to project yet.
+nonisolated enum PendingOutgoingTextMessageState: Hashable, Sendable {
+    /// Waiting for the send ahead of it in this conversation. This row is the only thing carrying
+    /// the message — a relay that takes the predecessor thirty seconds to give up on used to be
+    /// thirty seconds with the message nowhere at all.
+    case queued
+    /// Handed to the core, which commits and projects an own send locally *before* it publishes,
+    /// so the real row normally takes this one's place within a frame or two.
+    case publishing
+    /// The publish failed and the core retracted its local projection, leaving this row the only
+    /// copy of what the user wrote. It keeps the text and owns the retry.
+    case failed
+
+    var isInFlight: Bool {
+        self != .failed
+    }
+}
+
+/// A text message the user has already sent, still on its way to the relay.
+///
+/// The counterpart of `PendingOutgoingMediaMessage`, and here for the same reason: Send empties the
+/// composer without waiting, so something has to hold the message in the meantime. Media always
+/// needed it for the uploads; text needs it for the two windows where the core cannot speak for the
+/// message — before the send reaches it, and after a failed publish rolls its projection back.
+nonisolated struct PendingOutgoingTextMessage: Identifiable, Hashable, Sendable {
+    let id: UUID
+    /// Exactly the bytes handed to the core: mentions already canonicalized, ends already trimmed.
+    /// Also how the published row is recognized, the way a media message uses its plaintext
+    /// digests — text is its own digest.
+    let text: String
+    /// Carried so a retry re-sends the message as the reply it was, rather than as a loose message
+    /// under the one it was answering.
+    let replyContext: MessageReplyContext?
+    let createdAt: Date
+    var state: PendingOutgoingTextMessageState
+    /// How many own rows in this transcript already carried `text` when the publish began, or nil
+    /// until it has begun.
+    ///
+    /// The retirement key, and the reason it is a count rather than a flag: the core commits an own
+    /// send locally inside the publish call, so the real row can arrive while the round-trip is
+    /// still going and both would render at once. Comparing against the count taken *before* the
+    /// publish is what distinguishes "the row for this message has arrived" from "this conversation
+    /// already contained an identical message" — a flag would hide the second `ok` of a
+    /// conversation behind the first one.
+    var ownBodyCountBeforePublish: Int?
+
+    init(
+        id: UUID = UUID(),
+        text: String,
+        replyContext: MessageReplyContext? = nil,
+        createdAt: Date = Date(),
+        state: PendingOutgoingTextMessageState = .queued
+    ) {
+        self.id = id
+        self.text = text
+        self.replyContext = replyContext
+        self.createdAt = createdAt
+        self.state = state
+    }
+}
+
+/// One row in the transcript's pending tail, whichever kind of send produced it.
+///
+/// The two pending lists are separate — they wait on entirely different things — but they share one
+/// stretch of transcript, so they cannot each render their own `ForEach`: that orders every text
+/// row before every media row, and a photo sent before a sentence would appear after it.
+nonisolated enum PendingOutgoingMessageRow: Identifiable, Hashable, Sendable {
+    case text(PendingOutgoingTextMessage)
+    case media(PendingOutgoingMediaMessage)
+
+    var id: UUID {
+        switch self {
+        case .text(let message): message.id
+        case .media(let message): message.id
+        }
+    }
+
+    var createdAt: Date {
+        switch self {
+        case .text(let message): message.createdAt
+        case .media(let message): message.createdAt
+        }
+    }
+}
+
 nonisolated struct PendingMediaAttachment: Identifiable, Hashable, Sendable {
     let id: UUID
     let fileName: String

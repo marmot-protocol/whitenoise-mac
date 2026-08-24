@@ -18710,30 +18710,35 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func failedTextSendPutsTheDraftBackInTheComposer() async throws {
-        // Emptying on hand-off must not cost the user their text when the publish fails: the
-        // draft, its mention markers and its reply context all come back for a retry.
+    @Test func failedTextSendKeepsTheMessageInAFailedBubble() async throws {
+        // Emptying on hand-off must not cost the user their text when the publish fails. The text
+        // stays in the transcript as a failed row that owns its retry — not back in the composer,
+        // which is a slot the next message may already have taken.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.installGroup(messageGroup())
+        // Details, not a bare group: `canonicalizeMentions` bails on an empty roster, so with only
+        // `installGroup` the mention below would be inert and the text would reach the row exactly
+        // as typed — passing for the wrong reason.
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
-        let draftKey = try #require(state.selectedComposerDraftKey)
+        state.ensureMentionRosterLoaded()
+        let didWarmRoster = await waitFor { !state.mentionRoster().isEmpty }
+        #expect(didWarmRoster)
 
-        let mentionSelections = [
-            ComposerMentionSelection(
-                range: NSRange(location: 0, length: 6),
-                displayText: "@Alice",
-                npub: "npub1alice"
-            )
-        ]
         state.replyDraftContext = MessageReplyContext(
             targetMessageId: "parent",
             senderName: "Alice",
             body: "The launch plan is ready."
         )
         state.draftText = "@Alice ping"
-        state.composerMentionSelections = mentionSelections
+        state.composerMentionSelections = [
+            ComposerMentionSelection(
+                range: NSRange(location: 0, length: 6),
+                displayText: "@Alice",
+                npub: "npub1alyce"
+            )
+        ]
         runtime.replyToMessageError = NSError(
             domain: "test.reply",
             code: 1,
@@ -18742,42 +18747,236 @@ struct whitenoise_macTests {
         await state.sendDraft()
         await Self.settleOutgoingTextSends(state)
 
-        #expect(state.draftText == "@Alice ping")
-        #expect(state.composerMentionSelections == mentionSelections)
-        #expect(state.replyDraftContext?.targetMessageId == "parent")
+        let failed = try #require(state.selectedPendingOutgoingTextMessages.first)
+        #expect(failed.state == .failed)
+        // The wire form, not what was typed: the bubble reads npubs back as names through
+        // `MentionDisplayResolver`, which only works because this is what the row carries.
+        #expect(failed.text == "@npub1alyce ping")
+        // Carried so the retry re-sends it as the reply it was, not as a loose message.
+        #expect(failed.replyContext?.targetMessageId == "parent")
         #expect(state.lastError == "relay unreachable")
-        // The restored draft is dirty again, so it will be persisted rather than left only in memory.
-        #expect(state.dirtyComposerDraftKeys.contains(draftKey))
-        #expect(state.canSend)
+        // The composer stays free: the failure has a home of its own now, so nothing is pushed back
+        // into an input the user may already be typing their next message into.
+        #expect(state.draftText.isEmpty)
+        #expect(state.composerMentionSelections.isEmpty)
+        #expect(state.replyDraftContext == nil)
+
+        // Retry re-publishes that same row rather than minting a second one, and re-publishes the
+        // canonicalized text — the composer that could have re-derived it is already empty.
+        runtime.replyToMessageError = nil
+        state.retryPendingOutgoingTextMessage(failed.id)
+        await Self.settlePendingOutgoingTextSends(state)
+        #expect(state.selectedPendingOutgoingTextMessages.isEmpty)
+        #expect(runtime.repliedMessage?.text == "@npub1alyce ping")
     }
 
     @MainActor
-    @Test func failedTextSendKeepsWhatTheUserTypedWhileItWasInFlight() async throws {
-        // The restore is a courtesy, not an overwrite. If the emptied composer already holds new
-        // text by the time the failure lands, that text wins — `lastError` reports the loss.
+    @Test func retryingAFailedTextSendTwiceInOneTurnPublishesOnce() async throws {
+        // Both presses land in a single main-actor turn, which is the whole point: the row only
+        // left `.failed` inside the publishing task, a hop later, so a second press read the same
+        // failed row and started a second round-trip. Cancelling the first task did not stop it
+        // either — nothing on that path consults the flag until after the send has gone out.
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
         runtime.installGroup(messageGroup())
         let state = WorkspaceState(clientFactory: { runtime })
         await state.bootstrap()
 
-        state.draftText = "first message"
+        runtime.sendTextError = NSError(
+            domain: "test.send",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "relay unreachable"]
+        )
+        state.draftText = "ping"
+        await state.sendDraft()
+        await Self.settleOutgoingTextSends(state)
+
+        let failed = try #require(state.selectedPendingOutgoingTextMessages.first)
+        #expect(failed.state == .failed)
+        #expect(runtime.sendTextCallCount == 1)
+
+        runtime.sendTextError = nil
+        state.retryPendingOutgoingTextMessage(failed.id)
+        state.retryPendingOutgoingTextMessage(failed.id)
+        // Read before any suspension point, so this is the synchronous transition itself and not
+        // the task's: leaving `.failed` here is what makes the guard a single-flight lock.
+        #expect(state.selectedPendingOutgoingTextMessages.first?.state == .publishing)
+
+        await Self.settlePendingOutgoingTextSends(state)
+        // The failed attempt plus one retry. Counted at the top of the fake's `sendText`, ahead of
+        // its own error, so a second retry that got as far as the core would be visible here.
+        #expect(runtime.sendTextCallCount == 2)
+        #expect(state.selectedPendingOutgoingTextMessages.isEmpty)
+    }
+
+    @MainActor
+    @Test func textSendQueuedBehindAStuckSendIsVisibleWhileItWaits() async throws {
+        // The reported bug: with the relay unreachable, the first send sits in its round-trip for as
+        // long as the timeout lasts. The composer emptied on the Send press and the core has not been
+        // called for the second message, so it used to be in neither place — the user watched their
+        // message disappear. It is now a queued row in the transcript for that whole window.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
         runtime.sendTextError = NSError(
             domain: "test.send",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "relay unreachable"]
         )
         runtime.messageActionGateEnabled = true
+        state.draftText = "first message"
         await state.sendDraft()
         await Self.waitUntil { runtime.didReachMessageActionGate }
 
-        // The user starts the next message while the first one is still in flight.
         state.draftText = "second message"
+        await state.sendDraft()
+        state.draftText = "third message"
+        await state.sendDraft()
+
+        // Both later messages are on screen, in the order Send was pressed, while the first is still
+        // stuck in the core.
+        #expect(state.draftText.isEmpty)
+        #expect(
+            state.selectedPendingOutgoingTextMessages.map(\.text)
+                == ["first message", "second message", "third message"]
+        )
+        #expect(state.selectedPendingOutgoingTextMessages.map(\.state) == [.publishing, .queued, .queued])
+
         runtime.releaseMessageActionGate()
         await Self.settleOutgoingTextSends(state)
 
-        #expect(state.draftText == "second message")
+        // Nothing was dropped: every message that failed still holds its text and its own retry.
+        // The old restore refilled the composer from the *first* failure and then discarded the rest
+        // as "the composer is not empty".
+        #expect(
+            state.selectedPendingOutgoingTextMessages.map(\.text)
+                == ["first message", "second message", "third message"]
+        )
+        #expect(state.selectedPendingOutgoingTextMessages.allSatisfy { $0.state == .failed })
         #expect(state.lastError == "relay unreachable")
+    }
+
+    @MainActor
+    @Test func pendingTextAndMediaRowsInterleaveInTheOrderTheyWereSent() async throws {
+        // The two pending lists wait on different things but share one stretch of transcript. Given
+        // a `ForEach` each, every text row would sort ahead of every media row — a photo sent before
+        // a sentence would appear after it.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+
+        let start = Date()
+        func attachment(_ name: String) -> PendingMediaAttachment {
+            PendingMediaAttachment(
+                fileName: name,
+                mediaType: "text/plain",
+                data: Data(name.utf8),
+                dim: nil
+            )
+        }
+
+        state.pendingOutgoingTextMessagesByConversation[draftKey] = [
+            PendingOutgoingTextMessage(text: "first", createdAt: start),
+            PendingOutgoingTextMessage(text: "third", createdAt: start.addingTimeInterval(2)),
+        ]
+        state.pendingOutgoingMediaMessagesByConversation[draftKey] = [
+            PendingOutgoingMediaMessage(
+                attachments: [attachment("second.txt")],
+                caption: "second",
+                createdAt: start.addingTimeInterval(1)
+            ),
+            PendingOutgoingMediaMessage(
+                attachments: [attachment("fourth.txt")],
+                caption: "fourth",
+                createdAt: start.addingTimeInterval(3)
+            ),
+        ]
+
+        let rows = state.selectedPendingOutgoingMessageRows
+        let labels = rows.map { row in
+            switch row {
+            case .text(let message): message.text
+            case .media(let message): message.caption
+            }
+        }
+        #expect(labels == ["first", "second", "third", "fourth"])
+    }
+
+    @MainActor
+    @Test func queuedTextSendsStillPublishInTheOrderSendWasPressed() async throws {
+        // Parking the messages must not cost the ordering the chain existed for.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        runtime.messageActionGateEnabled = true
+        state.draftText = "first message"
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+        state.draftText = "second message"
+        await state.sendDraft()
+
+        runtime.releaseMessageActionGate()
+        await Self.settleOutgoingTextSends(state)
+
+        #expect(runtime.publishedTexts.map(\.text) == ["first message", "second message"])
+        // Each row retires as its publish lands, so the tail empties on its own.
+        #expect(state.selectedPendingOutgoingTextMessages.isEmpty)
+    }
+
+    @MainActor
+    @Test func aPublishingTextRowIsWithheldOnceItsOwnRowArrives() async throws {
+        // The core commits an own send locally *inside* the publish call, so the real row can reach
+        // the transcript while the relay round-trip is still going. Both rendering would show the
+        // same sentence twice — and the count is taken before the publish so an identical message
+        // already in the conversation cannot pass for this one's arrival.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroup(messageGroup())
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let draftKey = try #require(state.selectedComposerDraftKey)
+        let chatId = draftKey.chatId
+
+        func ownRow(id: String, body: String) -> MessageItem {
+            MessageItem(
+                id: id,
+                groupIdHex: chatId,
+                sourceMessageIdHex: "source-\(id)",
+                senderAccountIdHex: account.accountIdHex,
+                senderName: "Desktop Account",
+                body: body,
+                sentAt: .now,
+                isOutgoing: true
+            )
+        }
+
+        // An identical message the conversation already contained.
+        state.messageTimelineStores[chatId]?.replace(with: [ownRow(id: "old", body: "ok")])
+
+        runtime.messageActionGateEnabled = true
+        state.draftText = "ok"
+        await state.sendDraft()
+        await Self.waitUntil { runtime.didReachMessageActionGate }
+
+        // Still shown: the row on screen is the *earlier* "ok", not this send's.
+        #expect(state.selectedPendingOutgoingTextMessages.map(\.state) == [.publishing])
+
+        // The local projection for this send lands mid-round-trip.
+        state.messageTimelineStores[chatId]?
+            .replace(with: [ownRow(id: "old", body: "ok"), ownRow(id: "new", body: "ok")])
+        #expect(state.selectedPendingOutgoingTextMessages.isEmpty)
+
+        runtime.releaseMessageActionGate()
+        await Self.settleOutgoingTextSends(state)
     }
 
     @MainActor
@@ -26989,6 +27188,15 @@ struct whitenoise_macTests {
     @MainActor
     private static func settleOutgoingTextSends(_ state: WorkspaceState) async {
         for task in state.outgoingTextSendTasks.values {
+            await task.value
+        }
+    }
+
+    /// Retries do not join the conversation's send chain — the messages in it are the ones sent
+    /// *since* the failure — so they are awaited through their own handles.
+    @MainActor
+    private static func settlePendingOutgoingTextSends(_ state: WorkspaceState) async {
+        for task in state.pendingOutgoingTextSendTasks.values {
             await task.value
         }
     }
