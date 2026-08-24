@@ -70,6 +70,7 @@ private struct WNSecondaryButtonBody: View {
 
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.controlSize) private var controlSize
+    @Environment(\.wnButtonShape) private var buttonShape
     @State private var isHovering = false
 
     var body: some View {
@@ -78,14 +79,11 @@ private struct WNSecondaryButtonBody: View {
             .padding(.vertical, verticalPadding)
             .padding(.horizontal, horizontalPadding)
             .background {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                shape
                     .fill(fill)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .stroke(border, lineWidth: 1)
-                    }
+                    .overlay { shape.stroke(border, lineWidth: 1) }
             }
-            .contentShape(.rect(cornerRadius: cornerRadius, style: .continuous))
+            .contentShape(shape)
             .onHover { isHovering = $0 }
             .animation(.easeOut(duration: 0.12), value: isHovering)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
@@ -131,12 +129,14 @@ private struct WNSecondaryButtonBody: View {
         }
     }
 
-    /// Shared with the primary tier so a pair in one row draws one shape — the radius this style
+    /// Shared with the primary tier so a pair in one row draws one outline — the radius this style
     /// used to hold as a flat 8, which is why an outline button beside a `.large` primary one came
-    /// out squarer than its sibling.
-    private var cornerRadius: CGFloat {
-        WNButtonMetrics.cornerRadius(for: controlSize)
+    /// out squarer than its sibling. Which outline is the row's call, not this style's: onboarding
+    /// asks for a pill, everything inside the app's chrome leaves it a rounded rectangle.
+    private var shape: AnyShape {
+        WNButtonMetrics.backgroundShape(buttonShape, for: controlSize)
     }
+
     private static let disabledOpacity: Double = 0.25
 }
 

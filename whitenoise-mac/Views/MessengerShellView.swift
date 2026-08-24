@@ -90,108 +90,6 @@ struct MessengerShellView: View {
     }
 }
 
-private struct WelcomeAuthView: View {
-    @Environment(WorkspaceState.self) private var workspace
-
-    var body: some View {
-        @Bindable var workspace = workspace
-
-        VStack(spacing: 22) {
-            Spacer(minLength: 32)
-
-            Image("WhiteNoiseLogo")
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 104, height: 104)
-                .shadow(color: WNColor.shadow.opacity(0.1), radius: 18, y: 10)
-
-            // Standard primary/secondary pattern: hierarchy comes from the button style,
-            // and the system owns the label/fill colors (adapts to accent, contrast, and
-            // light/dark) — we don't hard-code them.
-            VStack(spacing: 12) {
-                Button {
-                    Task { await workspace.signUp() }
-                } label: {
-                    Text(
-                        workspace.authenticationActivity == .signUp
-                            ? L10n.string("Creating...")
-                            : L10n.string("Create New Identity")
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .controlSize(.extraLarge)
-                .buttonBorderShape(.capsule)
-                .nativeGlassProminentButtonStyle()
-                .disabled(workspace.isAuthenticating)
-
-                Button {
-                    workspace.showLogin()
-                } label: {
-                    Text(L10n.string("Log in with Key"))
-                        .frame(maxWidth: .infinity)
-                }
-                .controlSize(.extraLarge)
-                .buttonStyle(.plain)
-                .disabled(workspace.isAuthenticating)
-            }
-            .frame(width: 280)
-
-            if workspace.authenticationMode == .login {
-                VStack(spacing: 12) {
-                    SecureField(L10n.string("nsec1..."), text: $workspace.loginIdentity)
-                        .textFieldStyle(.plain)
-                        .frame(width: 360)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .glassCard()
-                        .disabled(workspace.isAuthenticating)
-
-                    HStack(spacing: 10) {
-                        Button(L10n.string("Cancel")) {
-                            workspace.cancelLogin()
-                        }
-                        .buttonStyle(.wnSecondary)
-                        .disabled(workspace.isAuthenticating)
-
-                        Button(
-                            workspace.authenticationActivity == .login
-                                ? L10n.string("Logging in...")
-                                : L10n.string("Log in")
-                        ) {
-                            Task { await workspace.login() }
-                        }
-                        .nativeGlassProminentButtonStyle()
-                        .disabled(
-                            workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                || workspace.isAuthenticating)
-                    }
-                }
-                .padding(.top, 4)
-            }
-
-            if let lastError = workspace.lastError {
-                Text(lastError)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentDestructive)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 460)
-                    .padding(.top, 2)
-            }
-
-            Spacer(minLength: 32)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            // `backgroundPrimary`, as on the other clients' sign-in screen. It used to be a fixed
-            // #202020 chosen to bleed into the logo tile, which made this the one pane in the app
-            // whose surface belonged to no palette and did not follow the appearance at all. The
-            // logo now reads as the app icon it is, sitting on the app's own surface.
-            MessagesTranscriptBackground()
-        }
-    }
-}
-
 private struct DetailPaneView: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -201,7 +99,7 @@ private struct DetailPaneView: View {
             case .bootstrapping:
                 StartupView()
             case .onboarding:
-                WelcomeAuthView()
+                OnboardingView()
             case .failed(let message):
                 FailureView(message: message)
             case .ready:
@@ -235,11 +133,7 @@ private struct SignedOutAccountsView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Image("WhiteNoiseLogo")
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 80, height: 80)
+            WhiteNoiseMarkView(width: 132)
 
             VStack(spacing: 5) {
                 Text(L10n.string("Choose an account"))
@@ -286,7 +180,10 @@ private struct SignedOutAccountsView: View {
             Button(L10n.string("Use another account")) {
                 workspace.showAccountOnboarding()
             }
-            .buttonStyle(.wnSecondary)
+            // The raised tier, not the ringed one: this button stands on a bare pane at the end
+            // of the onboarding path, alongside the two panes in `Views/Onboarding`. See
+            // `WNElevatedButtonStyle`.
+            .buttonStyle(.wnElevated)
             .disabled(workspace.isSigningOutAccount)
 
             if let lastError = workspace.lastError {
@@ -1065,11 +962,19 @@ private struct ConversationView: View {
 
 private struct StartupView: View {
     var body: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text(L10n.string("Starting Marmot"))
-                .wnFont(.medium12)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
+        VStack(spacing: 28) {
+            // The window's splash. It showed a spinner over an empty pane before — the app's own
+            // mark was on disk as a baked dark tile that could not be drawn on a light surface,
+            // so the first thing a launch showed was nothing in particular. `WhiteNoiseMarkView`
+            // is ink rather than a tile, so it can stand here.
+            WhiteNoiseMarkView(width: OnboardingLayout.minimumMarkWidth)
+
+            VStack(spacing: 12) {
+                ProgressView()
+                Text(L10n.string("Starting Marmot"))
+                    .wnFont(.medium12)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
