@@ -153,15 +153,24 @@ struct ProfileImagePickerSheet: View {
 
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                if let account = workspace.activeAccount {
-                    ProfileImageAvatarView(
-                        seed: account.accountIdHex,
-                        initials: account.displayName,
-                        sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
-                        isOwnAccountImage: true,
-                        size: 46,
-                        isSelected: false
-                    )
+                // Whichever profile the sheet is filling in — the active account's published
+                // picture, or the sign-up draft's staged bytes. On the sign-up path there is no
+                // account, so reading `activeAccount` here would leave the header avatar-less
+                // exactly when it is most useful: nothing else on screen shows what was picked.
+                switch workspace.profileImagePickerDestination {
+                case .activeAccount:
+                    if let account = workspace.activeAccount {
+                        ProfileImageAvatarView(
+                            seed: account.accountIdHex,
+                            initials: account.displayName,
+                            sanitizedPictureURL: workspace.profileDraft.sanitizedPictureURL,
+                            isOwnAccountImage: true,
+                            size: 46,
+                            isSelected: false
+                        )
+                    }
+                case .signUpDraft:
+                    SignUpAvatarView(size: 46)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {

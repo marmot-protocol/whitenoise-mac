@@ -19,6 +19,13 @@ import SwiftUI
 /// Both actions are now push buttons, one tier apart: the raised `WNElevatedButtonStyle` for
 /// signing in, and the glass primary for signing up.
 ///
+/// `Sign Up` no longer creates anything. It opens `OnboardingSignUpView`, which is where the
+/// identity is made — the button that minted one outright, in the time it took to press it, is
+/// what left every new account sitting under a hex id with no profile. The pane behind it is the
+/// prototype's `SignUpView` and Flutter's `SignupScreen`, and neither creates anything either
+/// until its own button is pressed. This one therefore has no in-flight label: nothing is in
+/// flight.
+///
 /// The copy is the prototype's, two words each. `Log in with Key` and `Create New Identity` were
 /// more precise and were also the two longest strings on the pane — and neither precision was
 /// load-bearing, because the pane behind each button says the same thing at more length: the
@@ -29,10 +36,6 @@ import SwiftUI
 /// there rather than being invented here.
 struct OnboardingWelcomeView: View {
     @Environment(WorkspaceState.self) private var workspace
-
-    private var isCreating: Bool {
-        workspace.authenticationActivity == .signUp
-    }
 
     var body: some View {
         OnboardingScaffold {
@@ -48,11 +51,10 @@ struct OnboardingWelcomeView: View {
             .accessibilityIdentifier("onboarding.log-in")
 
             OnboardingActionButton(
-                title: L10n.string(isCreating ? "Creating..." : "Sign Up"),
-                tier: .primary,
-                isLoading: isCreating
+                title: L10n.string("Sign Up"),
+                tier: .primary
             ) {
-                Task { await workspace.signUp() }
+                workspace.showSignUp()
             }
             .disabled(workspace.isAuthenticating)
             .accessibilityIdentifier("onboarding.create-identity")

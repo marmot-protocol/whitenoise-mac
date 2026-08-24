@@ -916,7 +916,11 @@ extension WorkspaceState {
         }
     }
 
-    private func clientForAuthentication() async -> (any MarmotRuntime)? {
+    /// The runtime an authentication path runs against, recreating it if onboarding tore it down.
+    ///
+    /// Not `private`: `completeSignUp()` lives in `WorkspaceState+SignUp.swift` and is the same
+    /// kind of caller as `signUp()` and `login()` right here.
+    func clientForAuthentication() async -> (any MarmotRuntime)? {
         if let client { return client }
         if let error = await recreateClientForOnboarding() {
             lastError = error.localizedDescription
