@@ -25356,7 +25356,7 @@ struct whitenoise_macTests {
         let state = try await openInstalledGroupDetails(runtime: runtime)
         let target = ChatLeaveTarget(
             groupIdHex: details.group.groupIdHex,
-            title: details.group.name,
+            subject: .namedGroup(details.group.name),
             requiresSelfDemote: false
         )
 
@@ -25416,17 +25416,62 @@ struct whitenoise_macTests {
 
     /// Two quick clicks must not race: whichever eligibility fetch finishes last would otherwise own
     /// the confirmation, so the dialog could name a chat the user did not click.
+    ///
+    /// `preparingChatLeaveId` is the guard under test, and pinning it takes two things the obvious
+    /// version of this test does not have. The second row must be a *real* installed group whose
+    /// eligibility resolves to a leave — an unknown id could only ever fail, so the confirmation
+    /// would stay put no matter what the guard did. And the overlap has to be arranged rather than
+    /// hoped for: the fake returns installed management state without suspending, so two
+    /// `async let` preparations on the main actor would simply run one after the other, and the
+    /// already-open `chatPendingLeave` would be what turned the second one away. Parking the first
+    /// fetch at the gate is what makes `preparingChatLeaveId` the only thing standing in the way.
     @MainActor
     @Test func overlappingLeavePreparationsCannotRetargetTheConfirmation() async throws {
+        let account = desktopAccount()
         let state = try await leavableChatState(canLeave: true)
+        let runtime = try #require(state.client as? FakeMarmotRuntime)
         let chat = try #require(state.activeChats.first)
 
-        async let first: Void = state.prepareChatLeave(groupIdHex: chat.id, title: "First")
-        async let second: Void = state.prepareChatLeave(groupIdHex: "other-group", title: "Second")
-        _ = await (first, second)
+        var secondGroup = messageGroup()
+        secondGroup.groupIdHex = "second-group"
+        secondGroup.name = "Second Group"
+        runtime.installGroupDetailsRecord(
+            GroupDetailsFfi(group: secondGroup, members: []),
+            managementState: GroupManagementStateFfi(
+                myAccountIdHex: account.accountIdHex,
+                isSelfAdmin: false,
+                isLastAdmin: false,
+                canInvite: false,
+                canLeave: true,
+                requiresSelfDemoteBeforeLeave: false,
+                leaveRequestPending: false,
+                memberActions: []
+            )
+        )
+
+        runtime.groupManagementStateGateEnabled = true
+        async let first: Void = state.prepareChatLeave(
+            groupIdHex: chat.id,
+            subject: .namedGroup("First")
+        )
+        while !(state.preparingChatLeaveId == chat.id && runtime.didReachGroupManagementStateGate) {
+            await Task.yield()
+        }
+
+        // The second click lands while the first eligibility fetch is still parked.
+        await state.prepareChatLeave(
+            groupIdHex: secondGroup.groupIdHex,
+            subject: .namedGroup("Second")
+        )
+        #expect(state.preparingChatLeaveId == chat.id)
+        #expect(state.chatPendingLeave == nil)
+        #expect(state.chatActionAlert == nil)
+
+        runtime.releaseGroupManagementStateGate()
+        await first
 
         #expect(state.chatPendingLeave?.groupIdHex == chat.id)
-        #expect(state.chatPendingLeave?.title == "First")
+        #expect(state.chatPendingLeave?.subject == .namedGroup("First"))
         #expect(state.preparingChatLeaveId == nil)
     }
 
@@ -25480,7 +25525,7 @@ struct whitenoise_macTests {
 
         let handoff = try #require(state.chatPendingAdminHandoff)
         #expect(handoff.groupIdHex == chat.id)
-        #expect(handoff.title == chat.title)
+        #expect(handoff.subject == chat.confirmationSubject)
         // Alice only: Bob carries no action state, so the core has not said he may be promoted.
         #expect(handoff.candidates.map(\.npub) == ["npub1alyce"])
         // And because she is the only one, the picker opens with her already chosen — the sheet is a
@@ -25666,7 +25711,7 @@ struct whitenoise_macTests {
         #expect(state.chatPendingLeave == nil)
         let target = try #require(state.chatPendingLocalDelete)
         #expect(target.groupIdHex == chat.id)
-        #expect(target.title == chat.title)
+        #expect(target.subject == chat.confirmationSubject)
 
         // Nothing was sent on the user's behalf while resolving the block.
         #expect(runtime.leaveGroupCallCount == 0)
@@ -25834,7 +25879,7 @@ struct whitenoise_macTests {
         state.requestChatLocalDelete(for: chat)
         state.chatPendingLeave = ChatLeaveTarget(
             groupIdHex: chat.id,
-            title: chat.title,
+            subject: chat.confirmationSubject,
             requiresSelfDemote: false
         )
         state.chatActionAlert = .leaveFailed()
@@ -25866,7 +25911,7 @@ struct whitenoise_macTests {
         state.requestChatLocalDelete(for: chat)
         state.chatPendingLeave = ChatLeaveTarget(
             groupIdHex: chat.id,
-            title: chat.title,
+            subject: chat.confirmationSubject,
             requiresSelfDemote: false
         )
         state.chatActionAlert = .leaveFailed()
@@ -34322,6 +34367,20 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachGroupDetailsGate: Bool {
         groupDetailsGate.didReach
     }
+    /// Reentrancy-test support for the two-phase chat leave: when armed, the first
+    /// `groupManagementState` FFI call suspends until `releaseGroupManagementStateGate()` is
+    /// invoked, so a test can hold one eligibility fetch in flight and run an overlapping
+    /// preparation to completion against it. Without this the installed-state path returns without
+    /// ever suspending, and two `async let` preparations on the main actor run strictly one after
+    /// the other — never overlapping at all.
+    private let groupManagementStateGate = AsyncFfiGate()
+    var groupManagementStateGateEnabled: Bool {
+        get { groupManagementStateGate.isEnabled }
+        set { groupManagementStateGate.isEnabled = newValue }
+    }
+    var didReachGroupManagementStateGate: Bool {
+        groupManagementStateGate.didReach
+    }
     /// Issue #207 last-request-wins-test support: when armed, the first `accountKeyPackages` FFI
     /// call suspends until `releaseAccountKeyPackagesGate()` is invoked, holding an older
     /// `loadKeyPackages()` in-flight so a test can switch the active account, run a newer load to
@@ -35283,6 +35342,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     }
 
     func groupManagementState(accountRef: String, groupIdHex: String) async throws -> GroupManagementStateFfi {
+        await groupManagementStateGate.passIfArmed()
         if let state = groupManagementStateById[groupIdHex] {
             return state
         }
@@ -35504,6 +35564,10 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
 
     func releaseGroupMutationGate() {
         groupMutationGate.release()
+    }
+
+    func releaseGroupManagementStateGate() {
+        groupManagementStateGate.release()
     }
 
     func releaseGroupInviteGate() {

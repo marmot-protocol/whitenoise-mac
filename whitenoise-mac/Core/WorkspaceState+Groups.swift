@@ -858,15 +858,15 @@ extension WorkspaceState {
     // after the user confirms, re-reading eligibility because it can move between the two taps.
 
     func prepareChatLeave(for chat: ChatItem) async {
-        await prepareChatLeave(groupIdHex: chat.id, title: chat.title)
+        await prepareChatLeave(groupIdHex: chat.id, subject: chat.confirmationSubject)
     }
 
     func prepareSelectedChatLeave() async {
         guard let snapshot = groupDetailsSnapshot else { return }
-        await prepareChatLeave(groupIdHex: snapshot.groupIdHex, title: snapshot.name)
+        await prepareChatLeave(groupIdHex: snapshot.groupIdHex, subject: snapshot.confirmationSubject)
     }
 
-    func prepareChatLeave(groupIdHex: String, title: String) async {
+    func prepareChatLeave(groupIdHex: String, subject: ChatConfirmationSubject) async {
         // One preparation at a time, so two quick clicks on different rows cannot both resolve and
         // leave the confirmation naming whichever eligibility fetch happened to finish last.
         guard let client,
@@ -899,7 +899,7 @@ extension WorkspaceState {
             guard activeAccountId == accountId else { return }
             await presentChatLeaveDecision(
                 groupIdHex: groupIdHex,
-                title: title,
+                subject: subject,
                 state: state
             )
         } catch {
@@ -915,7 +915,7 @@ extension WorkspaceState {
     /// because the sole-admin branch needs its `memberActions` to know who may be promoted.
     private func presentChatLeaveDecision(
         groupIdHex: String,
-        title: String,
+        subject: ChatConfirmationSubject,
         state: GroupManagementStateFfi
     ) async {
         // Both callers only reach here after their surface decided the action was `.leave`, which
@@ -932,20 +932,20 @@ extension WorkspaceState {
         else {
             chatPendingLeave = ChatLeaveTarget(
                 groupIdHex: groupIdHex,
-                title: title,
+                subject: subject,
                 requiresSelfDemote: ChatDestructiveActions.shouldSelfDemoteBeforeLeave(eligibility)
             )
             return
         }
 
-        await reportLeaveBlocker(blocker, groupIdHex: groupIdHex, title: title, state: state)
+        await reportLeaveBlocker(blocker, groupIdHex: groupIdHex, subject: subject, state: state)
     }
 
     /// Both phases resolve the same blocker and must react to it identically, so they share this.
     private func reportLeaveBlocker(
         _ blocker: ChatDestructiveActions.LeaveBlocker,
         groupIdHex: String,
-        title: String,
+        subject: ChatConfirmationSubject,
         state: GroupManagementStateFfi
     ) async {
         switch blocker {
@@ -956,7 +956,11 @@ extension WorkspaceState {
         case .lastAdmin:
             // The one blocker the app can clear on the user's behalf — in one of two ways, decided
             // by who is left in the group. Only the genuine dead end falls through to the alert.
-            if await resolveLastAdminLeaveBlock(groupIdHex: groupIdHex, title: title, state: state) {
+            if await resolveLastAdminLeaveBlock(
+                groupIdHex: groupIdHex,
+                subject: subject,
+                state: state
+            ) {
                 return
             }
             chatActionAlert = .leaveBlocked(blocker)
@@ -983,7 +987,7 @@ extension WorkspaceState {
     /// resolutions have to be about *this* group.
     private func resolveLastAdminLeaveBlock(
         groupIdHex: String,
-        title: String,
+        subject: ChatConfirmationSubject,
         state: GroupManagementStateFfi
     ) async -> Bool {
         guard let client, let activeAccount else { return false }
@@ -1010,7 +1014,7 @@ extension WorkspaceState {
             guard handingOffAdminChatId != groupIdHex else { return false }
             chatPendingAdminHandoff = ChatAdminHandoffTarget(
                 groupIdHex: groupIdHex,
-                title: title,
+                subject: subject,
                 candidates: ChatDestructiveActions.adminHandoffCandidates(from: members)
             )
             return true
@@ -1020,7 +1024,7 @@ extension WorkspaceState {
             // already confirming or running). The resolution was still correct, and a suppressed
             // duplicate dialog is far better than falling through to a `.lastAdmin` alert telling
             // someone alone in a chat to invite a member — which is the bug this branch removes.
-            requestChatLocalDelete(groupIdHex: groupIdHex, title: title)
+            requestChatLocalDelete(groupIdHex: groupIdHex, subject: subject)
             return true
 
         case .blocked:
@@ -1074,7 +1078,7 @@ extension WorkspaceState {
         }
 
         await confirmChatLeave(
-            ChatLeaveTarget(groupIdHex: groupIdHex, title: target.title, requiresSelfDemote: true)
+            ChatLeaveTarget(groupIdHex: groupIdHex, subject: target.subject, requiresSelfDemote: true)
         )
     }
 
@@ -1116,7 +1120,7 @@ extension WorkspaceState {
                 await reportLeaveBlocker(
                     blocker,
                     groupIdHex: groupIdHex,
-                    title: target.title,
+                    subject: target.subject,
                     state: state
                 )
                 return
@@ -1174,17 +1178,17 @@ extension WorkspaceState {
     }
 
     func requestChatLocalDelete(for chat: ChatItem) {
-        requestChatLocalDelete(groupIdHex: chat.id, title: chat.title)
+        requestChatLocalDelete(groupIdHex: chat.id, subject: chat.confirmationSubject)
     }
 
     func requestSelectedChatLocalDelete() {
         guard let snapshot = groupDetailsSnapshot else { return }
-        requestChatLocalDelete(groupIdHex: snapshot.groupIdHex, title: snapshot.name)
+        requestChatLocalDelete(groupIdHex: snapshot.groupIdHex, subject: snapshot.confirmationSubject)
     }
 
-    func requestChatLocalDelete(groupIdHex: String, title: String) {
+    func requestChatLocalDelete(groupIdHex: String, subject: ChatConfirmationSubject) {
         guard !isDeletingGroupLocally, chatPendingLocalDelete == nil else { return }
-        chatPendingLocalDelete = ChatLocalDeleteTarget(groupIdHex: groupIdHex, title: title)
+        chatPendingLocalDelete = ChatLocalDeleteTarget(groupIdHex: groupIdHex, subject: subject)
     }
 
     func confirmChatLocalDelete(_ target: ChatLocalDeleteTarget) async {

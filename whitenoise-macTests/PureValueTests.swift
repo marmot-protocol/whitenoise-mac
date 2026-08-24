@@ -4976,6 +4976,105 @@ struct PureValueTests {
         }
     }
 
+    /// Regression for the report that opened this: an unnamed group's leave dialog read
+    /// `Leave “Unnamed group”? Are you sure you want to leave…`.
+    ///
+    /// The assertion is about the *sentences* rather than about one placeholder string, because the
+    /// two surfaces feed the dialog different stand-ins — the localized "Unnamed group" from the
+    /// inspector, MDK's raw conversation id from the sidebar — so pinning either one alone would
+    /// leave the other free to come back.
+    @MainActor
+    @Test func noConfirmationSentenceQuotesAStandInForAnUnnamedChat() {
+        let unnamedId = String(repeating: "a", count: 64)
+        let chat = ChatItem(
+            row: confirmationRow(groupIdHex: unnamedId, groupName: "", conversationKind: .group),
+            activeAccountIdHex: nil
+        )
+        // What the sidebar row shows for a group nobody titled, and exactly why quoting it failed.
+        #expect(chat.title == unnamedId)
+        #expect(chat.confirmationSubject == .unnamedGroup)
+
+        for subject: ChatConfirmationSubject in [.unnamedGroup, .unnamedChat] {
+            for sentence in confirmationSentences(of: subject) {
+                #expect(!sentence.contains(L10n.string("Unnamed group")), "\(subject): \(sentence)")
+                #expect(!sentence.contains(unnamedId), "\(subject): \(sentence)")
+                // The other way a dropped name shows up: the quotes stay and the slot is empty.
+                #expect(!sentence.contains("“”"), "\(subject): \(sentence)")
+            }
+        }
+    }
+
+    /// "If it is only a chat with one person, name the person instead." A one-to-one chat is
+    /// addressed rather than quoted like a group title, and it must not be told it will stop
+    /// receiving messages "from this group" — it is not one.
+    @MainActor
+    @Test func directChatConfirmationsNameThePeerRatherThanTheConversation() {
+        let chat = ChatItem(
+            row: confirmationRow(groupIdHex: "dm", groupName: "", conversationKind: .direct),
+            activeAccountIdHex: nil,
+            directPeer: ChatPeerProfile(accountIdHex: "alice", displayName: "Alice", pictureURL: nil)
+        )
+        #expect(chat.confirmationSubject == .directChat(peerName: "Alice"))
+
+        let subject = ChatConfirmationSubject.directChat(peerName: "Alice")
+        #expect(subject.leaveConfirmationTitle.contains("Alice"))
+        #expect(subject.localDeleteConfirmationTitle.contains("Alice"))
+        // A peer-controlled name is isolated, so it cannot reorder the sentence around it.
+        #expect(subject.leaveConfirmationTitle.contains(PeerDisplayText.templateFragment("Alice")))
+        // Compared against the group wording rather than grepped for the word "group": the
+        // assertion has to hold in every language the catalog carries.
+        for requiresSelfDemote in [false, true] {
+            #expect(
+                subject.leaveConfirmationMessage(requiresSelfDemote: requiresSelfDemote)
+                    != ChatConfirmationSubject.unnamedGroup.leaveConfirmationMessage(
+                        requiresSelfDemote: requiresSelfDemote)
+            )
+        }
+    }
+
+    /// The inspector's own path. `name` keeps the placeholder its header needs, so the subject has
+    /// to be read off `customName` — reading `name` is what put "Unnamed group" in the sentence.
+    @MainActor
+    @Test func snapshotSubjectReadsTheGroupsOwnNameRatherThanItsHeaderLabel() {
+        let alice = handoffMember(id: "Alice")
+        let unnamed = confirmationSnapshot(
+            customName: nil,
+            others: [alice, handoffMember(id: "Bob")]
+        )
+        #expect(unnamed.name == L10n.string("Unnamed group"))
+        #expect(unnamed.confirmationSubject == .unnamedGroup)
+
+        // One other member and no name: MDK calls that a direct chat, and so does the sentence.
+        #expect(
+            confirmationSnapshot(customName: nil, others: [alice]).confirmationSubject
+                == .directChat(peerName: "Alice")
+        )
+        // Nobody else on the roster — an emptied-out chat has no name *and* no peer.
+        #expect(confirmationSnapshot(customName: nil, others: []).confirmationSubject == .unnamedChat)
+
+        // A name makes a conversation a group whatever its size, which is MDK's rule too: a named
+        // two-person chat must not be downgraded to "your chat with Alice".
+        #expect(
+            confirmationSnapshot(customName: "Book club", others: [alice]).confirmationSubject
+                == .namedGroup("Book club")
+        )
+    }
+
+    /// The case that already worked keeps working: a group the user named is still quoted by name
+    /// in all three dialogs.
+    @Test func namedGroupConfirmationsStillQuoteTheName() {
+        let subject = ChatConfirmationSubject.namedGroup("Design team")
+        for sentence in [
+            subject.leaveConfirmationTitle,
+            subject.localDeleteConfirmationTitle,
+            subject.adminHandoffExplanation,
+        ] {
+            #expect(sentence.contains("Design team"), "\(sentence)")
+        }
+        #expect(subject.leaveConfirmationTitle.contains(PeerDisplayText.templateFragment("Design team")))
+        #expect(subject.leaveConfirmationTitle != ChatConfirmationSubject.unnamedGroup.leaveConfirmationTitle)
+    }
+
     /// A direct message is a two-member MLS group here, so it must follow the same rule; the copy
     /// is chat-neutral precisely so no `isDirect` branch is needed.
     @Test func directChatsFollowTheSameDestructiveActionRule() {
@@ -5571,7 +5670,79 @@ private func handoffMember(
 }
 
 private func handoffTarget(candidates: [GroupMemberItem]) -> ChatAdminHandoffTarget {
-    ChatAdminHandoffTarget(groupIdHex: "group", title: "Planning", candidates: candidates)
+    ChatAdminHandoffTarget(
+        groupIdHex: "group",
+        subject: .namedGroup("Planning"),
+        candidates: candidates
+    )
+}
+
+private func confirmationSentences(of subject: ChatConfirmationSubject) -> [String] {
+    [
+        subject.leaveConfirmationTitle,
+        subject.leaveConfirmationMessage(requiresSelfDemote: false),
+        subject.leaveConfirmationMessage(requiresSelfDemote: true),
+        subject.localDeleteConfirmationTitle,
+        subject.adminHandoffExplanation,
+    ]
+}
+
+private func confirmationRow(
+    groupIdHex: String,
+    groupName: String,
+    conversationKind: ChatConversationKindFfi
+) -> ChatListRowFfi {
+    ChatListRowFfi(
+        groupIdHex: groupIdHex,
+        archived: false,
+        pendingConfirmation: false,
+        // MDK's `chat_title`: the conversation id stands in whenever the profile name is blank.
+        title: groupName.isEmpty ? groupIdHex : groupName,
+        groupName: groupName,
+        avatarUrl: nil,
+        avatar: nil,
+        lastMessage: nil,
+        unreadCount: 0,
+        hasUnread: false,
+        unreadMentionCount: 0,
+        unreadMention: false,
+        firstUnreadMessageIdHex: nil,
+        lastReadMessageIdHex: nil,
+        lastReadTimelineAt: nil,
+        updatedAt: 0,
+        selfMembership: .member,
+        conversationKind: conversationKind
+    )
+}
+
+@MainActor
+private func confirmationSnapshot(
+    customName: String?,
+    others: [GroupMemberItem]
+) -> GroupDetailsSnapshot {
+    GroupDetailsSnapshot(
+        groupIdHex: "group",
+        endpoint: "",
+        name: customName ?? L10n.string("Unnamed group"),
+        customName: customName,
+        description: "",
+        avatarURL: nil,
+        sanitizedAvatarURL: nil,
+        avatarDimension: nil,
+        nostrGroupIdHex: "",
+        relays: [],
+        adminIds: [],
+        archived: false,
+        pendingConfirmation: false,
+        selfMembership: .member,
+        members: [handoffMember(id: "self", isSelf: true)] + others,
+        isSelfAdmin: false,
+        isLastAdmin: false,
+        canInvite: false,
+        canLeave: true,
+        requiresSelfDemoteBeforeLeave: false,
+        disappearingMessageSecs: 0
+    )
 }
 
 private func destructiveActionChat(
