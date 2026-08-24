@@ -24525,61 +24525,61 @@
         }
       }
     },
-    "Invalid nsec. Make sure you entered it correctly.": {
+    "Invalid nsec or npub. Make sure you entered it correctly.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ungültiger nsec. Stellen Sie sicher, dass Sie ihn korrekt eingegeben haben."
+            "value": "Ungültiger nsec oder npub. Stellen Sie sicher, dass Sie ihn korrekt eingegeben haben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nsec inválida. Asegúrate de haberla ingresado correctamente."
+            "value": "Nsec o npub inválido. Asegúrate de haberlo ingresado correctamente."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "nsec invalide. Assurez-vous de l'avoir saisi correctement."
+            "value": "nsec ou npub invalide. Assurez-vous de l'avoir saisi correctement."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "nsec non valido. Assicurati di averlo inserito correttamente."
+            "value": "nsec o npub non valido. Assicurati di averlo inserito correttamente."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "nsec inválido. Certifique-se de que o inseriu corretamente."
+            "value": "nsec ou npub inválido. Certifique-se de que o inseriu corretamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Неверный nsec. Убедитесь, что вы ввели его правильно."
+            "value": "Неверный nsec или npub. Убедитесь, что вы ввели его правильно."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Geçersiz nsec. Doğru girdiğinizden emin olun."
+            "value": "Geçersiz nsec veya npub. Doğru girdiğinizden emin olun."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "nsec 无效。请确保输入正确。"
+            "value": "nsec 或 npub 无效。请确保输入正确。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "nsec 無效。請確認輸入正確。"
+            "value": "nsec 或 npub 無效。請確認輸入正確。"
           }
         }
       }

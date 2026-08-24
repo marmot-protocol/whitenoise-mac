@@ -36,7 +36,7 @@ struct OnboardingSignInView: View {
     /// error would otherwise sit under a field the user has already fixed.
     private var message: String? {
         if draft == .invalid {
-            return L10n.string("Invalid nsec. Make sure you entered it correctly.")
+            return L10n.string("Invalid nsec or npub. Make sure you entered it correctly.")
         }
         return workspace.lastError
     }
