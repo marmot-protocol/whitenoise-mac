@@ -147,7 +147,9 @@ import Testing
             .deletingLastPathComponent()
             .appendingPathComponent("whitenoise-mac/Views/Onboarding")
 
-        for fileName in ["OnboardingWelcomeView.swift", "OnboardingSignInView.swift"] {
+        for fileName in [
+            "OnboardingWelcomeView.swift", "OnboardingSignInView.swift", "OnboardingSignUpView.swift",
+        ] {
             let source = try String(
                 contentsOf: onboardingDirectory.appendingPathComponent(fileName), encoding: .utf8)
             #expect(
@@ -237,6 +239,130 @@ import Testing
         // A hex private key, which the core does not take through this door.
         #expect(LoginIdentityDraft(String(repeating: "a", count: 64)) == .invalid)
         #expect(LoginIdentityDraft("note1abc") == .invalid)
+    }
+
+    // MARK: - The sign-up pane fits the window it has to fit
+
+    /// The one thing about this pane that fails invisibly.
+    ///
+    /// It is the tallest of the three — an avatar, a title, two labelled fields (one of them three
+    /// lines), a reserved error line and a button, where the other two have a field or nothing —
+    /// and the window it lives in can be as short as `ContentView`'s `minHeight`. The scaffold's
+    /// `Spacer`s have a `minLength` floor and its `VStack` does not scroll, so a pane that grows
+    /// past that height does not compress or clip: it pushes its own button off the bottom edge,
+    /// on a small window, in a state nobody testing on a large one will ever see.
+    ///
+    /// Measured rather than added up from `OnboardingLayout`, because every number that could
+    /// drift here — what a `medium14` line actually measures, what the glass button's chrome
+    /// adds, how tall `.semiBold20` draws — is one the arithmetic would be guessing at.
+    /// `ImageRenderer` proposes the ideal size, and the scaffold's `maxHeight: .infinity` under an
+    /// ideal proposal resolves to exactly this: both `Spacer`s at their floor, which is the
+    /// shortest the pane can be drawn.
+    @Test func theSignUpPaneFitsTheSmallestWindow() throws {
+        let workspace = Self.signUpWorkspace()
+        let pane = OnboardingSignUpView()
+            .environment(workspace)
+            .frame(width: Self.minimumWindowWidth)
+
+        let height = try #require(ImageRenderer(content: pane).nsImage?.size.height)
+        #expect(
+            height <= Self.minimumWindowHeight,
+            "the sign-up pane needs \(height)pt in a window that can be \(Self.minimumWindowHeight)pt tall")
+    }
+
+    /// `ContentView`'s window floor, restated so a pane measured against it fails when the pane
+    /// grows rather than when someone quietly shrinks the window.
+    private static let minimumWindowWidth: CGFloat = 940
+    private static let minimumWindowHeight: CGFloat = 620
+
+    /// The multi-line field's height comes out of `fieldHeight(forLineLimit:)`, which multiplies a
+    /// *named* line height — a number that is right until the type ramp moves under it. Measured
+    /// against what three lines of `medium14` actually draw, with the single-line case as the
+    /// control: that one is pinned to `OnboardingKeyField`'s 40pt and must not be computed at all.
+    @Test func aFieldIsAsTallAsTheLayoutSaysItIs() throws {
+        for lineLimit in [1, OnboardingLayout.aboutFieldLineLimit] {
+            let field = OnboardingFormField(
+                label: "About",
+                prompt: "Introduce yourself",
+                text: .constant(""),
+                lineLimit: lineLimit
+            )
+            .wnButtonShape(.capsule)
+            .frame(width: OnboardingLayout.contentWidth)
+
+            let drawn = try #require(ImageRenderer(content: field).nsImage?.size.height)
+            // The label and the gap above the field are the view's, not the metric's.
+            let box = drawn - Self.measuredFieldLabelBlockHeight
+            let expected = OnboardingLayout.fieldHeight(forLineLimit: lineLimit)
+            #expect(
+                abs(box - expected) <= 1,
+                "a \(lineLimit)-line field drew a \(box)pt box; the layout says \(expected)pt")
+        }
+    }
+
+    /// The label plus `fieldLabelSpacing`, measured once so the field test can subtract it.
+    private static var measuredFieldLabelBlockHeight: CGFloat {
+        let label = Text("About")
+            .wnFont(.semiBold14)
+            .frame(width: OnboardingLayout.contentWidth, alignment: .leading)
+        let height = ImageRenderer(content: label).nsImage?.size.height ?? 0
+        return height + OnboardingLayout.fieldLabelSpacing
+    }
+
+    /// A capsule field and the rounded box under it agree on their corner. Asserted on the metric
+    /// rather than on pixels because the metric is the whole mechanism: `OnboardingFormField`
+    /// reads the capsule's radius from the single-line height, and the two only look like one
+    /// family while that stays true.
+    @Test func bothSignUpFieldsShareOneCorner() {
+        #expect(
+            OnboardingLayout.multilineFieldCornerRadius == OnboardingLayout.singleLineFieldHeight / 2)
+    }
+
+    // MARK: - What the sign-up draft makes of what is in it
+
+    /// A name is the bar, and it is the same bar Flutter's `signup_create_profile_button` sets.
+    /// Whitespace is not a name: without the trim, a space bar press would enable a button that
+    /// publishes a profile with a blank `display_name`.
+    @Test func aNameIsTheOnlyThingSignUpInsistsOn() {
+        #expect(SignUpDraft().isSubmittable == false)
+        #expect(SignUpDraft(displayName: "   \n\t ").isSubmittable == false)
+        #expect(SignUpDraft(displayName: "Marmota").isSubmittable)
+        // Everything else is optional — a name alone is enough.
+        #expect(SignUpDraft(displayName: " Marmota ").trimmedDisplayName == "Marmota")
+        #expect(SignUpDraft(displayName: "Marmota", about: "  ").trimmedAbout.isEmpty)
+    }
+
+    /// `SignUpProfileImage` sits in observable state that SwiftUI diffs on every keystroke in the
+    /// name field, and it carries the whole image. The synthesized `Equatable` would compare those
+    /// bytes; this one compares the digest. A regression is invisible — the pane still works — and
+    /// costs a multi-megabyte `memcmp` per character typed.
+    @Test func aStagedPhotoComparesByDigestNotByBytes() {
+        let bytes = Data(repeating: 0xAB, count: 4096)
+        let first = SignUpProfileImage(attachment: Self.imageAttachment(bytes))
+        let second = SignUpProfileImage(attachment: Self.imageAttachment(bytes))
+        let other = SignUpProfileImage(attachment: Self.imageAttachment(Data(repeating: 0xCD, count: 4096)))
+
+        // Same bytes, different `PendingMediaAttachment` ids: equal, because the digest is equal.
+        #expect(first == second)
+        #expect(first != other)
+        #expect(first.preview.id == second.preview.id)
+    }
+
+    private static func imageAttachment(_ data: Data) -> PendingMediaAttachment {
+        PendingMediaAttachment(fileName: "avatar.png", mediaType: "image/png", data: data, dim: nil)
+    }
+
+    /// A workspace on the sign-up pane, with the fields empty — the state the pane is in when it
+    /// opens, and its shortest: a name long enough to wrap would make the pane taller, and the
+    /// field it wraps in is one line either way.
+    @MainActor
+    private static func signUpWorkspace() -> WorkspaceState {
+        let workspace = WorkspaceState(
+            appActivityProvider: { false },
+            conversationWindowVisibilityProvider: { false }
+        )
+        workspace.authenticationMode = .signUp
+        return workspace
     }
 
     // MARK: - Rendering helpers

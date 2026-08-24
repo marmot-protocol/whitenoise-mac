@@ -19,6 +19,20 @@ final class WorkspaceState {
     enum AuthenticationMode: Equatable {
         case landing
         case login
+        /// The profile the new identity is about to be created with. Nothing exists on disk or on
+        /// a relay while this pane is up — see `SignUpDraft`.
+        case signUp
+    }
+
+    /// Which surface the profile-image picker is filling in.
+    ///
+    /// The picker's search and file import are the same either way; what differs is where the
+    /// chosen bytes land. On the settings page they are uploaded immediately under the active
+    /// account's key; on the sign-up pane there is no account yet, so they are staged in
+    /// `signUpDraft` and uploaded during `completeSignUp()`.
+    enum ProfileImagePickerDestination: Equatable {
+        case activeAccount
+        case signUpDraft
     }
 
     /// Which authentication path is in flight, so only that path's button shows progress
@@ -312,6 +326,11 @@ final class WorkspaceState {
     /// (the nsec field, Cancel, the account switcher) disable on this; a button that owns
     /// one path shows its progress label from `authenticationActivity` instead.
     var isAuthenticating: Bool { authenticationActivity != nil }
+    /// What the sign-up pane has collected. Empty except while `authenticationMode == .signUp`.
+    var signUpDraft = SignUpDraft()
+    /// Set once `completeSignUp()` has created the identity, so a retry after a failed upload or
+    /// publish resumes from there instead of minting a second one. Cleared on the way out.
+    var signUpCreatedAccountRef: String?
     var profileDraft = ProfileDraft()
     var relaySettings = RelaySettingsSnapshot.defaults
     var selectedRelaySection: RelaySettingsSection = .nip65
@@ -478,6 +497,7 @@ final class WorkspaceState {
     var isSearchingGroupImages = false
     var isSavingGroupImage = false
     var isProfileImagePickerPresented = false
+    var profileImagePickerDestination: ProfileImagePickerDestination = .activeAccount
     var profileImageSearchQuery = ""
     var profileImageResults: [GroupImageSearchResult] = []
     var isSearchingProfileImages = false
