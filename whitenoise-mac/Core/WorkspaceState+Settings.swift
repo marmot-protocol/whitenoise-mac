@@ -545,6 +545,7 @@ extension WorkspaceState {
         profileImageSearchGeneration &+= 1
         profileImageSearchQuery = ""
         profileImageResults = []
+        profileImageResultsQuery = nil
         selectedProfileImageResult = nil
         isSearchingProfileImages = false
         profileImagePickerDestination = destination
@@ -555,6 +556,7 @@ extension WorkspaceState {
         isProfileImagePickerPresented = false
         profileImageSearchGeneration &+= 1
         profileImageResults = []
+        profileImageResultsQuery = nil
         selectedProfileImageResult = nil
         isSearchingProfileImages = false
     }
@@ -602,6 +604,7 @@ extension WorkspaceState {
         guard !query.isEmpty else {
             profileImageSearchGeneration &+= 1
             profileImageResults = []
+            profileImageResultsQuery = nil
             isSearchingProfileImages = false
             return
         }
@@ -623,9 +626,13 @@ extension WorkspaceState {
                 profileImageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
             else { return }
             profileImageResults = results
+            profileImageResultsQuery = query
         } catch {
             guard profileImageSearchGeneration == generation, isProfileImagePickerPresented else { return }
             profileImageResults = []
+            // A search that failed answered nothing, so the empty state goes back to asking for
+            // one rather than blaming the spelling of a query that was never run.
+            profileImageResultsQuery = nil
             lastError = error.localizedDescription
         }
     }

@@ -104,6 +104,64 @@ import Testing
         #expect(state.selectedProfileImageResult == result)
     }
 
+    // MARK: - Which empty state the empty grid is
+
+    /// A search that came back with nothing has to say so, and the field cannot say it: a
+    /// half-typed query is non-empty too, which is why the sheet used to flip to *No images* on the
+    /// first keystroke and then tell a user who had just searched to enter a search.
+    @Test func aSearchThatFindsNothingRecordsTheQueryItAnswered() async {
+        let state = WorkspaceState(groupImageSearchClient: StubProfileImageSearchClient(results: []))
+
+        state.presentProfileImagePicker(destination: .signUpDraft)
+
+        #expect(state.profileImageResultsQuery == nil)
+
+        state.profileImageSearchQuery = "marmot"
+        await state.searchProfileImages()
+
+        #expect(state.profileImageResults.isEmpty)
+        #expect(state.profileImageResultsQuery == "marmot")
+
+        // Typing on: the empty grid no longer answers what is in the field, so the sheet goes back
+        // to asking for a search rather than reporting that there are none.
+        state.profileImageSearchQuery = "marmot h"
+
+        #expect(state.profileImageResultsQuery != "marmot h")
+    }
+
+    /// Emptying the field, and leaving the sheet, both put it back to nothing-searched-for-yet —
+    /// otherwise the next visit opens on *No images* over a grid cleared with the results.
+    @Test func clearingTheQueryOrClosingThePickerForgetsWhatWasSearched() async {
+        let state = WorkspaceState(groupImageSearchClient: StubProfileImageSearchClient(results: []))
+
+        state.presentProfileImagePicker(destination: .signUpDraft)
+        state.profileImageSearchQuery = "marmot"
+        await state.searchProfileImages()
+        state.profileImageSearchQuery = ""
+        await state.searchProfileImages()
+
+        #expect(state.profileImageResultsQuery == nil)
+
+        state.profileImageSearchQuery = "marmot"
+        await state.searchProfileImages()
+        state.closeProfileImagePicker()
+
+        #expect(state.profileImageResultsQuery == nil)
+    }
+
+    /// A search that *failed* answered nothing either. Openverse being unreachable is not a
+    /// spelling mistake, and the error line above the grid is what says what happened.
+    @Test func aFailedSearchDoesNotClaimTheQueryFoundNothing() async {
+        let state = WorkspaceState(groupImageSearchClient: FailingProfileImageSearchClient())
+
+        state.presentProfileImagePicker(destination: .signUpDraft)
+        state.profileImageSearchQuery = "marmot"
+        await state.searchProfileImages()
+
+        #expect(state.profileImageResultsQuery == nil)
+        #expect(state.lastError != nil)
+    }
+
     // MARK: - The file source no longer needs the sheet
 
     /// **Choose from Files** goes straight to the system open panel, so the destination that
@@ -230,6 +288,17 @@ private actor StubProfileImageSourceLoader: GroupImageSourceLoading {
     func data(for url: URL) async -> Data? {
         requestedURLs.append(url)
         return nil
+    }
+}
+
+/// The search service being unreachable, which is a different empty grid from a search that ran.
+private actor FailingProfileImageSearchClient: GroupImageSearchClient {
+    struct Unreachable: Error, LocalizedError {
+        var errorDescription: String? { "unreachable" }
+    }
+
+    func searchImages(query: String) async throws -> [GroupImageSearchResult] {
+        throw Unreachable()
     }
 }
 

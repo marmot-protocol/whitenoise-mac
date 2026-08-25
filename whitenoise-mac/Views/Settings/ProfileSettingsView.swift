@@ -94,7 +94,15 @@ struct ProfileIdentityHeaderView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ProfileImageSourceMenu(destination: .activeAccount) {
+            // Closed during an upload, the way the sign-up hero is — see `OnboardingSignUpAvatar`.
+            // `beginProfileImageSelection()` refuses a second selection while one is in flight and
+            // sets no error, so without this the popover and the file panel both open and the
+            // chosen file is dropped in silence, with nothing on this page drawing the upload it
+            // was dropped for.
+            ProfileImageSourceMenu(
+                destination: .activeAccount,
+                isEnabled: !workspace.isUploadingProfileImage
+            ) {
                 ZStack(alignment: .bottomTrailing) {
                     ProfileImageAvatarView(
                         seed: account.accountIdHex,

@@ -11572,6 +11572,66 @@
         }
       }
     },
+    "Check the spelling or try a different search.": {
+      "comment": "The description of the web image picker's empty state after a search came back with nothing.",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überprüfe die Schreibweise oder versuche eine andere Suche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba la ortografía o prueba con otra búsqueda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez l’orthographe ou essayez une autre recherche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla l’ortografia o prova una ricerca diversa."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique a ortografia ou tente outra pesquisa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверьте написание или попробуйте другой запрос."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazımı kontrol edin veya farklı bir arama deneyin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查拼写或尝试其他搜索。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢查拼字或嘗試其他搜尋。"
+          }
+        }
+      }
+    },
     "Checking shared groups…": {
       "extractionState": "manual",
       "localizations": {
