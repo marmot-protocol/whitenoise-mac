@@ -73,13 +73,36 @@ struct OnboardingKeyField: View {
             .help(L10n.string(isEmpty ? "Paste" : "Clear"))
             .accessibilityLabel(L10n.string(isEmpty ? "Paste" : "Clear"))
             .accessibilityIdentifier("onboarding.key-field.accessory")
+            // Scoped to the accessory rather than applied to the whole row. The glyph swap is
+            // the only thing that changes when the field goes empty <-> non-empty, and the row
+            // it sits in contains a live `NSSecureTextField`: an implicit animation up there
+            // wraps the *editor* in an animated transaction on the very keystroke that inserts
+            // text, which is not something an AppKit field editor is asked to survive.
+            .animation(.default, value: isEmpty)
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
         .frame(height: Metrics.height)
         .background { shape.fill(WNColor.fillSecondary) }
+        // The field owns its own edge, rather than trusting the one AppKit happens to give it.
+        //
+        // A focused `SecureField` is drawn by a field editor — an `NSSecureTextView` that AppKit
+        // sizes to the *whole* secret and then slides sideways to keep the insertion point in
+        // view. Paste a 63-character nsec into this 314pt field and that editor is 523pt wide,
+        // starting 205pt to the **left** of the pill: measured on this pane, the field sits at
+        // x=433.5 w=318 while its editor sits at x=228 w=523.5. Nothing in this view clipped it.
+        // It stayed inside only because AppKit interposes a private `_NSKeyboardFocusClipView`
+        // sized to the field — a view neither SwiftUI nor this app asks for, sizes, or can count
+        // on. Where that interposition does not happen, the secret's dots draw straight out of
+        // the input and across the empty band under the mark — which is what a pasted key looked
+        // like when this was reported. Disabling that private view's clipping reproduces it
+        // exactly: ink from x=231.5 with the pill starting at x=421.5.
+        //
+        // So the containment is stated here. It costs nothing when AppKit already clips — the
+        // editor's visible text is inside the pill either way — and it is the difference between
+        // the input having an edge and the input borrowing one.
+        .clipShape(shape)
         .disabled(!isEnabled)
-        .animation(.default, value: isEmpty)
     }
 
     /// Read through the shared table at `.large`, the size the pane sets on the button below this
