@@ -500,6 +500,13 @@ final class WorkspaceState {
     var profileImagePickerDestination: ProfileImagePickerDestination = .activeAccount
     var profileImageSearchQuery = ""
     var profileImageResults: [GroupImageSearchResult] = []
+    /// The query `profileImageResults` answers, or `nil` when no search has settled.
+    ///
+    /// What separates "nothing found" from "nothing searched for yet", which an empty result list
+    /// and a non-empty field cannot: that pair is also what is on screen while the first query is
+    /// still being typed. Without this the picker's empty state told a user who had just searched
+    /// to enter a search, and told a user mid-word that there are no images.
+    var profileImageResultsQuery: String?
     /// The result the web picker is holding, before it is committed.
     ///
     /// `wn-ios-prototype`'s `AvatarWebImagePickerView` picks in two steps — a tile takes the

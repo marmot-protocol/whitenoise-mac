@@ -63,6 +63,15 @@ struct ProfileImagePickerSheet: View {
         !trimmedQuery.isEmpty && !isBusy
     }
 
+    /// Whether an empty grid means "nothing found" rather than "nothing searched for yet".
+    ///
+    /// The field being non-empty does not answer that: it is also non-empty while the first query
+    /// is still being typed, which is the longer-lived of the two states. See
+    /// `WorkspaceState.profileImageResultsQuery`.
+    private var hasSearchedCurrentQuery: Bool {
+        workspace.profileImageResultsQuery == trimmedQuery
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -198,15 +207,15 @@ struct ProfileImagePickerSheet: View {
                     .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
             }
-        } else if trimmedQuery.isEmpty {
+        } else if hasSearchedCurrentQuery {
             ContentUnavailableView(
-                L10n.string("Search images"),
+                L10n.string("No images"),
                 systemImage: "photo.on.rectangle.angled",
-                description: Text(L10n.string("Enter a search to find an image."))
+                description: Text(L10n.string("Check the spelling or try a different search."))
             )
         } else {
             ContentUnavailableView(
-                L10n.string("No images"),
+                L10n.string("Search images"),
                 systemImage: "photo.on.rectangle.angled",
                 description: Text(L10n.string("Enter a search to find an image."))
             )
