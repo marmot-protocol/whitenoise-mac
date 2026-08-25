@@ -48,7 +48,7 @@ struct OnboardingSignUpView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        OnboardingScaffold(title: L10n.string("Set up profile"), backAction: cancel) {
+        OnboardingScaffold(title: L10n.string("Set up profile"), exit: .back(cancel)) {
             OnboardingSignUpAvatar()
         } content: {
             VStack(alignment: .leading, spacing: OnboardingLayout.titleToFieldsSpacing) {

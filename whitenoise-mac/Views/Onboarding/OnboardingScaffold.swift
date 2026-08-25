@@ -44,9 +44,11 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
     /// both phone clients put the same string: `wn-ios-prototype` as a `navigationTitle`, Flutter
     /// as its `WnSlateNavigationHeader` title, both beside the same back control.
     var title: String?
-    /// Supplied only by a pane that has somewhere to go back to. The welcome pane is the root and
-    /// passes `nil`, which removes the control while keeping the row it stood in.
-    var backAction: (() -> Void)?
+    /// Supplied only by a pane that has somewhere to go. The inner panes pass `.back`; the welcome
+    /// pane passes `.cancel` when the flow was opened from a running app and `nil` when it was
+    /// not, which removes the control while keeping the row it stood in. See
+    /// `OnboardingExitControl`.
+    var exit: OnboardingExitControl?
     /// What the pane is arranged around. Defaults to the mark.
     @ViewBuilder var hero: Hero
     /// Whatever sits between the hero and the actions — the sign-in pane's key field, the sign-up
@@ -57,7 +59,7 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            OnboardingHeaderRow(title: title, backAction: backAction)
+            OnboardingHeaderRow(title: title, exit: exit)
 
             Spacer(minLength: OnboardingLayout.edgePadding)
 
@@ -101,13 +103,13 @@ extension OnboardingScaffold where Hero == OnboardingMarkHero {
     /// The scaffold as both existing panes use it: the mark as the hero.
     init(
         title: String? = nil,
-        backAction: (() -> Void)? = nil,
+        exit: OnboardingExitControl? = nil,
         @ViewBuilder content: () -> Content,
         @ViewBuilder actions: () -> Actions
     ) {
         self.init(
             title: title,
-            backAction: backAction,
+            exit: exit,
             hero: { OnboardingMarkHero() },
             content: content,
             actions: actions
@@ -123,22 +125,22 @@ extension OnboardingScaffold where Hero == OnboardingMarkHero {
 /// the way out.
 private struct OnboardingHeaderRow: View {
     let title: String?
-    let backAction: (() -> Void)?
+    let exit: OnboardingExitControl?
 
     var body: some View {
         // Overlaid rather than a third `HStack` member, so the title is centred on the *pane* and
-        // not on whatever is left of it beside the back control — which would move it sideways
-        // between a pane that has a back control and one that does not.
+        // not on whatever is left of it beside the exit control — which would move it sideways
+        // between a pane that has one and one that does not.
         HStack {
-            if let backAction {
+            if let exit {
                 GlassCircleCloseButton(
-                    symbol: "chevron.left",
-                    help: "Back",
+                    symbol: exit.symbol,
+                    help: exit.helpKey,
                     appearance: .outline,
-                    action: backAction
+                    action: exit.action
                 )
-                .accessibilityLabel(L10n.string("Back"))
-                .accessibilityIdentifier("onboarding.back")
+                .accessibilityLabel(L10n.string(exit.helpKey))
+                .accessibilityIdentifier(exit.accessibilityIdentifier)
             }
 
             Spacer(minLength: 0)
