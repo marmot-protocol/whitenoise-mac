@@ -545,6 +545,7 @@ extension WorkspaceState {
         profileImageSearchGeneration &+= 1
         profileImageSearchQuery = ""
         profileImageResults = []
+        selectedProfileImageResult = nil
         isSearchingProfileImages = false
         profileImagePickerDestination = destination
         isProfileImagePickerPresented = true
@@ -554,7 +555,46 @@ extension WorkspaceState {
         isProfileImagePickerPresented = false
         profileImageSearchGeneration &+= 1
         profileImageResults = []
+        selectedProfileImageResult = nil
         isSearchingProfileImages = false
+    }
+
+    /// Point the profile-image machinery at a destination without opening the web picker.
+    ///
+    /// **Choose from Files** hangs off the avatar's own menu now — see `ProfileImageSourceMenu` —
+    /// and never presents the sheet, so the destination `beginProfileImageSelection()` switches on
+    /// has to be set somewhere other than `presentProfileImagePicker(destination:)`. Returns
+    /// whether the caller may go on, which is the precondition the two entry points differ over:
+    /// an account for one, the sign-up pane for the other.
+    @discardableResult
+    func prepareProfileImageDestination(_ destination: ProfileImagePickerDestination) -> Bool {
+        switch destination {
+        case .activeAccount:
+            guard activeAccount != nil else { return false }
+        case .signUpDraft:
+            guard authenticationMode == .signUp, !isAuthenticating else { return false }
+        }
+
+        lastError = nil
+        profileImagePickerDestination = destination
+        return true
+    }
+
+    /// Take the selection, or drop it when the tile already holding it is pressed again.
+    ///
+    /// Nothing is downloaded here. The prototype's grid is a radio group whose commit is a
+    /// separate button, and a selection that fetched bytes on the way in would spend a round trip
+    /// on every glance.
+    func selectProfileImage(_ result: GroupImageSearchResult) {
+        guard !isUploadingProfileImage else { return }
+        lastError = nil
+        selectedProfileImageResult = selectedProfileImageResult == result ? nil : result
+    }
+
+    /// The web picker's confirmation: commit whatever tile is wearing the badge.
+    func useSelectedProfileImage() async {
+        guard let selectedProfileImageResult else { return }
+        await setProfileImage(selectedProfileImageResult)
     }
 
     func searchProfileImages() async {
