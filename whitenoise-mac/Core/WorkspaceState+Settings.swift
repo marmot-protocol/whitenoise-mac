@@ -753,9 +753,24 @@ extension WorkspaceState {
             guard activeAccountId == uploadContext.accountId,
                 profileImageUploadGeneration == uploadContext.generation
             else { return }
+            primeUploadedProfileImage(url: url, data: attachment.data)
             profileDraft.picture = url
             closeProfileImagePicker()
         }
+    }
+
+    /// Hands the image loader the bytes just uploaded to `url`, so the avatars that are about to
+    /// point at it draw the picture now.
+    ///
+    /// Without this, setting a profile picture reads as broken for as long as the round trip
+    /// takes: the form's own 96pt avatar, the account rail beside the chat list, and the switcher
+    /// all take the new URL at once and every one of them shows initials until Blossom serves back
+    /// the image the app had just finished sending it. Both upload sites call this — the settings
+    /// picker here and `completeSignUp()` — because both are places where the app, and only the
+    /// app, knows that these bytes are what lives at that URL.
+    func primeUploadedProfileImage(url: String, data: Data) {
+        guard let sanitized = RemoteImageURLPolicy.sanitizedURL(from: url) else { return }
+        RemoteImageLoader.shared.primeRemoteImage(url: sanitized, data: data)
     }
 
     func loadNotificationSettings() async {

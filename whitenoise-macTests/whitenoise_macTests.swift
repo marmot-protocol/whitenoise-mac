@@ -23158,6 +23158,77 @@ struct whitenoise_macTests {
         #expect(!state.isProfileImagePickerPresented)
     }
 
+    /// Setting a profile picture hands the uploaded bytes to the image loader under the URL the
+    /// upload returned. Without it every own-account avatar — the form's own, the account rail
+    /// beside the chat list, the switcher — takes the new URL at once and draws initials until
+    /// Blossom serves back the image the app had just finished sending it.
+    @MainActor
+    @Test func profileImageUploadPrimesTheAvatarLoaderWithTheUploadedBytes() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("profile-image-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        try Self.testPNGData(width: 80, height: 60).write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        // The loader is a process-wide singleton, so leave it as this test found it.
+        RemoteImageLoader.shared.clearCache()
+        defer { RemoteImageLoader.shared.clearCache() }
+
+        await state.bootstrap()
+        state.showProfileImagePicker()
+        await state.setProfileImage(fileURL: imageURL)
+
+        let uploaded = try #require(runtime.uploadedProfileImageData)
+        let published = try #require(RemoteImageURLPolicy.sanitizedURL(from: state.profileDraft.picture))
+        #expect(published.absoluteString == runtime.uploadedProfileImageURL)
+        #expect(RemoteImageLoader.shared.primedSourceByteCount(for: published) == uploaded.count)
+    }
+
+    /// Same for the sign-up path, where the bytes have been drawing the pane's avatar all along:
+    /// the rail must not lose the picture at the moment the account appears in it.
+    @MainActor
+    @Test func signUpProfileImageUploadPrimesTheAvatarLoaderWithTheUploadedBytes() async throws {
+        let created = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
+        let state = WorkspaceState(clientFactory: { runtime })
+        let imageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("signup-image-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        try Self.testPNGData(width: 80, height: 60).write(to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+        RemoteImageLoader.shared.clearCache()
+        defer { RemoteImageLoader.shared.clearCache() }
+
+        await state.bootstrap()
+        state.authenticationMode = .signUp
+        state.prepareProfileImageDestination(.signUpDraft)
+        await state.setProfileImage(fileURL: imageURL)
+        let staged = try #require(state.signUpDraft.image)
+        state.signUpDraft.displayName = "Pepi"
+
+        await state.completeSignUp()
+
+        #expect(state.lastError == nil)
+        let published = try #require(RemoteImageURLPolicy.sanitizedURL(from: runtime.uploadedProfileImageURL))
+        #expect(RemoteImageLoader.shared.primedSourceByteCount(for: published) == staged.data.count)
+    }
+
     @MainActor
     @Test func groupImageSearchSelectionEncryptsAndUploadsToBlossom() async throws {
         let account = AccountSummaryFfi(
@@ -27237,6 +27308,155 @@ struct whitenoise_macTests {
         #expect(remote.nsImage !== local.nsImage)
         #expect(localCached.nsImage === local.nsImage)
         #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+    }
+
+    /// The reason the fix exists. Bytes the app already holds for a URL are decoded from memory,
+    /// so the avatar that has just been pointed at a freshly uploaded picture draws it instead of
+    /// spending a round trip on initials. Primed with a 200x120 image while the network serves a
+    /// 1x1, so the decoded size says *which* bytes were used rather than only that nothing was
+    /// fetched.
+    @Test func remoteImageLoaderServesPrimedSourceBytesWithoutFetching() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
+        let uploaded = try Self.testPNGData(width: 200, height: 120)
+
+        loader.primeRemoteImage(url: url, data: uploaded)
+
+        let small = try #require(await loader.image(for: url, maxPixelSize: 64))
+        let smallSize = try #require(Self.pixelSize(of: small.nsImage))
+        #expect(smallSize.width == 64)
+        #expect(RemoteImageURLProtocolStub.requestCount() == 0)
+
+        // A second size is a second decode of the same primed bytes, not a download: the rail,
+        // the form, and the switcher all draw this URL at different sizes.
+        let large = try #require(await loader.image(for: url, maxPixelSize: 128))
+        let largeSize = try #require(Self.pixelSize(of: large.nsImage))
+        #expect(largeSize.width == 128)
+        #expect(RemoteImageURLProtocolStub.requestCount() == 0)
+    }
+
+    /// A decode that is already in the cache is readable synchronously, which is what lets a view
+    /// draw it on its first frame instead of flashing initials for one pass of the async load.
+    /// Keyed by size like the async path, so a warm 64px entry does not answer for a 128px view.
+    @Test func remoteImageLoaderExposesAnAlreadyDecodedImageSynchronously() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://example.com/avatar.png"))
+
+        #expect(loader.decodedImage(for: url, maxPixelSize: 32) == nil)
+
+        let loaded = try #require(await loader.image(for: url, maxPixelSize: 32))
+
+        let peeked = try #require(loader.decodedImage(for: url, maxPixelSize: 32))
+        #expect(peeked.nsImage === loaded.nsImage)
+        #expect(loader.decodedImage(for: url, maxPixelSize: 64) == nil)
+        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+    }
+
+    /// A disallowed URL cannot be primed into being loadable. Priming is a shortcut past the
+    /// *network*, never past `RemoteImageURLPolicy`.
+    @Test func remoteImageLoaderRefusesToPrimeADisallowedURL() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://192.168.1.10/avatar.png"))
+        let uploaded = try Self.testPNGData(width: 64, height: 64)
+
+        loader.primeRemoteImage(url: url, data: uploaded)
+
+        #expect(loader.primedSourceByteCount(for: url) == nil)
+        #expect(await loader.image(for: url, maxPixelSize: 32) == nil)
+    }
+
+    /// Empty and oversized bodies are rejected, so `primedSourceLimit` bounds bytes held and not
+    /// merely a count.
+    @Test func remoteImageLoaderRejectsEmptyAndOversizedPrimedBytes() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
+
+        loader.primeRemoteImage(url: url, data: Data())
+        #expect(loader.primedSourceByteCount(for: url) == nil)
+
+        let oversized = Data(count: Int(RemoteImageURLPolicy.maxResponseBytes) + 1)
+        loader.primeRemoteImage(url: url, data: oversized)
+        #expect(loader.primedSourceByteCount(for: url) == nil)
+
+        let allowed = try Self.testPNGData(width: 32, height: 32)
+        loader.primeRemoteImage(url: url, data: allowed)
+        #expect(loader.primedSourceByteCount(for: url) == allowed.count)
+    }
+
+    /// Oldest primed entry out first past the limit, and a re-prime of the same URL replaces its
+    /// bytes rather than adding a second copy.
+    @Test func remoteImageLoaderEvictsThePrimedSourceItHeldLongest() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let uploaded = try Self.testPNGData(width: 40, height: 40)
+        let urls = try (0...RemoteImageLoader.primedSourceLimit).map { index in
+            try #require(URL(string: "https://blossom.example/upload-\(index).png"))
+        }
+
+        for url in urls {
+            loader.primeRemoteImage(url: url, data: uploaded)
+        }
+
+        #expect(loader.primedSourceByteCount(for: urls[0]) == nil)
+        #expect(urls.dropFirst().allSatisfy { loader.primedSourceByteCount(for: $0) == uploaded.count })
+
+        let replacement = try Self.testPNGData(width: 48, height: 48)
+        let newest = try #require(urls.last)
+        loader.primeRemoteImage(url: newest, data: replacement)
+
+        #expect(loader.primedSourceByteCount(for: newest) == replacement.count)
+        // The re-prime must not have pushed a still-wanted entry out by occupying a second slot.
+        #expect(loader.primedSourceByteCount(for: urls[1]) == uploaded.count)
+    }
+
+    /// The privacy wipes drop primed bytes too. They are the viewer's own picture, and a primed
+    /// URL that outlived its account would keep serving bytes no fetch could have produced.
+    @Test func remoteImageLoaderClearCacheDropsPrimedSourceBytes() async throws {
+        RemoteImageURLProtocolStub.reset(data: Self.singlePixelPNG, responseDelay: 0)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [RemoteImageURLProtocolStub.self]
+        config.urlCache = nil
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
+        let uploaded = try Self.testPNGData(width: 200, height: 120)
+
+        loader.primeRemoteImage(url: url, data: uploaded)
+        _ = try #require(await loader.image(for: url, maxPixelSize: 64))
+        #expect(RemoteImageURLProtocolStub.requestCount() == 0)
+
+        loader.clearCache()
+
+        #expect(loader.primedSourceByteCount(for: url) == nil)
+        let afterClear = try #require(await loader.image(for: url, maxPixelSize: 64))
+        let afterClearSize = try #require(Self.pixelSize(of: afterClear.nsImage))
+        // Served from the network now, which is the 1x1 the stub answers with rather than the
+        // 200-wide upload that decoded to a full 64px above.
+        #expect(afterClearSize.width < 64)
+        #expect(RemoteImageURLProtocolStub.requestCount() == 1)
+    }
+
+    /// `clearLocalCache()` is the media wipe, and it deliberately leaves remote avatars warm — so
+    /// it must not throw away the bytes that keep the account's own picture drawing either.
+    @Test func remoteImageLoaderClearLocalCachePreservesPrimedSourceBytes() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        let loader = RemoteImageLoader(session: URLSession(configuration: config))
+        let url = try #require(URL(string: "https://blossom.example/just-uploaded.png"))
+        let uploaded = try Self.testPNGData(width: 64, height: 64)
+
+        loader.primeRemoteImage(url: url, data: uploaded)
+        loader.clearLocalCache()
+
+        #expect(loader.primedSourceByteCount(for: url) == uploaded.count)
     }
 
     private static let singlePixelPNG = Data([

@@ -103,6 +103,9 @@ extension WorkspaceState {
                     mediaType: image.mediaType,
                     blossomServer: nil
                 )
+                // The staged bytes have been drawing the sign-up avatar all along; keep them
+                // drawing it once the account rail switches to the published URL.
+                primeUploadedProfileImage(url: picture, data: image.data)
             }
 
             // Built here rather than by mutating `profileDraft`, so a failed publish leaves the
