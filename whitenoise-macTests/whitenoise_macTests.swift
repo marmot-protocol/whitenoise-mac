@@ -1096,6 +1096,42 @@ struct whitenoise_macTests {
         #expect(state.lastError != nil)
     }
 
+    /// The sign-in pane must not show a failed attempt's error under the key entered to replace it.
+    ///
+    /// Both halves that produce that are real state, so both are driven here rather than assumed:
+    /// the scrub above empties the field on failure, and `lastError` is not cleared until the
+    /// *next* attempt starts. Between those two every keystroke inherits the rejected key's
+    /// complaint, and `LoginIdentityDraft.showsLastAttemptError` is the only thing that ends it.
+    @MainActor
+    @Test func aReplacementKeyIsNotShownThePreviousAttemptsError() async throws {
+        // No createdAccount => FakeMarmotRuntime.login throws, exercising the failure path.
+        let runtime = FakeMarmotRuntime(accounts: [])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1faketestkeyfaketestkeyfaketestkeyfaketestkeyfaketest"
+
+        await state.login()
+
+        // What the failure leaves behind: an emptied field, and a complaint about the key that is
+        // no longer in it. The pane still shows it here — there is nothing else to show.
+        let failure = try #require(state.lastError)
+        #expect(state.loginIdentity == "")
+        #expect(LoginIdentityDraft(state.loginIdentity).showsLastAttemptError)
+
+        // The user pastes a different key. `lastError` deliberately still stands, so the draft is
+        // what has to stop carrying it.
+        state.loginIdentity = "npub1anotherfakekeyanotherfakekeyanotherfakekeyanotherfake"
+        #expect(state.lastError == failure)
+        #expect(LoginIdentityDraft(state.loginIdentity).showsLastAttemptError == false)
+
+        // And a wrong one keeps the field's own complaint in front, unchanged.
+        state.loginIdentity = "hello"
+        #expect(LoginIdentityDraft(state.loginIdentity) == .invalid)
+        #expect(LoginIdentityDraft(state.loginIdentity).showsLastAttemptError == false)
+    }
+
     @MainActor
     @Test func successfulLoginScrubsEnteredNsecFromMemory() async throws {
         let summary = AccountSummaryFfi(

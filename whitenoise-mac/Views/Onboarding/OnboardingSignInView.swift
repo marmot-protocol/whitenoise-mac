@@ -31,14 +31,19 @@ struct OnboardingSignInView: View {
         workspace.authenticationActivity == .login
     }
 
-    /// The field's own complaint first, the core's second. They cannot both be true of the same
-    /// keystroke: typing anything clears `lastError` only on the next attempt, so a stale core
-    /// error would otherwise sit under a field the user has already fixed.
+    /// The field's own complaint first, the core's second — and the core's only while the field
+    /// still holds nothing.
+    ///
+    /// `lastError` is cleared when the next attempt starts, not when the field changes, so on its
+    /// own it outlives the key it is about: `login()` scrubs the field on failure (issue #32), and
+    /// the replacement key pasted into the empty field it leaves behind would inherit the previous
+    /// key's error. `LoginIdentityDraft.showsLastAttemptError` is what decides that the complaint
+    /// is no longer about what is in the field.
     private var message: String? {
         if draft == .invalid {
             return L10n.string("Invalid nsec. Make sure you entered it correctly.")
         }
-        return workspace.lastError
+        return draft.showsLastAttemptError ? workspace.lastError : nil
     }
 
     var body: some View {
