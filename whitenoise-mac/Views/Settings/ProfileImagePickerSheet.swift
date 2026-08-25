@@ -52,6 +52,17 @@ struct ProfileImagePickerSheet: View {
         workspace.isSearchingProfileImages || workspace.isUploadingProfileImage
     }
 
+    /// What the Search button and the Return key both answer to.
+    ///
+    /// Read in one place because the field and the button are two presses of the same control and
+    /// must not disagree: `onSubmit` used to run unconditionally, so Return started a second
+    /// Openverse request while the button beside it sat disabled on an in-flight search. The
+    /// generation counter kept that safe — the older request's results are discarded — but the
+    /// round trip was spent.
+    private var canSearch: Bool {
+        !trimmedQuery.isEmpty && !isBusy
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -128,20 +139,21 @@ struct ProfileImagePickerSheet: View {
             TextField(L10n.string("Search images"), text: $workspace.profileImageSearchQuery)
                 .textFieldStyle(.roundedBorder)
                 .focused($isSearchFocused)
-                .onSubmit {
-                    Task { await workspace.searchProfileImages() }
-                }
+                .onSubmit(searchIfPossible)
 
-            Button {
-                Task { await workspace.searchProfileImages() }
-            } label: {
+            Button(action: searchIfPossible) {
                 Label(L10n.string("Search"), systemImage: "magnifyingglass")
             }
             .nativeGlassProminentButtonStyle()
-            .disabled(trimmedQuery.isEmpty || isBusy)
+            .disabled(!canSearch)
             .help(L10n.string("Search"))
         }
         .disabled(workspace.isUploadingProfileImage)
+    }
+
+    private func searchIfPossible() {
+        guard canSearch else { return }
+        Task { await workspace.searchProfileImages() }
     }
 
     @ViewBuilder
