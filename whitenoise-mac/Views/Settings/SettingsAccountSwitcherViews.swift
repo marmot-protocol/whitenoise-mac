@@ -3,8 +3,9 @@
 //  whitenoise-mac
 //
 //  The account switcher that sits at the top of Settings: the card naming the
-//  active identity, the popover listing every identity on this Mac, and the
-//  add-account sheet. This is where the former Accounts settings page went —
+//  active identity, and the popover listing every identity on this Mac. Adding
+//  one is not here — `Add Account` opens the onboarding flow, the same panes a
+//  first launch shows. This is where the former Accounts settings page went —
 //  the iOS and Flutter clients open Settings on the current profile with a
 //  switch control directly underneath it rather than routing identity work
 //  through a separate Accounts tab, and this mirrors that on macOS.
@@ -25,7 +26,6 @@ struct SettingsAccountSwitcherCard: View {
     // `L10n.string(_:locale:)`.
     @Environment(\.locale) private var locale
     @State private var isSwitcherPresented = false
-    @State private var isAddAccountPresented = false
     @State private var accountPendingRemoval: AccountItem?
     @State private var accountPendingSignOut: AccountItem?
 
@@ -90,7 +90,7 @@ struct SettingsAccountSwitcherCard: View {
                     },
                     onAddAccount: {
                         isSwitcherPresented = false
-                        isAddAccountPresented = true
+                        workspace.showAccountOnboarding()
                     },
                     onSignOut: { account in
                         isSwitcherPresented = false
@@ -116,11 +116,6 @@ struct SettingsAccountSwitcherCard: View {
         }
         .padding(10)
         .glassCard()
-        .sheet(isPresented: $isAddAccountPresented) {
-            AddAccountSheet()
-                .environment(workspace)
-                .environment(\.locale, workspace.preferredLocale)
-        }
         .removeAccountConfirmation(
             account: accountPendingRemoval,
             isPresented: removeConfirmationBinding,
@@ -372,117 +367,5 @@ struct AccountSwitcherRow: View {
         return account.externalSigning
             ? L10n.string("External signing", locale: locale)
             : L10n.string("Watch-only", locale: locale)
-    }
-}
-
-/// Adds an identity without leaving Settings: log in with an existing `nsec`, or
-/// create a new one. Both paths land on the new identity's profile page so the
-/// switcher card visibly reflects the account that is now active.
-struct AddAccountSheet: View {
-    @Environment(WorkspaceState.self) private var workspace
-    @Environment(\.locale) private var locale
-    @Environment(\.dismiss) private var dismiss
-
-    /// Authentication adds an account, so it waits out any other account mutation
-    /// (sign-out, removal, wipe) rather than racing its account-list refresh.
-    private var isAuthenticationBlocked: Bool {
-        workspace.isAuthenticating || workspace.isAccountMutationInProgress
-    }
-
-    private var isLoginDisabled: Bool {
-        workspace.loginIdentity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || isAuthenticationBlocked
-    }
-
-    var body: some View {
-        @Bindable var workspace = workspace
-
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L10n.string("Add Account", locale: locale))
-                    .wnFont(.semiBold16)
-
-                Spacer()
-
-                GlassCircleCloseButton {
-                    cancel()
-                }
-            }
-
-            SecureField(
-                L10n.string("nsec1...", locale: locale),
-                text: $workspace.loginIdentity,
-                prompt: Text(L10n.string("nsec1...", locale: locale))
-            )
-            .labelsHidden()
-            .textFieldStyle(.roundedBorder)
-            .disabled(workspace.isAuthenticating)
-
-            HStack(spacing: 10) {
-                Button {
-                    Task { await addAccount { await workspace.login() } }
-                } label: {
-                    Label(
-                        workspace.authenticationActivity == .login
-                            ? L10n.string("Logging in...", locale: locale)
-                            : L10n.string("Log in with key", locale: locale),
-                        systemImage: "key"
-                    )
-                }
-                .nativeGlassProminentButtonStyle()
-                .disabled(isLoginDisabled)
-
-                Button {
-                    workspace.clearEnteredLoginIdentity()
-                    Task { await addAccount { await workspace.signUp() } }
-                } label: {
-                    Label(
-                        workspace.authenticationActivity == .signUp
-                            ? L10n.string("Creating...", locale: locale)
-                            : L10n.string("Create identity", locale: locale),
-                        systemImage: "plus.circle"
-                    )
-                }
-                .buttonStyle(.wnSecondary)
-                .disabled(isAuthenticationBlocked)
-
-                Spacer()
-
-                Button(L10n.string("Cancel", locale: locale)) {
-                    cancel()
-                }
-                .buttonStyle(.wnSecondary)
-                .disabled(workspace.isAuthenticating)
-            }
-
-            SettingsErrorView(error: workspace.lastError)
-        }
-        .padding(22)
-        .frame(width: 420)
-        .background {
-            LiquidGlassBackground()
-        }
-        // Esc, or the presenter going away, dismisses the sheet without running
-        // `cancel()`; the entered nsec must not survive either. See #32.
-        .onDisappear {
-            workspace.clearEnteredLoginIdentity()
-        }
-    }
-
-    /// Runs an authentication path and, when it succeeds, returns to Settings on
-    /// the new account's profile. `login`/`signUp` clear the selection on success,
-    /// so without this the window would jump to the chat list.
-    private func addAccount(_ authenticate: () async -> Void) async {
-        await authenticate()
-        guard workspace.lastError == nil else { return }
-        dismiss()
-        workspace.showSettingsPage(.overview)
-    }
-
-    /// Scrubs the entered nsec (private key) rather than letting it linger in
-    /// observable memory behind a dismissed sheet. See #32.
-    private func cancel() {
-        workspace.clearEnteredLoginIdentity()
-        dismiss()
     }
 }

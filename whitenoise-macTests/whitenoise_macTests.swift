@@ -1147,26 +1147,125 @@ struct whitenoise_macTests {
         }
     }
 
-    /// #32 one layer up: the Add Account sheet's own teardown has to scrub the key, because Esc
-    /// and a disappearing presenter both dismiss it without running its cancel affordance. Only
-    /// the source can hold that contract — once the sheet is gone there is nothing left to observe.
+    /// Settings → Add Account is the onboarding flow now, not a sheet of its own. The card used
+    /// to raise `AddAccountSheet` — a second key field and a second pair of buttons for the two
+    /// things `Views/Onboarding` already does — and this pins the routing that replaced it.
     @MainActor
-    @Test func addAccountSheetScrubsEnteredNsecWhenItDisappears() throws {
-        let sourceURL =
-            URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "whitenoise-mac")
-            .appending(path: "Views")
-            .appending(path: "Settings")
-            .appending(path: "SettingsAccountSwitcherViews.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    @Test func addAccountOpensTheOnboardingFlowOnItsLandingPane() async throws {
+        let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
+        await state.bootstrap()
+        #expect(state.phase == .ready)
 
-        let sheetStart = try #require(source.range(of: "struct AddAccountSheet: View {"))
-        let sheetSource = String(source[sheetStart.lowerBound...])
-        let normalized = sheetSource.components(separatedBy: .whitespacesAndNewlines).joined()
+        state.showAccountOnboarding()
 
-        #expect(normalized.contains(".onDisappear{workspace.clearEnteredLoginIdentity()}"))
+        #expect(state.phase == .onboarding)
+        #expect(state.authenticationMode == .landing)
+    }
+
+    /// The welcome pane is the root of the flow, so its way out is a `Cancel` back to the app —
+    /// but only where there is an app behind it. A first launch has none, and a control that
+    /// returned to a blank window would be offering something it cannot do.
+    @MainActor
+    @Test func onlyAnOnboardingFlowWithAccountsBehindItOffersAWayOut() async throws {
+        let empty = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
+        await empty.bootstrap()
+        #expect(empty.phase == .onboarding)
+        #expect(empty.canLeaveAccountOnboarding == false)
+
+        let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
+        await state.bootstrap()
+        // Ready, with an account: in the app, so there is nothing to leave.
+        #expect(state.canLeaveAccountOnboarding == false)
+
+        state.showAccountOnboarding()
+        #expect(state.canLeaveAccountOnboarding)
+    }
+
+    /// Cancel returns the user to the page they opened the flow from, which is why
+    /// `showAccountOnboarding()` leaves `selection` alone: restoring the phase is the whole of
+    /// the way back, and nothing else moved while the panes were up.
+    @MainActor
+    @Test func cancellingAddAccountReturnsToThePageItWasOpenedFrom() async throws {
+        let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
+        await state.bootstrap()
+        state.showSettings(.overview)
+        let selectionBeforehand = state.selection
+
+        state.showAccountOnboarding()
+        state.leaveAccountOnboarding()
+
+        #expect(state.phase == .ready)
+        #expect(state.authenticationMode == .landing)
+        #expect(state.selection == selectionBeforehand)
+    }
+
+    /// #32 on the exit the sheet's `.onDisappear` used to cover. A key typed into the flow and
+    /// then abandoned must not outlive it — cancelling is exactly the case where the user has
+    /// decided not to submit what they pasted.
+    @MainActor
+    @Test func cancellingAddAccountScrubsTheEnteredNsec() async throws {
+        let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
+        await state.bootstrap()
+
+        state.showAccountOnboarding()
+        state.showLogin()
+        state.loginIdentity = "nsec1faketestkeyfaketestkeyfaketestkeyfaketestkeyfaketest"
+
+        // Back out of the key pane first, the way the panes are actually stacked.
+        state.cancelLogin()
+        #expect(state.loginIdentity == "")
+
+        // And again for a key that survived as far as the landing pane.
+        state.loginIdentity = "nsec1anotherfakekeyanotherfakekeyanotherfakekeyanotherfake"
+        state.leaveAccountOnboarding()
+
+        #expect(state.loginIdentity == "")
+        #expect(state.phase == .ready)
+    }
+
+    /// Entering the flow must not carry a failure in from wherever it was opened, and leaving it
+    /// must not carry one back out: `lastError` renders on the landing pane and on every settings
+    /// pane, so a stale one would be read as a complaint about the screen it followed the user to.
+    @MainActor
+    @Test func theAddAccountFlowClearsErrorsOnTheWayInAndOnTheWayOut() async throws {
+        let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
+        await state.bootstrap()
+
+        state.lastError = "Something failed in Settings"
+        state.showAccountOnboarding()
+        #expect(state.lastError == nil)
+
+        state.lastError = "Couldn't sign in"
+        state.leaveAccountOnboarding()
+        #expect(state.lastError == nil)
+    }
+
+    /// The exit control's two cases are not interchangeable: `wn-ios-prototype` draws the pushed
+    /// panes' way back as a nav-bar chevron and the root pane's as `Cancel`, and conflating them
+    /// would put a "go back" arrow on a pane with nothing behind it.
+    @MainActor
+    @Test func theOnboardingExitControlDrawsBackAndCancelDifferently() {
+        let back = OnboardingExitControl.back {}
+        let cancel = OnboardingExitControl.cancel {}
+
+        #expect(back.symbol == "chevron.left")
+        #expect(cancel.symbol == "xmark")
+        #expect(back.helpKey != cancel.helpKey)
+        #expect(back.accessibilityIdentifier != cancel.accessibilityIdentifier)
+    }
+
+    /// One signed-in account on a fake runtime, for the add-account flow's tests.
+    private static func addAccountRuntime() -> FakeMarmotRuntime {
+        FakeMarmotRuntime(accounts: [
+            AccountSummaryFfi(
+                label: "Desktop Account",
+                accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+                localSigning: true,
+                externalSigning: false,
+                signedOut: false,
+                running: true
+            )
+        ])
     }
 
     /// The avatar's selection ring and drop shadow are both drawn outside the frame they are

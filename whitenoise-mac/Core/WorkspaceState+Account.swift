@@ -291,11 +291,48 @@ extension WorkspaceState {
         lastError = nil
     }
 
+    /// Open the onboarding surface to add an identity alongside the ones already on this Mac.
+    ///
+    /// This is the whole of Settings → Add Account, and of the signed-out pane's `Use another
+    /// account`. Both used to have their own answer to "how do you get a second account in" — the
+    /// former a bespoke sheet with its own key field and its own pair of buttons, the latter this
+    /// call — and the sheet's was a second, worse copy of a flow that already exists. There is one
+    /// now: the panes in `Views/Onboarding`, which is what `wn-ios-prototype`'s `AddProfileFlow`
+    /// does too. It presents `WelcomeView` and pushes the *real* `LoginView` and `SignUpView`
+    /// rather than reimplementing either.
+    ///
+    /// Deliberately leaves `selection` alone, so `leaveAccountOnboarding()` puts the user back on
+    /// the page they opened this from rather than somewhere merely plausible.
     func showAccountOnboarding() {
         authenticationMode = .landing
         clearEnteredLoginIdentity()
         lastError = nil
         phase = .onboarding
+    }
+
+    /// Whether the onboarding surface has an app behind it to return to.
+    ///
+    /// Derived rather than stored, because a flag saying the same thing could fall out of step
+    /// with the phase it describes. Every *other* route into `.onboarding` is taken precisely
+    /// because there is nothing else to show — a first launch, the last account removed, a wipe —
+    /// and each one is guarded by `accounts.isEmpty` or clears the list itself. So a non-empty
+    /// account list in this phase means someone chose to be here and is owed a way out.
+    var canLeaveAccountOnboarding: Bool {
+        phase == .onboarding && !accounts.isEmpty
+    }
+
+    /// Leave the onboarding surface without adding anything — the prototype's `Cancel`.
+    ///
+    /// Restores the phase and nothing else: no account changed hands, so there is no state to
+    /// rebuild and `activateReadyState()`'s reloads would be work done for a user who pressed
+    /// cancel. What it does scrub is the key field, because Cancel is one of the exits #32 is
+    /// about: a typed-but-unsubmitted nsec must not outlive the pane it was typed into.
+    func leaveAccountOnboarding() {
+        guard canLeaveAccountOnboarding, !isAuthenticating else { return }
+        authenticationMode = .landing
+        clearEnteredLoginIdentity()
+        lastError = nil
+        phase = .ready
     }
 
     func cancelLogin() {
