@@ -241,6 +241,20 @@ import Testing
         #expect(LoginIdentityDraft("note1abc") == .invalid)
     }
 
+    /// The core's complaint about the last attempt belongs to the field that attempt was made
+    /// from, and `login()` empties that field on failure (issue #32). Anything in the field
+    /// afterwards is a different identity, so the draft stops standing behind the complaint —
+    /// without this a replacement key sits under the rejected key's error, and the pane reads as
+    /// having refused a key it has not been given yet.
+    @Test func onlyAnEmptyDraftStandsBehindTheLastAttemptsError() {
+        #expect(LoginIdentityDraft("").showsLastAttemptError)
+        #expect(LoginIdentityDraft("   \n ").showsLastAttemptError)
+
+        #expect(LoginIdentityDraft("nsec1" + String(repeating: "q", count: 58)).showsLastAttemptError == false)
+        #expect(LoginIdentityDraft("npub1" + String(repeating: "q", count: 58)).showsLastAttemptError == false)
+        #expect(LoginIdentityDraft("hello").showsLastAttemptError == false)
+    }
+
     // MARK: - The sign-up pane fits the window it has to fit
 
     /// The one thing about this pane that fails invisibly.
