@@ -500,6 +500,13 @@ final class WorkspaceState {
     var profileImagePickerDestination: ProfileImagePickerDestination = .activeAccount
     var profileImageSearchQuery = ""
     var profileImageResults: [GroupImageSearchResult] = []
+    /// The result the web picker is holding, before it is committed.
+    ///
+    /// `wn-ios-prototype`'s `AvatarWebImagePickerView` picks in two steps — a tile takes the
+    /// selection badge, and **Done** is what applies it — so a mis-click costs nothing but
+    /// another click. The mac picker used to download, re-encode, and upload on the tile press
+    /// itself, which made every press irreversible and closed the sheet.
+    var selectedProfileImageResult: GroupImageSearchResult?
     var isSearchingProfileImages = false
     var isUploadingProfileImage = false
     /// Decrypted group avatars are account/group/content-addressed. Chat items retain the payload
