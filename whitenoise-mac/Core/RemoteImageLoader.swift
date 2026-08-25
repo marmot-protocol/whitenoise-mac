@@ -391,7 +391,7 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
 
     var body: some View {
         ZStack {
-            if let image {
+            if let image = image ?? alreadyDecodedImage {
                 content(image)
             } else {
                 placeholder()
@@ -404,6 +404,19 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
 
     private var taskKey: TaskKey {
         TaskKey(url: url, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
+    }
+
+    /// The decoded image for this URL and size when the shared cache is already holding one.
+    ///
+    /// `.task` cannot run before the first frame, so a view that appears with a warm cache entry
+    /// draws its placeholder once anyway — for an avatar that is a visible flash of initials over
+    /// an image the process has in memory. Reading the cache synchronously closes that gap. `??`
+    /// short-circuits, so a view that has loaded never gets here, and a miss costs one lookup.
+    private var alreadyDecodedImage: Image? {
+        guard let url = taskKey.url,
+            let loaded = RemoteImageLoader.shared.decodedImage(for: url, maxPixelSize: taskKey.size)
+        else { return nil }
+        return Image(nsImage: loaded.nsImage)
     }
 
     @MainActor
@@ -601,15 +614,28 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         case local
     }
 
+    /// Source bytes the app itself established at a remote URL, held so the first display of
+    /// that URL does not have to fetch what the process already has. See `primeRemoteImage`.
+    private struct PrimedSource {
+        let url: String
+        let data: Data
+    }
+
     static let shared = RemoteImageLoader()
     static let defaultDecodedCacheCountLimit = 512
     static let defaultDecodedCacheTotalCostLimit = 64 * 1024 * 1024
+
+    /// How many primed images to keep source bytes for, oldest evicted first. A handful covers
+    /// setting a picture on more than one account in a sitting; the point of the bound is that a
+    /// long session cannot accumulate them.
+    static let primedSourceLimit = 4
 
     private let cache = NSCache<NSString, NSImage>()
     private let inFlight = RemoteImageLoadRegistry()
     private let cacheStateLock = NSLock()
     private var cacheGenerations: [CacheScope: Int] = [.remote: 0, .local: 0]
     private var localCacheKeys = Set<String>()
+    private var primedSources: [PrimedSource] = []
     private let session: URLSession
 
     var decodedCacheCountLimit: Int { cache.countLimit }
@@ -673,6 +699,47 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     func data(for url: URL) async -> Data? {
         guard RemoteImageURLPolicy.isAllowed(url) else { return nil }
         return await Self.download(url, using: session)
+    }
+
+    /// Registers source bytes the app already holds for `url`, so the first load of that URL
+    /// decodes from memory instead of fetching it.
+    ///
+    /// This exists for one narrow case: the profile picture the user just chose. The app uploaded
+    /// those exact bytes to a Blossom server, took the URL the upload returned, and put it on the
+    /// account — at which point every avatar on screen asked the network for an image the process
+    /// was still holding, and drew initials for the length of a round trip (longer while the
+    /// server is still making a freshly uploaded blob available). This is not a general
+    /// cache-warming hook: prime only bytes whose identity at `url` the app itself established,
+    /// because a wrong pairing here shows one image under another's URL for the whole session.
+    ///
+    /// Priming widens neither what may be fetched nor what may be drawn. `image(for:)` still
+    /// applies `RemoteImageURLPolicy` before it looks here, so a disallowed URL stays unloadable,
+    /// and the consent half of the decision stays with `RemoteImageDisplayPolicy` at the call
+    /// site. Oversized bodies are rejected so `primedSourceLimit` bounds memory and not just a
+    /// count, and `clearCache()` drops these bytes along with the decoded images.
+    func primeRemoteImage(url: URL, data: Data) {
+        guard RemoteImageURLPolicy.isAllowed(url), !data.isEmpty,
+            Int64(data.count) <= RemoteImageURLPolicy.maxResponseBytes
+        else { return }
+
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        primedSources.removeAll { $0.url == url.absoluteString }
+        primedSources.append(PrimedSource(url: url.absoluteString, data: data))
+        if primedSources.count > Self.primedSourceLimit {
+            primedSources.removeFirst(primedSources.count - Self.primedSourceLimit)
+        }
+    }
+
+    /// The decoded image for `url` at `maxPixelSize` if the cache is already holding one.
+    ///
+    /// Synchronous, so a view can draw a warm entry on its first frame rather than flashing its
+    /// placeholder for one pass of the async load. A miss returns nil and starts nothing.
+    func decodedImage(for url: URL, maxPixelSize: CGFloat) -> LoadedImage? {
+        guard RemoteImageURLPolicy.isAllowed(url),
+            let cached = cachedImage(for: Self.cacheKey(for: url, maxPixelSize: maxPixelSize))
+        else { return nil }
+        return LoadedImage(nsImage: cached)
     }
 
     /// Downsamples and caches local/decrypted image bytes.
@@ -762,6 +829,10 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         }
         cache.removeAllObjects()
         localCacheKeys.removeAll(keepingCapacity: true)
+        // The privacy wipes this serves must not leave the user's own uploaded picture behind
+        // in the process either, and a primed URL that outlived its account would go on serving
+        // bytes no fetch could have produced.
+        primedSources.removeAll()
         cacheStateLock.unlock()
     }
 
@@ -781,6 +852,10 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
     }
 
     #if DEBUG
+        func primedSourceByteCount(for url: URL) -> Int? {
+            primedSource(for: url)?.count
+        }
+
         func inFlightWaiterCount(for url: URL, maxPixelSize: CGFloat) -> Int {
             inFlight.waiterCount(
                 for: Self.inFlightKey(
@@ -810,10 +885,16 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
         maxPixelSize: CGFloat,
         cacheGeneration generation: Int
     ) async -> LoadedImage? {
-        guard let data = await Self.download(url, using: session) else { return nil }
+        let source: Data
+        if let primed = primedSource(for: url) {
+            source = primed
+        } else {
+            guard let downloaded = await Self.download(url, using: session) else { return nil }
+            source = downloaded
+        }
         guard !Task.isCancelled, isCurrentCacheGeneration(generation, for: .remote) else { return nil }
         return await loadLocalImage(
-            data: data,
+            data: source,
             cacheKey: cacheKey,
             maxPixelSize: maxPixelSize,
             cacheGeneration: generation,
@@ -845,6 +926,12 @@ nonisolated final class RemoteImageLoader: @unchecked Sendable {
             return nil
         }
         return loaded
+    }
+
+    private func primedSource(for url: URL) -> Data? {
+        cacheStateLock.lock()
+        defer { cacheStateLock.unlock() }
+        return primedSources.last { $0.url == url.absoluteString }?.data
     }
 
     private func cachedImage(for key: String) -> NSImage? {
