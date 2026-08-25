@@ -9,6 +9,12 @@ import SwiftUI
 
 /// The onboarding landing pane.
 ///
+/// Not only a first launch's: this is also Settings → Add Account, which used to raise a sheet of
+/// its own with a second key field and a second pair of buttons for the same two actions. The
+/// prototype does not have a second one either — `AddProfileFlow` presents this pane and pushes
+/// the real `LoginView` and `SignUpView` behind it. The only thing the two entrances differ by is
+/// the way out; see `exit`.
+///
 /// `wn-ios-prototype`'s `WelcomeView` and Flutter's `WnAuthButtonsContainer` agree on the
 /// ordering, and it is the opposite of what this pane used to do: **the lesser action sits on
 /// top and the primary one sits at the bottom**, closest to the edge the hand or the pointer
@@ -37,8 +43,17 @@ import SwiftUI
 struct OnboardingWelcomeView: View {
     @Environment(WorkspaceState.self) private var workspace
 
+    /// Present only when this pane is not the end of the line — see
+    /// `WorkspaceState.canLeaveAccountOnboarding`. On a first launch there is no app to cancel
+    /// back to, and a control that returned to a blank window would be a lie; reached from
+    /// Settings → Add Account, or from the signed-out pane, there is.
+    private var exit: OnboardingExitControl? {
+        guard workspace.canLeaveAccountOnboarding else { return nil }
+        return .cancel { workspace.leaveAccountOnboarding() }
+    }
+
     var body: some View {
-        OnboardingScaffold {
+        OnboardingScaffold(exit: exit) {
             OnboardingMessageLine(message: workspace.lastError)
         } actions: {
             OnboardingActionButton(

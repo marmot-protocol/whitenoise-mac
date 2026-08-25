@@ -49,7 +49,7 @@ struct OnboardingSignInView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        OnboardingScaffold(backAction: { workspace.cancelLogin() }) {
+        OnboardingScaffold(exit: .back { workspace.cancelLogin() }) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(L10n.string("Private Key"))
                     .wnFont(.semiBold14)
