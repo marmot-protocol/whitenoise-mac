@@ -8,13 +8,18 @@
 
 import SwiftUI
 
-/// The avatar the new identity will have, as a button that opens the image picker.
+/// The avatar the new identity will have, as the menu of places its picture can come from.
 ///
 /// This stands where the mark stands on the other two panes — see `OnboardingScaffold`. Both the
 /// prototype and Flutter put the picture-picking affordance *on* the avatar rather than beside it
 /// (`WnAvatar(onEditTap:)`, and the prototype's menu hung off a "Change Photo" pill); the mac's
 /// own Settings → Profile page already draws the on-avatar version, so this is that control at
 /// hero size rather than a fourth way to do the same thing.
+///
+/// Pressing it opens `wn-ios-prototype`'s source menu rather than going straight to a window —
+/// see `ProfileImageSourceMenu`, which owns both entries and the file import behind one of them.
+/// The badge stays a camera because that is the glyph both other clients put here for "change
+/// this picture"; nothing on a Mac takes the photo.
 struct OnboardingSignUpAvatar: View {
     @Environment(WorkspaceState.self) private var workspace
 
@@ -23,9 +28,7 @@ struct OnboardingSignUpAvatar: View {
     }
 
     var body: some View {
-        Button {
-            workspace.showSignUpImagePicker()
-        } label: {
+        ProfileImageSourceMenu(destination: .signUpDraft, isEnabled: !isBusy) {
             ZStack(alignment: .bottomTrailing) {
                 SignUpAvatarView(size: OnboardingLayout.signUpAvatarSize)
 
@@ -40,13 +43,9 @@ struct OnboardingSignUpAvatar: View {
             }
             .contentShape(.circle)
         }
-        .buttonStyle(.plain)
-        .disabled(isBusy)
         // The hero is centred by a frame rather than by the scaffold, which lays its children out
         // full-width: without this the avatar sits against the pane's leading edge.
         .frame(maxWidth: .infinity)
-        .help(L10n.string("Change profile image"))
-        .accessibilityLabel(L10n.string("Change profile image"))
         .accessibilityIdentifier("onboarding.sign-up.photo")
     }
 }
