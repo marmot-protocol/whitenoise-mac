@@ -52,4 +52,14 @@ enum LoginIdentityDraft: Equatable {
 
     /// Whether the pane's primary action can fire.
     var isSubmittable: Bool { self == .valid }
+
+    /// Whether the line under the field should still carry what the core said about the last
+    /// attempt.
+    ///
+    /// Only the empty draft does. `login()` scrubs the field on every exit path, failures
+    /// included (see issue #32), so an emptied field is what a failed attempt leaves behind and
+    /// is the only draft that complaint is still about. `lastError` itself survives until the
+    /// *next* attempt starts, so without this a key pasted in to replace the one that failed
+    /// would be shown the previous key's error.
+    var showsLastAttemptError: Bool { self == .empty }
 }
