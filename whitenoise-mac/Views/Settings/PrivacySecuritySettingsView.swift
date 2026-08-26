@@ -19,50 +19,45 @@ struct PrivacySecuritySettingsView: View {
             title: L10n.string("Privacy & Security"),
             subtitle: L10n.string("Telemetry and audit logs stay off until you enable them.")
         ) {
-            Section(L10n.string("Remote Content")) {
-                Toggle(
+            SettingsSection(
+                title: L10n.string("Remote Content"),
+                footer: L10n.string(
+                    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
+                )
+            ) {
+                SettingsToggleRow(
+                    title: L10n.string("Load Remote Profile Images"),
+                    systemImage: "person.crop.circle.badge.exclamationmark",
                     isOn: Binding(
                         get: { workspace.loadRemoteImages },
                         set: { workspace.loadRemoteImages = $0 }
                     )
-                ) {
-                    Label(
-                        L10n.string("Load Remote Profile Images"),
-                        systemImage: "person.crop.circle.badge.exclamationmark")
-                }
-
-                Text(
-                    L10n.string(
-                        "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
-                    )
                 )
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
-            Section(L10n.string("Data Sharing")) {
-                Toggle(
+            SettingsSection(title: L10n.string("Data Sharing")) {
+                SettingsToggleRow(
+                    title: L10n.string("Anonymous Telemetry"),
+                    systemImage: "waveform.path.ecg",
                     isOn: Binding(
                         get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
                         set: { enabled in
                             Task { await workspace.setRelayTelemetryEnabled(enabled) }
                         }
                     )
-                ) {
-                    Label(L10n.string("Anonymous Telemetry"), systemImage: "waveform.path.ecg")
-                }
+                )
                 .disabled(workspace.isSavingPrivacySecurity)
 
-                Toggle(
+                SettingsToggleRow(
+                    title: L10n.string("Audit Logging"),
+                    systemImage: "doc.text.magnifyingglass",
                     isOn: Binding(
                         get: { workspace.privacySecuritySettings.auditLoggingEnabled },
                         set: { enabled in
                             Task { await workspace.setAuditLoggingEnabled(enabled) }
                         }
                     )
-                ) {
-                    Label(L10n.string("Audit Logging"), systemImage: "doc.text.magnifyingglass")
-                }
+                )
                 .disabled(workspace.isSavingPrivacySecurity)
 
                 if workspace.isSavingPrivacySecurity {
@@ -75,7 +70,7 @@ struct PrivacySecuritySettingsView: View {
                 }
             }
 
-            Section(L10n.string("Audit Log Files")) {
+            SettingsSection(title: L10n.string("Audit Log Files")) {
                 HStack {
                     if workspace.isLoadingAuditLogFiles {
                         ProgressView()
@@ -132,12 +127,18 @@ struct PrivacySecuritySettingsView: View {
                 }
 
                 if let auditLogUploadStatus = workspace.auditLogUploadStatus {
-                    Label(auditLogUploadStatus, systemImage: "checkmark.seal")
-                        .foregroundStyle(WNColor.intentionSuccessContent)
+                    SettingsStatusNote(
+                        text: auditLogUploadStatus,
+                        intention: .success,
+                        systemImage: "checkmark.seal"
+                    )
                 }
             }
 
-            Section(L10n.string("Reset")) {
+            SettingsSection(
+                title: L10n.string("Reset"),
+                footer: L10n.string("Reset White Noise to a newly installed state on this Mac.")
+            ) {
                 Button(role: .destructive) {
                     showDeleteAllDataConfirmation = true
                 } label: {
@@ -149,10 +150,6 @@ struct PrivacySecuritySettingsView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(WNColor.fillDestructive)
                 .disabled(workspace.isAccountMutationInProgress)
-
-                Text(L10n.string("Reset White Noise to a newly installed state on this Mac."))
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
         }

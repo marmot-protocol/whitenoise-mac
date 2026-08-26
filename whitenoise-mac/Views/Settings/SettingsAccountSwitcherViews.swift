@@ -28,11 +28,60 @@ struct SettingsAccountSwitcherCard: View {
     @State private var isSwitcherPresented = false
     @State private var accountPendingRemoval: AccountItem?
     @State private var accountPendingSignOut: AccountItem?
+    @State private var isQRPresented = false
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                if let account = workspace.activeAccount {
+        // The prototype's first hub card: the active profile, then the one row that manages
+        // profiles. Same surface as every other card in the drawer — it used to be a
+        // `glassCard()`, which made the identity read as chrome pinned above the list rather
+        // than as the list's first group.
+        SettingsSidebarGroupCard {
+            activeProfileRow
+
+            SettingsSidebarRowSeparator()
+
+            profileManagementRow
+        }
+        .sheet(isPresented: $isQRPresented) {
+            if let account = workspace.activeAccount {
+                PublicIdentityQRCodeSheet(
+                    displayName: account.displayName,
+                    npub: workspace.npub(forAccountIdHex: account.accountIdHex)
+                )
+            }
+        }
+        .removeAccountConfirmation(
+            account: accountPendingRemoval,
+            isPresented: removeConfirmationBinding,
+            isRemoveDisabled: workspace.isAccountMutationInProgress
+        ) {
+            guard let account = accountPendingRemoval else { return }
+            accountPendingRemoval = nil
+            Task { await workspace.removeAccount(account) }
+        }
+        .signOutConfirmation(
+            account: accountPendingSignOut,
+            isPresented: signOutConfirmationBinding
+        ) {
+            guard let account = accountPendingSignOut else { return }
+            accountPendingSignOut = nil
+            Task { await workspace.signOutAccount(account) }
+        }
+    }
+
+    /// The active identity, and the way to hand it to someone else.
+    ///
+    /// The whole row opens the QR sheet, with the glyph and a disclosure chevron at the trailing
+    /// edge — the prototype's profile row shows a QR symbol beside a disclosure indicator and
+    /// pushes Share & Connect, and a row that is one big affordance is easier to hit than a 24pt
+    /// glyph.
+    @ViewBuilder
+    private var activeProfileRow: some View {
+        if let account = workspace.activeAccount {
+            Button {
+                isQRPresented = true
+            } label: {
+                HStack(spacing: 10) {
                     ProfileImageAvatarView(
                         seed: account.accountIdHex,
                         initials: account.initials,
@@ -44,108 +93,114 @@ struct SettingsAccountSwitcherCard: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(account.displayName)
-                            .wnFont(.semiBold12)
+                            .wnFont(.medium14)
+                            .foregroundStyle(WNColor.backgroundContentPrimary)
                             .lineLimit(1)
-                        CopyableKeyLabel(accountIdHex: account.accountIdHex, head: 8, tail: 6, showsCopyButton: false)
+                        CopyableKeyLabel(
+                            accountIdHex: account.accountIdHex, head: 8, tail: 6, showsCopyButton: false)
                     }
-                } else {
-                    Label(
-                        L10n.string("No account", locale: locale),
-                        systemImage: "person.crop.circle.badge.exclamationmark"
-                    )
-                    .wnFont(.semiBold12)
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "qrcode")
+                        .wnFont(.medium14)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
+
+                    Image(systemName: "chevron.right")
+                        .wnFont(.medium12)
+                        .foregroundStyle(WNColor.backgroundContentTertiary)
                 }
+                .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
+                .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(L10n.string("Show npub QR code", locale: locale))
+        } else {
+            Label(
+                L10n.string("No account", locale: locale),
+                systemImage: "person.crop.circle.badge.exclamationmark"
+            )
+            .wnFont(.medium14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
+            .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
+        }
+    }
+
+    /// One row that adapts to how many identities are stored, the way the prototype's hub does:
+    /// with a single profile there is nothing to switch to, so the row offers to add one; with
+    /// more, it opens the switcher. A permanent "Switch Account" button was offering a choice
+    /// that, for most people, has exactly one option.
+    private var profileManagementRow: some View {
+        Button {
+            if hasOtherAccounts {
+                isSwitcherPresented = true
+            } else {
+                workspace.showAccountOnboarding()
+            }
+        } label: {
+            HStack(spacing: SettingsSidebarRowMetrics.glyphSpacing) {
+                Image(
+                    systemName: hasOtherAccounts
+                        ? "arrow.up.arrow.down" : "person.crop.circle.badge.plus"
+                )
+                .wnFont(.medium14)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .frame(width: SettingsSidebarRowMetrics.glyphWidth)
+
+                Text(
+                    hasOtherAccounts
+                        ? L10n.string("Switch Account", locale: locale)
+                        : L10n.string("Add Account", locale: locale)
+                )
+                .wnFont(.medium14)
+                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .lineLimit(1)
 
                 Spacer(minLength: 0)
-
-                if let account = workspace.activeAccount {
-                    PublicIdentityQRCodeButton(
-                        accountIdHex: account.accountIdHex,
-                        displayName: account.displayName
-                    )
+            }
+            .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
+            .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isSwitcherPresented, arrowEdge: .trailing) {
+            AccountSwitcherPopover(
+                onSelect: { account in
+                    isSwitcherPresented = false
+                    workspace.selectAccountFromSettings(account)
+                },
+                onSignIn: { account in
+                    isSwitcherPresented = false
+                    Task { await workspace.signInAccount(account) }
+                },
+                onAddAccount: {
+                    isSwitcherPresented = false
+                    workspace.showAccountOnboarding()
+                },
+                onSignOut: { account in
+                    isSwitcherPresented = false
+                    accountPendingSignOut = account
+                },
+                onRemove: { account in
+                    isSwitcherPresented = false
+                    accountPendingRemoval = account
                 }
-            }
-
-            Button {
-                isSwitcherPresented = true
-            } label: {
-                Label(
-                    L10n.string("Switch Account", locale: locale),
-                    systemImage: "arrow.up.arrow.down"
-                )
-                .wnFont(.semiBold12)
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.wnSecondary)
-            .help(L10n.string("Switch Account", locale: locale))
-            .popover(isPresented: $isSwitcherPresented, arrowEdge: .bottom) {
-                AccountSwitcherPopover(
-                    onSelect: { account in
-                        isSwitcherPresented = false
-                        workspace.selectAccountFromSettings(account)
-                    },
-                    onSignIn: { account in
-                        isSwitcherPresented = false
-                        Task { await workspace.signInAccount(account) }
-                    },
-                    onAddAccount: {
-                        isSwitcherPresented = false
-                        workspace.showAccountOnboarding()
-                    },
-                    onSignOut: { account in
-                        isSwitcherPresented = false
-                        accountPendingSignOut = account
-                    },
-                    onRemove: { account in
-                        isSwitcherPresented = false
-                        accountPendingRemoval = account
-                    }
-                )
-                // A popover is hosted in its own window, so SwiftUI re-derives the
-                // system-backed environment values — `\.locale` among them — instead of
-                // inheriting the one ContentView injects. `AccountSwitcherPopover` is a
-                // separate `View` that reads `@Environment(\.locale)` for itself, so
-                // without this it resolves every label against the *system* language and
-                // renders English while the rest of the app follows the preference. The
-                // confirmation dialogs below don't need it: their closures capture this
-                // view's own `locale`. Same re-injection as the global search sheet in
-                // `ContentView`.
-                .environment(workspace)
-                .environment(\.locale, workspace.preferredLocale)
-            }
-        }
-        .padding(10)
-        .glassCard()
-        .removeAccountConfirmation(
-            account: accountPendingRemoval,
-            isPresented: removeConfirmationBinding,
-            isRemoveDisabled: workspace.isAccountMutationInProgress
-        ) {
-            guard let account = accountPendingRemoval else { return }
-            accountPendingRemoval = nil
-            Task { await workspace.removeAccount(account) }
-        }
-        .confirmationDialog(
-            L10n.string("Sign out of this account?", locale: locale),
-            isPresented: signOutConfirmationBinding,
-            titleVisibility: .visible
-        ) {
-            Button(L10n.string("Sign Out", locale: locale), role: .destructive) {
-                guard let account = accountPendingSignOut else { return }
-                accountPendingSignOut = nil
-                Task { await workspace.signOutAccount(account) }
-            }
-            Button(L10n.string("Cancel", locale: locale), role: .cancel) {
-                accountPendingSignOut = nil
-            }
-        } message: {
-            Text(
-                L10n.string(
-                    "The account and its local data will stay on this Mac so you can sign in again later.",
-                    locale: locale
-                )
             )
+            // A popover is hosted in its own window, so SwiftUI re-derives the system-backed
+            // environment values — `\.locale` among them — instead of inheriting the one
+            // ContentView injects. `AccountSwitcherPopover` reads `@Environment(\.locale)` for
+            // itself, so without this it resolves every label against the *system* language and
+            // renders English while the rest of the app follows the preference. The confirmation
+            // dialogs don't need it: their closures capture this view's own `locale`.
+            .environment(workspace)
+            .environment(\.locale, workspace.preferredLocale)
         }
+    }
+
+    private var hasOtherAccounts: Bool {
+        workspace.accounts.count > 1
     }
 
     private var removeConfirmationBinding: Binding<Bool> {
