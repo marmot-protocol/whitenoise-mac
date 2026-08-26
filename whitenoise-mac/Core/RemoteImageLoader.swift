@@ -375,6 +375,40 @@ nonisolated enum DownsampledImageSizing {
     }
 }
 
+/// Identifies what a `DownsampledAsyncImage` is being asked to show. The decoded-image cache is
+/// keyed by URL *and* pixel budget, so both belong here: two views of the same picture at
+/// different sizes hold different decodes.
+nonisolated struct DownsampledImageTaskKey: Equatable {
+    let url: URL?
+    let size: CGFloat
+}
+
+/// The `DownsampledDataImage` equivalent, for bytes that are already local.
+nonisolated struct DownsampledDataImageTaskKey: Equatable {
+    let payloadID: String
+    let size: CGFloat
+}
+
+/// Gates a loaded image on the key it was loaded for.
+///
+/// `.task(id:)` restarts when its id changes — but it changes the *task*, not the view's identity.
+/// SwiftUI carries `@State` across the change and evaluates `body` for the new id first, so a view
+/// that is rebound to a new subject (the conversation header avatar when the selected chat
+/// changes, a picker tile rebound to a new search hit) would draw the *previous* subject's image
+/// for a pass, before `loadImage(for:)` ran and cleared it. Reading the loaded image through this
+/// gate makes that pass fall back instead — to whatever the shared cache already holds for the new
+/// key, or to the placeholder.
+nonisolated enum DownsampledImageGate {
+    /// - Returns: `value`, but only when it was loaded for the key the view is currently showing.
+    static func value<Value, Key: Equatable>(
+        _ value: Value?,
+        loadedFor loadedKey: Key?,
+        showing currentKey: Key
+    ) -> Value? {
+        loadedKey == currentKey ? value : nil
+    }
+}
+
 /// Drop-in replacement for `AsyncImage` that loads a remote image once, downsamples it
 /// to the size it is actually displayed at (off the main thread), and caches the decoded
 /// result. Bare `AsyncImage` re-fetches and decodes the full-resolution image on the main
@@ -387,11 +421,11 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: Image?
-    @State private var displayedURL: URL?
+    @State private var loadedKey: DownsampledImageTaskKey?
 
     var body: some View {
         ZStack {
-            if let image = image ?? alreadyDecodedImage {
+            if let image = loadedImage ?? alreadyDecodedImage {
                 content(image)
             } else {
                 placeholder()
@@ -402,8 +436,15 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
         }
     }
 
-    private var taskKey: TaskKey {
-        TaskKey(url: url, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
+    private var taskKey: DownsampledImageTaskKey {
+        DownsampledImageTaskKey(url: url, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
+    }
+
+    /// The image this view loaded, but only while it still describes what the view is showing.
+    ///
+    /// See `DownsampledImageGate` for why reading `image` directly draws the previous subject.
+    private var loadedImage: Image? {
+        DownsampledImageGate.value(image, loadedFor: loadedKey, showing: taskKey)
     }
 
     /// The decoded image for this URL and size when the shared cache is already holding one.
@@ -411,7 +452,8 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
     /// `.task` cannot run before the first frame, so a view that appears with a warm cache entry
     /// draws its placeholder once anyway — for an avatar that is a visible flash of initials over
     /// an image the process has in memory. Reading the cache synchronously closes that gap. `??`
-    /// short-circuits, so a view that has loaded never gets here, and a miss costs one lookup.
+    /// short-circuits, so this is reached only on the frames that have nothing else to draw: the
+    /// first one, and the rebind pass where `loadedImage` is gated off. A miss costs one lookup.
     private var alreadyDecodedImage: Image? {
         guard let url = taskKey.url,
             let loaded = RemoteImageLoader.shared.decodedImage(for: url, maxPixelSize: taskKey.size)
@@ -419,31 +461,25 @@ struct DownsampledAsyncImage<Content: View, Placeholder: View>: View {
         return Image(nsImage: loaded.nsImage)
     }
 
+    /// Loads the image for `taskKey`, keeping `image` and `loadedKey` in step.
+    ///
+    /// The two always move together, so `loadedKey` describes exactly what `image` holds: a key
+    /// change drops both up front, and only a completed load sets both. A reload for the key
+    /// already on screen keeps the existing image if it fails, rather than flashing a placeholder.
     @MainActor
-    private func loadImage(for taskKey: TaskKey) async {
-        guard let url = taskKey.url else {
-            displayedURL = nil
+    private func loadImage(for taskKey: DownsampledImageTaskKey) async {
+        if loadedKey != taskKey {
+            loadedKey = nil
             image = nil
-            return
         }
 
-        if displayedURL != url {
-            image = nil
-        }
+        guard let url = taskKey.url else { return }
 
         if let loaded = await RemoteImageLoader.shared.image(for: url, maxPixelSize: taskKey.size) {
             guard !Task.isCancelled else { return }
-            displayedURL = url
+            loadedKey = taskKey
             image = Image(nsImage: loaded.nsImage)
-        } else if displayedURL != url {
-            guard !Task.isCancelled else { return }
-            image = nil
         }
-    }
-
-    private struct TaskKey: Equatable {
-        let url: URL?
-        let size: CGFloat
     }
 }
 
@@ -458,11 +494,11 @@ struct DownsampledDataImage<Content: View, Placeholder: View>: View {
     @ViewBuilder var placeholder: () -> Placeholder
 
     @State private var image: Image?
-    @State private var displayedPayloadID: String?
+    @State private var loadedKey: DownsampledDataImageTaskKey?
 
     var body: some View {
         ZStack {
-            if let image {
+            if let image = loadedImage {
                 content(image)
             } else {
                 placeholder()
@@ -473,13 +509,25 @@ struct DownsampledDataImage<Content: View, Placeholder: View>: View {
         }
     }
 
-    private var taskKey: TaskKey {
-        TaskKey(payloadID: payload.id, size: DownsampledImageSizing.requestedPixelSize(maxPixelSize))
+    private var taskKey: DownsampledDataImageTaskKey {
+        DownsampledDataImageTaskKey(
+            payloadID: payload.id,
+            size: DownsampledImageSizing.requestedPixelSize(maxPixelSize)
+        )
+    }
+
+    /// The image this view loaded, but only while it still describes what the view is showing.
+    ///
+    /// See `DownsampledImageGate`. This one has no shared-cache fallback to soften a stale pass,
+    /// so without the gate a rebound view draws the previous payload's image outright.
+    private var loadedImage: Image? {
+        DownsampledImageGate.value(image, loadedFor: loadedKey, showing: taskKey)
     }
 
     @MainActor
-    private func loadImage(for taskKey: TaskKey) async {
-        if displayedPayloadID != taskKey.payloadID {
+    private func loadImage(for taskKey: DownsampledDataImageTaskKey) async {
+        if loadedKey != taskKey {
+            loadedKey = nil
             image = nil
         }
 
@@ -488,17 +536,9 @@ struct DownsampledDataImage<Content: View, Placeholder: View>: View {
             maxPixelSize: taskKey.size
         ) {
             guard !Task.isCancelled else { return }
-            displayedPayloadID = taskKey.payloadID
+            loadedKey = taskKey
             image = Image(nsImage: loaded.nsImage)
-        } else if displayedPayloadID != taskKey.payloadID {
-            guard !Task.isCancelled else { return }
-            image = nil
         }
-    }
-
-    private struct TaskKey: Equatable {
-        let payloadID: String
-        let size: CGFloat
     }
 }
 

@@ -3126,6 +3126,43 @@ struct PureValueTests {
         )
     }
 
+    @Test func downsampledImageKeyDistinguishesBothURLAndSize() async throws {
+        let key = DownsampledImageTaskKey(url: URL(string: "https://example.com/a.png"), size: 128)
+
+        #expect(DownsampledImageTaskKey(url: key.url, size: 128) == key)
+        #expect(DownsampledImageTaskKey(url: URL(string: "https://example.com/b.png"), size: 128) != key)
+        // A size change has to invalidate too: the decoded image is cached per URL *and* pixel
+        // budget, so a key that only tracked the URL would hand back a decode of the wrong size.
+        #expect(DownsampledImageTaskKey(url: key.url, size: 256) != key)
+        #expect(DownsampledImageTaskKey(url: nil, size: 128) != key)
+    }
+
+    @Test func downsampledImageGateDropsAnImageLoadedForAnotherKey() async throws {
+        // The bug this pins: `.task(id:)` restarts the task, not the view's identity, so SwiftUI
+        // carries `@State image` across a rebind and evaluates `body` for the new key *first*.
+        // The conversation header avatar therefore drew the previous chat's picture for a pass
+        // before `loadImage(for:)` cleared it. Nothing loaded for another key may reach `content`.
+        let showing = DownsampledImageTaskKey(url: URL(string: "https://example.com/a.png"), size: 128)
+        let previous = DownsampledImageTaskKey(url: URL(string: "https://example.com/b.png"), size: 128)
+
+        #expect(DownsampledImageGate.value("a", loadedFor: showing, showing: showing) == "a")
+        #expect(DownsampledImageGate.value("b", loadedFor: previous, showing: showing) == nil)
+        #expect(DownsampledImageGate.value("b", loadedFor: nil, showing: showing) == nil)
+    }
+
+    @Test func downsampledDataImageGateDropsAnImageLoadedForAnotherPayload() async throws {
+        // Same defect in the local-attachment twin, reached from the same header avatar: the
+        // group-image branch has no shared-cache fallback, so a stale pass shows the previous
+        // chat's picture outright.
+        let showing = DownsampledDataImageTaskKey(payloadID: "payload-a", size: 128)
+        let previous = DownsampledDataImageTaskKey(payloadID: "payload-b", size: 128)
+
+        #expect(DownsampledDataImageTaskKey(payloadID: "payload-a", size: 128) == showing)
+        #expect(DownsampledDataImageTaskKey(payloadID: "payload-a", size: 256) != showing)
+        #expect(DownsampledImageGate.value("a", loadedFor: showing, showing: showing) == "a")
+        #expect(DownsampledImageGate.value("b", loadedFor: previous, showing: showing) == nil)
+    }
+
     @Test func relayValidatorAcceptsSecureWssRelays() async throws {
         #expect(RelayURLValidator.classify("wss://relay.example.com") == .secure)
         #expect(RelayURLValidator.classify("wss://relay.us.whitenoise.chat") == .secure)
