@@ -165,6 +165,7 @@ private struct AccountRailAvatar: View {
 
 struct ChatListDrawerView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.locale) private var locale
 
     private var isShowingSettings: Bool {
         if case .settings = workspace.selection { return true }
@@ -216,16 +217,16 @@ struct ChatListDrawerView: View {
                 }
                 .accessibilityIdentifier(isShowingArchived ? "chat.archived.list" : "chat.list")
                 .overlay {
-                    // `ContentUnavailableView` needs room for an icon over two lines of prose;
-                    // in the collapsed rail it would render as a column of hyphenated fragments.
-                    // An empty rail is legible on its own, and widening it brings the wording back.
+                    // The notice needs room for an icon over a line or two of prose; in the
+                    // collapsed rail it would render as a column of hyphenated fragments. An
+                    // empty rail is legible on its own, and widening it brings the wording back.
                     if visibleChats.isEmpty, !isCollapsed {
                         if workspace.isSearchingSidebarMessages {
                             ProgressView()
                                 .controlSize(.small)
                         } else if !workspace.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            ContentUnavailableView(
-                                L10n.string("No matching chats"),
+                            WNEmptyStateView(
+                                title: L10n.string("No matching chats", locale: locale),
                                 systemImage: "magnifyingglass"
                             )
                             .padding()
@@ -236,7 +237,16 @@ struct ChatListDrawerView: View {
                             case .unread:
                                 UnreadEmptyDrawerState()
                             case .active:
-                                EmptyDrawerState()
+                                // An account with no chats at all is told so by the detail
+                                // pane, which has room for the invitation to start one and
+                                // nothing else to say. Repeating it here left the window
+                                // holding two notices about the same nothing. When the
+                                // active drawer is empty only because everything is
+                                // archived, the detail pane is back to "Select a chat" and
+                                // this rail is the only place that fact can be stated.
+                                if !workspace.hasNoChats {
+                                    EmptyDrawerState()
+                                }
                             }
                         }
                     }
@@ -445,15 +455,19 @@ private struct ChatListFilterMenu: View {
 }
 
 private struct ArchivedEmptyDrawerState: View {
+    @Environment(\.locale) private var locale
+
     var body: some View {
-        ContentUnavailableView(L10n.string("No archived chats"), systemImage: "archivebox")
+        WNEmptyStateView(title: L10n.string("No archived chats", locale: locale), systemImage: "archivebox")
             .padding()
     }
 }
 
 private struct UnreadEmptyDrawerState: View {
+    @Environment(\.locale) private var locale
+
     var body: some View {
-        ContentUnavailableView(L10n.string("No unread chats"), systemImage: "bubble.left")
+        WNEmptyStateView(title: L10n.string("No unread chats", locale: locale), systemImage: "bubble.left")
             .padding()
     }
 }

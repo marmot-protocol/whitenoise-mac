@@ -1343,6 +1343,15 @@ final class WorkspaceState {
         return archivedChatsByAccount[activeAccountId] ?? []
     }
 
+    /// Whether the active account has nothing in either drawer.
+    ///
+    /// Distinct from `activeChats.isEmpty`: an account whose only chats are archived
+    /// still has something to select, and the empty detail pane says so rather than
+    /// inviting a first conversation that already happened.
+    var hasNoChats: Bool {
+        activeChats.isEmpty && archivedChats.isEmpty
+    }
+
     var filteredChats: [ChatItem] {
         filteredChats(matching: searchText)
     }
