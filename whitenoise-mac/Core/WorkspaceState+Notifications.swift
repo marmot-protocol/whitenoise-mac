@@ -306,6 +306,29 @@ extension WorkspaceState {
                 title = L10n.string("White Noise")
                 body = genericBody
             }
+        // The core raises these three only when the local account is the subject, and
+        // never with a `previewText`: the event *is* the whole content, so there is no
+        // decrypted message text to withhold and `.senderOnly` reads the same as
+        // `.full`. Copy matches the timeline's own system rows (`MarmotMapping`) so the
+        // banner and the row behind it say the same thing.
+        case .removedFromGroup:
+            (title, body) = groupStateNotificationText(
+                notice: L10n.string("You were removed from this group"),
+                groupName: groupName,
+                previewMode: previewMode
+            )
+        case .madeAdmin:
+            (title, body) = groupStateNotificationText(
+                notice: L10n.string("You were made an admin"),
+                groupName: groupName,
+                previewMode: previewMode
+            )
+        case .removedAsAdmin:
+            (title, body) = groupStateNotificationText(
+                notice: L10n.string("You are no longer an admin"),
+                groupName: groupName,
+                previewMode: previewMode
+            )
         }
 
         return LocalNotificationRequest(
@@ -315,6 +338,20 @@ extension WorkspaceState {
             threadIdentifier: update.groupIdHex,
             userInfo: localNotificationUserInfo(for: update)
         )
+    }
+
+    /// Title and body for a group-state notice. The notice itself is the body — it is the
+    /// only content such an update carries — and the group it happened in is the title,
+    /// except under `.hidden`, which withholds the group name the way it withholds a
+    /// sender's name everywhere else. An unknown group (the core reports no name) degrades
+    /// to the same generic title rather than inventing a placeholder.
+    func groupStateNotificationText(
+        notice: String,
+        groupName: String?,
+        previewMode: NotificationPreviewMode
+    ) -> (title: String, body: String) {
+        let namedTitle = previewMode == .hidden ? nil : groupName
+        return (namedTitle ?? L10n.string("White Noise"), notice)
     }
 
     func localNotificationUserInfo(for update: NotificationUpdateFfi) -> [String: String] {
