@@ -27692,6 +27692,42 @@ struct whitenoise_macTests {
         }
     }
 
+    @Test func accountRailAvatarOffersNoContextMenu() throws {
+        // The rail avatar used to carry a Sign In / Sign Out context menu. Both items were
+        // duplicates — signing back in is the button's own primary action for a signed-out
+        // account, and Sign Out lives in Settings behind a confirmation dialog — and the rail's
+        // Sign Out fired `signOutAccount` straight from a right-click with no prompt, so an
+        // accidental click dropped that identity's relay key packages. Only a source contract
+        // can guard an *absent* modifier: no behavior test can observe a menu that isn't built.
+        // The chat rows beside it keep their own menu, which is why this asserts on the rail's
+        // declaration rather than on the file.
+        let sidebarSource = try String(
+            contentsOf:
+                URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("whitenoise-mac")
+                .appendingPathComponent("Views")
+                .appendingPathComponent("SidebarViews.swift"),
+            encoding: .utf8
+        )
+
+        let start = try #require(sidebarSource.range(of: "private struct AccountRailAvatar: View {")?.upperBound)
+        let rest = sidebarSource[start...]
+        let end =
+            [
+                rest.range(of: "\nprivate struct ")?.lowerBound,
+                rest.range(of: "\nstruct ")?.lowerBound,
+            ]
+            .compactMap { $0 }.min() ?? sidebarSource.endIndex
+        let railSource = String(sidebarSource[start..<end])
+
+        #expect(!railSource.contains(".contextMenu"))
+        #expect(!railSource.contains("signOutAccount"), "destructive sign out belongs to the confirmed Settings path")
+        // Tapping a signed-out avatar is the only remaining way back in, so it must stay.
+        #expect(railSource.contains("signInAccount"))
+    }
+
     @MainActor
     @Test func messageDebugMetadataSummarizesTimelineKindAndId() async throws {
         let message = MessageItem(
