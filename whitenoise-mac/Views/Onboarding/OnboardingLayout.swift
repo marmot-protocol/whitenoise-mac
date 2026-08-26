@@ -47,6 +47,24 @@ enum OnboardingLayout {
     /// pad against, so the pane names them.
     static let edgePadding: CGFloat = 40
 
+    /// The sign-up pane's floor for the same three margins, which is lower because that pane is
+    /// the one with a form in it.
+    ///
+    /// The scaffold spends `3 × edgePadding` — 120pt — on air: above the hero, below it, and
+    /// under the actions. On the welcome and sign-in panes that is most of what is on the screen
+    /// and it should stay generous. The sign-up pane has an avatar, a public-profile callout, two
+    /// labelled fields, a reserved error line and a button, and at a 620pt window it does not fit
+    /// with 120pt of margin. Something has to give, and a margin is the only thing here that can:
+    /// every other candidate is content — a shorter About field, a one-line error slot, a folded
+    /// callout — and shrinking content to make room for a window edge is the wrong way round.
+    ///
+    /// This is a **floor**, not a fixed inset, so it only bites at the smallest window. The
+    /// scaffold's `Spacer`s take back every point of spare height the moment the window has any,
+    /// which on a default-sized window is well past `edgePadding` again — so the pane a person
+    /// normally sees is unchanged, and the pane at the size a person can drag it to keeps its
+    /// button on screen.
+    static let signUpEdgePadding: CGFloat = 16
+
     /// The most air there is between the mark and the column of actions under it.
     ///
     /// A ceiling rather than a fixed gap, because the pane still wants to breathe on a short

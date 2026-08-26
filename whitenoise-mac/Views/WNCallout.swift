@@ -67,6 +67,45 @@ enum WNCalloutIntent {
     }
 }
 
+/// How loudly a callout says it.
+///
+/// `tinted` is the default, and what Settings draws: the intent's hue, on the intent's tinted
+/// background. `quiet` keeps everything else the callout is — the glyph, the two-tier title and
+/// detail, the box — and drops the hue for the neutral surface and the supporting gray.
+///
+/// It exists for a surface that cannot spend color on a standing notice. The sign-up pane is one:
+/// it is a form with a single primary button on it, and a tinted box above the fields would be
+/// the loudest thing on a pane whose loudest thing has to be the button. See
+/// `OnboardingPublicProfileNote`, which says exactly what Settings → Profile says, in the gray it
+/// already said it in.
+enum WNCalloutEmphasis {
+    case tinted
+    case quiet
+
+    func background(for intent: WNCalloutIntent) -> Color {
+        switch self {
+        case .tinted: intent.background
+        case .quiet: WNColor.backgroundSecondary
+        }
+    }
+
+    /// The glyph and the title.
+    func accent(for intent: WNCalloutIntent) -> Color {
+        switch self {
+        case .tinted: intent.accent
+        case .quiet: WNColor.backgroundContentSecondary
+        }
+    }
+
+    /// The detail text, a step quieter than the title in both emphases.
+    func detail(for intent: WNCalloutIntent) -> Color {
+        switch self {
+        case .tinted: intent.detail
+        case .quiet: WNColor.backgroundContentTertiary
+        }
+    }
+}
+
 /// A titled notice with a line of detail under it.
 ///
 /// The detail is always shown. There is no fold: a notice worth putting on the page is worth
@@ -75,29 +114,31 @@ struct WNCallout: View {
     let title: String
     let message: String
     var intent: WNCalloutIntent = .primary
+    /// Whether the intent brings its hue with it. See `WNCalloutEmphasis`.
+    var emphasis: WNCalloutEmphasis = .tinted
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: intent.systemImage)
                 .wnFont(.medium18)
-                .foregroundStyle(intent.accent)
+                .foregroundStyle(emphasis.accent(for: intent))
                 .frame(width: 22, height: 22)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .wnFont(.bold14)
-                    .foregroundStyle(intent.accent)
+                    .foregroundStyle(emphasis.accent(for: intent))
 
                 Text(message)
                     .wnFont(.medium12)
-                    .foregroundStyle(intent.detail)
+                    .foregroundStyle(emphasis.detail(for: intent))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(intent.background, in: .rect(cornerRadius: 8, style: .continuous))
+        .background(emphasis.background(for: intent), in: .rect(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(WNColor.borderTertiary, lineWidth: 1)
