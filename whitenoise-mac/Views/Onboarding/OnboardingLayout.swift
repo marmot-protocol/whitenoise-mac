@@ -95,16 +95,23 @@ enum OnboardingLayout {
 
     /// The avatar that stands where the mark stands on the other two panes.
     ///
-    /// Sized against the mark rather than against the settings page's 96pt avatar: it is the same
-    /// slot, and a hero that changed height between panes would move the whole column under it.
-    /// At 88 the avatar plus its badge comes out within a few points of `minimumMarkWidth`'s
-    /// 136pt-tall mark, which is as close as two different shapes get.
-    static let signUpAvatarSize: CGFloat = 88
+    /// **This is the number the window's height floor is spent on, so it is smaller than it
+    /// looks like it should be.** The hero is not the avatar alone: it is the avatar, a 10pt gap
+    /// and the `Add photo` pill, and the pane below it — a title, two labelled fields one of
+    /// which is three lines, a reserved error line and a 44pt CTA — leaves about 103pt for the
+    /// whole group inside `ContentView`'s 620pt minimum. Measured, not budgeted: at 88 with the
+    /// pill under it the pane draws 642pt and pushes its own button off a short window's bottom
+    /// edge, which is what `OnboardingTests.theSignUpPaneFitsTheSmallestWindow` fails on.
+    ///
+    /// 64 puts the group at 95pt and the pane at 612pt, which leaves the type ramp room to move
+    /// without taking the CTA with it. It is also a size the app already draws avatars at, so the
+    /// hero does not look like a one-off.
+    static let signUpAvatarSize: CGFloat = 64
 
-    /// The camera badge in the avatar's bottom-trailing corner. 30, the same size Settings →
-    /// Profile draws it: this avatar is 8pt smaller than that page's, so a badge scaled to match
-    /// would only be heavier than the one the app already has.
-    static let signUpAvatarBadgeSize: CGFloat = 30
+    /// Between the avatar and the `Add photo` pill under it. `wn-ios-prototype` uses a bare
+    /// `.padding(.top)` — the system's 16 on a phone — and the pill here is the smaller of the
+    /// two controls, so it sits a step closer than that.
+    static let signUpAvatarToPickerSpacing: CGFloat = 10
 
     /// Between a field's label and the field itself.
     static let fieldLabelSpacing: CGFloat = 6

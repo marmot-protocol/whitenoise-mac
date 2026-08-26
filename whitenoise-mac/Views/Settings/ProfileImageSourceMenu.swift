@@ -31,9 +31,35 @@ import UniformTypeIdentifiers
 /// the file path skips `presentProfileImagePicker(destination:)` and has to say where the bytes
 /// land some other way.
 struct ProfileImageSourceMenu<Label: View>: View {
+    /// How the control that opens the source list is drawn.
+    ///
+    /// Two, because the two screens that pick a profile picture ask for the affordance in two
+    /// different shapes and both shapes come from the same place. Settings → Profile hangs it off
+    /// the avatar — the label *is* the picture, so the control has no chrome of its own and
+    /// borrows its name from `help`. The sign-up pane puts a pill under the avatar, which is what
+    /// `wn-ios-prototype`'s `SignUpView` does: its menu hangs off a `Text("Add Photo")` /
+    /// `Text("Change Photo")` button rather than off the face above it.
+    enum Appearance {
+        /// The label draws itself; this adds nothing but a hit area. Settings → Profile.
+        case avatar
+        /// A push button whose label is its own words, wearing whichever tier the screen around it
+        /// asked for. The sign-up hero.
+        ///
+        /// **This case names no style on purpose.** It used to reach for `.wnSecondary` — the
+        /// ringed tier — while the pane it stands on draws its own secondary action, `Sign In`,
+        /// with the *raised* one. Two secondary buttons on one flow, one ringed and one lifted,
+        /// which is the inconsistency; and naming the right style here would be a second copy of a
+        /// decision `OnboardingActionTier` already owns. Leaving the style out lets the caller hand
+        /// it over — `OnboardingSignUpAvatar` does, with `.onboardingActionTier(.elevated)` — so
+        /// the pill and the pane's buttons cannot drift apart again. The capsule comes from
+        /// `wnButtonShape` in the environment, which the pane sets for all of them at once.
+        case pushButton
+    }
+
     @Environment(WorkspaceState.self) private var workspace
 
     let destination: WorkspaceState.ProfileImagePickerDestination
+    var appearance: Appearance = .avatar
     var isEnabled = true
     @ViewBuilder var label: () -> Label
 
@@ -41,30 +67,50 @@ struct ProfileImageSourceMenu<Label: View>: View {
     @State private var isFileImporterPresented = false
 
     var body: some View {
+        control
+            .disabled(!isEnabled)
+            .popover(isPresented: $isSourceListPresented, arrowEdge: .bottom) {
+                ProfileImageSourceList(chooseFile: chooseFile, findOnWeb: showWebPicker)
+            }
+            .fileImporter(
+                isPresented: $isFileImporterPresented,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    Task { await workspace.setProfileImage(fileURL: url) }
+                case .failure(let error):
+                    workspace.reportUserActionError(error.localizedDescription)
+                }
+            }
+    }
+
+    /// The button, wearing whichever of the two appearances was asked for.
+    ///
+    /// The push button needs no `help` and no `accessibilityLabel`: its label already says what
+    /// pressing it does, and adding either would only repeat that word for word — once as a
+    /// tooltip over a button that is already legible, and once as a VoiceOver name that overrides
+    /// the one the title supplies. It takes no `buttonStyle` either; see `Appearance.pushButton`.
+    @ViewBuilder
+    private var control: some View {
+        switch appearance {
+        case .avatar:
+            button
+                .buttonStyle(.plain)
+                .help(L10n.string("Change profile image"))
+                .accessibilityLabel(L10n.string("Change profile image"))
+        case .pushButton:
+            button
+        }
+    }
+
+    private var button: some View {
         Button {
             isSourceListPresented = true
         } label: {
             label()
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .help(L10n.string("Change profile image"))
-        .accessibilityLabel(L10n.string("Change profile image"))
-        .popover(isPresented: $isSourceListPresented, arrowEdge: .bottom) {
-            ProfileImageSourceList(chooseFile: chooseFile, findOnWeb: showWebPicker)
-        }
-        .fileImporter(
-            isPresented: $isFileImporterPresented,
-            allowedContentTypes: [.image],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                Task { await workspace.setProfileImage(fileURL: url) }
-            case .failure(let error):
-                workspace.reportUserActionError(error.localizedDescription)
-            }
         }
     }
 

@@ -20,11 +20,6 @@ import Foundation
 /// and let the existing settings plumbing do the upload: an abandoned sign-up leaves nothing
 /// behind.
 nonisolated struct SignUpDraft: Equatable {
-    /// What `AvatarPalette` keys the initials fallback's colour off, in place of the account id
-    /// hex there is not one of yet. A constant rather than the name being typed: a name-derived
-    /// seed would repaint the avatar on every keystroke.
-    static let avatarPaletteSeed = "onboarding.sign-up"
-
     var displayName = ""
     var about = ""
     /// `nil` until the picker hands back bytes. Not a URL: see the type note above.
