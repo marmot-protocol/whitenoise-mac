@@ -341,17 +341,24 @@ extension WorkspaceState {
     }
 
     /// Title and body for a group-state notice. The notice itself is the body — it is the
-    /// only content such an update carries — and the group it happened in is the title,
-    /// except under `.hidden`, which withholds the group name the way it withholds a
-    /// sender's name everywhere else. An unknown group (the core reports no name) degrades
-    /// to the same generic title rather than inventing a placeholder.
+    /// only content such an update carries — and the group it happened in is the title. An
+    /// unknown group (the core reports no name) degrades to the generic title rather than
+    /// inventing a placeholder.
+    ///
+    /// `.hidden` withholds the notice as well as the group name: unlike a `.groupInvite`,
+    /// which only names a category, "You were made an admin" would put this account's
+    /// membership and admin status on the lock screen by itself. So a hidden group-state
+    /// banner reads exactly like a withheld message — which is all Settings promises hidden
+    /// previews will ever say.
     func groupStateNotificationText(
         notice: String,
         groupName: String?,
         previewMode: NotificationPreviewMode
     ) -> (title: String, body: String) {
-        let namedTitle = previewMode == .hidden ? nil : groupName
-        return (namedTitle ?? L10n.string("White Noise"), notice)
+        guard previewMode != .hidden else {
+            return (L10n.string("White Noise"), L10n.string("New message"))
+        }
+        return (groupName ?? L10n.string("White Noise"), notice)
     }
 
     func localNotificationUserInfo(for update: NotificationUpdateFfi) -> [String: String] {

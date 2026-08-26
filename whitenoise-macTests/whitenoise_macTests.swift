@@ -33026,10 +33026,12 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func hiddenPreviewModeWithholdsTheGroupFromGroupStateNotifications() async throws {
-        // Hidden mode already drops the sender and the group from a message banner; a
-        // group-state notice must lose the group name the same way, keeping only the
-        // category the way `.groupInvite` keeps "New group invite".
+    @Test func hiddenPreviewModeWithholdsTheGroupStateNoticeItself() async throws {
+        // Hidden mode drops the sender and the group from a message banner, and a group-state
+        // notice has to lose more than the group name: "You were made an admin" on a lock screen
+        // discloses membership and admin status on its own. Settings promises hidden previews
+        // "only say a new message arrived", so these read exactly like a withheld message —
+        // the same generic body, with nothing of the event left in it.
         let previousMode = UserDefaults.standard.object(forKey: "whitenoise.mac.notificationPreviewMode")
         defer { restoreDefault(previousMode, forKey: "whitenoise.mac.notificationPreviewMode") }
 
@@ -33039,18 +33041,26 @@ struct whitenoise_macTests {
         await state.bootstrap()
         state.notificationPreviewMode = .hidden
 
-        for trigger in [NotificationTriggerFfi.removedFromGroup, .madeAdmin, .removedAsAdmin] {
+        let notices: [(trigger: NotificationTriggerFfi, notice: String)] = [
+            (.removedFromGroup, L10n.string("You were removed from this group")),
+            (.madeAdmin, L10n.string("You were made an admin")),
+            (.removedAsAdmin, L10n.string("You are no longer an admin")),
+        ]
+
+        for notice in notices {
             let request = state.localNotificationRequest(
                 for: notificationUpdate(
                     account: account,
-                    notificationKey: "hidden-group-state-\(trigger)",
+                    notificationKey: "hidden-group-state-\(notice.trigger)",
                     groupIdHex: "team-group",
                     senderName: "Alice",
                     isDm: false,
                     groupName: "Engineering",
-                    trigger: trigger
+                    trigger: notice.trigger
                 ))
             #expect(request.title == L10n.string("White Noise"))
+            #expect(request.body == L10n.string("New message"))
+            #expect(request.body != notice.notice)
             #expect(!request.body.contains("Engineering"))
             #expect(!request.body.contains("Alice"))
         }
