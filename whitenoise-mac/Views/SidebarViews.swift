@@ -61,7 +61,7 @@ struct AccountRailView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 10) {
-                    ForEach(workspace.accounts) { account in
+                    ForEach(workspace.signedInAccounts) { account in
                         AccountRailAvatar(account: account)
                     }
                 }
@@ -95,15 +95,20 @@ struct AccountRailView: View {
     }
 }
 
-/// A single account avatar in the rail: selects on tap (or signs back in when the
-/// account is signed out), dims signed-out accounts, and overlays an unread badge.
+/// A single account avatar in the rail: selects that identity on tap, and overlays an
+/// unread badge. Nothing else — the rail switches accounts and does not manage them.
 ///
-/// Deliberately has no context menu. It used to offer Sign In / Sign Out, but both
-/// items were duplicates: signing back in is already this button's primary action for
-/// a signed-out account, and Sign Out lives in Settings behind a confirmation dialog
-/// (`SettingsAccountSwitcherCard`). The rail's copy fired `signOutAccount` straight
-/// from a right-click with no prompt, so an accidental click dropped that identity's
-/// relay key packages. Destructive account actions belong on the confirmed path only.
+/// Deliberately has no context menu, and no signed-out case. It used to offer Sign In /
+/// Sign Out on right-click, where Sign Out fired `signOutAccount` with no prompt at all,
+/// so an accidental click dropped that identity's relay key packages. It also used to
+/// draw deactivated identities, dimmed to 0.4 behind a pause glyph, where one tap signed
+/// one back in. Every one of those is account management, and all of it lives in Settings'
+/// switcher now (`SettingsAccountSwitcherCard`): sign-out and removal behind confirmations,
+/// sign-in on the row itself.
+///
+/// The rail is fed `signedInAccounts`, so `account.signedOut` is false here by
+/// construction. Reintroducing a branch on it would be dead code describing a row that
+/// cannot reach this view.
 private struct AccountRailAvatar: View {
     @Environment(WorkspaceState.self) private var workspace
     let account: AccountItem
@@ -113,11 +118,7 @@ private struct AccountRailAvatar: View {
 
     var body: some View {
         Button {
-            if account.signedOut {
-                Task { await workspace.signInAccount(account) }
-            } else {
-                workspace.selectAccount(account)
-            }
+            workspace.selectAccount(account)
         } label: {
             ProfileImageAvatarView(
                 seed: account.accountIdHex,
@@ -127,39 +128,27 @@ private struct AccountRailAvatar: View {
                 // editor and the account switcher on the exempt side of the "Load Remote Profile
                 // Images" preference — see `RemoteImageDisplayPolicy`. Left on the default, the
                 // rail drew initials for a picture the viewer had just set and could see in
-                // Settings, which reads as a broken avatar rather than as privacy. Signed-out
-                // accounts stay gated, matching the switcher's row list: signing out drops an
-                // identity's relay key packages, so the app should not then put traffic on the
-                // wire on its behalf.
-                isOwnAccountImage: !account.signedOut,
+                // Settings, which reads as a broken avatar rather than as privacy. Unconditional
+                // because every row here is signed in; the switcher's list still gates its
+                // deactivated rows, since signing out drops an identity's relay key packages and
+                // the app should not then put traffic on the wire on its behalf.
+                isOwnAccountImage: true,
                 size: MessagesLayout.accountRailAvatarSize,
                 isSelected: isActive
             )
             .frame(width: MessagesLayout.accountRailAvatarFrameSize, height: MessagesLayout.accountRailAvatarFrameSize)
             .contentShape(Circle())
-            .opacity(account.signedOut ? 0.4 : 1)
             .overlay(alignment: .topTrailing) {
-                badge
+                // A `badge` view builder used to stand here to choose between this and the
+                // signed-out pause glyph. With one case left there is nothing to choose.
+                if unread > 0 {
+                    UnreadCountBadge(count: unread)
+                        .overlay(Capsule().strokeBorder(WNColor.backgroundTertiary, lineWidth: 1.5))
+                }
             }
         }
         .buttonStyle(.plain)
-        .disabled(account.signedOut && workspace.isAccountMutationInProgress)
-        .help(account.signedOut ? "\(account.displayName) — \(L10n.string("Signed out"))" : account.displayName)
-    }
-
-    @ViewBuilder
-    private var badge: some View {
-        if account.signedOut {
-            Image(systemName: "pause.circle.fill")
-                .wnFont(.medium16)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                // Punched out of the rail behind it, so it takes the rail's own surface rather
-                // than the system window color.
-                .background(Circle().fill(WNColor.backgroundTertiary))
-        } else if unread > 0 {
-            UnreadCountBadge(count: unread)
-                .overlay(Capsule().strokeBorder(WNColor.backgroundTertiary, lineWidth: 1.5))
-        }
+        .help(account.displayName)
     }
 }
 

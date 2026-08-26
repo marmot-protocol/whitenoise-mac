@@ -1183,9 +1183,15 @@ struct whitenoise_macTests {
         }
     }
 
-    /// Settings → Add Account is the onboarding flow now, not a sheet of its own. The card used
+    /// Adding an account is the onboarding flow, not a sheet of its own. Settings' switcher used
     /// to raise `AddAccountSheet` — a second key field and a second pair of buttons for the two
-    /// things `Views/Onboarding` already does — and this pins the routing that replaced it.
+    /// things `Views/Onboarding` already does — then its `Add Account` button routed here instead,
+    /// and now that button is gone too: a dropdown for choosing among existing identities is not
+    /// where a new one gets created. `SignedOutAccountsView`'s `Use another account` is the
+    /// remaining caller, so this and the four tests below drive `showAccountOnboarding()` directly.
+    /// They still pin the routing, which is what a caller added later would depend on; the tests
+    /// keep their `addAccount` names because the flow's regressions (#74, #333, #32) are filed
+    /// under it.
     @MainActor
     @Test func addAccountOpensTheOnboardingFlowOnItsLandingPane() async throws {
         let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
@@ -1367,6 +1373,38 @@ struct whitenoise_macTests {
         #expect(normalized.contains(".padding(.horizontal,Self.rowChromeInset)"))
         // ...and the scroll view is widened by the same amount so they stay put.
         #expect(normalized.contains(".padding(.horizontal,-Self.rowChromeInset)"))
+    }
+
+    /// The switcher lists the identities already on this Mac; it is no longer the way a new one
+    /// gets made. `Add Account` sat under the row list and opened the onboarding landing pane —
+    /// the one offering Sign Up — which put account *creation* in the same dropdown as account
+    /// switching. Only a source contract can guard an absent control: no behavior test can
+    /// observe a button that is never built. Asserting on the popover's own declaration rather
+    /// than on the file is deliberate, because `signInAccount` must survive elsewhere in it:
+    /// with signed-out identities gone from the rail, the switcher's rows are the only way back
+    /// into one while another account is signed in.
+    @MainActor
+    @Test func accountSwitcherPopoverOffersNoWayToCreateAnAccount() throws {
+        let sourceURL =
+            URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "whitenoise-mac")
+            .appending(path: "Views")
+            .appending(path: "Settings")
+            .appending(path: "SettingsAccountSwitcherViews.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        let popoverStart = try #require(source.range(of: "struct AccountSwitcherPopover: View {"))
+        let popoverEnd = try #require(source.range(of: "struct AccountSwitcherRow: View {"))
+        let normalized = String(source[popoverStart.lowerBound..<popoverEnd.lowerBound])
+            .components(separatedBy: .whitespacesAndNewlines).joined()
+
+        #expect(!normalized.contains("AddAccount"), "account creation does not belong in the switcher")
+        #expect(!normalized.contains("showAccountOnboarding"))
+
+        // The route back into a signed-out identity has to stay: the rail no longer carries one.
+        #expect(source.contains("signInAccount"))
     }
 
     @MainActor
@@ -1759,6 +1797,50 @@ struct whitenoise_macTests {
         // the just-signed-in "Backup Account" over the raced-to "Other Account".
         #expect(state.activeAccountId == "Other Account")
         #expect(UserDefaults.standard.string(forKey: "whitenoise.mac.activeAccountId") == "Other Account")
+    }
+
+    @MainActor
+    @Test func signedInAccountsOmitsDeactivatedIdentitiesFromTheRail() async throws {
+        // What the account rail draws. A signed-out identity used to sit in it dimmed to 0.4
+        // behind a pause glyph, and tapping it signed the identity back in — account management
+        // in the switching control, reached with no confirmation. It lives in Settings' switcher
+        // now, beside sign-out and removal.
+        //
+        // `accounts` must keep every identity on this Mac regardless: the switcher's row list
+        // reads it, and so does `SignedOutAccountsView`, which is the whole of the way back in
+        // when nothing is signed in. Filtering there instead of in the rail would lock the user
+        // out of their own Mac.
+        let primary = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let signedOut = AccountSummaryFfi(
+            label: "Backup Account",
+            accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: true,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [primary, signedOut])
+        UserDefaults.standard.set("Desktop Account", forKey: "whitenoise.mac.activeAccountId")
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        #expect(state.accounts.map(\.id) == ["Desktop Account", "Backup Account"])
+        #expect(state.signedInAccounts.map(\.id) == ["Desktop Account"])
+
+        // Signing it back in from the switcher puts it back in the rail — the filter is derived
+        // from the account list, not a separate copy that could fall out of step with it.
+        let backup = try #require(state.accounts.first { $0.id == "Backup Account" })
+        await state.signInAccount(backup)
+
+        #expect(state.signedInAccounts.map(\.id) == ["Desktop Account", "Backup Account"])
     }
 
     @MainActor
@@ -27678,8 +27760,10 @@ struct whitenoise_macTests {
         // and the account switcher on the exempt side of `RemoteImageDisplayPolicy`: leaving it
         // on the default made the sidebar draw initials for the picture the viewer had just set
         // and could see in Settings, which reads as "my avatar is broken" rather than as privacy.
-        // Signed-out accounts stay gated, the same narrower argument the switcher's list makes.
-        // The chat rows next to it are peers and must keep the default.
+        // Unconditional now that the rail draws signed-in accounts only — the narrower
+        // `!account.signedOut` this used to carry has nothing left to exclude, and the switcher's
+        // list is where that argument still applies. The chat rows next to it are peers and must
+        // keep the default.
         let sidebarSource = try String(
             contentsOf:
                 URL(fileURLWithPath: #filePath)
@@ -27704,7 +27788,7 @@ struct whitenoise_macTests {
         }
 
         let railSource = try declarationSource(of: "private struct AccountRailAvatar: View {")
-        #expect(railSource.contains("isOwnAccountImage: !account.signedOut"))
+        #expect(railSource.contains("isOwnAccountImage: true"))
 
         for row in ["struct ChatRowContent: View {", "struct CollapsedChatRowContent: View {"] {
             let rowSource = try declarationSource(of: row)
@@ -27712,15 +27796,16 @@ struct whitenoise_macTests {
         }
     }
 
-    @Test func accountRailAvatarOffersNoContextMenu() throws {
-        // The rail avatar used to carry a Sign In / Sign Out context menu. Both items were
-        // duplicates — signing back in is the button's own primary action for a signed-out
-        // account, and Sign Out lives in Settings behind a confirmation dialog — and the rail's
-        // Sign Out fired `signOutAccount` straight from a right-click with no prompt, so an
-        // accidental click dropped that identity's relay key packages. Only a source contract
-        // can guard an *absent* modifier: no behavior test can observe a menu that isn't built.
-        // The chat rows beside it keep their own menu, which is why this asserts on the rail's
-        // declaration rather than on the file.
+    @Test func accountRailAvatarCarriesNoAccountManagement() throws {
+        // The rail switches identities and does nothing else to them. It used to carry a
+        // Sign In / Sign Out context menu, whose Sign Out fired `signOutAccount` straight from a
+        // right-click with no prompt — an accidental click dropped that identity's relay key
+        // packages. And it used to draw signed-out identities too, dimmed behind a pause glyph,
+        // where a single tap signed one back in. All of it is account management, and all of it
+        // now lives in Settings' switcher: sign-out and removal behind confirmations, sign-in on
+        // the row itself. Only a source contract can guard *absent* chrome: no behavior test can
+        // observe a menu or a branch that is never built. The chat rows beside it keep their own
+        // menu, which is why this asserts on the rail's declaration rather than on the file.
         let sidebarSource = try String(
             contentsOf:
                 URL(fileURLWithPath: #filePath)
@@ -27744,8 +27829,15 @@ struct whitenoise_macTests {
 
         #expect(!railSource.contains(".contextMenu"))
         #expect(!railSource.contains("signOutAccount"), "destructive sign out belongs to the confirmed Settings path")
-        // Tapping a signed-out avatar is the only remaining way back in, so it must stay.
-        #expect(railSource.contains("signInAccount"))
+        #expect(!railSource.contains("signInAccount"), "signing back in belongs to the Settings switcher")
+        // The rail is fed `signedInAccounts`, so the avatar has no signed-out case to branch on:
+        // a leftover branch here would be dead code claiming to handle a row that cannot appear.
+        #expect(!railSource.contains("signedOut"))
+
+        // And the rail is genuinely fed the filtered list — without this, every assertion above
+        // would still pass while the rail iterated `accounts` and drew the deactivated ones
+        // through an avatar that no longer has a branch for them.
+        #expect(sidebarSource.contains("ForEach(workspace.signedInAccounts)"))
     }
 
     @MainActor
