@@ -49,6 +49,11 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
     /// not, which removes the control while keeping the row it stood in. See
     /// `OnboardingExitControl`.
     var exit: OnboardingExitControl?
+    /// The floor under each of the pane's three margins — above the hero, below it, and under the
+    /// actions. Defaults to `OnboardingLayout.edgePadding`; the sign-up pane passes its own, which
+    /// is what lets the tallest pane keep its button on screen in the shortest window. See
+    /// `OnboardingLayout.signUpEdgePadding`.
+    var minimumEdgeSpacing: CGFloat = OnboardingLayout.edgePadding
     /// What the pane is arranged around. Defaults to the mark.
     @ViewBuilder var hero: Hero
     /// Whatever sits between the hero and the actions — the sign-in pane's key field, the sign-up
@@ -61,14 +66,14 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
         VStack(spacing: 0) {
             OnboardingHeaderRow(title: title, exit: exit)
 
-            Spacer(minLength: OnboardingLayout.edgePadding)
+            Spacer(minLength: minimumEdgeSpacing)
 
             hero
 
             // Capped, unlike the `Spacer` above the hero, so the pane's spare height collects at
             // the top instead of being split evenly across the hero. See
             // `OnboardingLayout.markToActionsMaximumSpacing`.
-            Spacer(minLength: OnboardingLayout.edgePadding)
+            Spacer(minLength: minimumEdgeSpacing)
                 .frame(maxHeight: OnboardingLayout.markToActionsMaximumSpacing)
 
             VStack(spacing: OnboardingLayout.contentToActionsSpacing) {
@@ -83,9 +88,9 @@ struct OnboardingScaffold<Hero: View, Content: View, Actions: View>: View {
             // Flexible, and the twin of the `Spacer` above the hero rather than a fixed inset.
             // A fixed one made every point of spare height land *above* the hero, so a tall
             // window pushed the whole group onto the bottom edge; two flexible ends split it and
-            // the group sits centred with real air under the buttons. `edgePadding` is the floor,
-            // for the short window where there is nothing to split.
-            Spacer(minLength: OnboardingLayout.edgePadding)
+            // the group sits centred with real air under the buttons. `minimumEdgeSpacing`
+            // is the floor, for the short window where there is nothing to split.
+            Spacer(minLength: minimumEdgeSpacing)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {

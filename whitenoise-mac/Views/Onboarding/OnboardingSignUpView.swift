@@ -27,9 +27,11 @@ import SwiftUI
 ///   Openverse search — rather than the prototype's Photos/Files/Web menu, which is a phone's
 ///   three sources. It is the same sheet Settings → Profile opens, pointed at the draft instead
 ///   of at an account; see `WorkspaceState.ProfileImagePickerDestination`.
-/// * **The privacy line is a hover, not a callout.** Flutter puts a tap-to-expand `WnCallout`
-///   here. A collapsible box costs this pane 60pt of a 620pt window, and a pointer has a cheaper
-///   way to ask: the headline stays, the sentence behind it is the tooltip.
+/// * **The privacy callout is quiet, and it does not fold.** Flutter puts a tap-to-expand
+///   `WnCallout` here. This pane draws the same box Settings → Profile draws, with the same two
+///   strings, in the neutral gray rather than the info tint — see `OnboardingPublicProfileNote`.
+///   The height that buys comes out of the pane's own margins, not out of the form; see
+///   `OnboardingLayout.signUpEdgePadding`.
 ///
 /// The one thing kept exactly is the bar for submitting — a non-blank name, which is Flutter's
 /// `hasName` on `signup_create_profile_button`. Nothing else is required, and nothing is created
@@ -48,7 +50,11 @@ struct OnboardingSignUpView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        OnboardingScaffold(title: L10n.string("Set up profile"), exit: .back(cancel)) {
+        OnboardingScaffold(
+            title: L10n.string("Set up profile"),
+            exit: .back(cancel),
+            minimumEdgeSpacing: OnboardingLayout.signUpEdgePadding
+        ) {
             OnboardingSignUpAvatar()
         } content: {
             VStack(alignment: .leading, spacing: OnboardingLayout.titleToFieldsSpacing) {
@@ -106,27 +112,30 @@ struct OnboardingSignUpView: View {
 
 /// The one thing this pane has to say about publishing, above the fields it publishes.
 ///
-/// Both strings are already in the catalog, from the `profileIsPublic` callout Settings → Profile
-/// draws in full: the headline, and the sentence explaining it. Flutter puts the same pair here as
-/// a tap-to-expand `WnCallout`; a collapsible box costs this pane 60pt of a 620pt window, and a
-/// pointer has a cheaper way to ask for the sentence. So the headline stays on the pane and the
-/// sentence is the tooltip — with the same text as the accessibility hint, since a tooltip is
-/// exactly the disclosure VoiceOver cannot hover for.
-private struct OnboardingPublicProfileNote: View {
-    private static let detail = L10n.string(
-        "Name, photo, and bio are visible on the global Nostr network. Use what you're comfortable sharing."
-    )
-
+/// The same `WNCallout` Settings → Profile draws over the same form, with the same two catalog
+/// strings — a reader who sets a name here and edits it there should not have to work out twice
+/// that they are the same warning about the same thing.
+///
+/// What differs is the volume, not the shape: `.quiet` rather than `.info`, so the box keeps the
+/// glyph and the two-tier title and detail but takes the neutral surface and the gray this line
+/// was already drawn in. A tinted box would be the loudest thing on a pane whose loudest thing
+/// has to be Create profile. Flutter puts the same pair here as a tap-to-expand `WnCallout`; the
+/// detail is short enough to simply show, and a disclosure arrow only teaches the reader to leave
+/// it closed.
+///
+/// Internal rather than `private` so `OnboardingTests` can sample the ground it actually draws
+/// on, instead of asserting against a `WNCallout` it built itself — which would go on passing
+/// with this pane wearing the info tint.
+struct OnboardingPublicProfileNote: View {
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "info.circle")
-            Text(L10n.string("Your profile is public"))
-        }
-        .wnFont(.medium12)
-        .foregroundStyle(WNColor.backgroundContentSecondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .help(Self.detail)
+        WNCallout(
+            title: L10n.string("Your profile is public"),
+            message: L10n.string(
+                "Name, photo, and bio are visible on the global Nostr network. Use what you're comfortable sharing."
+            ),
+            intent: .info,
+            emphasis: .quiet
+        )
         .accessibilityElement(children: .combine)
-        .accessibilityHint(Self.detail)
     }
 }
