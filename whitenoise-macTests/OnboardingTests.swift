@@ -198,8 +198,18 @@ import Testing
 
         // The shadow: pixels in the pane's margin, outside the button's fill, that are darker than
         // the bare pane. The ringed tier casts none, so its margin is flat.
-        let paneLuminance = try #require(
-            NSColor(WNColor.backgroundPrimary).usingColorSpace(.sRGB)?.brightnessComponent)
+        // Resolved *inside* `.aqua`, because that is the appearance `edgeScanline` rasterizes in
+        // and `NSColor(SwiftUI.Color)` resolves a dynamic token against whatever appearance is
+        // current when it is called — the **system's**, here, since nothing else has set one. Read
+        // bare, this comparison silently swaps in `backgroundPrimary`'s dark value (~0.04) and asks
+        // a light render to find a pixel darker than that, which nothing on it can be. It fails
+        // only on a Mac whose appearance is dark at the moment the suite runs, which on the default
+        // "Auto" setting means it fails after sunset and passes in the morning.
+        var paneColor: NSColor?
+        NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
+            paneColor = NSColor(WNColor.backgroundPrimary).usingColorSpace(.sRGB)
+        }
+        let paneLuminance = try #require(paneColor?.brightnessComponent)
         #expect(
             elevated.contains(where: { $0 < paneLuminance - 0.02 && $0 > 0.75 }),
             "the elevated tier cast no shadow")
@@ -253,6 +263,260 @@ import Testing
         #expect(LoginIdentityDraft("nsec1" + String(repeating: "q", count: 58)).showsLastAttemptError == false)
         #expect(LoginIdentityDraft("npub1" + String(repeating: "q", count: 58)).showsLastAttemptError == false)
         #expect(LoginIdentityDraft("hello").showsLastAttemptError == false)
+    }
+
+    // MARK: - The sign-up hero
+
+    /// The draft's face is the *inverted* disc, in both appearances.
+    ///
+    /// This one is invisible in exactly one appearance, which is how it shipped: the draft used to
+    /// be drawn through `AvatarPalette`, and that ramp's light step is `50` — a pale wash that read
+    /// as an empty placeholder rather than as the subject of the pane, while the dark step (`950`)
+    /// looked perfectly deliberate. `wn-ios-prototype`'s `ProfileEditorAvatarView` fills the same
+    /// disc with `AccentColor`, black on light and white on dark, which is `fillPrimary` here.
+    ///
+    /// Sampled off-centre so the probe reads the ground rather than the initials sitting on it, and
+    /// asserted against the ramp step rather than against "is it dark", because the failure this
+    /// guards against is a *different* token that happens to be dark in one appearance.
+    ///
+    /// Both of the disc's states are asserted, and the empty one is the half that shipped wrong:
+    /// it used to take `fillSecondary` — the prototype's `.secondarySystemFill` — so in light the
+    /// pane opened on a near-white circle and turned black the moment a name was typed under it.
+    /// The prototype's `SignUpView` passes no `emptySystemImage`, so its disc is `AccentColor`
+    /// from the first frame; this is that.
+    @Test(arguments: [
+        (NSAppearance.Name.aqua, WNColorRamp.neutral950),
+        (NSAppearance.Name.darkAqua, WNColorRamp.white),
+    ])
+    func theSignUpAvatarIsTheInvertedDisc(appearance: NSAppearance.Name, expected: NSColor) throws {
+        let named = Self.signUpWorkspace()
+        // One word, so `DisplayText.initials` yields a single letter and the probe band below
+        // stays clear of it.
+        named.signUpDraft.displayName = "Pepi"
+
+        try Self.expectDiscGround(
+            of: named,
+            appearance: appearance,
+            is: expected,
+            "the sign-up avatar's ground is not `fillPrimary`")
+
+        try Self.expectDiscGround(
+            of: Self.signUpWorkspace(),
+            appearance: appearance,
+            is: expected,
+            "the *empty* sign-up avatar's ground is not `fillPrimary`")
+    }
+
+    /// And what is *on* the ground runs the other way: light content on a dark disc in light mode,
+    /// dark content on a light one in dark mode.
+    ///
+    /// The inversion is the whole point of the pairing, and it is the half a token swap breaks
+    /// without breaking the other: `fillSecondary` under `fillContentSecondary` is a perfectly
+    /// self-consistent pair that happens to run in the opposite direction, which is what the empty
+    /// frame used to draw. Asserted as a *direction* rather than against two ramp steps, so the
+    /// glyph's antialiasing and `ImageRenderer`'s own colour shifts cannot decide the outcome — a
+    /// pair that inverts clears half a luminance unit; a pair that does not cannot.
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func theSignUpAvatarsMarkInvertsItsGround(appearance: NSAppearance.Name) throws {
+        // Both marks the disc can carry: the person glyph of the empty first frame, and the
+        // initials that replace it.
+        let named = Self.signUpWorkspace()
+        named.signUpDraft.displayName = "Pepi"
+
+        for (workspace, mark) in [(Self.signUpWorkspace(), "person glyph"), (named, "initials")] {
+            let (ground, ink) = try Self.discGroundAndMarkLuminance(of: workspace, appearance: appearance)
+            // In light the ground is `neutral950` (~0.04) under white ink; in dark it is white
+            // under `neutral950`. Either way the two are nearly a full unit apart, so half a unit
+            // is a threshold no same-direction pair can reach.
+            let inverts = appearance == .aqua ? ink - ground > 0.5 : ground - ink > 0.5
+            #expect(
+                inverts,
+                "the \(mark) is \(ink) on a \(ground) ground in \(appearance.rawValue) — no inversion")
+        }
+    }
+
+    /// The picture-picking affordance is a control *under* the avatar, not a badge on it.
+    ///
+    /// `wn-ios-prototype`'s `SignUpView` hangs its source menu off an `Add Photo` / `Change Photo`
+    /// pill and leaves the face inert; the badge this replaced sat inside the avatar's own frame,
+    /// so the hero was exactly `signUpAvatarSize` tall. Measuring the hero is what tells the two
+    /// apart: a regression to an overlaid badge cannot make the group taller than the avatar.
+    @Test func theSignUpHeroCarriesAPillUnderTheAvatar() throws {
+        let hero = OnboardingSignUpAvatar()
+            .environment(Self.signUpWorkspace())
+            .frame(width: OnboardingLayout.contentWidth)
+
+        let height = try #require(ImageRenderer(content: hero).nsImage?.size.height)
+        let floor = OnboardingLayout.signUpAvatarSize + OnboardingLayout.signUpAvatarToPickerSpacing
+        #expect(
+            height > floor,
+            "the hero is \(height)pt — nothing is drawn below the \(OnboardingLayout.signUpAvatarSize)pt avatar")
+    }
+
+    /// The pill's two labels have to be two different strings in every language, since the whole
+    /// reason it is a label rather than a camera glyph is that it carries the state.
+    @Test func thePickerPillSaysWhetherThereIsAlreadyAPhoto() {
+        #expect(L10n.string("Add photo") != L10n.string("Change photo"))
+    }
+
+    /// And it is the *pane's* secondary tier — the raised one `Sign In` wears — not the ringed
+    /// secondary the rest of the app uses inside its own chrome.
+    ///
+    /// The two tiers differ by exactly one thing, an outline (see
+    /// `theElevatedTierIsShadowedAndTheRingedTierIsNot`), so the ring is what tells them apart
+    /// here too. A ringed copy of the same control stands in as the positive control: without it a
+    /// probe that merely finds no outline would pass just as happily against a pill that drew
+    /// nothing, or against a row the probe was reading in the wrong place.
+    ///
+    /// This is the regression that cannot be seen by looking at the pane on its own — a ringed
+    /// pill under the avatar looks perfectly deliberate until it is put next to the `Sign In`
+    /// button one pane back.
+    @Test func thePhotoPillWearsThePanesElevatedTier() throws {
+        let hero = try Self.pickerEdgeColumns(of: OnboardingSignUpAvatar())
+        let ringed = try Self.pickerEdgeColumns(of: Self.ringedPickerStandIn)
+
+        // `borderSecondary` is `neutral500`, ~0.45, against either tier's resting ground at ~0.96
+        // and up. The same 0.75 the tier test uses.
+        #expect(
+            ringed.contains(where: { $0 < 0.75 }),
+            "the ringed stand-in drew no outline — this probe can no longer tell the two apart")
+        #expect(
+            !hero.contains(where: { $0 < 0.75 }),
+            "the sign-up hero's photo control is ringed, so it is not the pane's elevated tier")
+    }
+
+    /// The hero's picker, drawn as the *ringed* tier and nothing else changed.
+    ///
+    /// A deliberate copy of `OnboardingSignUpAvatar`'s stack rather than the view itself, because
+    /// the view now hands its own tier over from the inside and an outer `.buttonStyle` cannot
+    /// reach past that — which is the property being relied on. Geometry has to match the real one
+    /// point for point, since the probe finds the control by walking a row of the render.
+    private static var ringedPickerStandIn: some View {
+        VStack(spacing: OnboardingLayout.signUpAvatarToPickerSpacing) {
+            SignUpAvatarView(size: OnboardingLayout.signUpAvatarSize)
+
+            ProfileImageSourceMenu(
+                destination: .signUpDraft, appearance: .pushButton, isEnabled: true
+            ) {
+                Text(L10n.string("Add photo"))
+                    .wnFont(.medium12)
+            }
+            .buttonStyle(.wnSecondary)
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The luminance of the avatar's ground, and of the pixel on it that is furthest from it.
+    ///
+    /// The second number is the mark — the initials or the person glyph — found rather than
+    /// sampled at a fixed point, because neither one fills a predictable pixel: a `P` is mostly
+    /// counter and the glyph's shoulders are antialiased. Searching the middle of the disc for the
+    /// pixel that departs furthest from the ground is what a reader's eye does with it, and it
+    /// cannot be fooled by a mark that happens to miss the centre.
+    ///
+    /// The search box is the middle 40% of the frame, which is inside the disc on every row and
+    /// well clear of `AvatarChromeModifier`'s ring.
+    private static func discGroundAndMarkLuminance(
+        of workspace: WorkspaceState,
+        appearance: NSAppearance.Name
+    ) throws -> (ground: CGFloat, mark: CGFloat) {
+        let rep = try rasterize(appearance: appearance) {
+            SignUpAvatarView(size: OnboardingLayout.signUpAvatarSize)
+                .environment(workspace)
+        }
+
+        // The same band `expectDiscGround` reads: on the centre row the disc spans the full width,
+        // and 18% in is past the ring and short of either mark.
+        let ground = try #require(
+            rep.colorAt(x: rep.pixelsWide * 18 / 100, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB)
+        ).brightnessComponent
+
+        var mark = ground
+        for y in stride(from: rep.pixelsHigh * 30 / 100, to: rep.pixelsHigh * 70 / 100, by: 1) {
+            for x in stride(from: rep.pixelsWide * 30 / 100, to: rep.pixelsWide * 70 / 100, by: 1) {
+                guard let pixel = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if abs(pixel.brightnessComponent - ground) > abs(mark - ground) {
+                    mark = pixel.brightnessComponent
+                }
+            }
+        }
+
+        return (ground, mark)
+    }
+
+    /// Luminances of the six columns at the left edge of the control under the sign-up avatar.
+    ///
+    /// The edge is *found* rather than computed: the control hugs its own label, so where it starts
+    /// depends on which of the two words is in it and on the language the suite is running in. The
+    /// probe walks in from the pane's margin along the control's centre row and stops at the first
+    /// pixel that is not the pane, then reads 3pt inward from there — far enough to be inside the
+    /// ground whichever tier is drawing it, and nowhere near the label's own ink, which starts a
+    /// further 10pt in at `.small`.
+    ///
+    /// The pane's colour is read off the render rather than resolved from the token, so a shift
+    /// `ImageRenderer` applies to the background applies to the comparison too.
+    private static func pickerEdgeColumns<Hero: View>(of hero: Hero) throws -> [CGFloat] {
+        let rep = try rasterize(appearance: .aqua) {
+            hero
+                .environment(signUpWorkspace())
+                .frame(width: OnboardingLayout.contentWidth)
+                .padding(.horizontal, 20)
+                // What the pane it stands on sets, since the shape decides where the edge is.
+                .wnButtonShape(.capsule)
+                .background(WNColor.backgroundPrimary)
+        }
+
+        // The control is the lowest thing in the hero and draws about 21pt tall at `.small`, so
+        // 10pt up from the bottom edge is its vertical centre — the one row where a capsule's edge
+        // is a straight column of pixels rather than an antialiased curve.
+        let row = rep.pixelsHigh - Int(10 * renderScale)
+        let paneLuminance = try #require(rep.colorAt(x: 0, y: row)?.usingColorSpace(.sRGB))
+            .brightnessComponent
+
+        for x in 0..<(rep.pixelsWide - 6) {
+            let pixel = try #require(rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB))
+            guard abs(pixel.brightnessComponent - paneLuminance) > 0.02 else { continue }
+            return try (x..<(x + 6)).map {
+                try #require(rep.colorAt(x: $0, y: row)?.usingColorSpace(.sRGB)).brightnessComponent
+            }
+        }
+
+        Issue.record("the picker control drew no edge on the row the probe reads")
+        return []
+    }
+
+    /// Rasterize `SignUpAvatarView` for `workspace` and assert its ground is `expected`.
+    ///
+    /// The probe walks a band along the vertical centre between 12% and 25% of the width. Every
+    /// point of it is inside the circle — on the centre row the disc spans the full width, so the
+    /// only thing near the edge there is the chrome's 1pt ring — and the band stops short of both
+    /// glyphs the disc can carry: at `signUpAvatarSize` the initial starts around 40% of the width
+    /// and `person.fill`, the wider of the two, around 30%.
+    private static func expectDiscGround(
+        of workspace: WorkspaceState,
+        appearance: NSAppearance.Name,
+        is expected: NSColor,
+        _ message: @autoclosure () -> String
+    ) throws {
+        let rep = try rasterize(appearance: appearance) {
+            SignUpAvatarView(size: OnboardingLayout.signUpAvatarSize)
+                .environment(workspace)
+        }
+
+        let target = try #require(expected.usingColorSpace(.sRGB))
+        let row = rep.pixelsHigh / 2
+        var sampled = 0
+
+        for x in stride(from: rep.pixelsWide * 12 / 100, to: rep.pixelsWide * 25 / 100, by: 2) {
+            let pixel = try #require(rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB))
+            sampled += 1
+            #expect(
+                channelDistance(pixel, target) < 0.04,
+                "\(message()) — pixel at (\(x), \(row)) is \(pixel)")
+        }
+
+        #expect(sampled > 0, "the avatar drew nothing")
     }
 
     // MARK: - The sign-up pane fits the window it has to fit

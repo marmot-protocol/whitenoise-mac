@@ -36,18 +36,33 @@ struct OnboardingActionButton: View {
     let action: () -> Void
 
     var body: some View {
-        switch tier {
-        case .primary:
-            Button(action: action) { label }
-                .wnPrimaryButtonStyle()
-        case .elevated:
-            Button(action: action) { label }
-                .buttonStyle(.wnElevated)
-        }
+        Button(action: action) { label }
+            .onboardingActionTier(tier)
     }
 
     private var label: some View {
         OnboardingActionLabel(title: title, isLoading: isLoading)
             .frame(minHeight: OnboardingLayout.actionLabelHeight(for: tier))
+    }
+}
+
+extension View {
+    /// Draws the button in this subtree as `tier`.
+    ///
+    /// The tier-to-style mapping, and the only copy of it — `OnboardingActionButton` goes through
+    /// here too. It is split out for the one onboarding control the component itself cannot build:
+    /// the sign-up hero's photo picker, whose press opens a popover rather than running an action
+    /// closure, and which is a control that hugs its two words rather than a full-width action.
+    ///
+    /// What it deliberately does *not* carry is `OnboardingLayout.actionLabelHeight(for:)`. That
+    /// number exists so a stacked pair of full-height actions comes out level; a subordinate
+    /// control is not in that stack and does not want 44pt. Reach for `OnboardingActionButton` for
+    /// anything that is.
+    @ViewBuilder
+    func onboardingActionTier(_ tier: OnboardingActionTier) -> some View {
+        switch tier {
+        case .primary: wnPrimaryButtonStyle()
+        case .elevated: buttonStyle(.wnElevated)
+        }
     }
 }
