@@ -32983,6 +32983,116 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func groupStateNotificationsAnnounceTheEventAndNameTheGroup() async throws {
+        // MarmotKit 0.9.15 added `removedFromGroup`, `madeAdmin`, and `removedAsAdmin`. The core
+        // raises them only when the local account is the subject and sends no `previewText`, so
+        // the body has to be the event itself — never the "New message" placeholder an absent
+        // preview otherwise falls back to. There is no decrypted text in one of these, so
+        // `.senderOnly` withholds nothing and must read exactly like `.full`.
+        let previousMode = UserDefaults.standard.object(forKey: "whitenoise.mac.notificationPreviewMode")
+        defer { restoreDefault(previousMode, forKey: "whitenoise.mac.notificationPreviewMode") }
+
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        // Compared through `L10n.string` rather than against English literals: the assertion
+        // is which catalog entry the trigger maps to, and the test host runs in whatever app
+        // language is persisted on the machine.
+        let notices: [(trigger: NotificationTriggerFfi, body: String)] = [
+            (.removedFromGroup, L10n.string("You were removed from this group")),
+            (.madeAdmin, L10n.string("You were made an admin")),
+            (.removedAsAdmin, L10n.string("You are no longer an admin")),
+        ]
+
+        for mode in [NotificationPreviewMode.full, .senderOnly] {
+            state.notificationPreviewMode = mode
+            for notice in notices {
+                let request = state.localNotificationRequest(
+                    for: notificationUpdate(
+                        account: account,
+                        notificationKey: "group-state-\(notice.trigger)-\(mode.rawValue)",
+                        groupIdHex: "team-group",
+                        senderName: "Alice",
+                        isDm: false,
+                        groupName: "Engineering",
+                        trigger: notice.trigger
+                    ))
+                #expect(request.title == "Engineering")
+                #expect(request.body == notice.body)
+            }
+        }
+    }
+
+    @MainActor
+    @Test func hiddenPreviewModeWithholdsTheGroupFromGroupStateNotifications() async throws {
+        // Hidden mode already drops the sender and the group from a message banner; a
+        // group-state notice must lose the group name the same way, keeping only the
+        // category the way `.groupInvite` keeps "New group invite".
+        let previousMode = UserDefaults.standard.object(forKey: "whitenoise.mac.notificationPreviewMode")
+        defer { restoreDefault(previousMode, forKey: "whitenoise.mac.notificationPreviewMode") }
+
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        state.notificationPreviewMode = .hidden
+
+        for trigger in [NotificationTriggerFfi.removedFromGroup, .madeAdmin, .removedAsAdmin] {
+            let request = state.localNotificationRequest(
+                for: notificationUpdate(
+                    account: account,
+                    notificationKey: "hidden-group-state-\(trigger)",
+                    groupIdHex: "team-group",
+                    senderName: "Alice",
+                    isDm: false,
+                    groupName: "Engineering",
+                    trigger: trigger
+                ))
+            #expect(request.title == L10n.string("White Noise"))
+            #expect(!request.body.contains("Engineering"))
+            #expect(!request.body.contains("Alice"))
+        }
+    }
+
+    @MainActor
+    @Test func groupStateNotificationWithoutAGroupNameStillPostsTheEvent() async throws {
+        // The core reports no name for a group it cannot read back (`UnknownGroup`) and often
+        // no actor at all for an inbound admin diff. Neither may push the actor's name — or
+        // the "Someone" fallback — into the banner in place of the missing group.
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            appActivityProvider: { false },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        await state.handleNotificationUpdate(
+            notificationUpdate(
+                account: account,
+                notificationKey: "unknown-group-removal",
+                groupIdHex: "team-group",
+                senderName: "Alice",
+                isDm: false,
+                groupName: nil,
+                trigger: .removedFromGroup
+            ))
+
+        #expect(notificationCenter.postedRequests.count == 1)
+        let request = try #require(notificationCenter.postedRequests.first)
+        #expect(request.title == L10n.string("White Noise"))
+        #expect(request.body == L10n.string("You were removed from this group"))
+        #expect(request.body != L10n.string("New message"))
+        #expect(!request.body.contains("Alice"))
+        #expect(!request.body.contains(L10n.string("Someone")))
+    }
+
+    @MainActor
     @Test func fullPreviewModeIsDefaultAndPreservesLegacyBody() async throws {
         // Backward-compatible default: full previews keep the prior behavior so
         // existing users see no change unless they opt into a stricter mode.
@@ -38076,16 +38186,17 @@ private func notificationUpdate(
     notificationKey: String,
     groupIdHex: String = "direct-group",
     senderName: String,
-    previewText: String,
+    previewText: String? = nil,
     isDm: Bool = true,
     groupName: String? = nil,
     isFromSelf: Bool = false,
-    messageIdHex: String? = nil
+    messageIdHex: String? = nil,
+    trigger: NotificationTriggerFfi = .newMessage
 ) -> NotificationUpdateFfi {
     NotificationUpdateFfi(
         notificationKey: notificationKey,
         conversationKey: groupIdHex,
-        trigger: .newMessage,
+        trigger: trigger,
         trafficClass: .standard,
         accountRef: account.label,
         accountIdHex: account.accountIdHex,
