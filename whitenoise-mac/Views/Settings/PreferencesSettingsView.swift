@@ -21,38 +21,38 @@ struct PreferencesSettingsView: View {
             title: L10n.string("Preferences"),
             subtitle: L10n.string("Choose how White Noise starts up and how it behaves in chats.")
         ) {
-            Section(L10n.string("Startup")) {
-                Toggle(
-                    L10n.string("Launch White Noise at Login"),
+            // Two toggles that explain themselves differently are two groups. They used to share
+            // one `Section` with a `Divider()` between them and a grey paragraph after each — the
+            // divider was standing in for this split, and a divider cannot carry a footer.
+            SettingsSection(
+                title: L10n.string("Startup"),
+                footer: L10n.string("Open the White Noise window automatically when you log in to your Mac.")
+            ) {
+                SettingsToggleRow(
+                    title: L10n.string("Launch White Noise at Login"),
+                    systemImage: "power",
                     isOn: Binding(
                         get: { launchAtLogin.isEnabled },
                         set: { launchAtLogin.setEnabled($0) }
                     )
                 )
 
-                Text(L10n.string("Open the White Noise window automatically when you log in to your Mac."))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                LaunchAtLoginStatusRows(controller: launchAtLogin)
+            }
 
-                launchAtLoginStatus
-
-                Divider()
-
-                Toggle(
-                    L10n.string("Restore last selected chat"),
+            SettingsSection(
+                footer: L10n.string(
+                    "Return to the last conversation selected for this account, both on launch and when you switch accounts."
+                )
+            ) {
+                SettingsToggleRow(
+                    title: L10n.string("Restore last selected chat"),
+                    systemImage: "bubble.left.and.bubble.right",
                     isOn: Binding(
                         get: { workspace.restoreLastSelectedChat },
                         set: { workspace.setRestoreLastSelectedChat($0) }
                     )
                 )
-
-                Text(
-                    L10n.string(
-                        "Return to the last conversation selected for this account, both on launch and when you switch accounts."
-                    )
-                )
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
             }
 
             QuickReactionsSettingsSection()
@@ -70,35 +70,37 @@ struct PreferencesSettingsView: View {
             launchAtLogin.refresh()
         }
     }
+}
 
-    @ViewBuilder
-    private var launchAtLoginStatus: some View {
-        if let error = launchAtLogin.errorMessage {
+/// What Login Items has to say back: the error from the last attempt, and the two states where
+/// macOS has the final word. Its own view rather than a computed property on the page, so the
+/// page body stays the list of groups it describes.
+struct LaunchAtLoginStatusRows: View {
+    let controller: LaunchAtLoginController
+
+    var body: some View {
+        if let error = controller.errorMessage {
             SettingsErrorView(error: error)
         }
 
-        switch launchAtLogin.status {
+        switch controller.status {
         case .requiresApproval:
-            VStack(alignment: .leading, spacing: 8) {
-                Label(
-                    L10n.string("White Noise needs approval in Login Items before it can open at login."),
-                    systemImage: "exclamationmark.triangle"
-                )
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-
-                Button(L10n.string("Open Login Items Settings")) {
-                    launchAtLogin.openSystemSettings()
-                }
-                .buttonStyle(.wnSecondary)
-            }
-        case .notFound:
-            Label(
-                L10n.string("macOS could not find White Noise's login item."),
-                systemImage: "exclamationmark.triangle"
+            SettingsStatusNote(
+                text: L10n.string("White Noise needs approval in Login Items before it can open at login."),
+                intention: .warning
             )
-            .wnFont(.medium10)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
+
+            Button(L10n.string("Open Login Items Settings")) {
+                controller.openSystemSettings()
+            }
+            .buttonStyle(.wnSecondary)
+
+        case .notFound:
+            SettingsStatusNote(
+                text: L10n.string("macOS could not find White Noise's login item."),
+                intention: .warning
+            )
+
         case .notRegistered, .enabled:
             EmptyView()
         }
@@ -111,11 +113,10 @@ struct QuickReactionsSettingsSection: View {
     @State private var quickReactionBeingReplaced: Int?
 
     var body: some View {
-        Section(L10n.string("Quick reactions")) {
-            Text(L10n.string("Choose and order the six reactions shown in message actions."))
-                .wnFont(.medium10)
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-
+        SettingsSection(
+            title: L10n.string("Quick reactions"),
+            footer: L10n.string("Choose and order the six reactions shown in message actions.")
+        ) {
             ForEach(Array(workspace.quickReactions.enumerated()), id: \.offset) { index, emoji in
                 HStack(spacing: 12) {
                     Button {

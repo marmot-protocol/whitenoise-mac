@@ -647,36 +647,55 @@ struct SettingsListDrawerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(L10n.string("Settings", locale: locale))
-                    .wnFont(.semiBold18)
+            Text(L10n.string("Settings", locale: locale))
+                .wnFont(.semiBold18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .sidebarTitlebarClearance()
+                .padding(.bottom, 10)
 
-                SettingsAccountSwitcherCard()
-            }
-            .padding(.horizontal, 14)
-            .sidebarTitlebarClearance()
-            .padding(.bottom, 12)
-
-            GlassSeparator(axis: .horizontal)
-
+            // No rule under the title. The account card used to be pinned above a
+            // `GlassSeparator`, which split the surface into a header and a list; the prototype's
+            // hub has the profile as the *first card of the same grouped list*, so it scrolls with
+            // the destinations and the only grouping signal is the gap between cards.
             ScrollView {
-                LazyVStack(spacing: 3) {
-                    ForEach(SettingsPage.sidebarPages, id: \.self) { page in
-                        Button {
-                            workspace.showSettingsPage(page)
-                        } label: {
-                            SettingsSidebarRow(page: page)
+                // One card per group, then the isolated destructive row — the shape
+                // `wn-ios-prototype`'s hub takes. The gap between cards is the only grouping
+                // signal, because the prototype's hub carries no category headings.
+                LazyVStack(spacing: 12) {
+                    SettingsAccountSwitcherCard()
+
+                    ForEach(Array(SettingsPage.sidebarGroups.enumerated()), id: \.offset) { _, group in
+                        SettingsSidebarGroupCard {
+                            ForEach(Array(group.enumerated()), id: \.element) { index, page in
+                                Button {
+                                    workspace.showSettingsPage(page)
+                                } label: {
+                                    SettingsSidebarRow(page: page)
+                                }
+                                .buttonStyle(.plain)
+
+                                if index < group.count - 1 {
+                                    SettingsSidebarRowSeparator()
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
+
+                    SettingsSignOutRow()
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 12)
             }
 
+            // The line that closes the settings surface. It sits under the page list rather than
+            // on a page, because it is about the app and not about any one group of settings.
+            SettingsVersionFooter()
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
         }
         .background {
-            MessagesSidebarBackground(level: .drawer)
+            MessagesSidebarBackground(level: .settingsDrawer)
         }
     }
 
@@ -694,32 +713,75 @@ struct SettingsSidebarRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        // Glyph and title, nothing else: the prototype's hub states outright that it carries no
+        // explanatory subtitles, and a second line under every row is what stopped the ten rows
+        // from reading as a list you could scan.
+        HStack(spacing: SettingsSidebarRowMetrics.glyphSpacing) {
             Image(systemName: page.systemImage)
-                .wnFont(.semiBold16)
+                .wnFont(.medium14)
                 .foregroundStyle(
                     isSelected
                         ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
                 )
-                .frame(width: 28, height: 28)
+                .frame(width: SettingsSidebarRowMetrics.glyphWidth)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(page.title(in: locale))
-                    .wnFont(.semiBold12)
-                    .foregroundStyle(WNColor.backgroundContentPrimary)
-                Text(page.sidebarSubtitle(in: locale))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(page.title(in: locale))
+                .wnFont(.medium14)
+                .foregroundStyle(WNColor.backgroundContentPrimary)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 8)
+        .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
+        .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
         .background {
-            MessagesSidebarRowBackground(isSelected: isSelected)
+            SettingsSidebarRowBackground(isSelected: isSelected)
         }
         .contentShape(Rectangle())
+    }
+}
+
+/// The drawer's last row: sign out of the active account, on its own away from the
+/// destinations above it.
+///
+/// Isolated by the same argument the prototype's hub makes — a row that ends a session does not
+/// belong in a card of rows that open a page. It was previously reachable only from inside the
+/// switcher popover, where you had to open a list of identities to act on the one already active.
+struct SettingsSignOutRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.locale) private var locale
+    @State private var isConfirming = false
+
+    var body: some View {
+        if let account = workspace.activeAccount {
+            SettingsSidebarGroupCard {
+                Button {
+                    isConfirming = true
+                } label: {
+                    HStack(spacing: SettingsSidebarRowMetrics.glyphSpacing) {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .wnFont(.medium14)
+                            .foregroundStyle(WNColor.backgroundContentDestructive)
+                            .frame(width: SettingsSidebarRowMetrics.glyphWidth)
+
+                        Text(L10n.string("Sign Out", locale: locale))
+                            .wnFont(.medium14)
+                            .foregroundStyle(WNColor.backgroundContentDestructive)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
+                    .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(workspace.isAccountMutationInProgress)
+            }
+            .signOutConfirmation(account: account, isPresented: $isConfirming) {
+                Task { await workspace.signOutAccount(account) }
+            }
+        }
     }
 }
 
