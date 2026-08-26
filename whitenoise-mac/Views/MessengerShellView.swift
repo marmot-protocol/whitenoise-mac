@@ -1024,27 +1024,57 @@ private struct FailureView: View {
 }
 
 struct EmptyDrawerState: View {
+    @Environment(\.locale) private var locale
+
     var body: some View {
-        ContentUnavailableView("No chats", systemImage: "bubble.left.and.bubble.right")
-            .padding()
+        WNEmptyStateView(
+            title: L10n.string("No chats", locale: locale),
+            systemImage: "bubble.left.and.bubble.right"
+        )
+        .padding()
     }
 }
 
 private struct EmptyConversationView: View {
+    @Environment(\.locale) private var locale
+
     var body: some View {
-        ContentUnavailableView("No messages", systemImage: "text.bubble")
+        WNEmptyStateView(title: L10n.string("No messages", locale: locale), systemImage: "text.bubble")
             .frame(maxWidth: .infinity, minHeight: 360)
     }
 }
 
+/// The detail pane with no conversation in it.
+///
+/// Which of the three things it has to say is decided here rather than in the rail,
+/// because the rail cannot say the useful one: an account with no chats at all has
+/// nothing to select, so "Select a chat" would be pointing at an empty list. In that
+/// case the invitation to start one takes this pane — the widest, most legible space
+/// in the window — and `ChatListDrawerView` leaves its own copy of the notice off so
+/// the window carries the message once instead of twice.
 private struct EmptyDetailView: View {
     @Environment(WorkspaceState.self) private var workspace
+    @Environment(\.locale) private var locale
 
     var body: some View {
-        ContentUnavailableView {
-            Label(
-                workspace.accounts.isEmpty ? L10n.string("No accounts") : L10n.string("Select a chat"),
-                systemImage: "bubble.left.and.bubble.right")
+        Group {
+            if workspace.accounts.isEmpty {
+                WNEmptyStateView(
+                    title: L10n.string("No accounts", locale: locale),
+                    systemImage: "person.crop.circle.badge.questionmark"
+                )
+            } else if workspace.hasNoChats {
+                WNEmptyStateView(
+                    title: L10n.string("No chats yet", locale: locale),
+                    description: L10n.string("Start a conversation", locale: locale),
+                    systemImage: "bubble.left.and.bubble.right"
+                )
+            } else {
+                WNEmptyStateView(
+                    title: L10n.string("Select a chat", locale: locale),
+                    systemImage: "bubble.left.and.bubble.right"
+                )
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

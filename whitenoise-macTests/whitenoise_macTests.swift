@@ -25067,6 +25067,30 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func hasNoChatsSeparatesAnEmptyActiveDrawerFromAnAccountWithNothingInIt() async throws {
+        let account = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installGroupDetails(groupDetailsFixture(selfAccountIdHex: account.accountIdHex))
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+
+        let chat = try #require(state.activeChats.first)
+        #expect(!state.hasNoChats)
+
+        // Archiving can empty the active drawer while leaving something to select, which is
+        // what keeps the empty detail pane on "Select a chat" instead of inviting a first
+        // conversation the account has already had.
+        await state.setChatArchived(chat, archived: true)
+        #expect(!state.archivedChats.isEmpty)
+        #expect(!state.hasNoChats)
+
+        let accountId = try #require(state.activeAccountId)
+        state.chatsByAccount[accountId] = []
+        state.archivedChatsByAccount[accountId] = []
+        #expect(state.hasNoChats)
+    }
+
+    @MainActor
     @Test func archivedChatSearchFiltersArchivedSection() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
