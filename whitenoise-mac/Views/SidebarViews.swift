@@ -96,8 +96,14 @@ struct AccountRailView: View {
 }
 
 /// A single account avatar in the rail: selects on tap (or signs back in when the
-/// account is signed out), dims signed-out accounts, overlays an unread badge, and
-/// offers Sign In / Sign Out via context menu.
+/// account is signed out), dims signed-out accounts, and overlays an unread badge.
+///
+/// Deliberately has no context menu. It used to offer Sign In / Sign Out, but both
+/// items were duplicates: signing back in is already this button's primary action for
+/// a signed-out account, and Sign Out lives in Settings behind a confirmation dialog
+/// (`SettingsAccountSwitcherCard`). The rail's copy fired `signOutAccount` straight
+/// from a right-click with no prompt, so an accidental click dropped that identity's
+/// relay key packages. Destructive account actions belong on the confirmed path only.
 private struct AccountRailAvatar: View {
     @Environment(WorkspaceState.self) private var workspace
     let account: AccountItem
@@ -139,26 +145,6 @@ private struct AccountRailAvatar: View {
         .buttonStyle(.plain)
         .disabled(account.signedOut && workspace.isAccountMutationInProgress)
         .help(account.signedOut ? "\(account.displayName) — \(L10n.string("Signed out"))" : account.displayName)
-        .contextMenu {
-            Group {
-                if account.signedOut {
-                    Button {
-                        Task { await workspace.signInAccount(account) }
-                    } label: {
-                        Label(L10n.string("Sign In"), systemImage: "person.crop.circle.badge.checkmark")
-                    }
-                    .disabled(workspace.isAccountMutationInProgress)
-                } else {
-                    Button {
-                        Task { await workspace.signOutAccount(account) }
-                    } label: {
-                        Label(L10n.string("Sign Out"), systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .disabled(workspace.isAccountMutationInProgress)
-                }
-            }
-            .menuLabelIcons()
-        }
     }
 
     @ViewBuilder
