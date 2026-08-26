@@ -537,15 +537,122 @@ import Testing
     /// ideal proposal resolves to exactly this: both `Spacer`s at their floor, which is the
     /// shortest the pane can be drawn.
     @Test func theSignUpPaneFitsTheSmallestWindow() throws {
+        let height = try Self.signUpPaneHeight()
+        #expect(
+            height <= Self.minimumWindowHeight,
+            "the sign-up pane needs \(height)pt in a window that can be \(Self.minimumWindowHeight)pt tall")
+    }
+
+    /// The same fit, in the language that makes the pane tallest rather than the one the test host
+    /// happens to be running in.
+    ///
+    /// The public-profile notice is the pane's only multi-line block, and it is the one string here
+    /// whose length is a translator's decision: its message wraps to two lines in English and to
+    /// three in six of the nine languages this app ships, which is 15pt the pane does not have
+    /// spare. The test above measures the host's language and would therefore pass in English while
+    /// shipping a pane whose Create profile button is off the bottom edge in German.
+    ///
+    /// So the pane is measured once, its own notice is subtracted, and the tallest translation of
+    /// that notice is put back. Nothing else on the pane can take a line it did not take before —
+    /// the title sits in the header row, both field labels are one line, and the error slot is
+    /// reserved at a fixed height.
+    @Test func theSignUpPaneFitsTheSmallestWindowInEveryLanguage() throws {
+        let paneHeight = try Self.signUpPaneHeight()
+        let hostNotice = try Self.publicProfileNoticeHeight(
+            title: L10n.string(Self.publicProfileTitleKey),
+            message: L10n.string(Self.publicProfileMessageKey)
+        )
+
+        var tallest = hostNotice
+        var tallestLanguage = "the host language"
+        for code in Bundle.main.localizations {
+            guard let path = Bundle.main.path(forResource: code, ofType: "lproj"),
+                let bundle = Bundle(path: path)
+            else { continue }
+            let height = try Self.publicProfileNoticeHeight(
+                title: bundle.localizedString(
+                    forKey: Self.publicProfileTitleKey, value: Self.publicProfileTitleKey, table: nil),
+                message: bundle.localizedString(
+                    forKey: Self.publicProfileMessageKey, value: Self.publicProfileMessageKey, table: nil)
+            )
+            if height > tallest {
+                tallest = height
+                tallestLanguage = code
+            }
+        }
+
+        let worstCase = paneHeight - hostNotice + tallest
+        #expect(
+            worstCase <= Self.minimumWindowHeight,
+            """
+            the sign-up pane needs \(worstCase)pt in \(tallestLanguage), \
+            in a window that can be \(Self.minimumWindowHeight)pt tall
+            """)
+    }
+
+    /// The shortest the sign-up pane can be drawn — both margin `Spacer`s at their floor. See
+    /// `OnboardingLayout.signUpEdgePadding`, which is what buys the notice its box.
+    private static func signUpPaneHeight() throws -> CGFloat {
         let workspace = Self.signUpWorkspace()
         let pane = OnboardingSignUpView()
             .environment(workspace)
             .frame(width: Self.minimumWindowWidth)
+        return try #require(ImageRenderer(content: pane).nsImage?.size.height)
+    }
 
-        let height = try #require(ImageRenderer(content: pane).nsImage?.size.height)
+    /// The notice as the pane draws it, at the width the pane draws it in.
+    private static func publicProfileNoticeHeight(title: String, message: String) throws -> CGFloat {
+        let notice = WNCallout(title: title, message: message, intent: .info, emphasis: .quiet)
+            .frame(width: OnboardingLayout.contentWidth)
+        return try #require(ImageRenderer(content: notice).nsImage?.size.height)
+    }
+
+    /// The two catalog keys Settings → Profile and the sign-up pane both draw. Shared literals
+    /// rather than a copy each, because the point of the notice is that they are the same strings.
+    private static let publicProfileTitleKey = "Your profile is public"
+    private static let publicProfileMessageKey =
+        "Name, photo, and bio are visible on the global Nostr network. Use what you're comfortable sharing."
+
+    /// The notice is gray, and stays gray.
+    ///
+    /// It is the same `WNCallout` Settings → Profile draws, and it would be one word — `.info`
+    /// instead of `.quiet` — from arriving in this pane wearing the info tint. That would make a
+    /// standing sentence about privacy the most colorful thing on a pane whose most colorful thing
+    /// is meant to be Create profile, so the neutral ground is asserted rather than assumed.
+    ///
+    /// Sampled against a swatch rendered the same way rather than against the ramp constant:
+    /// `ImageRenderer` does not always hand back the exact token it was given.
+    @Test func theSignUpNoticeIsDrawnOnNeutralGround() throws {
+        let quiet = try Self.noticeGround { OnboardingPublicProfileNote() }
+        let tinted = try Self.noticeGround {
+            WNCallout(
+                title: Self.publicProfileTitleKey,
+                message: Self.publicProfileMessageKey,
+                intent: .info
+            )
+        }
+
+        let swatchRep = try Self.rasterize(appearance: .aqua) {
+            WNColor.backgroundSecondary.frame(width: 40, height: 40)
+        }
+        let neutral = try #require(swatchRep.colorAt(x: 20, y: 20)?.usingColorSpace(.sRGB))
+
         #expect(
-            height <= Self.minimumWindowHeight,
-            "the sign-up pane needs \(height)pt in a window that can be \(Self.minimumWindowHeight)pt tall")
+            Self.channelDistance(quiet, neutral) < 0.02,
+            "the notice drew its box on \(quiet) where the neutral surface is \(neutral)")
+        #expect(
+            Self.channelDistance(quiet, tinted) > 0.02,
+            "the quiet notice and the tinted one drew the same ground, so the emphasis did nothing")
+    }
+
+    /// The color the notice's box is drawn on, sampled in the padding strip left of the glyph —
+    /// the one place inside the box that no glyph or line of text can reach.
+    private static func noticeGround<Notice: View>(@ViewBuilder _ notice: () -> Notice) throws -> NSColor {
+        let rep = try Self.rasterize(appearance: .aqua) {
+            notice().frame(width: OnboardingLayout.contentWidth)
+        }
+        return try #require(
+            rep.colorAt(x: Int(7 * Self.renderScale), y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB))
     }
 
     /// `ContentView`'s window floor, restated so a pane measured against it fails when the pane
