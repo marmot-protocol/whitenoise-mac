@@ -16,7 +16,7 @@ struct KeyPackageSettingsView: View {
             title: L10n.string("Key Packages"),
             subtitle: L10n.string("Manage the KeyPackages this identity has published for invites.")
         ) {
-            Section {
+            SettingsSection {
                 HStack(spacing: 10) {
                     Button {
                         Task { await workspace.publishNewKeyPackage() }
@@ -48,7 +48,7 @@ struct KeyPackageSettingsView: View {
                 }
             }
 
-            Section(L10n.string("Published Key Packages")) {
+            SettingsSection(title: L10n.string("Published Key Packages")) {
                 if workspace.keyPackages.isEmpty {
                     ContentUnavailableView("No key packages", systemImage: "key.slash")
                         .frame(minHeight: 220)

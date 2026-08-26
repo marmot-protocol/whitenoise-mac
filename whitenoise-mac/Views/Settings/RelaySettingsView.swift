@@ -18,11 +18,11 @@ struct RelaySettingsView: View {
             title: L10n.string("Relays"),
             subtitle: L10n.string("Manage the relay lists published for this account.")
         ) {
-            Section {
+            SettingsSection {
                 RelayDiagnosticsView(settings: workspace.relaySettings)
             }
 
-            Section(L10n.string("Relays")) {
+            SettingsSection(title: L10n.string("Relays")) {
                 if workspace.relayDraft.isEmpty {
                     ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
                         .frame(minHeight: 160)
@@ -40,7 +40,7 @@ struct RelaySettingsView: View {
                 }
             }
 
-            Section(L10n.string("Add Relay")) {
+            SettingsSection(title: L10n.string("Add Relay")) {
                 HStack(spacing: 8) {
                     TextField(
                         L10n.string(""), text: $workspace.newRelayURL, prompt: Text(L10n.string("wss://relay.example"))
@@ -75,7 +75,7 @@ struct RelaySettingsView: View {
                 .disabled(workspace.isSavingRelays)
             }
 
-            Section {
+            SettingsSection {
                 HStack(spacing: 10) {
                     Button {
                         Task { await workspace.saveRelaySettings() }

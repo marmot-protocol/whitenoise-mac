@@ -19,16 +19,13 @@ struct StorageSettingsView: View {
         ) {
             // The folder is granted by the panel on the first download, so without this row there
             // would be no way to see where files went or to move them somewhere else.
-            Section(L10n.string("Downloads")) {
-                LabeledContent(L10n.string("Save downloads to")) {
-                    Text(
-                        workspace.mediaDownloadDestinationPath
-                            ?? L10n.string("Chosen the first time you download")
-                    )
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                }
+            SettingsSection(title: L10n.string("Downloads")) {
+                SettingsValueRow(
+                    title: L10n.string("Save downloads to"),
+                    value: workspace.mediaDownloadDestinationPath
+                        ?? L10n.string("Chosen the first time you download"),
+                    truncatesMiddle: true
+                )
 
                 Button(L10n.string("Change Folder"), systemImage: "folder") {
                     workspace.changeMediaDownloadDestination()
@@ -36,7 +33,12 @@ struct StorageSettingsView: View {
                 .buttonStyle(.wnSecondary)
             }
 
-            Section(L10n.string("Media Cache")) {
+            SettingsSection(
+                title: L10n.string("Media Cache"),
+                footer: L10n.string(
+                    "White Noise encrypts cached attachment data on this Mac. Clearing it does not remove accounts, messages, drafts, or settings."
+                )
+            ) {
                 LabeledContent(L10n.string("Cached attachments")) {
                     if workspace.isLoadingMediaCacheFootprint {
                         ProgressView()
@@ -47,14 +49,6 @@ struct StorageSettingsView: View {
                             .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                 }
-
-                Text(
-                    L10n.string(
-                        "White Noise encrypts cached attachment data on this Mac. Clearing it does not remove accounts, messages, drafts, or settings."
-                    )
-                )
-                .foregroundStyle(WNColor.backgroundContentSecondary)
-                .fixedSize(horizontal: false, vertical: true)
 
                 Button {
                     showClearConfirmation = true
@@ -81,14 +75,12 @@ struct StorageSettingsView: View {
                 )
 
                 if let reclaimed = workspace.mediaCacheReclaimedByteCount {
-                    Label(
-                        String(
+                    SettingsStatusNote(
+                        text: String(
                             format: L10n.string("%@ reclaimed."),
                             byteCount(reclaimed)
-                        ),
-                        systemImage: "checkmark.circle"
+                        )
                     )
-                    .foregroundStyle(WNColor.intentionSuccessContent)
                 }
             }
         }

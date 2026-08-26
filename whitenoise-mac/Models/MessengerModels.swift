@@ -2862,21 +2862,40 @@ enum SettingsPage: Equatable {
     case storage
     case developerMode
 
+    /// The drawer's cards, ported from `wn-ios-prototype`'s hub: a group of destinations per
+    /// question the reader is asking. One flat column of ten rows gave no signal that Relays and
+    /// Appearance are answers to different questions.
+    ///
+    /// The split follows the order that was already here rather than reordering to match the
+    /// prototype row for row — the order encodes its own decision (see `sidebarPages`), and it
+    /// falls into these three groups without being disturbed:
+    ///
+    /// - who you are and how you reach the network,
+    /// - how the app treats you,
+    /// - and what only a developer wants.
+    static let sidebarGroups: [[SettingsPage]] = [
+        [
+            .profile,
+            .identityKeys,
+            .notifications,
+            .appearance,
+            .privacySecurity,
+            .storage,
+            .relays,
+            .keyPackages,
+        ],
+        [
+            .preferences,
+            .developerMode,
+        ],
+    ]
+
+    /// Every drawer destination in order, derived from the cards so the two cannot disagree.
+    ///
     /// Preferences sits next to Appearance rather than at the top: both are day-to-day
     /// choices about how the app treats you, and neither is what someone opens settings for.
     /// Leading with the startup toggles made a rarely-touched page read as the main one.
-    static let sidebarPages: [SettingsPage] = [
-        .profile,
-        .identityKeys,
-        .relays,
-        .keyPackages,
-        .appearance,
-        .preferences,
-        .privacySecurity,
-        .notifications,
-        .storage,
-        .developerMode,
-    ]
+    static let sidebarPages: [SettingsPage] = sidebarGroups.flatMap { $0 }
 
     /// Localized against an explicit locale rather than the stored language preference, so
     /// the settings sidebar can localize with the `\.locale` environment value and be
@@ -2884,11 +2903,6 @@ enum SettingsPage: Equatable {
     /// row is rebuilt (see `L10n.string(_:locale:)`).
     func title(in locale: Locale) -> String {
         L10n.string(titleKey, locale: locale)
-    }
-
-    /// See `title(in:)` for why the locale is passed in.
-    func sidebarSubtitle(in locale: Locale) -> String {
-        L10n.string(sidebarSubtitleKey, locale: locale)
     }
 
     private var titleKey: String {
@@ -2900,7 +2914,7 @@ enum SettingsPage: Equatable {
         case .profile:
             "Profile"
         case .identityKeys:
-            "Identity & Keys"
+            "Profile Keys"
         case .relays:
             "Relays"
         case .keyPackages:
@@ -2918,33 +2932,6 @@ enum SettingsPage: Equatable {
         }
     }
 
-    private var sidebarSubtitleKey: String {
-        switch self {
-        case .overview:
-            "Settings home"
-        case .preferences:
-            "Startup and quick reactions"
-        case .profile:
-            "Public display info"
-        case .identityKeys:
-            "Public and private keys"
-        case .relays:
-            "Relay lists"
-        case .keyPackages:
-            "Invite packages"
-        case .appearance:
-            "Theme"
-        case .privacySecurity:
-            "Telemetry and audit logs"
-        case .notifications:
-            "Local alerts"
-        case .storage:
-            "Media cache"
-        case .developerMode:
-            "Storage and diagnostics"
-        }
-    }
-
     var systemImage: String {
         switch self {
         case .overview:
@@ -2954,21 +2941,21 @@ enum SettingsPage: Equatable {
         case .profile:
             "person.crop.circle"
         case .identityKeys:
-            "key.viewfinder"
+            "key"
         case .relays:
             "antenna.radiowaves.left.and.right"
         case .keyPackages:
-            "key"
+            "shippingbox"
         case .appearance:
             "circle.lefthalf.filled"
         case .privacySecurity:
-            "lock.shield"
+            "hand.raised"
         case .notifications:
-            "bell.badge"
+            "bell"
         case .storage:
-            "internaldrive"
+            "externaldrive"
         case .developerMode:
-            "stethoscope"
+            "wrench.and.screwdriver"
         }
     }
 }

@@ -622,6 +622,16 @@ struct MessagesSidebarBackground: View {
     enum Level {
         case rail
         case drawer
+        /// The settings drawer, which is a grouped list rather than a list of chats.
+        ///
+        /// Its own level because a grouped list is only legible when its cards read as raised off
+        /// the background, and `.drawer`'s `backgroundSecondary` is one ramp step from the card
+        /// surface: `FAFAFA` under white in light, `0A0A0A` under black in dark. Stepping to
+        /// `backgroundTertiary` takes that to `F5F5F5`/`171717` — a tenth of the ramp in light,
+        /// which is the margin iOS's own grouped background keeps, and more than twice the
+        /// separation in dark. The chat drawer stays on `.drawer`: its rows are not carded, so it
+        /// wants the quieter backdrop.
+        case settingsDrawer
     }
 
     let level: Level
@@ -636,6 +646,7 @@ struct MessagesSidebarBackground: View {
         switch level {
         case .rail: WNColor.backgroundTertiary
         case .drawer: WNColor.backgroundSecondary
+        case .settingsDrawer: WNColor.backgroundTertiary
         }
     }
 }

@@ -18,27 +18,29 @@ struct DeveloperModeSettingsView: View {
             title: L10n.string("Developer mode"),
             subtitle: L10n.string("Storage and diagnostics.")
         ) {
-            Section(L10n.string("Developer")) {
-                Toggle(isOn: $workspace.developerMode) {
-                    Label(L10n.string("Developer mode"), systemImage: "stethoscope")
-                }
+            SettingsSection(title: L10n.string("Developer")) {
+                SettingsToggleRow(
+                    title: L10n.string("Developer mode"),
+                    systemImage: "stethoscope",
+                    isOn: $workspace.developerMode
+                )
 
-                Toggle(isOn: $workspace.streamingDebugMode) {
-                    Label(L10n.string("Streaming debug"), systemImage: "waveform.path.ecg")
-                }
+                SettingsToggleRow(
+                    title: L10n.string("Streaming debug"),
+                    systemImage: "waveform.path.ecg",
+                    isOn: $workspace.streamingDebugMode
+                )
                 .disabled(!workspace.developerMode)
             }
 
-            Section(L10n.string("Storage")) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.string("Location"))
-
-                    Text(workspace.storageRootPath)
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
+            // The path sits under the button that opens it rather than in a row of its own: it
+            // is what the group is about, not a setting beside one. Selectable, because a
+            // developer reading this page wants it in a terminal.
+            SettingsSection(
+                title: L10n.string("Storage"),
+                footer: workspace.storageRootPath,
+                isFooterSelectable: true
+            ) {
                 Button {
                     NSWorkspace.shared.open(URL(fileURLWithPath: workspace.storageRootPath, isDirectory: true))
                 } label: {
@@ -47,13 +49,9 @@ struct DeveloperModeSettingsView: View {
                 .buttonStyle(.wnSecondary)
             }
 
-            Section(L10n.string("Diagnostics")) {
+            SettingsSection(title: L10n.string("Diagnostics")) {
                 ForEach(workspace.diagnosticsInfo) { item in
-                    LabeledContent(item.title) {
-                        Text(item.value)
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                            .textSelection(.enabled)
-                    }
+                    SettingsValueRow(title: item.title, value: item.value, isSelectable: true)
                 }
             }
 

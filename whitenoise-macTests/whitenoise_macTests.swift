@@ -6499,9 +6499,6 @@ struct whitenoise_macTests {
         #expect(SettingsPage.preferences.title(in: german) == "Voreinstellungen")
         #expect(SettingsPage.appearance.title(in: spanish) == "Apariencia")
         #expect(SettingsPage.overview.title(in: spanish) == "Configuración")
-        #expect(SettingsPage.preferences.sidebarSubtitle(in: spanish) == "Inicio y reacciones rápidas")
-        #expect(SettingsPage.preferences.sidebarSubtitle(in: german) == "Start und Schnellreaktionen")
-        #expect(SettingsPage.appearance.sidebarSubtitle(in: german) == "Design")
     }
 
     @Test func settingsDrawerLocalizesThroughEnvironmentLocale() throws {
@@ -6530,7 +6527,6 @@ struct whitenoise_macTests {
         }
         #expect(drawerSource.contains("L10n.string(\"Settings\", locale: locale)"))
         #expect(rowSource.contains("Text(page.title(in: locale))"))
-        #expect(rowSource.contains("Text(page.sidebarSubtitle(in: locale))"))
     }
 
     @MainActor
@@ -26823,13 +26819,13 @@ struct whitenoise_macTests {
             SettingsPage.sidebarPages == [
                 .profile,
                 .identityKeys,
+                .notifications,
+                .appearance,
+                .privacySecurity,
+                .storage,
                 .relays,
                 .keyPackages,
-                .appearance,
                 .preferences,
-                .privacySecurity,
-                .notifications,
-                .storage,
                 .developerMode,
             ]
         )

@@ -100,14 +100,8 @@ struct SettingsScaffold<Content: View>: View {
     @ViewBuilder
     private var errorSection: some View {
         if let error = workspace.lastError {
-            if let errorSectionTitle {
-                Section(errorSectionTitle) {
-                    SettingsErrorView(error: error)
-                }
-            } else {
-                Section {
-                    SettingsErrorView(error: error)
-                }
+            SettingsSection(title: errorSectionTitle) {
+                SettingsErrorView(error: error)
             }
         }
     }

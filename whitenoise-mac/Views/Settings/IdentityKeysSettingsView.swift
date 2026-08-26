@@ -19,7 +19,7 @@ struct IdentityKeysSettingsView: View {
             subtitle: L10n.string("Public identity details and local signing state.")
         ) {
             if let account = workspace.activeAccount {
-                Section(L10n.string("Account")) {
+                SettingsSection(title: L10n.string("Account")) {
                     HStack(spacing: 12) {
                         ProfileImageAvatarView(
                             seed: account.accountIdHex,
@@ -41,7 +41,7 @@ struct IdentityKeysSettingsView: View {
                     }
                 }
 
-                Section(L10n.string("Public Identity")) {
+                SettingsSection(title: L10n.string("Public Identity")) {
                     let npub = workspace.npub(forAccountIdHex: account.accountIdHex)
                     LabeledContent(L10n.string("npub")) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -71,15 +71,13 @@ struct IdentityKeysSettingsView: View {
                     }
                 }
 
-                Section(L10n.string("Private Key")) {
-                    LabeledContent(L10n.string("Private key")) {
-                        Text(
-                            account.localSigning
-                                ? L10n.string("Stored in Keychain")
-                                : L10n.string("Not stored on this Mac")
-                        )
-                        .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
+                SettingsSection(title: L10n.string("Private Key")) {
+                    SettingsValueRow(
+                        title: L10n.string("Private key"),
+                        value: account.localSigning
+                            ? L10n.string("Stored in Keychain")
+                            : L10n.string("Not stored on this Mac")
+                    )
 
                     Button {
                         showKeyBackup = true
@@ -94,15 +92,12 @@ struct IdentityKeysSettingsView: View {
                             : L10n.string("This account has no private key stored on this Mac"))
                 }
 
-                Section(L10n.string("Account Removal")) {
-                    Text(
-                        L10n.string(
-                            "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally."
-                        )
+                SettingsSection(
+                    title: L10n.string("Account Removal"),
+                    footer: L10n.string(
+                        "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally."
                     )
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
+                ) {
                     Button {
                         showRemoveAccountConfirmation = true
                     } label: {
@@ -117,7 +112,7 @@ struct IdentityKeysSettingsView: View {
                     .disabled(workspace.isAccountMutationInProgress)
                 }
             } else {
-                Section {
+                SettingsSection {
                     ContentUnavailableView("No active account", systemImage: "person.crop.circle.badge.exclamationmark")
                         .frame(minHeight: 220)
                 }
