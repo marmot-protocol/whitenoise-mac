@@ -41,9 +41,10 @@ import Foundation
 ///
 /// Both used to pass `!account.signedOut` instead, for the deactivated rows they drew: sign-out
 /// drops an identity's relay key packages, so the app should not then fetch its avatar and put
-/// traffic on the wire on its behalf. Filtering the lists themselves subsumed that argument — the
-/// one remaining site that lists signed-out identities, `SignedOutAccountsView`, never passes
-/// `isOwnAccountImage` at all, so its avatars stay gated by the preference like any other.
+/// traffic on the wire on its behalf. Filtering the lists themselves subsumed that argument, and
+/// no surface draws a deactivated identity's avatar at all now — the pane that used to list them
+/// when nothing was signed in is gone too, so getting back into one is Sign In with its key and
+/// the avatar is fetched only once it is signed in again.
 nonisolated enum RemoteImageDisplayPolicy {
     static func loadsRemoteImage(isOwnAccountImage: Bool, preferenceEnabled: Bool) -> Bool {
         isOwnAccountImage || preferenceEnabled

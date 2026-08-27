@@ -10,9 +10,9 @@
 //  creation in the same dropdown as account switching; creating one is the card's
 //  own `profileManagementRow` instead, which offers it precisely when there is
 //  nothing to switch to. Signed-out identities are not listed at all: a row that
-//  cannot be switched to does not belong in a switcher, and signing one back in
-//  lives on `SignedOutAccountsView`. This is where the former Accounts settings
-//  page went —
+//  cannot be switched to does not belong in a switcher, and a deactivated identity is
+//  reached again through Sign In with its key rather than by a click that asks for
+//  nothing. This is where the former Accounts settings page went —
 //  the iOS and Flutter clients open Settings on the current profile with a
 //  switch control directly underneath it rather than routing identity work
 //  through a separate Accounts tab, and this mirrors that on macOS.

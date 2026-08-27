@@ -24,7 +24,7 @@ import SwiftUI
 /// still what a `Cancel` in a sheet or a `Decline` beside an `Accept` wants, because those sit
 /// *inside* chrome that is already layered and one more elevation would fight it. Reach for this
 /// one where the button stands on a bare pane with nothing between it and the window — the
-/// onboarding actions, and the account picker's `Use another account`.
+/// onboarding actions.
 ///
 /// Three notes on the drawing:
 ///

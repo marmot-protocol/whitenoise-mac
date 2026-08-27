@@ -44,9 +44,10 @@ struct OnboardingWelcomeView: View {
     @Environment(WorkspaceState.self) private var workspace
 
     /// Present only when this pane is not the end of the line — see
-    /// `WorkspaceState.canLeaveAccountOnboarding`. On a first launch there is no app to cancel
-    /// back to, and a control that returned to a blank window would be a lie; reached from
-    /// Settings → Add Account, or from the signed-out pane, there is.
+    /// `WorkspaceState.canLeaveAccountOnboarding`. Reached from Settings → Add Account there is an
+    /// app behind this pane to cancel back to. On a first launch, or after the last identity was
+    /// signed out or removed, there is not, and a control that returned to a blank window would be
+    /// a lie.
     private var exit: OnboardingExitControl? {
         guard workspace.canLeaveAccountOnboarding else { return nil }
         return .cancel { workspace.leaveAccountOnboarding() }
