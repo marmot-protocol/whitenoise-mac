@@ -34,19 +34,39 @@ extension WorkspaceState {
     ///   the rest of it gets filled in.
     func cancelSignUp() async {
         guard !isAuthenticating else { return }
-        let hasCreatedIdentity = signUpCreatedAccountRef != nil
+        let createdAccountRef = signUpCreatedAccountRef
         signUpDraft = SignUpDraft()
         signUpCreatedAccountRef = nil
         lastError = nil
         authenticationMode = .landing
 
-        if hasCreatedIdentity {
+        if let createdAccountRef {
             // Read before `activateReadyState()` — see
             // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)` for the switch window.
-            let enteredAccountIdHex = activeAccount?.accountIdHex
+            let entered = enteredIdentity(forCreatedAccountRef: createdAccountRef)
             await activateReadyState()
-            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: entered)
         }
+    }
+
+    /// The identity to offer the improvements prompt to on the way out of the sign-up pane, or
+    /// `nil` when the identity sign-up created is not the one that ended up active.
+    ///
+    /// `completeSignUp()` records `signUpCreatedAccountRef` *before* `start()` and the account
+    /// refresh, so that a retry resumes instead of minting a second identity. Either of those can
+    /// still fail, and both are ordered to leave the previously ready account active when they do
+    /// (#333) — so the new identity can exist on disk while a different account is still the active
+    /// one. Both exits from the pane then go into the app as *that* account, and this pane is also
+    /// Settings → Add Account, so that account is routinely a real, long-signed-in one.
+    ///
+    /// Offering to it would spend its one lifetime offer on a moment that is not its first entry
+    /// and record it as asked for good, while the identity that was just created — not active, not
+    /// even started — would never be asked at all. `presentImprovementsPromptIfNeeded` cannot catch
+    /// this on its own: its guard compares the identity that entered against whoever is active now,
+    /// and here those are the same wrong account.
+    private func enteredIdentity(forCreatedAccountRef createdAccountRef: String) -> String? {
+        guard let activeAccount, activeAccount.accountRef == createdAccountRef else { return nil }
+        return activeAccount.accountIdHex
     }
 
     // MARK: - The photo
@@ -138,9 +158,11 @@ extension WorkspaceState {
             authenticationMode = .landing
             // Read before `activateReadyState()` — see
             // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)` for the switch window.
-            let enteredAccountIdHex = activeAccount?.accountIdHex
+            // `accountRef`-matched because a retry reaches here without ever re-running `start()`
+            // or the refresh: see `enteredIdentity(forCreatedAccountRef:)`.
+            let entered = enteredIdentity(forCreatedAccountRef: accountRef)
             await activateReadyState()
-            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
+            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: entered)
         } catch {
             lastError = error.localizedDescription
         }

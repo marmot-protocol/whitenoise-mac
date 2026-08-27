@@ -1021,6 +1021,76 @@ struct whitenoise_macTests {
         #expect(state.isImprovementsPromptPresented)
         #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
     }
+    /// A sign-up that minted the identity but never got it into the session must not spend the
+    /// *previous* account's one lifetime offer on the way out.
+    ///
+    /// `completeSignUp()` records `signUpCreatedAccountRef` before `start()` and the account
+    /// refresh, so a retry resumes instead of minting a second identity — and both of those calls
+    /// are ordered to leave the previously ready account active when they fail (#333). The sign-up
+    /// pane is also Settings → Add Account, so that previous account is routinely a real one. Both
+    /// exits from the pane then go into the app as *that* account, which did not just enter the
+    /// session, and whose record is written for good the moment it is asked.
+    @MainActor
+    @Test func signUpFailingBeforeTheAccountRefreshLeavesThePreviousAccountUnoffered() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = AccountSummaryFfi(
+            label: "Primary Account",
+            accountIdHex: Self.improvementsPromptAccountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let createdAccountIdHex = String(repeating: "2", count: 64)
+        let created = AccountSummaryFfi(
+            label: "Second Identity",
+            accountIdHex: createdAccountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let store = FakeImprovementsPromptStore()
+        let runtime = FakeMarmotRuntime(accounts: [primary], createdAccount: created)
+        let state = WorkspaceState(improvementsPromptStore: store, clientFactory: { runtime })
+
+        await state.bootstrap()
+        #expect(state.activeAccountId == "Primary Account")
+
+        state.showSignUp()
+        state.signUpDraft.displayName = "Second Identity"
+        runtime.startError = FakeMarmotRuntimeError.unused
+        await state.completeSignUp()
+
+        // The identity exists and is recorded for a retry, but the refresh never ran: Primary is
+        // still the active account, and the pane is still up with the error under the fields.
+        #expect(state.lastError != nil)
+        #expect(state.signUpCreatedAccountRef == "Second Identity")
+        #expect(state.activeAccountId == "Primary Account")
+
+        // Back out rather than retry — the pane's other exit, which goes *forward* into the app
+        // because an identity now exists.
+        await state.cancelSignUp()
+
+        #expect(!state.isImprovementsPromptPresented)
+        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: createdAccountIdHex))
+
+        // Positive control: the guard refuses the identity that did not enter, not the prompt
+        // itself. A sign-up whose account does reach the session still gets asked.
+        runtime.startError = nil
+        state.showSignUp()
+        state.signUpDraft.displayName = "Second Identity"
+        await state.completeSignUp()
+
+        #expect(state.lastError == nil)
+        #expect(state.activeAccountId == "Second Identity")
+        #expect(state.isImprovementsPromptPresented)
+        #expect(store.hasBeenOffered(toOwnerAccountIdHex: createdAccountIdHex))
+        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+    }
 
     @MainActor
     @Test func bootstrapRunsSynchronousRuntimeReadsOffMainThread() async throws {
