@@ -23584,6 +23584,124 @@
         }
       }
     },
+    "Help Improve White Noise": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hilf, White Noise zu verbessern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayuda a mejorar White Noise"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aidez-nous à améliorer White Noise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aiutaci a migliorare White Noise"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajude a melhorar o White Noise"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помогите улучшить White Noise"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise’u geliştirmeye yardım et"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帮助改进 White Noise"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "協助改進 White Noise"
+          }
+        }
+      }
+    },
+    "Help us make messaging without a central point of control more reliable. Both of these are optional, and you can change them in Settings at any time.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hilf uns, Messaging ohne zentrale Kontrollinstanz zuverlässiger zu machen. Beides ist optional, und du kannst es jederzeit in den Einstellungen ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayúdanos a hacer más fiable la mensajería sin un punto central de control. Las dos son opcionales y puedes cambiarlas en Configuración cuando quieras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aidez-nous à rendre plus fiable une messagerie sans point de contrôle central. Ces deux options sont facultatives et vous pouvez les modifier à tout moment dans les Paramètres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aiutaci a rendere più affidabile la messaggistica senza un punto di controllo centrale. Entrambe le opzioni sono facoltative e puoi modificarle in qualsiasi momento in Impostazioni."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajude a tornar mais confiável a troca de mensagens sem um ponto central de controle. As duas são opcionais e você pode alterá-las nas Configurações quando quiser."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помогите сделать обмен сообщениями без единого центра контроля надёжнее. Обе опции необязательны, и вы можете изменить их в Настройках в любой момент."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merkezi bir denetim noktası olmadan mesajlaşmayı daha güvenilir hâle getirmemize yardım et. İkisi de isteğe bağlıdır ve istediğin zaman Ayarlar’dan değiştirebilirsin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帮助我们让没有中央控制点的消息传递更可靠。这两项都是可选的，你随时可以在设置中更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "協助我們讓沒有中央控制點的訊息傳遞更可靠。這兩項都是選用的，你隨時可以在設定中變更。"
+          }
+        }
+      }
+    },
     "Hide all": {
       "extractionState": "manual",
       "localizations": {
@@ -50763,6 +50881,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "此建置未設定遙測憑證。"
+          }
+        }
+      }
+    },
+    "Telemetry never includes messages, media, contacts, profile details, or keys. Audit logs obscure identifiers and are sent securely to White Noise for troubleshooting.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetrie enthält niemals Nachrichten, Medien, Kontakte, Profildaten oder Schlüssel. Audit-Logs verschleiern Identifikatoren und werden zur Fehlersuche sicher an White Noise gesendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La telemetría nunca incluye mensajes, multimedia, contactos, datos de perfil ni llaves. Los registros de auditoría ocultan los identificadores y se envían de forma segura a White Noise para diagnosticar problemas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La télémétrie n’inclut jamais les messages, les médias, les contacts, les informations de profil ni les clés. Les journaux d’audit masquent les identifiants et sont envoyés de manière sécurisée à White Noise pour le dépannage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La telemetria non include mai messaggi, media, contatti, dati del profilo o chiavi. I log di audit offuscano gli identificatori e vengono inviati in modo sicuro a White Noise per la risoluzione dei problemi."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A telemetria nunca inclui mensagens, mídia, contatos, dados de perfil ou chaves. Os logs de auditoria ocultam identificadores e são enviados com segurança para o White Noise para solução de problemas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Телеметрия никогда не включает сообщения, медиа, контакты, данные профиля и ключи. Журналы аудита скрывают идентификаторы и безопасно отправляются в White Noise для диагностики."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetri hiçbir zaman mesajları, medyayı, kişileri, profil bilgilerini veya anahtarları içermez. Denetim kayıtları tanımlayıcıları gizler ve sorun giderme için White Noise’a güvenli şekilde gönderilir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遥测绝不包含消息、媒体、联系人、个人资料或密钥。审计日志会模糊标识符，并安全发送给 White Noise 用于排查问题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遙測絕不包含訊息、媒體、聯絡人、個人檔案或金鑰。稽核日誌會模糊識別碼，並安全傳送給 White Noise 以便排解問題。"
           }
         }
       }

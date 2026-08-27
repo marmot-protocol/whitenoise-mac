@@ -18,6 +18,11 @@ import SwiftUI
 /// MainActor default. Asserting these values still needs nothing but the main actor — no view, no
 /// window, no environment.
 enum WNPrimaryButtonSize: CaseIterable {
+    /// The quiet end of the scale: a confirm that closes a panel whose content is the point, or a
+    /// primary sitting in a row of chrome rather than under a form. The outlined tier has had a
+    /// `.small` rung all along — `WNSecondaryButtonStyle` keys one off `controlSize` — so without
+    /// this the two tiers could not be paired at the small end of the scale at all.
+    case small
     /// A button standing beside other controls — a sheet's confirm, a row's action.
     case medium
     /// The one action a screen exists to perform, with nothing competing for the same row.
@@ -27,6 +32,7 @@ enum WNPrimaryButtonSize: CaseIterable {
     /// The label's rung of the type ramp.
     var font: WNTextStyle {
         switch self {
+        case .small: .medium12
         case .medium: .medium14
         case .large: .medium16
         }
@@ -37,6 +43,7 @@ enum WNPrimaryButtonSize: CaseIterable {
     /// to the `Button` itself would push the glass away rather than grow it.
     var verticalPadding: CGFloat {
         switch self {
+        case .small: 1
         case .medium: 2
         case .large: 8
         }
@@ -44,6 +51,7 @@ enum WNPrimaryButtonSize: CaseIterable {
 
     var horizontalPadding: CGFloat {
         switch self {
+        case .small: 4
         case .medium: 6
         case .large: 14
         }
@@ -55,6 +63,7 @@ enum WNPrimaryButtonSize: CaseIterable {
     /// the table, and a second copy is what let the two tiers disagree in the first place.
     var controlSize: ControlSize {
         switch self {
+        case .small: .small
         case .medium: .regular
         case .large: .large
         }
