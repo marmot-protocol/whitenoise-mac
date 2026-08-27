@@ -54,7 +54,14 @@ extension WorkspaceState {
             accounts = try await accountItems(from: summaries, client: runtime)
             restoreOrSelectFirstAccount()
             await configureObservabilityRuntimeBestEffort()
-            if accounts.isEmpty {
+            // Not `accounts.isEmpty`: a Mac holding nothing but deactivated identities has
+            // nothing to show either. It used to bring the runtime online, land in `.ready` with
+            // no active account, and offer the stored identities as a list where one click
+            // reactivated one without a key. Getting in is Sign In or Sign Up, and the core
+            // reactivates a matching signed-out account on login, so that identity's chats come
+            // back through the real flow rather than around it.
+            if signedInAccounts.isEmpty {
+                authenticationMode = .landing
                 phase = .onboarding
                 runtime.recordHostPerformance(
                     operation: .splashReady,
@@ -293,13 +300,15 @@ extension WorkspaceState {
 
     /// Open the onboarding surface to add an identity alongside the ones already on this Mac.
     ///
-    /// This is the whole of the signed-out pane's `Use another account`, and of Settings'
-    /// `Add Account` row. Both routes once had their own answer to "how do you get a second
-    /// account in" — Settings a bespoke sheet with its own key field and its own pair of buttons,
-    /// the pane this call — and the sheet's was a second, worse copy of a flow that already
-    /// exists. What is left is the panes in `Views/Onboarding`, which is what
-    /// `wn-ios-prototype`'s `AddProfileFlow` does too: it presents `WelcomeView` and pushes the
-    /// *real* `LoginView` and `SignUpView` rather than reimplementing either.
+    /// This is the whole of Settings' `Add Account` row — the last caller left. Adding an
+    /// identity once had two competing answers: a bespoke Settings sheet with its own key field
+    /// and its own pair of buttons, and a `Use another account` button on the pane that stood in
+    /// for the app when nothing was signed in. The sheet's was a second, worse copy of a flow
+    /// that already exists, and that pane is gone — with nothing signed in the app opens this
+    /// flow itself rather than listing the deactivated identities on this Mac. What is left is
+    /// the panes in `Views/Onboarding`, which is what `wn-ios-prototype`'s `AddProfileFlow` does
+    /// too: it presents `WelcomeView` and pushes the *real* `LoginView` and `SignUpView` rather
+    /// than reimplementing either.
     ///
     /// Note where the Settings caller sits: `SettingsAccountSwitcherCard`'s own row, not the
     /// switcher popover it raises. The popover used to carry an `Add Account` button under its
@@ -320,11 +329,15 @@ extension WorkspaceState {
     ///
     /// Derived rather than stored, because a flag saying the same thing could fall out of step
     /// with the phase it describes. Every *other* route into `.onboarding` is taken precisely
-    /// because there is nothing else to show — a first launch, the last account removed, a wipe —
-    /// and each one is guarded by `accounts.isEmpty` or clears the list itself. So a non-empty
-    /// account list in this phase means someone chose to be here and is owed a way out.
+    /// because there is nothing else to show — a first launch, the last account signed out or
+    /// removed, a wipe — and each one leaves `signedInAccounts` empty. So a signed-in identity
+    /// in this phase means someone chose to be here and is owed a way out.
+    ///
+    /// Reads `signedInAccounts`, not `accounts`: the deactivated identities on this Mac stay in
+    /// the latter, and counting them here would draw a `Cancel` whose `.ready` destination has no
+    /// account to render — the pane the user just came from because nothing was signed in.
     var canLeaveAccountOnboarding: Bool {
-        phase == .onboarding && !accounts.isEmpty
+        phase == .onboarding && !signedInAccounts.isEmpty
     }
 
     /// Leave the onboarding surface without adding anything — the prototype's `Cancel`.
@@ -521,12 +534,17 @@ extension WorkspaceState {
                 RemoteImageLoader.shared.clearCache()
             }
 
-            if accounts.isEmpty {
+            // Deliberately `signedInAccounts`, not `accounts`: removing the last signed-in
+            // identity while a deactivated one remains on this Mac leaves nothing to render, and
+            // the fall-through below would reselect nothing and stay in `.ready`.
+            if signedInAccounts.isEmpty {
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
                 invalidatePrivacySecurityOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 selection = nil
+                authenticationMode = .landing
+                clearEnteredLoginIdentity()
                 phase = .onboarding
                 notificationSettings = .defaults
                 privacySecuritySettings = .defaults
@@ -670,12 +688,20 @@ extension WorkspaceState {
                 await configureObservabilityRuntimeBestEffort()
                 await loadSettingsData()
             } else {
+                // Signing out the last identity is a way out of the app, so it lands where a
+                // first launch does. It used to stay in `.ready` with no active account, which
+                // drew a list of this Mac's deactivated identities offering to reactivate one
+                // with a click — undoing the sign-out that had just been confirmed. Coming back
+                // is Sign In or Sign Up now; the core reactivates a matching signed-out account
+                // on login, so this identity's chats are still waiting behind its key.
                 activeAccountId = nil
                 invalidateNotificationSettingsOperations()
                 invalidatePrivacySecurityOperations()
                 UserDefaults.standard.removeObject(forKey: Self.activeAccountKey)
                 selection = nil
-                phase = .ready
+                authenticationMode = .landing
+                clearEnteredLoginIdentity()
+                phase = .onboarding
                 notificationSettings = .defaults
                 privacySecuritySettings = .defaults
             }
