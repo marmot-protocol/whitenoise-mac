@@ -694,6 +694,51 @@ struct whitenoise_macTests {
         #expect(runtime.startCallCount == 1)
     }
 
+    /// The way back into a deactivated identity, now that no surface offers to reactivate one
+    /// with a click while nothing is signed in.
+    ///
+    /// The core does the reactivating: `create_or_import_account` looks for a signed-out account
+    /// matching the key before creating anything, clears its signed-out flag, and returns that
+    /// same account — so the identity's local chats, media, and settings come back with it rather
+    /// than a second identity appearing beside it. What this pins is the app's half: one row, not
+    /// two, and it is the active one.
+    @MainActor
+    @Test func loggingInWithADeactivatedIdentitysKeyReactivatesThatSameRow() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let signedOut = signedOutBackupAccount()
+        // What the core hands back: the *same* account id, no longer signed out.
+        let reactivated = AccountSummaryFfi(
+            label: signedOut.label,
+            accountIdHex: signedOut.accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [signedOut], createdAccount: reactivated)
+        UserDefaults.standard.set(signedOut.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        // The premise: nothing is signed in, so the app is on the login surface with no chooser.
+        #expect(state.phase == .onboarding)
+
+        state.showLogin()
+        state.loginIdentity = "nsec1backup"
+        await state.login()
+
+        #expect(state.phase == .ready)
+        #expect(state.showsMessengerChrome)
+        // One row, not two: the identity was reactivated, not duplicated.
+        #expect(state.accounts.map(\.id) == [signedOut.label])
+        #expect(state.signedInAccounts.map(\.id) == [signedOut.label])
+        #expect(state.activeAccountId == signedOut.label)
+        // The key does not outlive the pane it was typed into (#32).
+        #expect(state.loginIdentity == "")
+    }
+
     @MainActor
     @Test func signUpMarksOnlyTheSignUpPathAsAuthenticating() async throws {
         // Both authentication buttons used to read a single `isAuthenticating` bool, so creating
@@ -1444,11 +1489,13 @@ struct whitenoise_macTests {
     /// to raise `AddAccountSheet` — a second key field and a second pair of buttons for the two
     /// things `Views/Onboarding` already does — then its `Add Account` button routed here instead,
     /// and now that button is gone too: a dropdown for choosing among existing identities is not
-    /// where a new one gets created. `SignedOutAccountsView`'s `Use another account` is the
-    /// remaining caller, so this and the four tests below drive `showAccountOnboarding()` directly.
-    /// They still pin the routing, which is what a caller added later would depend on; the tests
-    /// keep their `addAccount` names because the flow's regressions (#74, #333, #32) are filed
-    /// under it.
+    /// where a new one gets created. And the signed-out pane that used to offer `Use another
+    /// account` is gone too — with nothing signed in the app opens this flow itself rather than
+    /// listing the deactivated identities on this Mac. Settings' switcher *card* is the remaining
+    /// caller, so this and the four tests below drive `showAccountOnboarding()` directly. They
+    /// still pin the routing, which is what a caller added later would depend on; the tests keep
+    /// their `addAccount` names because the flow's regressions (#74, #333, #32) are filed under
+    /// it.
     @MainActor
     @Test func addAccountOpensTheOnboardingFlowOnItsLandingPane() async throws {
         let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
@@ -1466,10 +1513,27 @@ struct whitenoise_macTests {
     /// returned to a blank window would be offering something it cannot do.
     @MainActor
     @Test func onlyAnOnboardingFlowWithAccountsBehindItOffersAWayOut() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
         let empty = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: []) })
         await empty.bootstrap()
         #expect(empty.phase == .onboarding)
         #expect(empty.canLeaveAccountOnboarding == false)
+
+        // A Mac holding nothing but deactivated identities is the same dead end. This reads
+        // `signedInAccounts`, not `accounts`: counting the signed-out ones drew a `Cancel` whose
+        // `.ready` destination had no account to render — the very reason the user is on this
+        // pane. The account list stays non-empty throughout, so only the filter can tell them
+        // apart.
+        let deactivatedOnly = WorkspaceState(
+            clientFactory: {
+                FakeMarmotRuntime(accounts: [signedOutBackupAccount()])
+            })
+        await deactivatedOnly.bootstrap()
+        #expect(deactivatedOnly.accounts.isEmpty == false)
+        #expect(deactivatedOnly.phase == .onboarding)
+        #expect(deactivatedOnly.canLeaveAccountOnboarding == false)
 
         let state = WorkspaceState(clientFactory: { Self.addAccountRuntime() })
         await state.bootstrap()
@@ -1478,6 +1542,92 @@ struct whitenoise_macTests {
 
         state.showAccountOnboarding()
         #expect(state.canLeaveAccountOnboarding)
+    }
+
+    /// Launching with every identity on this Mac deactivated is a login, not a menu.
+    ///
+    /// It used to bring the runtime online and land in `.ready` with no active account, where
+    /// `SignedOutAccountsView` listed the stored identities and one click reactivated one —
+    /// a sign-in that asked for no key. The core reactivates a matching signed-out account on
+    /// `login`, so the real flow returns that identity's chats; going around it was the only
+    /// thing lost.
+    @MainActor
+    @Test func bootstrapWithOnlyDeactivatedIdentitiesOpensTheLoginSurface() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let signedOut = signedOutBackupAccount()
+        let runtime = FakeMarmotRuntime(accounts: [signedOut])
+        UserDefaults.standard.set(signedOut.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        #expect(state.phase == .onboarding)
+        #expect(state.authenticationMode == .landing)
+        #expect(state.activeAccountId == nil)
+        // The identity itself is still on this Mac — it is reachable through Sign In, and
+        // Settings' switcher still lists it once something is signed in.
+        #expect(state.accounts.map(\.id) == [signedOut.label])
+        #expect(state.signedInAccounts.isEmpty)
+        // The stale active-account pointer must not survive: it named an account that cannot
+        // drive the UI, and a later launch would restore it.
+        #expect(UserDefaults.standard.string(forKey: WorkspaceState.activeAccountKey) == nil)
+    }
+
+    /// Signing out the last identity lands where a first launch does.
+    ///
+    /// It used to stay in `.ready` with no active account and draw the chooser, which offered to
+    /// reactivate the identity whose sign-out the user had just confirmed in Settings.
+    @MainActor
+    @Test func signingOutTheLastIdentityOpensTheLoginSurface() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = desktopAccount()
+        let runtime = FakeMarmotRuntime(accounts: [primary])
+        UserDefaults.standard.set(primary.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let account = try #require(state.accounts.first { $0.id == primary.label })
+
+        await state.signOutAccount(account)
+
+        #expect(runtime.signedOutAccountRefs == [primary.label])
+        #expect(state.phase == .onboarding)
+        #expect(state.authenticationMode == .landing)
+        #expect(state.activeAccountId == nil)
+        #expect(state.selection == nil)
+        // No way back out of the pane: `.ready` has no account to render.
+        #expect(state.canLeaveAccountOnboarding == false)
+    }
+
+    /// Removing the last *signed-in* identity while a deactivated one remains is the same dead
+    /// end as removing the last identity outright — the account list is still non-empty, so the
+    /// `accounts.isEmpty` guard this replaced fell through, reselected nothing, and stayed in
+    /// `.ready` with no active account.
+    @MainActor
+    @Test func removingTheLastSignedInIdentityOpensTheLoginSurface() async throws {
+        let previousActiveAccount = UserDefaults.standard.object(forKey: WorkspaceState.activeAccountKey)
+        defer { restoreDefault(previousActiveAccount, forKey: WorkspaceState.activeAccountKey) }
+
+        let primary = desktopAccount()
+        let signedOut = signedOutBackupAccount()
+        let runtime = FakeMarmotRuntime(accounts: [primary, signedOut])
+        UserDefaults.standard.set(primary.label, forKey: WorkspaceState.activeAccountKey)
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        let account = try #require(state.accounts.first { $0.id == primary.label })
+
+        await state.removeAccount(account)
+
+        #expect(runtime.removedAccountRefs == [primary.label])
+        #expect(state.accounts.map(\.id) == [signedOut.label])
+        #expect(state.signedInAccounts.isEmpty)
+        #expect(state.phase == .onboarding)
+        #expect(state.authenticationMode == .landing)
+        #expect(state.activeAccountId == nil)
+        #expect(state.canLeaveAccountOnboarding == false)
     }
 
     /// Cancel returns the user to the page they opened the flow from, which is why
@@ -1691,27 +1841,6 @@ struct whitenoise_macTests {
         // Its avatar is exempt from the remote-image preference unconditionally now — the
         // narrower `!account.signedOut` existed for rows the list no longer produces.
         #expect(row.contains("isOwnAccountImage: true"))
-    }
-
-    /// `SignedOutAccountsView` is the whole of the way back into a deactivated identity now that
-    /// neither the rail nor the switcher lists one. It reads `accounts`, unfiltered, on purpose:
-    /// fed `signedInAccounts` it would offer nothing at the exact moment nothing is signed in.
-    @MainActor
-    @Test func signedOutAccountsViewIsTheRemainingWayBackIntoADeactivatedIdentity() throws {
-        let sourceURL =
-            URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "whitenoise-mac")
-            .appending(path: "Views")
-            .appending(path: "MessengerShellView.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let start = try #require(source.range(of: "private struct SignedOutAccountsView: View {"))
-        let view = String(source[start.lowerBound...])
-            .components(separatedBy: .whitespacesAndNewlines).joined()
-
-        #expect(view.contains("workspace.accounts.filter(\\.signedOut)"))
-        #expect(view.contains("workspace.signInAccount(account)"))
     }
 
     /// A source slice with its comment-only lines dropped.
@@ -1952,7 +2081,7 @@ struct whitenoise_macTests {
         await state.signOutAccount(desktopAccount)
 
         #expect(runtime.signedOutAccountRefs == [primary.label])
-        #expect(state.phase == .ready)
+        #expect(state.phase == .onboarding)
         #expect(state.activeAccountId == nil)
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecorder == nil)
@@ -2141,9 +2270,11 @@ struct whitenoise_macTests {
         // `selectAccountFromSettings` both refuse one), so those rows were a sign-in button
         // wearing a destination's clothes.
         //
-        // `accounts` must keep every identity on this Mac regardless: `SignedOutAccountsView`
-        // reads it, and that is the whole of the way back in now. Filtering there too would lock
-        // the user out of their own Mac.
+        // `accounts` must keep every identity on this Mac regardless. No surface lists the
+        // deactivated ones any more — the pane that used to stand in for the app when nothing was
+        // signed in is gone too, and getting back into one is Sign In with its key — but the app
+        // still has to know they are there: whether this filter is empty is what decides between
+        // the app and the login surface.
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -2214,7 +2345,8 @@ struct whitenoise_macTests {
         #expect(state.activeAccountId == "Desktop Account")
         #expect(state.signedInAccounts.map(\.id) == ["Desktop Account"])
         #expect(!state.hasOtherSignedInAccount)
-        // Still stored, so `SignedOutAccountsView` can offer it once nothing is signed in.
+        // Still stored, so signing in with its key reactivates this identity rather than
+        // creating a second one beside it.
         #expect(state.accounts.first { $0.id == "Other Account" }?.signedOut == true)
     }
 
@@ -28178,7 +28310,7 @@ struct whitenoise_macTests {
         // packages. And it used to draw signed-out identities too, dimmed behind a pause glyph,
         // where a single tap signed one back in. All of it is account management: sign-out and
         // removal live in Settings' switcher behind confirmations, and signing a deactivated
-        // identity back in lives on `SignedOutAccountsView`, the surface that exists for exactly
+        // identity back in is Sign In with its key — no surface reactivates one for free, since
         // that. Only a source contract can guard *absent* chrome: no behavior test can
         // observe a menu or a branch that is never built. The chat rows beside it keep their own
         // menu, which is why this asserts on the rail's declaration rather than on the file.
@@ -28205,7 +28337,7 @@ struct whitenoise_macTests {
 
         #expect(!railSource.contains(".contextMenu"))
         #expect(!railSource.contains("signOutAccount"), "destructive sign out belongs to the confirmed Settings path")
-        #expect(!railSource.contains("signInAccount"), "signing back in belongs to SignedOutAccountsView")
+        #expect(!railSource.contains("signInAccount"), "signing back in means entering the identity's key")
         // The rail is fed `signedInAccounts`, so the avatar has no signed-out case to branch on:
         // a leftover branch here would be dead code claiming to handle a row that cannot appear.
         #expect(!railSource.contains("signedOut"))
@@ -28214,6 +28346,57 @@ struct whitenoise_macTests {
         // would still pass while the rail iterated `accounts` and drew the deactivated ones
         // through an avatar that no longer has a branch for them.
         #expect(sidebarSource.contains("ForEach(workspace.signedInAccounts)"))
+    }
+
+    @Test func theDetailPaneOffersNoChooserOfDeactivatedIdentities() throws {
+        // With nothing signed in, the pane used to be a `SignedOutAccountsView`: the deactivated
+        // identities on this Mac, each row a click from `signInAccount` — a sign-in that asked
+        // for no key — under a `Use another account` button. Getting into an identity is Sign In
+        // or Sign Up now, and `OnboardingView` already owns both. The core reactivates a matching
+        // signed-out account on `login`, so that identity's chats come back through the real flow
+        // rather than around it.
+        //
+        // Only a source contract can guard an absent surface: the state paths that could reach
+        // this branch now route to `.onboarding` themselves, so no behavior test can observe a
+        // view that is never built. Asserting on the pane's own declaration rather than on the
+        // file keeps the offline band and the transcript chrome above it out of scope.
+        let shellSource = try String(
+            contentsOf:
+                URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("whitenoise-mac")
+                .appendingPathComponent("Views")
+                .appendingPathComponent("MessengerShellView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!shellSource.contains("struct SignedOutAccountsView"))
+
+        let start = try #require(shellSource.range(of: "private struct DetailPaneView: View {")?.upperBound)
+        let rest = shellSource[start...]
+        let end =
+            [
+                rest.range(of: "\nprivate struct ")?.lowerBound,
+                rest.range(of: "\nstruct ")?.lowerBound,
+            ]
+            .compactMap { $0 }.min() ?? shellSource.endIndex
+        let paneSource = String(shellSource[start..<end])
+
+        #expect(!paneSource.contains("signInAccount"), "reactivating an identity belongs to Settings' switcher")
+        #expect(!paneSource.contains("showAccountOnboarding"))
+        #expect(!paneSource.contains("ForEach"), "the pane lists no identities to choose between")
+
+        // Comments stripped and whitespace-normalized, so the assertion pins the branch rather
+        // than an indentation level or the prose above it: with nothing signed in the pane renders
+        // the login surface, the same one the `.onboarding` phase above it draws.
+        let normalized =
+            paneSource
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces).hasPrefix("//") ? "" : String($0) }
+            .joined(separator: "\n")
+            .components(separatedBy: .whitespacesAndNewlines).joined()
+        #expect(normalized.contains("ifworkspace.activeAccount==nil{OnboardingView()}else{"))
     }
 
     @MainActor
@@ -38859,6 +39042,20 @@ private func desktopAccount() -> AccountSummaryFfi {
         externalSigning: false,
         signedOut: false,
         running: true
+    )
+}
+
+/// A deactivated identity — still on this Mac, not driving anything. Sign-out retains local
+/// data and drops the account's relay key packages, so this is what `listAccounts` reports for an
+/// account the user signed out of and has not signed back into.
+private func signedOutBackupAccount() -> AccountSummaryFfi {
+    AccountSummaryFfi(
+        label: "Backup Account",
+        accountIdHex: "1111111111111111111111111111111111111111111111111111111111111111",
+        localSigning: true,
+        externalSigning: false,
+        signedOut: true,
+        running: false
     )
 }
 

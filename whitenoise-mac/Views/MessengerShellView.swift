@@ -104,7 +104,19 @@ private struct DetailPaneView: View {
                 FailureView(message: message)
             case .ready:
                 if workspace.activeAccount == nil {
-                    SignedOutAccountsView()
+                    // Nothing is signed in, so there is nothing to show but the way in. This used
+                    // to be a `SignedOutAccountsView` listing the deactivated identities on this
+                    // Mac, each one a single click from being reactivated — a sign-in that asked
+                    // for no key. Getting into an identity is Sign In or Sign Up now, both of
+                    // which `OnboardingView` already owns, and the core reactivates a matching
+                    // signed-out account on login rather than creating a second one, so the
+                    // stored chats come back with it.
+                    //
+                    // Defensive: the state paths that empty the signed-in list — `bootstrap()`,
+                    // `signOutAccount`, `removeAccount` — all move to `.onboarding` themselves,
+                    // so this branch should be unreachable. It renders the same surface as that
+                    // phase rather than a blank pane if one is ever missed.
+                    OnboardingView()
                 } else {
                     switch workspace.selection {
                     case .chat:
@@ -121,80 +133,6 @@ private struct DetailPaneView: View {
                 }
             }
         }
-    }
-}
-
-private struct SignedOutAccountsView: View {
-    @Environment(WorkspaceState.self) private var workspace
-
-    private var signedOutAccounts: [AccountItem] {
-        workspace.accounts.filter(\.signedOut)
-    }
-
-    var body: some View {
-        VStack(spacing: 20) {
-            WhiteNoiseMarkView(width: 132)
-
-            VStack(spacing: 5) {
-                Text(L10n.string("Choose an account"))
-                    .wnFont(.semiBold18)
-                Text(L10n.string("Sign in to continue with an account stored on this Mac."))
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
-
-            VStack(spacing: 10) {
-                ForEach(signedOutAccounts) { account in
-                    Button {
-                        Task { await workspace.signInAccount(account) }
-                    } label: {
-                        HStack(spacing: 12) {
-                            ProfileImageAvatarView(
-                                seed: account.accountIdHex,
-                                initials: account.initials,
-                                sanitizedPictureURL: account.sanitizedPictureURL,
-                                size: 40,
-                                isSelected: false
-                            )
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(account.displayName)
-                                    .wnFont(.semiBold14)
-                                Text(DisplayText.short(account.npub ?? account.accountIdHex))
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                            }
-                            Spacer(minLength: 20)
-                            Text(L10n.string("Sign In"))
-                                .wnFont(.semiBold12)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .glassCard(cornerRadius: 12)
-                    .disabled(workspace.isSigningOutAccount)
-                }
-            }
-            .frame(maxWidth: 440)
-
-            Button(L10n.string("Use another account")) {
-                workspace.showAccountOnboarding()
-            }
-            // The raised tier, not the ringed one: this button stands on a bare pane at the end
-            // of the onboarding path, alongside the two panes in `Views/Onboarding`. See
-            // `WNElevatedButtonStyle`.
-            .buttonStyle(.wnElevated)
-            .disabled(workspace.isSigningOutAccount)
-
-            if let lastError = workspace.lastError {
-                Text(lastError)
-                    .wnFont(.medium12)
-                    .foregroundStyle(WNColor.backgroundContentDestructive)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

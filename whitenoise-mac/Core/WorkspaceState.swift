@@ -1350,8 +1350,10 @@ final class WorkspaceState {
     /// button wearing a destination's clothes. Both lists now hold destinations only.
     ///
     /// Derived, and deliberately not a filter applied to `accounts` itself: that list is every
-    /// identity on this Mac, and `SignedOutAccountsView` — the way back into a deactivated
-    /// identity, shown when none is signed in — needs the deactivated ones in it.
+    /// identity on this Mac, and the app still has to *know* about the deactivated ones even
+    /// though no surface lists them any more: whether this filter is empty is what decides
+    /// between the app and the login surface (`canLeaveAccountOnboarding`), and a deactivated
+    /// identity is still one this Mac holds rather than one that is gone.
     var signedInAccounts: [AccountItem] {
         accounts.filter { !$0.signedOut }
     }

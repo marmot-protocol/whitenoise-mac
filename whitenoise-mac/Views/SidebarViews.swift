@@ -103,9 +103,9 @@ struct AccountRailView: View {
 /// so an accidental click dropped that identity's relay key packages. It also used to
 /// draw deactivated identities, dimmed to 0.4 behind a pause glyph, where one tap signed
 /// one back in. Every one of those is account management: sign-out and removal live in
-/// Settings' switcher behind confirmations (`SettingsAccountSwitcherCard`), and signing a
-/// deactivated identity back in lives on `SignedOutAccountsView`, which is the surface
-/// that exists for exactly that.
+/// Settings' switcher behind confirmations (`SettingsAccountSwitcherCard`), and a
+/// deactivated identity is reached again by signing in with its key — no surface offers to
+/// reactivate one without it.
 ///
 /// The rail is fed `signedInAccounts`, so `account.signedOut` is false here by
 /// construction. Reintroducing a branch on it would be dead code describing a row that
