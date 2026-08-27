@@ -293,13 +293,19 @@ extension WorkspaceState {
 
     /// Open the onboarding surface to add an identity alongside the ones already on this Mac.
     ///
-    /// This is the whole of Settings → Add Account, and of the signed-out pane's `Use another
-    /// account`. Both used to have their own answer to "how do you get a second account in" — the
-    /// former a bespoke sheet with its own key field and its own pair of buttons, the latter this
-    /// call — and the sheet's was a second, worse copy of a flow that already exists. There is one
-    /// now: the panes in `Views/Onboarding`, which is what `wn-ios-prototype`'s `AddProfileFlow`
-    /// does too. It presents `WelcomeView` and pushes the *real* `LoginView` and `SignUpView`
-    /// rather than reimplementing either.
+    /// This is the whole of the signed-out pane's `Use another account`, and of Settings'
+    /// `Add Account` row. Both routes once had their own answer to "how do you get a second
+    /// account in" — Settings a bespoke sheet with its own key field and its own pair of buttons,
+    /// the pane this call — and the sheet's was a second, worse copy of a flow that already
+    /// exists. What is left is the panes in `Views/Onboarding`, which is what
+    /// `wn-ios-prototype`'s `AddProfileFlow` does too: it presents `WelcomeView` and pushes the
+    /// *real* `LoginView` and `SignUpView` rather than reimplementing either.
+    ///
+    /// Note where the Settings caller sits: `SettingsAccountSwitcherCard`'s own row, not the
+    /// switcher popover it raises. The popover used to carry an `Add Account` button under its
+    /// row list, and a dropdown for choosing among existing identities is not where a new one
+    /// should be created — the row offers it in the one case the dropdown would be empty anyway,
+    /// when this Mac holds a single identity and there is nothing to switch to.
     ///
     /// Deliberately leaves `selection` alone, so `leaveAccountOnboarding()` puts the user back on
     /// the page they opened this from rather than somewhere merely plausible.
@@ -729,8 +735,9 @@ extension WorkspaceState {
         // whatever order it finishes, so only the newest request may commit.
         pendingInviteCountGeneration &+= 1
         let generation = pendingInviteCountGeneration
-        // The active account is excluded here and answered from its rows; a signed-out account has
-        // no badge count at all (the rail draws it a pause glyph instead).
+        // The active account is excluded here and answered from its rows; a signed-out account
+        // has no badge count at all, and no rail avatar to hang one on — `signedInAccounts`
+        // leaves it out. The switcher's row shows its status in words instead.
         let targets = accounts.filter { !$0.signedOut && $0.id != activeAccountId }
         var counts: [String: Int] = [:]
         for target in targets {
