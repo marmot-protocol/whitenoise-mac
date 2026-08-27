@@ -29,17 +29,21 @@ import Foundation
 ///
 /// So: your own avatar always draws, everyone else's waits for the preference. Pass
 /// `isOwnAccountImage: true` only where the URL provably belongs to an account **signed in** on
-/// this Mac — the profile editor, its picker, Identity & Keys, and the account switcher. Peer
-/// avatars (chat rows, message senders, member lists, search results) must keep the default.
+/// this Mac — the profile editor, its picker, Identity & Keys, the account rail, and the account
+/// switcher. Peer avatars (chat rows, message senders, member lists, search results) must keep the
+/// default.
 ///
-/// "Signed in" is load-bearing rather than decorative. The first three of those sites render
-/// `activeAccount`, which `restoreOrSelectFirstAccount()` guarantees is never a signed-out account,
-/// so they can pass a literal `true`. The switcher's row list is the one site that also shows
-/// signed-out identities, and it passes `!account.signedOut`: sign-out deactivates an identity and
-/// drops its relay key packages, so the app should not then fetch its avatar and put traffic on the
-/// wire on its behalf. That is a narrower argument than the preference's own — a signed-out account
-/// is still yours, not a peer's — but the exemption should stay as small as the bug it exists to
-/// fix.
+/// "Signed in" is load-bearing rather than decorative, and each of those sites earns its literal
+/// `true` differently. The first three render `activeAccount`, which `restoreOrSelectFirstAccount()`
+/// guarantees is never a signed-out account. The rail renders several accounts at once, but it is
+/// fed `signedInAccounts`, so a deactivated identity never reaches an avatar there to begin with.
+///
+/// The switcher's row list is the one site that still draws signed-out identities — it is where
+/// signing back in lives — and it alone passes `!account.signedOut`: sign-out deactivates an
+/// identity and drops its relay key packages, so the app should not then fetch its avatar and put
+/// traffic on the wire on its behalf. That is a narrower argument than the preference's own — a
+/// signed-out account is still yours, not a peer's — but the exemption should stay as small as the
+/// bug it exists to fix.
 nonisolated enum RemoteImageDisplayPolicy {
     static func loadsRemoteImage(isOwnAccountImage: Bool, preferenceEnabled: Bool) -> Bool {
         isOwnAccountImage || preferenceEnabled

@@ -1333,6 +1333,20 @@ final class WorkspaceState {
         return accounts.first { $0.id == activeAccountId }
     }
 
+    /// The identities the account rail draws: the ones that are actually running.
+    ///
+    /// A signed-out account used to sit in the rail dimmed to 0.4 behind a pause glyph, with a
+    /// tap signing it back in. Reactivating an identity is account management, not switching, and
+    /// it belongs with sign-out and removal in Settings' switcher (`AccountSwitcherRow`) rather
+    /// than one misplaced click away in the control the user hits all day.
+    ///
+    /// Derived, and deliberately not a filter applied to `accounts` itself: that list is every
+    /// identity on this Mac, and both the switcher's rows and `SignedOutAccountsView` — the whole
+    /// of the way back in when nothing is signed in — need the deactivated ones in it.
+    var signedInAccounts: [AccountItem] {
+        accounts.filter { !$0.signedOut }
+    }
+
     var activeChats: [ChatItem] {
         guard let activeAccountId else { return [] }
         return chatsByAccount[activeAccountId] ?? []

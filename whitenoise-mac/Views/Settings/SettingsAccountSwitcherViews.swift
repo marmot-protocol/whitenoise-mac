@@ -3,9 +3,13 @@
 //  whitenoise-mac
 //
 //  The account switcher that sits at the top of Settings: the card naming the
-//  active identity, and the popover listing every identity on this Mac. Adding
-//  one is not here — `Add Account` opens the onboarding flow, the same panes a
-//  first launch shows. This is where the former Accounts settings page went —
+//  active identity, and the popover listing every identity on this Mac. The
+//  popover switches between them and manages them — sign in, sign out, remove —
+//  and it no longer creates one: the `Add Account` button that used to sit under
+//  its row list opened the onboarding landing pane, which put account creation
+//  in the same dropdown as account switching. Creating one is the card's own
+//  `profileManagementRow` instead, which offers it precisely when there is
+//  nothing to switch to. This is where the former Accounts settings page went —
 //  the iOS and Flutter clients open Settings on the current profile with a
 //  switch control directly underneath it rather than routing identity work
 //  through a separate Accounts tab, and this mirrors that on macOS.
@@ -175,10 +179,6 @@ struct SettingsAccountSwitcherCard: View {
                     isSwitcherPresented = false
                     Task { await workspace.signInAccount(account) }
                 },
-                onAddAccount: {
-                    isSwitcherPresented = false
-                    workspace.showAccountOnboarding()
-                },
                 onSignOut: { account in
                     isSwitcherPresented = false
                     accountPendingSignOut = account
@@ -223,15 +223,15 @@ struct SettingsAccountSwitcherCard: View {
 }
 
 /// The switcher itself: every identity stored on this Mac, with the active one
-/// marked, plus the way in for a new one. Every action is reported to the card that
-/// presents this popover: it is the view that outlives the popover, so it is the one
-/// that can close it and then raise a confirmation or a sheet.
+/// marked. Switching and managing only — creating an identity is not offered here.
+/// Every action is reported to the card that presents this popover: it is the view
+/// that outlives the popover, so it is the one that can close it and then raise a
+/// confirmation or a sheet.
 struct AccountSwitcherPopover: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     let onSelect: (AccountItem) -> Void
     let onSignIn: (AccountItem) -> Void
-    let onAddAccount: () -> Void
     let onSignOut: (AccountItem) -> Void
     let onRemove: (AccountItem) -> Void
 
@@ -277,19 +277,10 @@ struct AccountSwitcherPopover: View {
                 // against the leading one: the selection ring is drawn *outside* the avatar's
                 // frame, so it came out with a flat left side. The content is inset by the ring's
                 // reach and the scroll view widened by the same amount, which leaves the rows
-                // where they were — aligned with the header and the button — while giving the
-                // chrome somewhere to draw. Insetting alone would indent every row instead.
+                // where they were — aligned with the header above them — while giving the chrome
+                // somewhere to draw. Insetting alone would indent every row instead.
                 .padding(.horizontal, -Self.rowChromeInset)
             }
-
-            Divider()
-
-            Button(action: onAddAccount) {
-                Label(L10n.string("Add Account", locale: locale), systemImage: "plus.circle")
-                    .frame(maxWidth: .infinity)
-            }
-            .nativeGlassProminentButtonStyle()
-            .disabled(workspace.isAuthenticating || workspace.isAccountMutationInProgress)
         }
         .padding(14)
         .frame(width: 320)
