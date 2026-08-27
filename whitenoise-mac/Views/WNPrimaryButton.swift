@@ -13,8 +13,17 @@ import SwiftUI
 /// The primary push button: one per screen, on the app's liquid glass.
 ///
 /// **The glass is deliberate and is not this component's to change.** Only the secondary tier went
-/// flat when the palette was ported; the primary action stays on `.glassProminent`, so what a size
-/// controls here is the type ramp, the interior padding and the border shape — never the ground.
+/// flat when the palette was ported; the primary action stays on `.glassProminent`, so what a
+/// *size* controls here is the type ramp, the interior padding and the border shape — never the
+/// ground.
+///
+/// The ground itself is named right here, though, and has to be: `.glassProminent` carries no
+/// colour of its own and tints from the environment, whose only app-wide source is
+/// `ContentView`'s `.tint(WNColor.fillPrimary)`. A sheet is a separate presentation and inherits
+/// none of it — same trap as `\.locale` — so a primary button inside one fell back to the system
+/// accent and drew **blue**, the one hue the palette reserves for links and search hits. Naming
+/// `fillPrimary` on the component makes the tier correct wherever it is used instead of only
+/// under the root.
 ///
 /// Because the style is native, the label has to carry its own padding: the chrome is drawn around
 /// the label's frame, so padding *outside* the `Button` would leave the glass its original size and
@@ -38,6 +47,9 @@ struct WNPrimaryButton<Label: View>: View {
         }
         .buttonBorderShape(WNButtonMetrics.borderShape(buttonShape, for: size.controlSize))
         .controlSize(size.controlSize)
+        // Kept in step with `WNPrimaryButtonChrome`, which tints the same value for the callers
+        // that reach the tier through `.wnPrimaryButtonStyle()` instead of this component.
+        .tint(WNColor.fillPrimary)
         .nativeGlassProminentButtonStyle()
     }
 }

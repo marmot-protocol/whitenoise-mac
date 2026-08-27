@@ -368,7 +368,12 @@ extension WorkspaceState {
             try await bringRuntimeOnline(client)
             try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
+            // Read before `activateReadyState()`: it goes `.ready` part-way through, after which a
+            // switch from Settings can land on a different identity. See
+            // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)`.
+            let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
+            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
             lastError = error.localizedDescription
         }
@@ -402,7 +407,12 @@ extension WorkspaceState {
             try await bringRuntimeOnline(client)
             try await refreshAccounts(preferred: summary)
             authenticationMode = .landing
+            // Read before `activateReadyState()`: it goes `.ready` part-way through, after which a
+            // switch from Settings can land on a different identity. See
+            // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)`.
+            let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
+            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
             lastError = error.localizedDescription
         }
@@ -471,6 +481,7 @@ extension WorkspaceState {
             }
             try await client.removeAccount(accountRef: account.accountRef)
             removeChatRestorationTarget(forOwnerAccountIdHex: removedAccountIdHex)
+            forgetImprovementsPrompt(forOwnerAccountIdHex: removedAccountIdHex)
             clearComposerDrafts(forAccountId: removedAccountId)
             purgeHiddenMessages(accountId: removedAccountId)
             purgePinnedChats(accountId: removedAccountId)
@@ -1100,6 +1111,7 @@ extension WorkspaceState {
         clearAllContactNicknames()
         clearAllRememberedDirectPeers()
         clearChatRestorationTargets()
+        clearImprovementsPromptRecords()
         isRefreshing = false
         isSending = false
         authenticationMode = .landing

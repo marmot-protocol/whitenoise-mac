@@ -46,6 +46,27 @@ struct PureValueTests {
     }
 
     @MainActor
+    @Test func primaryButtonSizesGrowMonotonicallyAcrossTheWholeScale() {
+        // `small` was added after `medium`/`large` were already in use, so the risk is not that it
+        // is wrong on its own but that it is wrong *relative* to its neighbours — a rung that
+        // shrank the type while growing the padding would still pass every per-size check below.
+        // Asserted pairwise across the declared order rather than against fixed numbers, so
+        // retuning a value stays legal and reordering the scale does not.
+        let scale: [WNPrimaryButtonSize] = [.small, .medium, .large]
+        #expect(Set(scale) == Set(WNPrimaryButtonSize.allCases), "a size is missing from the scale")
+
+        for (smaller, larger) in zip(scale, scale.dropFirst()) {
+            #expect(smaller.font.size < larger.font.size)
+            #expect(smaller.verticalPadding < larger.verticalPadding)
+            #expect(smaller.horizontalPadding < larger.horizontalPadding)
+        }
+
+        // The outlined tier already had a `.small` rung keyed off `controlSize`; the primary one
+        // has to land on the same `ControlSize` or the two tiers cannot be paired at that end.
+        #expect(WNPrimaryButtonSize.small.controlSize == .small)
+    }
+
+    @MainActor
     @Test func primaryButtonLargeIsBiggerThanMediumOnEveryAxisItControls() {
         // The whole point of the `large` size is that it reads as the one action on the screen.
         // "Bigger" has to hold on all three axes at once — a size that grew its padding while

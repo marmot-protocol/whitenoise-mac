@@ -41,7 +41,11 @@ extension WorkspaceState {
         authenticationMode = .landing
 
         if hasCreatedIdentity {
+            // Read before `activateReadyState()` — see
+            // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)` for the switch window.
+            let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
+            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         }
     }
 
@@ -132,7 +136,11 @@ extension WorkspaceState {
             signUpDraft = SignUpDraft()
             signUpCreatedAccountRef = nil
             authenticationMode = .landing
+            // Read before `activateReadyState()` — see
+            // `presentImprovementsPromptIfNeeded(forEnteredAccountIdHex:)` for the switch window.
+            let enteredAccountIdHex = activeAccount?.accountIdHex
             await activateReadyState()
+            presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: enteredAccountIdHex)
         } catch {
             lastError = error.localizedDescription
         }
