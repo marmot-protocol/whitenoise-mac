@@ -131,6 +131,7 @@ private struct WNPrimaryButtonChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .buttonBorderShape(WNButtonMetrics.borderShape(shape, for: controlSize))
+            .tint(WNColor.fillPrimary)
             .nativeGlassProminentButtonStyle()
     }
 }

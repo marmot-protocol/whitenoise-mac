@@ -765,6 +765,263 @@ struct whitenoise_macTests {
         #expect(!state.isAuthenticating)
     }
 
+    // MARK: - The one-time "Help Improve White Noise" prompt
+
+    /// Injected everywhere below, never `UserDefaults.standard`: an un-injected store writes into
+    /// the test host's own preferences, so the first run would record the account and every later
+    /// run would find it already offered and pass for the wrong reason.
+    @MainActor
+    final class FakeImprovementsPromptStore: ImprovementsPromptStoring {
+        private(set) var offered: Set<String>
+        private(set) var clearAllCallCount = 0
+
+        init(offered: Set<String> = []) {
+            self.offered = offered
+        }
+
+        func hasBeenOffered(toOwnerAccountIdHex accountIdHex: String) -> Bool {
+            offered.contains(accountIdHex.lowercased())
+        }
+
+        func markOffered(toOwnerAccountIdHex accountIdHex: String) {
+            offered.insert(accountIdHex.lowercased())
+        }
+
+        func forget(ownerAccountIdHex accountIdHex: String) {
+            offered.remove(accountIdHex.lowercased())
+        }
+
+        func clearAll() {
+            clearAllCallCount += 1
+            offered.removeAll()
+        }
+    }
+
+    private static let improvementsPromptAccountIdHex =
+        "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+
+    @MainActor
+    private static func improvementsPromptWorkspace(
+        store: FakeImprovementsPromptStore
+    ) -> (WorkspaceState, FakeMarmotRuntime) {
+        let created = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: improvementsPromptAccountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let runtime = FakeMarmotRuntime(accounts: [], createdAccount: created)
+        let state = WorkspaceState(improvementsPromptStore: store, clientFactory: { runtime })
+        return (state, runtime)
+    }
+
+    @MainActor
+    @Test func signingUpOffersTheImprovementsPromptOverAReadyChatsScreen() async throws {
+        let store = FakeImprovementsPromptStore()
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        await state.signUp()
+
+        // `wn-ios-prototype` presents this over Chats rather than as a step inside the onboarding
+        // panes, precisely so the account is already usable if it is dismissed without a decision.
+        #expect(state.phase == .ready)
+        #expect(state.showsMessengerChrome)
+        #expect(state.isImprovementsPromptPresented)
+    }
+
+    @MainActor
+    @Test func signingInOffersTheImprovementsPrompt() async throws {
+        let store = FakeImprovementsPromptStore()
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1desktop"
+        await state.login()
+
+        #expect(state.phase == .ready)
+        #expect(state.isImprovementsPromptPresented)
+    }
+
+    /// The defect this exists for: an identity that already answered — or deliberately declined by
+    /// closing — being asked again on its next sign-in.
+    @MainActor
+    @Test func anIdentityAlreadyOfferedTheImprovementsChoiceIsNotAskedAgain() async throws {
+        let store = FakeImprovementsPromptStore(offered: [Self.improvementsPromptAccountIdHex])
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1desktop"
+        await state.login()
+
+        #expect(state.phase == .ready)
+        #expect(!state.isImprovementsPromptPresented)
+    }
+
+    /// Recorded when it goes up, not when it comes down. Dismissing is a valid answer ("leave both
+    /// off"), and the prompt is only ever reached from a fresh sign-up or sign-in — so a quit with
+    /// it still open must not leave the identity un-asked forever *or* asked twice.
+    @MainActor
+    @Test func theIdentityIsRecordedTheMomentTheImprovementsPromptIsPresented() async throws {
+        let store = FakeImprovementsPromptStore()
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        await state.signUp()
+
+        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+
+        state.dismissImprovementsPrompt()
+        #expect(!state.isImprovementsPromptPresented)
+        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+    }
+
+    /// The regression that shipped: the hook went on `signUp()`, which **no view calls**. The
+    /// sign-up pane's button runs `completeSignUp()`, in a different file, so a real sign-up
+    /// reached Chats with no prompt while `signUpOffers…` above passed against a dead path.
+    ///
+    /// Driven exactly as `OnboardingSignUpView` drives it — set the draft, press the button —
+    /// rather than through `signUp()`, so it keeps failing if the pane is ever repointed again.
+    @MainActor
+    @Test func completingSignUpFromThePaneOffersTheImprovementsPrompt() async throws {
+        let store = FakeImprovementsPromptStore()
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        state.showSignUp()
+        state.signUpDraft.displayName = "Pepi"
+        await state.completeSignUp()
+
+        #expect(state.lastError == nil)
+        #expect(state.phase == .ready)
+        #expect(state.isImprovementsPromptPresented)
+        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+    }
+
+    /// Backing out of the sign-up pane *after* the identity was minted goes forward into the app
+    /// rather than back to the landing pane — a first entry to Chats like any other, so it is
+    /// offered the choice too. Reaching it needs a publish failure to leave the account behind.
+    @MainActor
+    @Test func leavingTheSignUpPaneWithAMintedIdentityOffersTheImprovementsPrompt() async throws {
+        let store = FakeImprovementsPromptStore()
+        let (state, runtime) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        state.showSignUp()
+        state.signUpDraft.displayName = "Pepi"
+        runtime.publishUserProfileError = FakeMarmotRuntimeError.profilePublishFailed
+        await state.completeSignUp()
+
+        // The identity exists, the profile never published, and the pane is still up.
+        #expect(state.lastError != nil)
+        #expect(!state.isImprovementsPromptPresented)
+
+        await state.cancelSignUp()
+
+        #expect(state.phase == .ready)
+        #expect(state.isImprovementsPromptPresented)
+    }
+
+    /// Launch is not a first entry: an identity already on this Mac is restored by `bootstrap()`,
+    /// which reaches `activateReadyState()` like the sign-up paths do and must stay silent.
+    @MainActor
+    @Test func relaunchingIntoAnExistingIdentityDoesNotOfferTheImprovementsPrompt() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: Self.improvementsPromptAccountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: false
+        )
+        let store = FakeImprovementsPromptStore()
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(improvementsPromptStore: store, clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        #expect(state.phase == .ready)
+        #expect(!state.isImprovementsPromptPresented)
+        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+    }
+
+    @MainActor
+    @Test func removingAnIdentityDropsItsImprovementsPromptRecord() async throws {
+        let store = FakeImprovementsPromptStore()
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        await state.signUp()
+        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+
+        state.dismissImprovementsPrompt()
+        await state.removeActiveAccount()
+
+        // A later sign-in with the same key is a fresh identity on this Mac, and inherits nothing.
+        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+    }
+
+    /// "Delete All Data" resets the Mac to a newly installed state, which has asked nobody.
+    @MainActor
+    @Test func resettingToANewInstallClearsEveryImprovementsPromptRecord() async throws {
+        let store = FakeImprovementsPromptStore(
+            offered: [Self.improvementsPromptAccountIdHex, "0011"]
+        )
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        state.isImprovementsPromptPresented = true
+        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-mac-tests")
+
+        #expect(store.clearAllCallCount == 1)
+        #expect(store.offered.isEmpty)
+        #expect(!state.isImprovementsPromptPresented)
+    }
+
+    /// The prompt belongs to the identity that *entered* the session, not to whoever is active by
+    /// the time it goes up.
+    ///
+    /// `activateReadyState()` flips `phase` to `.ready` before the rest of its own awaits, leaving
+    /// Chats — and the Settings account switcher — reachable for the remainder of the call. A
+    /// switch landing in that window used to spend the switched-to account's one lifetime offer on
+    /// a moment that is not its first entry, while the identity that actually just signed in went
+    /// un-asked. Driven by calling with a mismatched identity rather than by racing the awaits, so
+    /// the guard is pinned deterministically.
+    @MainActor
+    @Test func theImprovementsPromptIsDroppedWhenTheIdentityChangedWhileEntering() async throws {
+        let store = FakeImprovementsPromptStore(offered: [Self.improvementsPromptAccountIdHex])
+        let (state, _) = Self.improvementsPromptWorkspace(store: store)
+
+        await state.bootstrap()
+        state.showLogin()
+        state.loginIdentity = "nsec1desktop"
+        await state.login()
+        #expect(!state.isImprovementsPromptPresented)
+
+        // The identity now active has never been offered the choice, so the record is no longer
+        // what keeps the prompt down — only the identity guard is.
+        store.clearAll()
+
+        let identityThatEntered = String(repeating: "f", count: 64)
+        state.presentImprovementsPromptIfNeeded(forEnteredAccountIdHex: identityThatEntered)
+
+        #expect(!state.isImprovementsPromptPresented)
+        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+        #expect(!store.hasBeenOffered(toOwnerAccountIdHex: identityThatEntered))
+
+        // Positive control: the guard refuses a *mismatch*, not every caller. Without this the
+        // test above would still pass if the prompt had simply been broken outright.
+        state.presentImprovementsPromptIfNeeded(
+            forEnteredAccountIdHex: Self.improvementsPromptAccountIdHex
+        )
+
+        #expect(state.isImprovementsPromptPresented)
+        #expect(store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
+    }
+
     @MainActor
     @Test func bootstrapRunsSynchronousRuntimeReadsOffMainThread() async throws {
         // Regression for #17: WorkspaceState is @MainActor, but blocking sync FFI reads
@@ -35403,6 +35660,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var didDeleteAllLocalData = false
     var deleteAllLocalDataError: Error?
     var signOutError: Error?
+    /// When set, `publishUserProfile` throws instead of publishing — the failure that leaves a
+    /// minted-but-unpublished identity behind for `cancelSignUp()` to carry forward into the app.
+    var publishUserProfileError: Error?
     /// Optional hook fired after `deleteAllLocalData` starts but before storage is cleared,
     /// used to simulate a racing account mutation while a full wipe is in flight.
     var onDeleteAllLocalDataMidFlight: (@Sendable () async -> Void)?
@@ -35735,6 +35995,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     ) async throws -> UserProfileMetadataFfi {
         lastPublishedProfileDefaultRelays = defaultRelays
         lastPublishedProfileBootstrapRelays = bootstrapRelays
+        if let publishUserProfileError {
+            throw publishUserProfileError
+        }
         self.profile = profile
         await publishUserProfileGate.passIfArmed()
         return profile
@@ -37164,10 +37427,13 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
     case observabilityConfigurationFailed
     case mediaUploadFailed
     case followListReadFailed
+    case profilePublishFailed
     case unused
 
     var errorDescription: String? {
         switch self {
+        case .profilePublishFailed:
+            return "Profile publish failed."
         case .missingCreatedAccount:
             return "Missing created account."
         case .auditLogDeleteFailed:

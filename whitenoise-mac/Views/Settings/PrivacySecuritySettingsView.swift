@@ -35,39 +35,10 @@ struct PrivacySecuritySettingsView: View {
                 )
             }
 
+            // The same rows the one-time "Help Improve White Noise" prompt shows. See
+            // `DataSharingToggleRows`.
             SettingsSection(title: L10n.string("Data Sharing")) {
-                SettingsToggleRow(
-                    title: L10n.string("Anonymous Telemetry"),
-                    systemImage: "waveform.path.ecg",
-                    isOn: Binding(
-                        get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
-                        set: { enabled in
-                            Task { await workspace.setRelayTelemetryEnabled(enabled) }
-                        }
-                    )
-                )
-                .disabled(workspace.isSavingPrivacySecurity)
-
-                SettingsToggleRow(
-                    title: L10n.string("Audit Logging"),
-                    systemImage: "doc.text.magnifyingglass",
-                    isOn: Binding(
-                        get: { workspace.privacySecuritySettings.auditLoggingEnabled },
-                        set: { enabled in
-                            Task { await workspace.setAuditLoggingEnabled(enabled) }
-                        }
-                    )
-                )
-                .disabled(workspace.isSavingPrivacySecurity)
-
-                if workspace.isSavingPrivacySecurity {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(L10n.string("Saving..."))
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
-                }
+                DataSharingToggleRows()
             }
 
             SettingsSection(title: L10n.string("Audit Log Files")) {

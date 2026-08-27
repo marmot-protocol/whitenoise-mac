@@ -934,6 +934,11 @@ struct GlassCircleCloseButton: View {
                     .wnFont(.semiBold12)
                     .frame(width: MessagesLayout.circleControlSize, height: MessagesLayout.circleControlSize)
             }
+            // Named for the same reason `WNPrimaryButton` names it: `.glass` carries no colour and
+            // tints from the environment, whose only app-wide source is `ContentView`. Every
+            // caller of this branch is inside a `sheet`, which inherits none of it — so the disc
+            // did not draw at all and the ✕ was left as a bare glyph.
+            .tint(WNColor.fillPrimary)
             .nativeGlassCircleButtonStyle()
             .help(L10n.string(helpText))
 
