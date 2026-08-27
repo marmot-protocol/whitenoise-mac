@@ -3,13 +3,16 @@
 //  whitenoise-mac
 //
 //  The account switcher that sits at the top of Settings: the card naming the
-//  active identity, and the popover listing every identity on this Mac. The
-//  popover switches between them and manages them — sign in, sign out, remove —
-//  and it no longer creates one: the `Add Account` button that used to sit under
-//  its row list opened the onboarding landing pane, which put account creation
-//  in the same dropdown as account switching. Creating one is the card's own
-//  `profileManagementRow` instead, which offers it precisely when there is
-//  nothing to switch to. This is where the former Accounts settings page went —
+//  active identity, and the popover listing the identities signed in on this Mac.
+//  The popover switches between them and manages them — sign out, remove — and it
+//  neither creates one nor reactivates one. The `Add Account` button that used to
+//  sit under its row list opened the onboarding landing pane, which put account
+//  creation in the same dropdown as account switching; creating one is the card's
+//  own `profileManagementRow` instead, which offers it precisely when there is
+//  nothing to switch to. Signed-out identities are not listed at all: a row that
+//  cannot be switched to does not belong in a switcher, and signing one back in
+//  lives on `SignedOutAccountsView`. This is where the former Accounts settings
+//  page went —
 //  the iOS and Flutter clients open Settings on the current profile with a
 //  switch control directly underneath it rather than routing identity work
 //  through a separate Accounts tab, and this mirrors that on macOS.
@@ -132,13 +135,16 @@ struct SettingsAccountSwitcherCard: View {
         }
     }
 
-    /// One row that adapts to how many identities are stored, the way the prototype's hub does:
-    /// with a single profile there is nothing to switch to, so the row offers to add one; with
-    /// more, it opens the switcher. A permanent "Switch Account" button was offering a choice
-    /// that, for most people, has exactly one option.
+    /// One row that adapts to how many identities are signed in, the way the prototype's hub
+    /// does: with a single profile there is nothing to switch to, so the row offers to add one;
+    /// with more, it opens the switcher. A permanent "Switch Account" button was offering a
+    /// choice that, for most people, has exactly one option.
+    ///
+    /// Counted over `hasOtherSignedInAccount` rather than the stored identities: a deactivated
+    /// one is not in the switcher's list, so counting it here promised a switch to a list of one.
     private var profileManagementRow: some View {
         Button {
-            if hasOtherAccounts {
+            if workspace.hasOtherSignedInAccount {
                 isSwitcherPresented = true
             } else {
                 workspace.showAccountOnboarding()
@@ -146,7 +152,7 @@ struct SettingsAccountSwitcherCard: View {
         } label: {
             HStack(spacing: SettingsSidebarRowMetrics.glyphSpacing) {
                 Image(
-                    systemName: hasOtherAccounts
+                    systemName: workspace.hasOtherSignedInAccount
                         ? "arrow.up.arrow.down" : "person.crop.circle.badge.plus"
                 )
                 .wnFont(.medium14)
@@ -154,7 +160,7 @@ struct SettingsAccountSwitcherCard: View {
                 .frame(width: SettingsSidebarRowMetrics.glyphWidth)
 
                 Text(
-                    hasOtherAccounts
+                    workspace.hasOtherSignedInAccount
                         ? L10n.string("Switch Account", locale: locale)
                         : L10n.string("Add Account", locale: locale)
                 )
@@ -174,10 +180,6 @@ struct SettingsAccountSwitcherCard: View {
                 onSelect: { account in
                     isSwitcherPresented = false
                     workspace.selectAccountFromSettings(account)
-                },
-                onSignIn: { account in
-                    isSwitcherPresented = false
-                    Task { await workspace.signInAccount(account) }
                 },
                 onSignOut: { account in
                     isSwitcherPresented = false
@@ -199,10 +201,6 @@ struct SettingsAccountSwitcherCard: View {
         }
     }
 
-    private var hasOtherAccounts: Bool {
-        workspace.accounts.count > 1
-    }
-
     private var removeConfirmationBinding: Binding<Bool> {
         Binding(
             get: { accountPendingRemoval != nil },
@@ -222,16 +220,15 @@ struct SettingsAccountSwitcherCard: View {
     }
 }
 
-/// The switcher itself: every identity stored on this Mac, with the active one
-/// marked. Switching and managing only — creating an identity is not offered here.
-/// Every action is reported to the card that presents this popover: it is the view
-/// that outlives the popover, so it is the one that can close it and then raise a
-/// confirmation or a sheet.
+/// The switcher itself: the identities signed in on this Mac, with the active one
+/// marked. Switching and managing only — neither creating an identity nor bringing
+/// a deactivated one back is offered here. Every action is reported to the card that
+/// presents this popover: it is the view that outlives the popover, so it is the one
+/// that can close it and then raise a confirmation or a sheet.
 struct AccountSwitcherPopover: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
     let onSelect: (AccountItem) -> Void
-    let onSignIn: (AccountItem) -> Void
     let onSignOut: (AccountItem) -> Void
     let onRemove: (AccountItem) -> Void
 
@@ -240,7 +237,7 @@ struct AccountSwitcherPopover: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.string("Accounts", locale: locale))
                     .wnFont(.semiBold14)
-                Text(L10n.string("Manage the identities available on this Mac.", locale: locale))
+                Text(L10n.string("Manage the accounts signed in on this Mac.", locale: locale))
                     .wnFont(.medium10)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -248,7 +245,9 @@ struct AccountSwitcherPopover: View {
 
             Divider()
 
-            if workspace.accounts.isEmpty {
+            // Signed-out identities are filtered out, so this is reachable with accounts still
+            // stored: every one of them deactivated leaves nothing to switch between.
+            if workspace.signedInAccounts.isEmpty {
                 Text(L10n.string("No accounts", locale: locale))
                     .wnFont(.medium12)
                     .foregroundStyle(WNColor.backgroundContentSecondary)
@@ -256,14 +255,13 @@ struct AccountSwitcherPopover: View {
             } else {
                 ScrollView {
                     VStack(spacing: 2) {
-                        ForEach(workspace.accounts) { account in
+                        ForEach(workspace.signedInAccounts) { account in
                             AccountSwitcherRow(
                                 account: account,
                                 isActive: account.id == workspace.activeAccountId,
                                 unreadCount: workspace.unreadCount(forAccountIdHex: account.accountIdHex),
                                 isAccountMutationInProgress: workspace.isAccountMutationInProgress,
                                 onSelect: { onSelect(account) },
-                                onSignIn: { onSignIn(account) },
                                 onSignOut: { onSignOut(account) },
                                 onRemove: { onRemove(account) }
                             )
@@ -294,9 +292,14 @@ struct AccountSwitcherPopover: View {
     }
 }
 
-/// One identity in the switcher. Tapping switches to it (or signs it back in when
-/// it was signed out); the trailing menu carries the actions that need a
-/// confirmation.
+/// One identity in the switcher. Tapping switches to it; the trailing menu carries
+/// the actions that need a confirmation.
+///
+/// The list is fed `signedInAccounts`, so `account.signedOut` is false here by
+/// construction. It used to branch on it — a dimmed avatar under a `Signed out`
+/// caption, whose tap and whose menu item signed the identity back in — and
+/// reintroducing that branch would be dead code describing a row that cannot reach
+/// this view.
 struct AccountSwitcherRow: View {
     /// Diameter of the row's avatar. Read by `AccountSwitcherPopover.rowChromeInset`, which sizes
     /// the scroll inset from it — the chrome's reach scales with the avatar.
@@ -308,28 +311,26 @@ struct AccountSwitcherRow: View {
     let unreadCount: Int
     let isAccountMutationInProgress: Bool
     let onSelect: () -> Void
-    let onSignIn: () -> Void
     let onSignOut: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: account.signedOut ? onSignIn : onSelect) {
+            Button(action: onSelect) {
                 HStack(spacing: 10) {
                     ProfileImageAvatarView(
                         seed: account.accountIdHex,
                         initials: account.initials,
                         sanitizedPictureURL: account.sanitizedPictureURL,
-                        // Every row here is one of this Mac's own accounts, but a signed-out one is
-                        // an identity the user has deliberately deactivated — sign-out even drops
-                        // its relay key packages. Fetching its avatar would put traffic on the wire
-                        // for an identity that is supposed to be off, so it drops back to initials
-                        // (the row is already dimmed to 0.4). Signed-in rows are unaffected.
-                        isOwnAccountImage: !account.signedOut,
+                        // Every row here is one of this Mac's own signed-in accounts, so this is
+                        // unconditional — see `RemoteImageDisplayPolicy`. The narrower
+                        // `!account.signedOut` it used to carry existed for the deactivated rows,
+                        // whose relay key packages sign-out drops; with those rows gone from the
+                        // list there is nothing left for it to exclude.
+                        isOwnAccountImage: true,
                         size: Self.avatarSize,
                         isSelected: isActive
                     )
-                    .opacity(account.signedOut ? 0.4 : 1)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(account.displayName)
@@ -338,10 +339,7 @@ struct AccountSwitcherRow: View {
 
                         Text(statusText)
                             .wnFont(.medium10)
-                            .foregroundStyle(
-                                account.signedOut
-                                    ? WNColor.intentionWarningContent
-                                    : WNColor.backgroundContentSecondary)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -360,24 +358,14 @@ struct AccountSwitcherRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(account.signedOut && isAccountMutationInProgress)
 
             Menu {
                 Group {
-                    if account.signedOut {
-                        Button(action: onSignIn) {
-                            Label(
-                                L10n.string("Sign In", locale: locale),
-                                systemImage: "person.crop.circle.badge.checkmark"
-                            )
-                        }
-                    } else {
-                        Button(action: onSignOut) {
-                            Label(
-                                L10n.string("Sign Out", locale: locale),
-                                systemImage: "rectangle.portrait.and.arrow.right"
-                            )
-                        }
+                    Button(action: onSignOut) {
+                        Label(
+                            L10n.string("Sign Out", locale: locale),
+                            systemImage: "rectangle.portrait.and.arrow.right"
+                        )
                     }
 
                     Divider()
@@ -404,9 +392,6 @@ struct AccountSwitcherRow: View {
     }
 
     private var statusText: String {
-        if account.signedOut {
-            return L10n.string("Signed out", locale: locale)
-        }
         if account.localSigning {
             return L10n.string("Local signing", locale: locale)
         }

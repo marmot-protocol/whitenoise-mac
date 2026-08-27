@@ -29510,61 +29510,61 @@
         }
       }
     },
-    "Manage the identities available on this Mac.": {
+    "Manage the accounts signed in on this Mac.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwalte die auf diesem Mac verfügbaren Identitäten."
+            "value": "Verwalte die auf diesem Mac angemeldeten Konten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestiona las identidades disponibles en este dispositivo."
+            "value": "Gestiona las cuentas con sesión iniciada en este dispositivo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gérez les identités disponibles sur ce Mac."
+            "value": "Gérez les comptes connectés sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gestisci le identità disponibili su questo Mac."
+            "value": "Gestisci gli account connessi su questo Mac."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gerencie as identidades disponíveis neste Mac."
+            "value": "Gerencie as contas com sessão iniciada neste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Управляйте личностями, доступными на этом Mac."
+            "value": "Управляйте аккаунтами, в которые выполнен вход на этом Mac."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac’te kullanılabilen kimlikleri yönetin."
+            "value": "Bu Mac’te oturum açılmış hesapları yönetin."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "管理此 Mac 上可用的身份。"
+            "value": "管理此 Mac 上已登录的账户。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "管理此 Mac 上可用的身分。"
+            "value": "管理此 Mac 上已登入的帳號。"
           }
         }
       }
@@ -48329,65 +48329,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "要登出此帳號嗎？"
-          }
-        }
-      }
-    },
-    "Signed out": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abgemeldet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sesión cerrada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déconnecté"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disconnesso"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessão encerrada"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выполнен выход"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Oturum kapatıldı"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已退出登录"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已登出"
           }
         }
       }

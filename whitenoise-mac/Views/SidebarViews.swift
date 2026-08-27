@@ -102,9 +102,10 @@ struct AccountRailView: View {
 /// Sign Out on right-click, where Sign Out fired `signOutAccount` with no prompt at all,
 /// so an accidental click dropped that identity's relay key packages. It also used to
 /// draw deactivated identities, dimmed to 0.4 behind a pause glyph, where one tap signed
-/// one back in. Every one of those is account management, and all of it lives in Settings'
-/// switcher now (`SettingsAccountSwitcherCard`): sign-out and removal behind confirmations,
-/// sign-in on the row itself.
+/// one back in. Every one of those is account management: sign-out and removal live in
+/// Settings' switcher behind confirmations (`SettingsAccountSwitcherCard`), and signing a
+/// deactivated identity back in lives on `SignedOutAccountsView`, which is the surface
+/// that exists for exactly that.
 ///
 /// The rail is fed `signedInAccounts`, so `account.signedOut` is false here by
 /// construction. Reintroducing a branch on it would be dead code describing a row that
@@ -129,9 +130,8 @@ private struct AccountRailAvatar: View {
                 // Images" preference — see `RemoteImageDisplayPolicy`. Left on the default, the
                 // rail drew initials for a picture the viewer had just set and could see in
                 // Settings, which reads as a broken avatar rather than as privacy. Unconditional
-                // because every row here is signed in; the switcher's list still gates its
-                // deactivated rows, since signing out drops an identity's relay key packages and
-                // the app should not then put traffic on the wire on its behalf.
+                // because every row here is signed in — the switcher's list is fed the same
+                // filtered collection, so it is unconditional there too.
                 isOwnAccountImage: true,
                 size: MessagesLayout.accountRailAvatarSize,
                 isSelected: isActive
