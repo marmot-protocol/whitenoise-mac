@@ -26,6 +26,19 @@ import SwiftUI
 /// Not `nonisolated`: `ControlSize` and friends inherit the module's MainActor default. Asserting
 /// these values still needs nothing but the main actor.
 enum OnboardingLayout {
+    /// How far left of the content column the header row's exit control hangs.
+    ///
+    /// The control belongs *to* the column — it is the way back out of the form, not out of the
+    /// window — but it does not belong *in* it. Sitting on the column's leading edge it lines up
+    /// with the Name label and the notice's box and reads as the first item of the form; pinned to
+    /// the pane's own margin instead, it drifts further from the form the wider the window gets.
+    /// So it hangs in the gutter immediately outside the column: clear of the form's left edge, and
+    /// still travelling with it when the window is resized.
+    ///
+    /// One control width plus `actionSpacing`, so the whole circle clears the column with the same
+    /// air between them that the pane puts between two stacked buttons.
+    static let headerControlOverhang: CGFloat = MessagesLayout.circleControlSize + actionSpacing
+
     /// The action column — buttons on the welcome pane, the key field and its CTA on sign-in.
     ///
     /// 360 is the width the sign-in field already used before this pane was rebuilt, and it is
@@ -33,10 +46,17 @@ enum OnboardingLayout {
     /// rather than a desktop form's.
     static let contentWidth: CGFloat = 360
 
-    /// Between the block above the actions — the sign-in pane's key field — and the actions
-    /// themselves. Wider than `actionSpacing` so a field and the button that submits it do not
-    /// read as two members of one stack.
-    static let contentToActionsSpacing: CGFloat = 24
+    /// Between the block above the actions — the sign-in pane's key field, the sign-up pane's form
+    /// — and the actions themselves. Wider than `actionSpacing` so a field and the button that
+    /// submits it do not read as two members of one stack.
+    ///
+    /// 16 rather than the 24 it started at. On both panes the thing directly above the button is
+    /// `OnboardingMessageLine`, whose empty reserved slot is already 32pt of air; 24 on top of that
+    /// put the sign-up pane's Create profile 76pt below the last field it submits, which reads as
+    /// the button having come loose from the form rather than as breathing room. 16 still clears
+    /// `actionSpacing` by the margin this needs to stay a different kind of gap from the one
+    /// between two stacked buttons.
+    static let contentToActionsSpacing: CGFloat = 16
 
     /// Between stacked actions. Flutter's `WnAuthButtonsContainer` puts `Gap(12.h)` between its
     /// two auth buttons; this is that gap.
@@ -63,7 +83,12 @@ enum OnboardingLayout {
     /// which on a default-sized window is well past `edgePadding` again — so the pane a person
     /// normally sees is unchanged, and the pane at the size a person can drag it to keeps its
     /// button on screen.
-    static let signUpEdgePadding: CGFloat = 16
+    ///
+    /// 12 rather than the 16 it started at, and the 4pt is not a saving — it went into
+    /// `signUpAvatarSize`. Two of the three margins this floors are the pane's top and bottom, so
+    /// the trade is 8pt of air that exists only in a 620pt-tall window against a hero that is
+    /// bigger in every window.
+    static let signUpEdgePadding: CGFloat = 12
 
     /// The most air there is between the mark and the column of actions under it.
     ///
@@ -113,18 +138,37 @@ enum OnboardingLayout {
 
     /// The avatar that stands where the mark stands on the other two panes.
     ///
-    /// **This is the number the window's height floor is spent on, so it is smaller than it
-    /// looks like it should be.** The hero is not the avatar alone: it is the avatar, a 10pt gap
-    /// and the `Add photo` pill, and the pane below it — a title, two labelled fields one of
-    /// which is three lines, a reserved error line and a 44pt CTA — leaves about 103pt for the
-    /// whole group inside `ContentView`'s 620pt minimum. Measured, not budgeted: at 88 with the
-    /// pill under it the pane draws 642pt and pushes its own button off a short window's bottom
-    /// edge, which is what `OnboardingTests.theSignUpPaneFitsTheSmallestWindow` fails on.
+    /// **This is the number the window's height floor is spent on, so it is smaller than it looks
+    /// like it should be.** The hero is not the avatar alone: it is the avatar, a 10pt gap and the
+    /// `Add photo` pill, and the pane below it — two labelled fields one of which is three lines,
+    /// a public-profile notice, a reserved error line and a 44pt CTA — has to fit inside
+    /// `ContentView`'s 620pt minimum. Measured, not budgeted: at 88 with the pill under it the
+    /// pane draws 642pt and pushes its own button off a short window's bottom edge, which is what
+    /// `OnboardingTests.theSignUpPaneFitsTheSmallestWindow` fails on.
     ///
-    /// 64 puts the group at 95pt and the pane at 612pt, which leaves the type ramp room to move
-    /// without taking the CTA with it. It is also a size the app already draws avatars at, so the
-    /// hero does not look like a one-off.
-    static let signUpAvatarSize: CGFloat = 64
+    /// 76, up from the 64 this shipped at, and every one of those 12pt was bought rather than
+    /// found: 4 off `signUpHeroToContentSpacing` and 8 off `signUpEdgePadding`. The bill is
+    /// settled by `theSignUpPaneFitsTheSmallestWindowInEveryLanguage`, not by this comment —
+    /// German draws the public-profile notice on three lines, which puts the pane at 614pt of the
+    /// 620pt there is. That 6pt is the whole remaining cushion, so anything added here has to come
+    /// off one of the two numbers above, and re-measuring is the only way to know how much.
+    static let signUpAvatarSize: CGFloat = 76
+
+    /// Between the sign-up hero and the form under it.
+    ///
+    /// Fixed, where the other two panes let this gap breathe up to `markToActionsMaximumSpacing`.
+    /// Their hero is the app's mark, which is a thing in its own right standing above two buttons;
+    /// this one is the face the form immediately under it is describing, and the avatar, the
+    /// `Add photo` pill and the notice that says where the photo ends up are one paragraph. Left
+    /// to the scaffold's default the pane's spare height opens this gap to around 78pt on an
+    /// ordinarily-sized window, which reads as the hero having come loose from the form.
+    ///
+    /// 12, and the 4pt it gave up against the pane's old margin went straight into
+    /// `signUpAvatarSize`: this gap and the avatar above it are the same budget, so the notice
+    /// sitting closer is part of what pays for the bigger face. It stays a step above the 10pt
+    /// between the avatar and its own pill, so the pill still reads as belonging to the avatar
+    /// rather than to the box under it.
+    static let signUpHeroToContentSpacing: CGFloat = 12
 
     /// Between the avatar and the `Add photo` pill under it. `wn-ios-prototype` uses a bare
     /// `.padding(.top)` — the system's 16 on a phone — and the pill here is the smaller of the
