@@ -1333,18 +1333,31 @@ final class WorkspaceState {
         return accounts.first { $0.id == activeAccountId }
     }
 
-    /// The identities the account rail draws: the ones that are actually running.
+    /// The identities the account rail and the Settings switcher draw: the ones that are
+    /// actually running.
     ///
-    /// A signed-out account used to sit in the rail dimmed to 0.4 behind a pause glyph, with a
-    /// tap signing it back in. Reactivating an identity is account management, not switching, and
-    /// it belongs with sign-out and removal in Settings' switcher (`AccountSwitcherRow`) rather
-    /// than one misplaced click away in the control the user hits all day.
+    /// A signed-out account used to sit in both of them — dimmed to 0.4 behind a pause glyph in
+    /// the rail, dimmed under a `Signed out` caption in the switcher — with a tap signing it back
+    /// in. Neither control is a place a deactivated identity can be *gone to*: `selectAccount(_:)`
+    /// and `selectAccountFromSettings(_:)` refuse one outright, so those rows were a sign-in
+    /// button wearing a destination's clothes. Both lists now hold destinations only.
     ///
     /// Derived, and deliberately not a filter applied to `accounts` itself: that list is every
-    /// identity on this Mac, and both the switcher's rows and `SignedOutAccountsView` — the whole
-    /// of the way back in when nothing is signed in — need the deactivated ones in it.
+    /// identity on this Mac, and `SignedOutAccountsView` — the way back into a deactivated
+    /// identity, shown when none is signed in — needs the deactivated ones in it.
     var signedInAccounts: [AccountItem] {
         accounts.filter { !$0.signedOut }
+    }
+
+    /// Whether there is another signed-in identity to switch *to* — what decides whether the
+    /// switcher is offered at all.
+    ///
+    /// Not `accounts.count > 1`: with one signed-in identity and one deactivated one, that
+    /// offered `Switch Account` and then opened a list holding only the account already active.
+    /// Asked against `activeAccountId` rather than `signedInAccounts.count`, so it stays right
+    /// while a mutation is mid-flight and the active identity is itself signed out or gone.
+    var hasOtherSignedInAccount: Bool {
+        signedInAccounts.contains { $0.id != activeAccountId }
     }
 
     var activeChats: [ChatItem] {
