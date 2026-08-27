@@ -35,15 +35,15 @@ import Foundation
 ///
 /// "Signed in" is load-bearing rather than decorative, and each of those sites earns its literal
 /// `true` differently. The first three render `activeAccount`, which `restoreOrSelectFirstAccount()`
-/// guarantees is never a signed-out account. The rail renders several accounts at once, but it is
-/// fed `signedInAccounts`, so a deactivated identity never reaches an avatar there to begin with.
+/// guarantees is never a signed-out account. The rail and the switcher each render several accounts
+/// at once, but both are fed `signedInAccounts`, so a deactivated identity never reaches an avatar
+/// in either to begin with.
 ///
-/// The switcher's row list is the one site that still draws signed-out identities — it is where
-/// signing back in lives — and it alone passes `!account.signedOut`: sign-out deactivates an
-/// identity and drops its relay key packages, so the app should not then fetch its avatar and put
-/// traffic on the wire on its behalf. That is a narrower argument than the preference's own — a
-/// signed-out account is still yours, not a peer's — but the exemption should stay as small as the
-/// bug it exists to fix.
+/// Both used to pass `!account.signedOut` instead, for the deactivated rows they drew: sign-out
+/// drops an identity's relay key packages, so the app should not then fetch its avatar and put
+/// traffic on the wire on its behalf. Filtering the lists themselves subsumed that argument — the
+/// one remaining site that lists signed-out identities, `SignedOutAccountsView`, never passes
+/// `isOwnAccountImage` at all, so its avatars stay gated by the preference like any other.
 nonisolated enum RemoteImageDisplayPolicy {
     static func loadsRemoteImage(isOwnAccountImage: Bool, preferenceEnabled: Bool) -> Bool {
         isOwnAccountImage || preferenceEnabled
