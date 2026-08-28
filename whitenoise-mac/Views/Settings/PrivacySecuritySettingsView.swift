@@ -25,8 +25,8 @@ struct PrivacySecuritySettingsView: View {
                     "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded."
                 )
             ) {
-                SettingsToggleRow(
-                    title: L10n.string("Load Remote Profile Images"),
+                WNToggle(
+                    L10n.string("Load Remote Profile Images"),
                     systemImage: "person.crop.circle.badge.exclamationmark",
                     isOn: Binding(
                         get: { workspace.loadRemoteImages },
