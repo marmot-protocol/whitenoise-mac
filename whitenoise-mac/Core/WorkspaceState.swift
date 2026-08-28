@@ -336,6 +336,28 @@ final class WorkspaceState {
     /// publish resumes from there instead of minting a second one. Cleared on the way out.
     var signUpCreatedAccountRef: String?
     var profileDraft = ProfileDraft()
+    /// The profile as it is *published*, against which `profileDraft` is a set of unsaved edits.
+    ///
+    /// Settings → Profile has no edit mode: its fields are always live and its actions appear only
+    /// once the draft has moved off this value — see `hasUnsavedProfileEdits`. So this is not a
+    /// snapshot taken when a button was pressed; it is written wherever the published profile
+    /// becomes known, which is the settings load, a successful `saveProfile()`, and the publish at
+    /// the end of sign-up.
+    ///
+    /// It lives here rather than in the view because the value it is compared against does:
+    /// `profileDraft` is workspace state that the image picker, the account switcher and
+    /// `saveProfile()` all write, so the thing Cancel restores has to be taken and dropped in the
+    /// same place those do their work. `nil` before the page has loaded anything, which is the one
+    /// state in which there is nothing to compare and therefore no unsaved edits.
+    var publishedProfile: ProfileDraft?
+    /// What the network says about the address the profile has *published*. While editing, read
+    /// `profileNostrAddressSeal` instead — a draft nobody has checked cannot borrow this verdict.
+    var publishedNostrAddressVerification: NostrAddressVerification = .none
+    /// The in-flight well-known fetch, held so a test can await it rather than poll for it, and so
+    /// an account switch can drop it.
+    var profileNostrAddressCheckTask: Task<Void, Never>?
+    /// Bumped per check so a slow fetch resuming after a newer one cannot write a stale verdict.
+    var profileNostrAddressCheckGeneration = 0
     var relaySettings = RelaySettingsSnapshot.defaults
     var selectedRelaySection: RelaySettingsSection = .nip65
     var relayDraft = MarmotClient.seedRelays

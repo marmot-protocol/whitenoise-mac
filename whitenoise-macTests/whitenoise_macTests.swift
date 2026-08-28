@@ -34433,6 +34433,464 @@ struct whitenoise_macTests {
         #expect(state.profileDraft.displayName == "Desktop Renamed")
     }
 
+    // MARK: - Settings → Profile's edit mode
+
+    /// The page opens read-only, and Cancel undoes *everything* Edit was pressed on.
+    ///
+    /// The picture is the field this exists for. Choosing one uploads immediately and writes
+    /// `profileDraft.picture` long before anything is published, so a Cancel that only restored
+    /// the text would leave the page showing a new face nobody agreed to publish — and would then
+    /// publish it on the next Save.
+    ///
+    /// It also covers the picture as an *edit*: the actions have to appear for a face somebody
+    /// changed without touching a field, which is why `hasUnsavedProfileEdits` compares whole
+    /// drafts rather than auditing the text.
+    @MainActor
+    @Test func discardingProfileEditsRestoresEveryFieldIncludingThePicture() async throws {
+        let accountIdHex = String(repeating: "ab", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installProfile(
+            accountIdHex: accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "marmota",
+                displayName: "Marmota",
+                about: "A marmot.",
+                picture: "https://example.com/before.png",
+                nip05: "marmota@example.com",
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+
+        // The load is what sets the baseline now — there is no Edit to press.
+        #expect(state.publishedProfile != nil)
+        #expect(state.hasUnsavedProfileEdits == false)
+
+        state.profileDraft.displayName = "Pebble"
+        state.profileDraft.about = "Somebody else."
+        state.profileDraft.nip05 = "pebble@example.com"
+        state.profileDraft.picture = "https://example.com/after.png"
+        #expect(state.hasUnsavedProfileEdits)
+
+        state.discardProfileEdits()
+
+        #expect(state.hasUnsavedProfileEdits == false)
+        #expect(state.publishedProfile != nil, "the baseline is the published profile, not a session")
+        #expect(state.profileDraft.displayName == "Marmota")
+        #expect(state.profileDraft.about == "A marmot.")
+        #expect(state.profileDraft.nip05 == "marmota@example.com")
+        #expect(state.profileDraft.picture == "https://example.com/before.png")
+        // Nothing left the machine.
+        #expect(runtime.publishUserProfileCallCount == 0)
+    }
+
+    /// A check in flight verifies the **published** address, whatever the field says by the time it
+    /// runs.
+    ///
+    /// `beginProfileNostrAddressCheck()` schedules the work rather than performing it, so every
+    /// keystroke between the scheduling and the task's first line lands before the address is read.
+    /// Reading `profileDraft` there put a verdict about an unsaved address into
+    /// `publishedNostrAddressVerification`, which is a statement about what the profile publishes —
+    /// and `discardProfileEdits()` then restores the published address without disturbing it, so the
+    /// published address wore a seal earned by an address that was thrown away. Staged in the
+    /// dangerous direction: the draft is the one that verifies.
+    ///
+    /// Deterministic without a gate. The task is main-actor isolated, so its body cannot begin
+    /// until this test suspends; the assignment below is synchronous and therefore always wins the
+    /// race that used to be one.
+    @MainActor
+    @Test func theAddressCheckVerifiesThePublishedValueNotAPendingDraft() async throws {
+        let accountIdHex = String(repeating: "6f", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installProfile(
+            accountIdHex: accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "marmota",
+                displayName: "Marmota",
+                about: nil,
+                picture: nil,
+                // Published, and unverifiable: the resolver below does not know it.
+                nip05: "marmota@offline.example",
+                lud16: nil
+            )
+        )
+        // The *draft* address is the one that would earn a seal.
+        let resolver = RecordingNIP05Resolver(accountReferences: ["stranger@example.com": accountIdHex])
+        let state = WorkspaceState(nip05Resolver: resolver, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        await state.profileNostrAddressCheckTask?.value
+
+        #expect(state.publishedNostrAddressVerification == .unverified)
+        #expect(resolver.requestedIdentifiers == ["marmota@offline.example"])
+
+        // A check is in flight, and the field moves under it before it reads anything.
+        state.beginProfileNostrAddressCheck()
+        state.profileDraft.nip05 = "stranger@example.com"
+        await state.profileNostrAddressCheckTask?.value
+
+        #expect(
+            resolver.requestedIdentifiers == ["marmota@offline.example", "marmota@offline.example"],
+            "the pending check went out for the draft: \(resolver.requestedIdentifiers)")
+
+        state.discardProfileEdits()
+
+        #expect(state.profileDraft.nip05 == "marmota@offline.example")
+        #expect(
+            state.publishedNostrAddressVerification == .unverified,
+            "a discarded draft left its verdict on the published address")
+        #expect(
+            state.profileNostrAddressSeal == .unverified,
+            "the published address wore a seal earned by an address nobody published")
+    }
+
+    /// The fields are closed while the settings load is in flight, because there is nowhere for
+    /// what is typed into them to go: `performSettingsLoad` *replaces* `profileDraft` with what it
+    /// reads, so a name typed before it lands is discarded without a word.
+    ///
+    /// Unreachable while the page opened read-only behind an Edit button that was itself disabled
+    /// on `isLoadingSettings`. With the fields live from the moment the page appears, that window
+    /// is exactly when somebody arrives and starts typing.
+    @MainActor
+    @Test func theProfileFormIsClosedWhileTheSettingsLoadIsInFlight() async throws {
+        let accountIdHex = String(repeating: "8d", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installProfile(
+            accountIdHex: accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "marmota",
+                displayName: "Marmota",
+                about: nil,
+                picture: nil,
+                nip05: nil,
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+
+        // Suspend the load inside the profile read, which is the await the draft is replaced after.
+        runtime.userProfileGateEnabled = true
+        async let load: Void = state.loadSettingsData()
+        while !runtime.didReachUserProfileGate {
+            await Task.yield()
+        }
+
+        #expect(state.isLoadingSettings)
+        #expect(state.isProfileFormEnabled == false)
+
+        runtime.releaseUserProfileGate()
+        _ = await load
+
+        #expect(state.isLoadingSettings == false)
+        #expect(state.isProfileFormEnabled)
+        #expect(state.profileDraft.displayName == "Marmota")
+    }
+
+    /// An account with nothing published opens the same way one with a full profile does: no
+    /// actions.
+    ///
+    /// This is the case the gate is easiest to get wrong, because the form and the baseline are
+    /// both empty and "empty" is what an unedited draft looks like before a load has happened at
+    /// all. If `publishedProfile` were left `nil` here the page would be correct by accident; if
+    /// the load skipped setting it, the first keystroke would still be the first *edit*, but a
+    /// Cancel pressed afterwards would have nothing to restore.
+    @MainActor
+    @Test func aProfileWithNothingPublishedOpensWithoutActions() async throws {
+        let accountIdHex = String(repeating: "5e", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.accountIdsMissingProfiles.insert(accountIdHex)
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+
+        #expect(state.publishedProfile != nil, "the load left no baseline for Cancel to restore")
+        #expect(state.hasUnsavedProfileEdits == false, "an untouched empty form asked to be saved")
+
+        state.profileDraft.about = "A marmot."
+        #expect(state.hasUnsavedProfileEdits)
+
+        state.discardProfileEdits()
+        #expect(state.hasUnsavedProfileEdits == false)
+        #expect(state.profileDraft.about.isEmpty)
+    }
+
+    /// Save publishes the canonical spelling of the address and moves the baseline onto it, which
+    /// is what puts the actions away. A failed publish does neither — the fields stay as typed and
+    /// the row stays up, so the same Save can be pressed again.
+    @MainActor
+    @Test func savingTheProfileNormalizesTheAddressAndMovesTheBaseline() async throws {
+        let accountIdHex = String(repeating: "cd", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+
+        state.profileDraft.displayName = "Marmota"
+        state.profileDraft.nip05 = "  MARMOTA@Example.COM  "
+        #expect(state.hasUnsavedProfileEdits)
+
+        runtime.publishUserProfileError = FakeMarmotRuntimeError.profilePublishFailed
+        await state.saveProfile()
+        #expect(state.hasUnsavedProfileEdits, "a failed publish put the actions away")
+
+        runtime.publishUserProfileError = nil
+        await state.saveProfile()
+
+        #expect(state.hasUnsavedProfileEdits == false)
+        #expect(state.profileDraft.nip05 == "marmota@example.com")
+        #expect(state.publishedProfile?.nip05 == "marmota@example.com")
+    }
+
+    /// The seal is a network answer, not a fixture: it appears only when the address's own domain
+    /// names *this* account, and a domain that names somebody else earns nothing.
+    @MainActor
+    @Test func theSealIsEarnedFromTheAddressOwnDomain() async throws {
+        let accountIdHex = String(repeating: "ef", count: 32)
+        let strangerIdHex = String(repeating: "12", count: 32)
+
+        for (reference, expected) in [
+            (accountIdHex, NostrAddressVerification.verified),
+            (strangerIdHex, NostrAddressVerification.unverified),
+        ] {
+            let account = AccountSummaryFfi(
+                label: "Desktop Account",
+                accountIdHex: accountIdHex,
+                localSigning: true,
+                externalSigning: false,
+                signedOut: false,
+                running: true
+            )
+            let runtime = FakeMarmotRuntime(accounts: [account])
+            runtime.installProfile(
+                accountIdHex: accountIdHex,
+                profile: UserProfileMetadataFfi(
+                    name: "marmota",
+                    displayName: "Marmota",
+                    about: nil,
+                    picture: nil,
+                    nip05: "marmota@example.com",
+                    lud16: nil
+                )
+            )
+            let state = WorkspaceState(
+                nip05Resolver: StubNIP05Resolver(accountReferences: ["marmota@example.com": reference]),
+                clientFactory: { runtime }
+            )
+
+            await state.bootstrap()
+            await state.loadSettingsData()
+            // Awaited rather than polled: the check is a stored handle precisely so a test does
+            // not have to guess how many yields a resolver takes.
+            await state.profileNostrAddressCheckTask?.value
+
+            #expect(state.publishedNostrAddressVerification == expected)
+            #expect(state.profileNostrAddressSeal == expected)
+        }
+    }
+
+    /// A domain that cannot be reached has verified nothing, and says so by drawing no seal rather
+    /// than by reporting a network error over a field nobody asked to publish.
+    @MainActor
+    @Test func anUnreachableDomainLeavesTheAddressUnverifiedAndSilent() async throws {
+        let accountIdHex = String(repeating: "9a", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installProfile(
+            accountIdHex: accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "marmota",
+                displayName: "Marmota",
+                about: nil,
+                picture: nil,
+                nip05: "marmota@offline.example",
+                lud16: nil
+            )
+        )
+        let state = WorkspaceState(
+            nip05Resolver: StubNIP05Resolver(accountReferences: [:]),
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        await state.profileNostrAddressCheckTask?.value
+
+        #expect(state.publishedNostrAddressVerification == .unverified)
+        #expect(state.lastError == nil)
+    }
+
+    /// `wn-ios-prototype`'s rule, verbatim: editing a verified address makes the draft unverified,
+    /// and re-entering the stored value restores the seal before Save is ever pressed. No network
+    /// call is made for either — a keystroke must not fire a request at a half-typed domain.
+    @MainActor
+    @Test func editingTheAddressDropsTheSealAndRetypingItRestoresIt() async throws {
+        let accountIdHex = String(repeating: "7b", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installProfile(
+            accountIdHex: accountIdHex,
+            profile: UserProfileMetadataFfi(
+                name: "marmota",
+                displayName: "Marmota",
+                about: nil,
+                picture: nil,
+                nip05: "marmota@example.com",
+                lud16: nil
+            )
+        )
+        let resolver = StubNIP05Resolver(accountReferences: ["marmota@example.com": accountIdHex])
+        let state = WorkspaceState(nip05Resolver: resolver, clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        await state.profileNostrAddressCheckTask?.value
+        #expect(state.profileNostrAddressSeal == .verified)
+
+        state.profileDraft.nip05 = "marmota@elsewhere.example"
+        #expect(state.profileNostrAddressSeal == .unverified)
+        // The stored verdict is untouched — it is a statement about the published value.
+        #expect(state.publishedNostrAddressVerification == .verified)
+
+        state.profileDraft.nip05 = "MARMOTA@example.com"
+        #expect(state.profileNostrAddressSeal == .verified, "the stored value retyped lost its seal")
+
+        state.profileDraft.nip05 = ""
+        #expect(state.profileNostrAddressSeal == .none)
+    }
+
+    /// What Save is allowed to be pressed on: a name, and an address that is either absent or
+    /// address-shaped.
+    @MainActor
+    @Test func saveIsGatedOnANameAndAnAddressThatParses() async throws {
+        let accountIdHex = String(repeating: "3c", count: 32)
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: accountIdHex,
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let state = WorkspaceState(clientFactory: { FakeMarmotRuntime(accounts: [account]) })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+
+        state.profileDraft.displayName = "Marmota"
+        state.profileDraft.nip05 = ""
+        #expect(state.isProfileNostrAddressDraftValid)
+        #expect(state.canSaveProfileEdits)
+
+        state.profileDraft.nip05 = "marmota"
+        #expect(state.isProfileNostrAddressDraftValid == false)
+        #expect(state.canSaveProfileEdits == false)
+
+        state.profileDraft.nip05 = "marmota@example.com"
+        #expect(state.canSaveProfileEdits)
+
+        state.profileDraft.displayName = "   \n\t "
+        #expect(state.canSaveProfileEdits == false)
+    }
+
+    /// The baseline is account-scoped. Carried across a switch, account A's name, about and
+    /// picture would be restorable onto account B by pressing Cancel — and B's untouched form would
+    /// come up showing Cancel and Save, because it differs from A's profile in every field.
+    @MainActor
+    @Test func switchingAccountsDropsTheProfileBaseline() async throws {
+        let first = AccountSummaryFfi(
+            label: "First",
+            accountIdHex: String(repeating: "1a", count: 32),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let second = AccountSummaryFfi(
+            label: "Second",
+            accountIdHex: String(repeating: "2b", count: 32),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [first, second])
+        let state = WorkspaceState(clientFactory: { runtime })
+
+        await state.bootstrap()
+        await state.loadSettingsData()
+        state.profileDraft.displayName = "Half-typed"
+        #expect(state.hasUnsavedProfileEdits)
+
+        let target = try #require(state.accounts.first { $0.accountIdHex == second.accountIdHex })
+        state.selectAccount(target)
+
+        #expect(state.publishedProfile == nil)
+        #expect(state.hasUnsavedProfileEdits == false, "B's untouched form came up asking to be saved")
+        #expect(state.publishedNostrAddressVerification == .none)
+    }
+
     @MainActor
     @Test func savingRelaySettingsUsesExistingBootstrapRelays() async throws {
         let account = AccountSummaryFfi(
@@ -35504,6 +35962,26 @@ private actor FakeGroupImageSourceLoader: GroupImageSourceLoading {
     }
 }
 
+/// `StubNIP05Resolver` that also records what it was asked about, so a test can pin *which*
+/// address a check went out for instead of inferring it from the verdict — the two are the same
+/// value in every case but the one that matters.
+private final class RecordingNIP05Resolver: NIP05Resolving {
+    let accountReferences: [String: String]
+    private(set) var requestedIdentifiers: [String] = []
+
+    init(accountReferences: [String: String]) {
+        self.accountReferences = accountReferences
+    }
+
+    func accountReference(for identifier: String) async throws -> String {
+        requestedIdentifiers.append(identifier)
+        guard let reference = accountReferences[identifier] else {
+            throw NIP05ResolutionError.notFound
+        }
+        return reference
+    }
+}
+
 private struct StubNIP05Resolver: NIP05Resolving {
     let accountReferences: [String: String]
 
@@ -35772,6 +36250,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     private(set) var lastPackageDeleteRelays: [String] = []
     private(set) var lastPublishedProfileDefaultRelays: [String] = []
     private(set) var lastPublishedProfileBootstrapRelays: [String] = []
+    /// How many times the profile was actually pushed at the network. A deterministic witness for
+    /// "Cancel published nothing", which the relay arrays cannot be: they start empty.
+    private(set) var publishUserProfileCallCount = 0
     private(set) var uploadedProfileImageData: Data?
     private(set) var uploadedProfileImageMediaType: String?
     private(set) var uploadedProfileImageBlossomServer: String?
@@ -36478,6 +36959,7 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     func publishUserProfile(
         accountRef: String, profile: UserProfileMetadataFfi, defaultRelays: [String], bootstrapRelays: [String]
     ) async throws -> UserProfileMetadataFfi {
+        publishUserProfileCallCount += 1
         lastPublishedProfileDefaultRelays = defaultRelays
         lastPublishedProfileBootstrapRelays = bootstrapRelays
         if let publishUserProfileError {
