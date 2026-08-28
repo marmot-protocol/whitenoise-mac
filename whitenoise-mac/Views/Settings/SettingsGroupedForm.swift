@@ -112,8 +112,16 @@ struct SettingsFooterText: View {
 ///
 /// A pop-up hides every option but the chosen one, which is the wrong trade for a setting
 /// whose options are the explanation — appearance, or how much of a message a notification
-/// may repeat. `.inline` draws them as radio rows in the group, so the choice and its
-/// alternatives are read together. Keep it to a handful; a long list wants the menu back.
+/// may repeat. The alternatives are laid out in the group so the choice and the options it
+/// was made from are read together. Keep it to a handful; a long list wants the menu back.
+///
+/// The rows are written out rather than left to `Picker(.inline)`, which is the one thing the
+/// grouped `Form` draws differently from the shape this surface is designed against. An inline
+/// `Picker` on macOS puts a grey radio dot on *every* row, so three options cost three controls
+/// and the reader has to compare their fills to find the live one. The reference design marks
+/// only the selection, with a trailing checkmark in the accent — one mark on the page, in the
+/// column the eye is already scanning for it. `Value` stays `Hashable` and the call sites are
+/// unchanged; only the drawing moved.
 struct SettingsChoiceSection<Value: Hashable>: View {
     var title: String?
     var footer: String?
@@ -123,16 +131,50 @@ struct SettingsChoiceSection<Value: Hashable>: View {
 
     var body: some View {
         SettingsSection(title: title, footer: footer) {
-            Picker(selection: $selection) {
-                ForEach(choices, id: \.self) { choice in
-                    Text(label(choice)).tag(choice)
+            ForEach(choices, id: \.self) { choice in
+                SettingsChoiceRow(
+                    title: label(choice),
+                    isSelected: choice == selection
+                ) {
+                    selection = choice
                 }
-            } label: {
-                EmptyView()
             }
-            .pickerStyle(.inline)
-            .labelsHidden()
         }
+    }
+}
+
+/// One alternative inside a `SettingsChoiceSection`: the whole row is the control, and the
+/// selected one carries a trailing checkmark.
+///
+/// The checkmark keeps its place in the layout when it is not the selected row — hiding it with
+/// `opacity` rather than an `if` — so the labels do not shift sideways as the selection moves,
+/// and every row reserves the same trailing column.
+private struct SettingsChoiceRow: View {
+    let title: String
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 8) {
+                Text(title)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "checkmark")
+                    // `.tint` rather than a palette constant: this is the same accent the rest
+                    // of the app's selection state is drawn in, and `ContentView` is the one
+                    // place that decides what it is.
+                    .foregroundStyle(.tint)
+                    .opacity(isSelected ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            // Without this the row is only clickable where the label's glyphs are, and the
+            // empty middle of a `Form` row is most of it.
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 

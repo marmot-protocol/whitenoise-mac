@@ -11992,65 +11992,6 @@
         }
       }
     },
-    "Choose how White Noise follows macOS appearance.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wähle, wie White Noise dem Erscheinungsbild von macOS folgt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elige cómo White Noise sigue la apariencia de macOS."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choisissez comment White Noise suit l’apparence de macOS."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scegli come White Noise segue l’aspetto di macOS."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escolha como o White Noise segue a aparência do macOS."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выберите, как White Noise следует оформлению macOS."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "White Noise’un macOS görünümünü nasıl izleyeceğini seçin."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择 White Noise 如何跟随 macOS 外观。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選擇 White Noise 如何跟隨 macOS 外觀。"
-          }
-        }
-      }
-    },
     "Choose how White Noise starts up and how it behaves in chats.": {
       "extractionState": "manual",
       "localizations": {
@@ -12165,6 +12106,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "選擇成員"
+          }
+        }
+      }
+    },
+    "Choose the theme and language White Noise uses.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle das Design und die Sprache, die White Noise verwendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige el tema y el idioma que usa White Noise."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez le thème et la langue utilisés par White Noise."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli il tema e la lingua usati da White Noise."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha o tema e o idioma que o White Noise usa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите тему и язык, которые использует White Noise."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise’un kullandığı temayı ve dili seçin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择 White Noise 使用的主题和语言。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇 White Noise 使用的主題和語言。"
           }
         }
       }
@@ -49933,6 +49933,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "跟隨系統"
+          }
+        }
+      }
+    },
+    "System follows your Mac appearance. Light and Dark keep the selected appearance.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System folgt dem Erscheinungsbild deines Macs. Hell und Dunkel behalten das gewählte Erscheinungsbild bei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema sigue la apariencia de tu Mac. Claro y Oscuro mantienen la apariencia seleccionada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système suit l’apparence de votre Mac. Clair et Sombre conservent l’apparence sélectionnée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema segue l’aspetto del tuo Mac. Chiaro e Scuro mantengono l’aspetto selezionato."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema segue a aparência do seu Mac. Claro e Escuro mantêm a aparência selecionada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный следует оформлению Mac. Светлая и Тёмная сохраняют выбранное оформление."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem, Mac’inizin görünümünü izler. Açık ve Koyu seçilen görünümü korur."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随系统会跟随 Mac 的外观。浅色和深色会保持所选外观。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟隨系統會跟隨 Mac 的外觀。淺色和深色會保持所選外觀。"
           }
         }
       }
