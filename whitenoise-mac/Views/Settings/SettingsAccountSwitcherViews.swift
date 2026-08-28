@@ -52,8 +52,8 @@ struct SettingsAccountSwitcherCard: View {
         .sheet(isPresented: $isQRPresented) {
             if let account = workspace.activeAccount {
                 PublicIdentityQRCodeSheet(
-                    displayName: account.displayName,
-                    npub: workspace.npub(forAccountIdHex: account.accountIdHex)
+                    account: account,
+                    displayName: account.displayName
                 )
             }
         }

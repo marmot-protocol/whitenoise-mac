@@ -130,7 +130,7 @@ struct ProfileIdentityHeaderView: View {
                 )
 
                 PublicIdentityQRCodeButton(
-                    accountIdHex: account.accountIdHex,
+                    account: account,
                     displayName: displayName,
                     style: .tile
                 )

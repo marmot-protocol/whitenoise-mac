@@ -64,7 +64,7 @@ struct IdentityKeysSettingsView: View {
                             .buttonStyle(.borderless)
 
                             PublicIdentityQRCodeButton(
-                                accountIdHex: account.accountIdHex,
+                                account: account,
                                 displayName: account.displayName
                             )
                         }
