@@ -11,11 +11,12 @@
 //  preference some other way — an optimistic move without the rollback, say, or a write that
 //  skipped the credentials guard.
 //
-//  Drawn as `SettingsToggleRow`, the shape every switch in settings takes, so the pair reads on
-//  the prompt exactly as it does on the page it is a shortcut to. That row is a `Toggle` and its
-//  `Label` and nothing else — it carries no page chrome — so it is equally at home in the
-//  prompt's own grouped `Form`. Nothing here explains the toggles: that is the enclosing
-//  section's footer on the page, and the prompt's own copy on the sheet.
+//  Drawn as `WNToggle`, the app's switch, so the pair reads on the prompt exactly as it does on
+//  the page it is a shortcut to. That component is a switch and its `Label` and nothing else — it
+//  carries no page chrome — so it is equally at home in the prompt's own grouped `Form`, and it
+//  names its own `fillPrimary` tint rather than inheriting one, which is what keeps the sheet's
+//  copy of these two switches off the blue system accent. Nothing here explains the toggles: that
+//  is the enclosing section's footer on the page, and the prompt's own copy on the sheet.
 //
 
 import SwiftUI
@@ -24,8 +25,8 @@ struct DataSharingToggleRows: View {
     @Environment(WorkspaceState.self) private var workspace
 
     var body: some View {
-        SettingsToggleRow(
-            title: L10n.string("Anonymous Telemetry"),
+        WNToggle(
+            L10n.string("Anonymous Telemetry"),
             systemImage: "waveform.path.ecg",
             isOn: Binding(
                 get: { workspace.privacySecuritySettings.relayTelemetryEnabled },
@@ -36,8 +37,8 @@ struct DataSharingToggleRows: View {
         )
         .disabled(workspace.isSavingPrivacySecurity)
 
-        SettingsToggleRow(
-            title: L10n.string("Audit Logging"),
+        WNToggle(
+            L10n.string("Audit Logging"),
             systemImage: "doc.text.magnifyingglass",
             isOn: Binding(
                 get: { workspace.privacySecuritySettings.auditLoggingEnabled },

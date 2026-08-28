@@ -19,14 +19,14 @@ struct DeveloperModeSettingsView: View {
             subtitle: L10n.string("Storage and diagnostics.")
         ) {
             SettingsSection(title: L10n.string("Developer")) {
-                SettingsToggleRow(
-                    title: L10n.string("Developer mode"),
+                WNToggle(
+                    L10n.string("Developer mode"),
                     systemImage: "stethoscope",
                     isOn: $workspace.developerMode
                 )
 
-                SettingsToggleRow(
-                    title: L10n.string("Streaming debug"),
+                WNToggle(
+                    L10n.string("Streaming debug"),
                     systemImage: "waveform.path.ecg",
                     isOn: $workspace.streamingDebugMode
                 )

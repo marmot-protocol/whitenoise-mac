@@ -19,8 +19,8 @@ struct NotificationsSettingsView: View {
             subtitle: L10n.string("Local alerts for this Mac.")
         ) {
             SettingsSection(title: L10n.string("Local Alerts")) {
-                SettingsToggleRow(
-                    title: L10n.string("Local notifications"),
+                WNToggle(
+                    L10n.string("Local notifications"),
                     systemImage: "bell.badge",
                     isOn: Binding(
                         get: { workspace.notificationSettings.localNotificationsEnabled },

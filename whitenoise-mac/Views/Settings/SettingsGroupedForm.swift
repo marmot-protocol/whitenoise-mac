@@ -3,7 +3,8 @@
 //  whitenoise-mac
 //
 //  The row vocabulary every grouped settings page is written in: a group, the note under
-//  it, a toggle, a list of choices, a read-only value, and a one-line result.
+//  it, a list of choices, a read-only value, and a one-line result. The switch is not
+//  here — it is `WNToggle`, because settings is not the only surface that shows one.
 //
 //  The one idea here is that a group's explanation belongs *under* the group, not inside
 //  it. Each page used to end a `Section` with a bare `Text` in secondary grey, which put a
@@ -102,23 +103,6 @@ struct SettingsFooterText: View {
             note.textSelection(.enabled)
         } else {
             note
-        }
-    }
-}
-
-/// A toggle labelled with its glyph, the shape every switch in settings takes.
-///
-/// The glyph is what makes a scanned column of toggles legible — it is the same argument the
-/// sidebar row makes one level up. Nothing here explains the toggle: that is the enclosing
-/// `SettingsSection`'s footer.
-struct SettingsToggleRow: View {
-    let title: String
-    let systemImage: String
-    @Binding var isOn: Bool
-
-    var body: some View {
-        Toggle(isOn: $isOn) {
-            Label(title, systemImage: systemImage)
         }
     }
 }
