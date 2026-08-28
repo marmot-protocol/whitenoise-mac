@@ -28,8 +28,8 @@ struct PreferencesSettingsView: View {
                 title: L10n.string("Startup"),
                 footer: L10n.string("Open the White Noise window automatically when you log in to your Mac.")
             ) {
-                SettingsToggleRow(
-                    title: L10n.string("Launch White Noise at Login"),
+                WNToggle(
+                    L10n.string("Launch White Noise at Login"),
                     systemImage: "power",
                     isOn: Binding(
                         get: { launchAtLogin.isEnabled },
@@ -45,8 +45,8 @@ struct PreferencesSettingsView: View {
                     "Return to the last conversation selected for this account, both on launch and when you switch accounts."
                 )
             ) {
-                SettingsToggleRow(
-                    title: L10n.string("Restore last selected chat"),
+                WNToggle(
+                    L10n.string("Restore last selected chat"),
                     systemImage: "bubble.left.and.bubble.right",
                     isOn: Binding(
                         get: { workspace.restoreLastSelectedChat },
