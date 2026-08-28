@@ -523,8 +523,9 @@ import Testing
 
     /// The one thing about this pane that fails invisibly.
     ///
-    /// It is the tallest of the three — an avatar, a title, two labelled fields (one of them three
-    /// lines), a reserved error line and a button, where the other two have a field or nothing —
+    /// It is the tallest of the three — an avatar, a public-profile notice, two labelled fields
+    /// (one of them three lines), a reserved error line and a button, where the other two have a
+    /// field or nothing —
     /// and the window it lives in can be as short as `ContentView`'s `minHeight`. The scaffold's
     /// `Spacer`s have a `minLength` floor and its `VStack` does not scroll, so a pane that grows
     /// past that height does not compress or clip: it pushes its own button off the bottom edge,
@@ -553,9 +554,12 @@ import Testing
     /// shipping a pane whose Create profile button is off the bottom edge in German.
     ///
     /// So the pane is measured once, its own notice is subtracted, and the tallest translation of
-    /// that notice is put back. Nothing else on the pane can take a line it did not take before —
-    /// the title sits in the header row, both field labels are one line, and the error slot is
-    /// reserved at a fixed height.
+    /// that notice is put back. Nothing else on the pane can take a line it did not take before:
+    /// both field labels are one line, and the error slot is reserved at a fixed height.
+    ///
+    /// This is the test that prices `OnboardingLayout.signUpAvatarSize`. German draws the notice
+    /// on three lines and puts the pane at 614pt of the 620pt there is, so the 6pt left over is
+    /// the entire budget for anything the pane grows by next.
     @Test func theSignUpPaneFitsTheSmallestWindowInEveryLanguage() throws {
         let paneHeight = try Self.signUpPaneHeight()
         let hostNotice = try Self.publicProfileNoticeHeight(
