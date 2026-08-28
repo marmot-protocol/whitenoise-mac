@@ -102,10 +102,10 @@ struct AccountRailView: View {
 /// Sign Out on right-click, where Sign Out fired `signOutAccount` with no prompt at all,
 /// so an accidental click dropped that identity's relay key packages. It also used to
 /// draw deactivated identities, dimmed to 0.4 behind a pause glyph, where one tap signed
-/// one back in. Every one of those is account management: sign-out and removal live in
-/// Settings' switcher behind confirmations (`SettingsAccountSwitcherCard`), and a
-/// deactivated identity is reached again by signing in with its key — no surface offers to
-/// reactivate one without it.
+/// one back in. Every one of those is account management, and none of it belongs on the
+/// control the user hits all day: signing the active identity out is `SettingsSignOutRow`
+/// behind a confirmation, removing it is Identity & Keys, and a deactivated identity is
+/// reached again by signing in with its key — no surface offers to reactivate one without it.
 ///
 /// The rail is fed `signedInAccounts`, so `account.signedOut` is false here by
 /// construction. Reintroducing a branch on it would be dead code describing a row that
@@ -126,12 +126,12 @@ private struct AccountRailAvatar: View {
                 initials: account.initials,
                 sanitizedPictureURL: account.sanitizedPictureURL,
                 // These are the viewer's *own* identities, so the rail sits with the profile
-                // editor and the account switcher on the exempt side of the "Load Remote Profile
-                // Images" preference — see `RemoteImageDisplayPolicy`. Left on the default, the
-                // rail drew initials for a picture the viewer had just set and could see in
-                // Settings, which reads as a broken avatar rather than as privacy. Unconditional
-                // because every row here is signed in — the switcher's list is fed the same
-                // filtered collection, so it is unconditional there too.
+                // editor and Settings' profile card on the exempt side of the "Load Remote
+                // Profile Images" preference — see `RemoteImageDisplayPolicy`. Left on the
+                // default, the rail drew initials for a picture the viewer had just set and could
+                // see in Settings, which reads as a broken avatar rather than as privacy.
+                // Unconditional because the rail is fed `signedInAccounts`; a deactivated
+                // identity never reaches an avatar here.
                 isOwnAccountImage: true,
                 size: MessagesLayout.accountRailAvatarSize,
                 isSelected: isActive
@@ -705,28 +705,15 @@ struct SettingsSidebarRow: View {
         // Glyph and title, nothing else: the prototype's hub states outright that it carries no
         // explanatory subtitles, and a second line under every row is what stopped the ten rows
         // from reading as a list you could scan.
-        HStack(spacing: SettingsSidebarRowMetrics.glyphSpacing) {
-            Image(systemName: page.systemImage)
-                .wnFont(.medium14)
-                .foregroundStyle(
-                    isSelected
-                        ? WNColor.backgroundContentPrimary : WNColor.backgroundContentSecondary
-                )
-                .frame(width: SettingsSidebarRowMetrics.glyphWidth)
-
-            Text(page.title(in: locale))
-                .wnFont(.medium14)
-                .foregroundStyle(WNColor.backgroundContentPrimary)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
-        .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
-        .background {
-            SettingsSidebarRowBackground(isSelected: isSelected)
-        }
-        .contentShape(Rectangle())
+        //
+        // The glyph takes the same tint as the title in both states, which is `SettingsSidebarRowLabel`'s
+        // rule. It used to drop to `backgroundContentSecondary` when the row was unselected, and
+        // since nine of the ten rows are unselected at any moment that read as a drawer of
+        // disabled options. The fill behind the row is what says which one is open.
+        SettingsSidebarRowLabel(systemImage: page.systemImage, title: page.title(in: locale))
+            .background {
+                SettingsSidebarRowBackground(isSelected: isSelected)
+            }
     }
 }
 
@@ -734,8 +721,9 @@ struct SettingsSidebarRow: View {
 /// destinations above it.
 ///
 /// Isolated by the same argument the prototype's hub makes — a row that ends a session does not
-/// belong in a card of rows that open a page. It was previously reachable only from inside the
-/// switcher popover, where you had to open a list of identities to act on the one already active.
+/// belong in a card of rows that open a page. It was once reachable only from inside the account
+/// switcher popover, where you had to open a list of identities to act on the one already active;
+/// with that popover gone this row is the only way to sign out.
 struct SettingsSignOutRow: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
@@ -747,22 +735,11 @@ struct SettingsSignOutRow: View {
                 Button {
                     isConfirming = true
                 } label: {
-                    HStack(spacing: SettingsSidebarRowMetrics.glyphSpacing) {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .wnFont(.medium14)
-                            .foregroundStyle(WNColor.backgroundContentDestructive)
-                            .frame(width: SettingsSidebarRowMetrics.glyphWidth)
-
-                        Text(L10n.string("Sign Out", locale: locale))
-                            .wnFont(.medium14)
-                            .foregroundStyle(WNColor.backgroundContentDestructive)
-                            .lineLimit(1)
-
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
-                    .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
-                    .contentShape(Rectangle())
+                    SettingsSidebarRowLabel(
+                        systemImage: "rectangle.portrait.and.arrow.right",
+                        title: L10n.string("Sign Out", locale: locale),
+                        tint: WNColor.backgroundContentDestructive
+                    )
                 }
                 .buttonStyle(.plain)
                 .disabled(workspace.isAccountMutationInProgress)

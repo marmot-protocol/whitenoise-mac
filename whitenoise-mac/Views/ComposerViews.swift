@@ -1588,7 +1588,7 @@ struct ProfileImageAvatarView: View {
     let localImagePayload: DownloadedMediaPayload?
     /// Whether `sanitizedPictureURL` is an account signed in on this Mac rather than a peer's.
     /// Own-account avatars ignore the "Load Remote Profile Images" preference — see
-    /// `RemoteImageDisplayPolicy` for why, and for the four call sites allowed to pass `true`.
+    /// `RemoteImageDisplayPolicy` for why, and for the six call sites allowed to pass `true`.
     let isOwnAccountImage: Bool
     let size: CGFloat
     let isSelected: Bool

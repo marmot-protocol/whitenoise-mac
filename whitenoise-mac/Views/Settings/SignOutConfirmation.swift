@@ -2,13 +2,14 @@
 //  SignOutConfirmation.swift
 //  whitenoise-mac
 //
-//  The one sign-out confirmation, shared by the two places that can raise it: the account
-//  switcher card, where a specific identity is picked, and the drawer's isolated Sign Out row,
-//  which always means the active one.
+//  The one sign-out confirmation. It is raised from the drawer's isolated Sign Out row, which
+//  always means the active identity; the account switcher popover used to raise it for a
+//  specific one, and the modifier stayed generic over `account` when that went, because signing
+//  out is stated in terms of *which* identity you are leaving.
 //
-//  Extracted rather than written twice, because the copy is the promise: signing out leaves the
-//  account and its local data on this Mac. Two dialogs would be two chances to say that
-//  differently, and only one of them would be the one the reader remembers.
+//  A modifier rather than a dialog written inline, because the copy is the promise: signing out
+//  leaves the account and its local data on this Mac. Two dialogs would be two chances to say
+//  that differently, and only one of them would be the one the reader remembers.
 //
 
 import SwiftUI

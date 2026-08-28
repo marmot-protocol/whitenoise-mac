@@ -71,7 +71,7 @@ struct AvatarChromeModifier: ViewModifier {
     /// is what it looks like rather than a subtle one. Any container that clips (a `ScrollView`,
     /// a `clipShape`) has to leave this much slack around an avatar on its edge. The account rail
     /// buys the slack with a bigger frame (`accountRailAvatarSize` inside
-    /// `accountRailAvatarFrameSize`); the account switcher's rows inset their scroll content.
+    /// `accountRailAvatarFrameSize`).
     static func overhang(forAvatarSize size: CGFloat) -> CGFloat {
         size * (selectedScale - 1) / 2 + shadowRadius
     }
@@ -387,6 +387,14 @@ enum MessagesLayout {
     /// slides the text right rather than under the buttons.
     static let windowTrafficLightZoneWidth: CGFloat = 78
     static let chatRowAvatarSize: CGFloat = 46
+    /// The active profile's avatar in Settings' first card.
+    ///
+    /// Deliberately the same value as `chatRowAvatarSize` and `accountRailAvatarSize`: those three
+    /// are the app's identity rows, and an identity should not be a different size depending on
+    /// which list it is standing in. It was 34pt, which made the one row about *you* the smallest
+    /// avatar on screen — `wn-ios-prototype`'s hub gives the same row its largest (56pt on a 393pt
+    /// iPhone; 46 on this 250–300pt drawer is the same share of the width).
+    static let settingsProfileAvatarSize: CGFloat = 46
     /// Grab width of the drawer's resize handle. The divider itself stays 1pt in layout —
     /// the grab area is an overlay, so widening it never opens a gutter between the drawer
     /// and the detail pane; it only reaches a few points into each.
