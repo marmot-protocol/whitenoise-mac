@@ -29,23 +29,23 @@ import Foundation
 ///
 /// So: your own avatar always draws, everyone else's waits for the preference. Pass
 /// `isOwnAccountImage: true` only where the URL provably belongs to an account **signed in** on
-/// this Mac — the profile editor, its picker, Identity & Keys, the account rail, the account
-/// switcher, and the public-identity QR sheet those last two open. Peer avatars (chat rows,
-/// message senders, member lists, search results) must keep the default.
+/// this Mac — the profile editor, its picker, Identity & Keys, Settings' profile card, the account
+/// rail, and the public-identity QR sheet those last two open. Peer avatars (chat rows, message
+/// senders, member lists, search results) must keep the default.
 ///
 /// "Signed in" is load-bearing rather than decorative, and each of those sites earns its literal
-/// `true` differently. The first three render `activeAccount`, which `restoreOrSelectFirstAccount()`
+/// `true` differently. The first four render `activeAccount`, which `restoreOrSelectFirstAccount()`
 /// guarantees is never a signed-out account, and so does the QR sheet: every call site that opens
-/// it reads `activeAccount`. The rail and the switcher each render several accounts at once, but
-/// both are fed `signedInAccounts`, so a deactivated identity never reaches an avatar in either to
-/// begin with.
+/// it reads `activeAccount`. The rail renders several accounts at once, but it is fed
+/// `signedInAccounts`, so a deactivated identity never reaches an avatar there to begin with.
 ///
-/// Both used to pass `!account.signedOut` instead, for the deactivated rows they drew: sign-out
-/// drops an identity's relay key packages, so the app should not then fetch its avatar and put
-/// traffic on the wire on its behalf. Filtering the lists themselves subsumed that argument, and
-/// no surface draws a deactivated identity's avatar at all now — the pane that used to list them
-/// when nothing was signed in is gone too, so getting back into one is Sign In with its key and
-/// the avatar is fetched only once it is signed in again.
+/// No site passes a computed value any more. Two used to pass `!account.signedOut`, for the
+/// deactivated rows they drew: sign-out drops an identity's relay key packages, so the app should
+/// not then fetch its avatar and put traffic on the wire on its behalf. Filtering the rail's list
+/// subsumed that argument, and deleting the Settings switcher popover removed the other site
+/// outright. No surface draws a deactivated identity's avatar at all now — the pane that used to
+/// list them when nothing was signed in is gone too, so getting back into one is Sign In with its
+/// key and the avatar is fetched only once it is signed in again.
 nonisolated enum RemoteImageDisplayPolicy {
     static func loadsRemoteImage(isOwnAccountImage: Bool, preferenceEnabled: Bool) -> Bool {
         isOwnAccountImage || preferenceEnabled

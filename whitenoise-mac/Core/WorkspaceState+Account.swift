@@ -147,18 +147,25 @@ extension WorkspaceState {
         withRememberedChatPreserved(outcome.preservesMemory) { selectChat(chat) }
     }
 
+    /// Switch identity from a control anchored inside Settings, landing on the settings page the
+    /// user is already reading rather than on a conversation.
+    ///
+    /// Currently reached from no view: the switcher popover that called it is gone, and the
+    /// account rail uses `selectAccount(_:)`, which lands on a chat. Kept because the *landing*
+    /// rule it encodes is the one any future in-Settings switch wants, and because it is what
+    /// `settingsSelectionAfterAccountMutation` is exercised through.
     func selectAccountFromSettings(_ account: AccountItem) {
         guard !account.signedOut else { return }
-        // The row for the already-active account is a no-op: the switcher is anchored to the
-        // settings page the user is already reading, so switching would tear the session down
-        // and rebuild it only to land back on the same screen.
+        // The row for the already-active account is a no-op: a switch anchored to the settings
+        // page the user is already reading would tear the session down and rebuild it only to
+        // land back on the same screen.
         guard account.id != activeAccountId else { return }
         switchActiveAccount(account, finalSelection: settingsSelectionAfterAccountMutation)
     }
 
     /// Where to land after an account mutation hands the app a different active identity.
     ///
-    /// The switcher lives at the top of Settings rather than on an Accounts page of its own, so
+    /// Identity work lives at the top of Settings rather than on an Accounts page of its own, so
     /// these paths stay in Settings: on the page the user was already reading (it is simply
     /// re-answered for the new identity — `SettingsPanelView` reloads off `activeAccountId`), or
     /// on the profile overview when the mutation came from the account rail instead.
@@ -300,7 +307,7 @@ extension WorkspaceState {
 
     /// Open the onboarding surface to add an identity alongside the ones already on this Mac.
     ///
-    /// This is the whole of Settings' `Add Account` row — the last caller left. Adding an
+    /// This is the whole of Settings' `Add Profile` row — the last caller left. Adding an
     /// identity once had two competing answers: a bespoke Settings sheet with its own key field
     /// and its own pair of buttons, and a `Use another account` button on the pane that stood in
     /// for the app when nothing was signed in. The sheet's was a second, worse copy of a flow
@@ -310,11 +317,10 @@ extension WorkspaceState {
     /// too: it presents `WelcomeView` and pushes the *real* `LoginView` and `SignUpView` rather
     /// than reimplementing either.
     ///
-    /// Note where the Settings caller sits: `SettingsAccountSwitcherCard`'s own row, not the
-    /// switcher popover it raises. The popover used to carry an `Add Account` button under its
-    /// row list, and a dropdown for choosing among existing identities is not where a new one
-    /// should be created — the row offers it in the one case the dropdown would be empty anyway,
-    /// when this Mac holds a single identity and there is nothing to switch to.
+    /// The Settings caller is `SettingsAccountSwitcherCard`'s second row, unconditionally. That
+    /// row used to read `Add Account` with one identity on this Mac and `Switch Account` with
+    /// more, the latter opening a popover instead of calling this — so the same row meant two
+    /// different things depending on state the user had not thought about.
     ///
     /// Deliberately leaves `selection` alone, so `leaveAccountOnboarding()` puts the user back on
     /// the page they opened this from rather than somewhere merely plausible.
@@ -774,7 +780,7 @@ extension WorkspaceState {
         let generation = pendingInviteCountGeneration
         // The active account is excluded here and answered from its rows; a signed-out account
         // has no badge count at all, and no rail avatar to hang one on — `signedInAccounts`
-        // leaves it out. The switcher's row shows its status in words instead.
+        // leaves it out.
         let targets = accounts.filter { !$0.signedOut && $0.id != activeAccountId }
         var counts: [String: Int] = [:]
         for target in targets {
@@ -884,7 +890,7 @@ extension WorkspaceState {
         )
     }
 
-    /// Aggregate attention count for an account's avatar badge in the rail and the switcher:
+    /// Aggregate attention count for an account's avatar badge in the rail:
     /// unread messages plus one for each invitation the account has not answered yet.
     ///
     /// An unaccepted invite has no timeline, so it adds nothing to the unread total however long
