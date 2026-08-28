@@ -12110,65 +12110,6 @@
         }
       }
     },
-    "Choose the theme and language White Noise uses.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wähle das Design und die Sprache, die White Noise verwendet."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elige el tema y el idioma que usa White Noise."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choisissez le thème et la langue utilisés par White Noise."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scegli il tema e la lingua usati da White Noise."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escolha o tema e o idioma que o White Noise usa."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выберите тему и язык, которые использует White Noise."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "White Noise’un kullandığı temayı ve dili seçin."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择 White Noise 使用的主题和语言。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選擇 White Noise 使用的主題和語言。"
-          }
-        }
-      }
-    },
     "Choose where to save downloads": {
       "comment": "Title of the folder panel shown before the first attachment download.",
       "extractionState": "manual",

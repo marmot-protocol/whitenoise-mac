@@ -13,10 +13,10 @@ struct AppearanceSettingsView: View {
     var body: some View {
         @Bindable var workspace = workspace
 
-        SettingsScaffold(
-            title: L10n.string("Appearance"),
-            subtitle: L10n.string("Choose the theme and language White Noise uses.")
-        ) {
+        // No subtitle: the two groups below are named "Theme" and "Language", and a line
+        // under the title saying the page is about the theme and the language would only be
+        // reading those two headers back. The reference design titles this screen and stops.
+        SettingsScaffold(title: L10n.string("Appearance")) {
             // Three options, drawn as the three options rather than as a pop-up that hides two
             // of them: what Light and Dark mean is only clear next to System.
             //
