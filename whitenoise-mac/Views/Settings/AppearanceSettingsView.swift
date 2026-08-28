@@ -15,13 +15,19 @@ struct AppearanceSettingsView: View {
 
         SettingsScaffold(
             title: L10n.string("Appearance"),
-            subtitle: L10n.string("Choose how White Noise follows macOS appearance.")
+            subtitle: L10n.string("Choose the theme and language White Noise uses.")
         ) {
             // Three options, drawn as the three options rather than as a pop-up that hides two
-            // of them. What Light and Dark mean is only clear next to System, so the alternatives
-            // are the explanation and there is no footer to write.
+            // of them: what Light and Dark mean is only clear next to System.
+            //
+            // The note under them says what each one does rather than repeating the page title,
+            // because "System" is the only one of the three whose behaviour is not in its name —
+            // it is the one that keeps changing after it is chosen.
             SettingsChoiceSection(
                 title: L10n.string("Theme"),
+                footer: L10n.string(
+                    "System follows your Mac appearance. Light and Dark keep the selected appearance."
+                ),
                 choices: AppearancePreference.allCases,
                 selection: $workspace.appearancePreference
             ) { preference in
