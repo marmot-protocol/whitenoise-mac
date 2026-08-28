@@ -763,8 +763,8 @@ extension WorkspaceState {
     /// point at it draw the picture now.
     ///
     /// Without this, setting a profile picture reads as broken for as long as the round trip
-    /// takes: the form's own 96pt avatar, the account rail beside the chat list, and the switcher
-    /// all take the new URL at once and every one of them shows initials until Blossom serves back
+    /// takes: the form's own 96pt avatar, the account rail beside the chat list, and Settings'
+    /// profile card all take the new URL at once and every one shows initials until Blossom serves back
     /// the image the app had just finished sending it. Both upload sites call this — the settings
     /// picker here and `completeSignUp()` — because both are places where the app, and only the
     /// app, knows that these bytes are what lives at that URL.

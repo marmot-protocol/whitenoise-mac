@@ -1754,95 +1754,6 @@ struct whitenoise_macTests {
                     forAvatarSize: MessagesLayout.accountRailAvatarSize))
     }
 
-    /// The switcher's rows scroll, and a `ScrollView` clips to its bounds — with the avatar seated
-    /// flush against the leading edge, the active account's ring came out with a flat left side.
-    /// Only the source can hold this contract: SwiftUI's clipping is not observable from a test,
-    /// and the fix is a pair of paddings that cancel in layout, so any assertion on the rows'
-    /// position would pass just as well with both of them deleted.
-    @MainActor
-    @Test func accountSwitcherScrollListInsetsItsRowsForTheAvatarChrome() throws {
-        let sourceURL =
-            URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "whitenoise-mac")
-            .appending(path: "Views")
-            .appending(path: "Settings")
-            .appending(path: "SettingsAccountSwitcherViews.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        let popoverStart = try #require(source.range(of: "struct AccountSwitcherPopover: View {"))
-        let popoverEnd = try #require(source.range(of: "struct AccountSwitcherRow: View {"))
-        let normalized = String(source[popoverStart.lowerBound..<popoverEnd.lowerBound])
-            .components(separatedBy: .whitespacesAndNewlines).joined()
-
-        // The rows are inset so the chrome has somewhere to draw...
-        #expect(normalized.contains(".padding(.horizontal,Self.rowChromeInset)"))
-        // ...and the scroll view is widened by the same amount so they stay put.
-        #expect(normalized.contains(".padding(.horizontal,-Self.rowChromeInset)"))
-    }
-
-    /// The switcher switches between signed-in identities; it neither makes a new one nor brings
-    /// a deactivated one back. `Add Account` sat under the row list and opened the onboarding
-    /// landing pane — the one offering Sign Up — which put account *creation* in the same dropdown
-    /// as account switching. Reactivation went the same way with the signed-out rows themselves.
-    /// Only a source contract can guard an absent control: no behavior test can observe a button
-    /// that is never built.
-    @MainActor
-    @Test func accountSwitcherPopoverOffersNoWayToCreateOrReactivateAnAccount() throws {
-        let source = try Self.accountSwitcherSource()
-        let popoverStart = try #require(source.range(of: "struct AccountSwitcherPopover: View {"))
-        let popoverEnd = try #require(source.range(of: "struct AccountSwitcherRow: View {"))
-        let normalized = Self.strippingCommentLines(source[popoverStart.lowerBound..<popoverEnd.lowerBound])
-            .components(separatedBy: .whitespacesAndNewlines).joined()
-
-        // Scoped to the popover: `Add Account` is still the card's own `profileManagementRow`,
-        // which offers it when there is nothing to switch to.
-        #expect(!normalized.contains("AddAccount"), "account creation does not belong in the switcher")
-        #expect(!normalized.contains("showAccountOnboarding"))
-        // Reactivation, unlike creation, has no home anywhere in this file — the card used to
-        // hand the popover an `onSignIn` closure — so it is asserted over the whole of it.
-        #expect(
-            !Self.strippingCommentLines(source).contains("signInAccount"),
-            "reactivating an identity is not switching to it"
-        )
-    }
-
-    /// The switcher's row list is fed the filtered collection. Only the source can hold which one
-    /// it iterates — SwiftUI's `ForEach` is not observable from a test, and `workspace.accounts`
-    /// compiles just as well — so the filter is pinned where it is written.
-    @MainActor
-    @Test func accountSwitcherListsOnlySignedInAccounts() throws {
-        let source = try Self.accountSwitcherSource()
-        let popoverStart = try #require(source.range(of: "struct AccountSwitcherPopover: View {"))
-        let popoverEnd = try #require(source.range(of: "struct AccountSwitcherRow: View {"))
-        let normalized = Self.strippingCommentLines(source[popoverStart.lowerBound..<popoverEnd.lowerBound])
-            .components(separatedBy: .whitespacesAndNewlines).joined()
-
-        #expect(normalized.contains("ForEach(workspace.signedInAccounts)"))
-        // The empty state has to read the same collection: with every stored identity deactivated
-        // there is nothing to switch between, and `workspace.accounts.isEmpty` would have claimed
-        // a list while rendering no rows at all.
-        #expect(normalized.contains("workspace.signedInAccounts.isEmpty"))
-        #expect(!normalized.contains("workspace.accounts"))
-    }
-
-    /// The row itself keeps no signed-out branch — no dimmed avatar, no warning-colored `Signed
-    /// out` caption, no `Sign In` menu item. Left in place it would read as live behavior for a
-    /// row that cannot reach the view, and would invite the list's filter to be widened back.
-    @MainActor
-    @Test func accountSwitcherRowCarriesNoSignedOutBranch() throws {
-        let source = try Self.accountSwitcherSource()
-        let rowStart = try #require(source.range(of: "struct AccountSwitcherRow: View {"))
-        let row = Self.strippingCommentLines(source[rowStart.lowerBound...])
-
-        #expect(!row.contains("account.signedOut"))
-        #expect(!row.contains("onSignIn"))
-        // Its avatar is exempt from the remote-image preference unconditionally now — the
-        // narrower `!account.signedOut` existed for rows the list no longer produces.
-        #expect(row.contains("isOwnAccountImage: true"))
-    }
-
     /// A source slice with its comment-only lines dropped.
     ///
     /// A contract that forbids a token cannot read the comments: these files explain at length
@@ -1867,6 +1778,64 @@ struct whitenoise_macTests {
                 .appending(path: "SettingsAccountSwitcherViews.swift"),
             encoding: .utf8
         )
+    }
+
+    /// Settings' profile card carries exactly one action: add a profile. Only a source contract
+    /// can guard an absent control — no behavior test can observe a popover that is never built —
+    /// and the thing being guarded is that the row does not go back to adapting. It used to read
+    /// `Add Account` with one identity signed in on this Mac and `Switch Account` with more, the
+    /// second form opening a switcher popover, so the same row meant two different things
+    /// depending on state the user had not thought about. Switching identities is the account
+    /// rail's job.
+    ///
+    /// This replaces the popover's own contracts — that it offered no way to create or reactivate
+    /// an identity, that its list was fed `signedInAccounts`, that its row kept no signed-out
+    /// branch. A deleted view needs none of them; what needs guarding is that it stays deleted.
+    @MainActor
+    @Test func settingsProfileCardOffersAddProfileUnconditionallyAndNoSwitcher() throws {
+        let code = Self.strippingCommentLines(try Self.accountSwitcherSource())
+
+        #expect(code.contains("L10n.string(\"Add Profile\", locale: locale)"))
+        #expect(code.contains("person.crop.circle.badge.plus"))
+        // The glyph that described switching, on a row that no longer switches.
+        #expect(!code.contains("arrow.up.arrow.down"))
+
+        // No switcher, and none of the account management that hung off it.
+        #expect(!code.contains("AccountSwitcherPopover"))
+        #expect(!code.contains("AccountSwitcherRow"))
+        #expect(!code.contains(".popover("))
+        #expect(!code.contains("selectAccountFromSettings"))
+        #expect(!code.contains("removeAccount"))
+        #expect(!code.contains("signOutAccount"))
+        #expect(!code.contains("signInAccount"))
+
+        // And the add row is unconditional: no branch on how many identities this Mac holds.
+        #expect(!code.contains("accounts.count > 1"))
+        #expect(!code.contains("hasOtherSignedInAccount"))
+        #expect(!code.contains("Add Account"), "the row states its one job in every state")
+        #expect(!code.contains("Switch Account"))
+    }
+
+    /// The active profile's avatar is the largest thing in the card, not the smallest thing on
+    /// screen. It was 34pt — under both the rail's and the chat row's — which made the one row
+    /// about *you* the least prominent identity in the window. `wn-ios-prototype`'s hub gives the
+    /// same row its largest avatar.
+    @MainActor
+    @Test func settingsProfileAvatarMatchesTheAppsOtherIdentityRows() throws {
+        #expect(MessagesLayout.settingsProfileAvatarSize == MessagesLayout.accountRailAvatarSize)
+        #expect(MessagesLayout.settingsProfileAvatarSize == MessagesLayout.chatRowAvatarSize)
+        #expect(MessagesLayout.settingsProfileAvatarSize > 34)
+
+        // The card clips (`SettingsSidebarGroupCard`'s `clipShape`), so the row's own padding has
+        // to cover what the avatar's chrome draws outside its frame — otherwise the bigger avatar
+        // comes out with a flat edge against the card.
+        let source = try Self.accountSwitcherSource()
+        #expect(source.contains("size: MessagesLayout.settingsProfileAvatarSize"))
+        // The row passes `isSelected: false`, so `selectedScale` never applies and the only chrome
+        // reaching past the frame is the shadow's blur.
+        #expect(source.contains("isSelected: false"))
+        #expect(SettingsSidebarRowMetrics.verticalPadding >= AvatarChromeModifier.shadowRadius)
+        #expect(SettingsSidebarRowMetrics.horizontalPadding >= AvatarChromeModifier.shadowRadius)
     }
 
     @MainActor
@@ -2262,13 +2231,12 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func signedInAccountsOmitsDeactivatedIdentitiesFromTheRailAndSwitcher() async throws {
-        // What the account rail and the Settings switcher draw. A signed-out identity used to sit
-        // in both — dimmed to 0.4 behind a pause glyph in the rail, dimmed under a `Signed out`
-        // caption in the switcher — and tapping it signed the identity back in. Neither control
-        // can be *switched* to a deactivated identity (`selectAccount` and
-        // `selectAccountFromSettings` both refuse one), so those rows were a sign-in button
-        // wearing a destination's clothes.
+    @Test func signedInAccountsOmitsDeactivatedIdentitiesFromTheRail() async throws {
+        // What the account rail draws — and, until the Settings switcher popover was deleted,
+        // that list too. A signed-out identity used to sit in both, dimmed to 0.4 behind a pause
+        // glyph, and tapping it signed the identity back in. Neither control can be *switched*
+        // to a deactivated identity (`selectAccount` and `selectAccountFromSettings` both refuse
+        // one), so those rows were a sign-in button wearing a destination's clothes.
         //
         // `accounts` must keep every identity on this Mac regardless. No surface lists the
         // deactivated ones any more — the pane that used to stand in for the app when nothing was
@@ -2312,10 +2280,11 @@ struct whitenoise_macTests {
         #expect(state.hasOtherSignedInAccount)
     }
 
-    /// Signing a background identity out drops it from the switcher instead of turning its row
-    /// into a dimmed `Signed out` entry, and leaves the active session alone.
+    /// Signing a background identity out drops it from `signedInAccounts` — so from the rail —
+    /// instead of turning its row into a dimmed `Signed out` entry, and leaves the active
+    /// session alone.
     @MainActor
-    @Test func signingOutABackgroundAccountRemovesItFromTheSwitcherList() async throws {
+    @Test func signingOutABackgroundAccountRemovesItFromTheRail() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -7090,6 +7059,65 @@ struct whitenoise_macTests {
         #expect(SettingsPage.overview.title(in: spanish) == "Configuración")
     }
 
+    /// A drawer row's glyph is the same colour as its title, in both states.
+    ///
+    /// `wn-ios-prototype`'s hub draws each row as one `Label(...).foregroundStyle(.primary)`. This
+    /// app had the glyph a step down at `backgroundContentSecondary` and lifted it to primary only
+    /// on the selected row — and since nine of the ten destinations are unselected at any moment,
+    /// the drawer read as a list of disabled options. Selection is carried by
+    /// `SettingsSidebarRowBackground`'s fill, which is the only signal the prototype uses.
+    ///
+    /// A source contract because a `foregroundStyle` is not observable from a test, and it guards
+    /// the *single* tint: two colours in `SettingsSidebarRowLabel` would be the old split
+    /// reintroduced one level down, where every row inherits it.
+    @Test func settingsDrawerRowGlyphTakesTheSameTintAsItsTitle() throws {
+        let cardURL =
+            URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "whitenoise-mac")
+            .appending(path: "Views")
+            .appending(path: "Settings")
+            .appending(path: "SettingsSidebarGroupCard.swift")
+        let cardSource = try String(contentsOf: cardURL, encoding: .utf8)
+
+        let labelStart = try #require(cardSource.range(of: "struct SettingsSidebarRowLabel<Accessory: View>: View {"))
+        let labelRest = cardSource[labelStart.upperBound...]
+        let labelEnd = try #require(labelRest.range(of: "\nextension ")?.lowerBound)
+        // Comments dropped before the whitespace is joined out, so the absence check below reads
+        // the declaration rather than the paragraph explaining it.
+        let label = Self.strippingCommentLines(String(cardSource[labelStart.lowerBound..<labelEnd]))
+            .components(separatedBy: .whitespacesAndNewlines).joined()
+
+        // One tint, applied to both the glyph and the title.
+        #expect(label.contains("SettingsSidebarRowGlyph(systemImage:systemImage,tint:tint)"))
+        #expect(label.contains("Text(title)"))
+        #expect(label.contains(".foregroundStyle(tint)"))
+        #expect(!label.contains("backgroundContentSecondary"))
+
+        // The default is the primary content colour, which is what "darker" meant.
+        #expect(cardSource.contains("var tint: Color = WNColor.backgroundContentPrimary"))
+
+        // And the rows go through the atom rather than keeping their own copies of the HStack.
+        let sidebarURL =
+            URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "whitenoise-mac")
+            .appending(path: "Views")
+            .appending(path: "SidebarViews.swift")
+        let sidebarSource = try String(contentsOf: sidebarURL, encoding: .utf8)
+        let rowStart = try #require(sidebarSource.range(of: "struct SettingsSidebarRow: View {"))
+        let rowRest = sidebarSource[rowStart.upperBound...]
+        let rowEnd = try #require(rowRest.range(of: "\nstruct ")?.lowerBound)
+        let rowSource = String(sidebarSource[rowStart.lowerBound..<rowEnd])
+
+        #expect(rowSource.contains("SettingsSidebarRowLabel(systemImage: page.systemImage"))
+        #expect(!Self.strippingCommentLines(rowSource).contains("backgroundContentSecondary"))
+        // The selection signal that replaced the tint split has to still be there.
+        #expect(rowSource.contains("SettingsSidebarRowBackground(isSelected: isSelected)"))
+    }
+
     @Test func settingsDrawerLocalizesThroughEnvironmentLocale() throws {
         // The re-render on a language switch comes from a SwiftUI dependency, which only a
         // source contract can guard: both the drawer and its rows must read `\.locale` and
@@ -7115,7 +7143,7 @@ struct whitenoise_macTests {
             #expect(normalized.contains("@Environment(\\.locale)privatevarlocale"))
         }
         #expect(drawerSource.contains("L10n.string(\"Settings\", locale: locale)"))
-        #expect(rowSource.contains("Text(page.title(in: locale))"))
+        #expect(rowSource.contains("title: page.title(in: locale)"))
     }
 
     @MainActor
@@ -28636,8 +28664,10 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func reselectingTheActiveAccountRowInSettingsKeepsTheSessionLoaded() async throws {
-        // The settings account switcher marks the active row "Active"; tapping it would otherwise
-        // tear the session down and rebuild it only to land back on the page already on screen.
+        // `selectAccountFromSettings` guards the already-active identity: a switch anchored to the
+        // settings page on screen would tear the session down and rebuild it only to land back
+        // there. No view reaches it since the switcher popover went, but the guard is the landing
+        // rule any in-Settings switch wants, so it stays exercised.
         let state = WorkspaceState.preview()
         let active = try #require(state.activeAccount)
         state.showSettings(.relays)

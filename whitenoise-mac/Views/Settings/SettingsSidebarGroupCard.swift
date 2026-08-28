@@ -69,6 +69,67 @@ struct SettingsSidebarRowBackground: View {
     }
 }
 
+/// The glyph column of a settings drawer row.
+///
+/// An atom rather than four copies of the same `Image` because the glyph column is where the
+/// drawer's rows agree with each other: one width, one type size, and one tint rule. The tint rule
+/// is the interesting part — `wn-ios-prototype`'s hub draws each row as a single
+/// `Label(...).foregroundStyle(.primary)`, so the glyph is *the same colour as the title beside
+/// it*. This app had the glyph a step down at `backgroundContentSecondary` and lifted it to primary
+/// only on the selected row, which made every unselected glyph read as disabled. Selection is
+/// carried by `SettingsSidebarRowBackground`'s fill, which is the only signal the prototype uses
+/// too — so the glyph does not need to encode it a second time.
+struct SettingsSidebarRowGlyph: View {
+    let systemImage: String
+    var tint: Color = WNColor.backgroundContentPrimary
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .wnFont(.medium14)
+            .foregroundStyle(tint)
+            .frame(width: SettingsSidebarRowMetrics.glyphWidth)
+    }
+}
+
+/// Glyph, title, and the room a trailing accessory needs: the shape every plain row in the
+/// settings drawer takes.
+///
+/// The rows this composes are a destination, the sign-out line and the add-profile line — three
+/// call sites that had three separate copies of the same `HStack`, and so three chances for one of
+/// them to drift a padding or a font off the others. Carrying the *label* rather than the whole
+/// row is deliberate: a destination row wants a selection background behind it and the sign-out
+/// row does not, and that difference belongs to the caller's `Button`, not here.
+struct SettingsSidebarRowLabel<Accessory: View>: View {
+    let systemImage: String
+    let title: String
+    var tint: Color = WNColor.backgroundContentPrimary
+    @ViewBuilder let accessory: Accessory
+
+    var body: some View {
+        HStack(spacing: SettingsSidebarRowMetrics.glyphSpacing) {
+            SettingsSidebarRowGlyph(systemImage: systemImage, tint: tint)
+
+            Text(title)
+                .wnFont(.medium14)
+                .foregroundStyle(tint)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            accessory
+        }
+        .padding(.vertical, SettingsSidebarRowMetrics.verticalPadding)
+        .padding(.horizontal, SettingsSidebarRowMetrics.horizontalPadding)
+        .contentShape(Rectangle())
+    }
+}
+
+extension SettingsSidebarRowLabel where Accessory == EmptyView {
+    init(systemImage: String, title: String, tint: Color = WNColor.backgroundContentPrimary) {
+        self.init(systemImage: systemImage, title: title, tint: tint, accessory: { EmptyView() })
+    }
+}
+
 /// The one place the drawer row's geometry is decided, so the separator's inset cannot drift
 /// away from the text it is supposed to line up with.
 enum SettingsSidebarRowMetrics {

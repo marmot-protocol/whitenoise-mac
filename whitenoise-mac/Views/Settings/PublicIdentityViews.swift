@@ -4,7 +4,7 @@
 //
 //  The ways an account's public identity is shown: as a scannable QR code, as a
 //  truncated, copyable `npub`, and as a NIP-05 Nostr address. Shared by the Profile
-//  and Identity & Keys pages and by the account switcher, so none of them owns them.
+//  and Identity & Keys pages and by Settings' profile card, so none of them owns them.
 //
 
 import AppKit
@@ -13,7 +13,7 @@ import SwiftUI
 
 /// How prominent the QR affordance is at a given call site.
 enum PublicIdentityQRCodeButtonStyle {
-    /// A bare glyph sitting inside a row of other text — an account switcher entry, a key row.
+    /// A bare glyph sitting inside a row of other text — Settings' profile row, a key row.
     case inline
     /// A tile that stands next to a `WNCopyCard` and matches its height, for the screens where
     /// handing your identity to someone else is the point rather than an aside.
