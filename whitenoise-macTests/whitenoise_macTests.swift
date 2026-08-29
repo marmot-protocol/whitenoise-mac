@@ -33166,6 +33166,156 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func enablingNativePushWritesThroughAndPublishesTheCoreSnapshot() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.setNativePushEnabled(true)
+
+        #expect(runtime.nativePushEnabledSet == true)
+        #expect(state.notificationSettings.nativePushEnabled)
+        // Native push carries no message content, so it asks for nothing the local alerts it
+        // supplements have not already been granted.
+        #expect(!notificationCenter.didRequestAuthorization)
+        #expect(state.lastError == nil)
+    }
+
+    @MainActor
+    @Test func turningLocalNotificationsOffAlsoClearsNativePushInTheCore() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(
+            for: account,
+            localEnabled: true,
+            nativePushEnabled: true
+        )
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        #expect(state.notificationSettings.nativePushEnabled)
+
+        await state.setLocalNotificationsEnabled(false)
+
+        #expect(runtime.localNotificationsEnabledSet == false)
+        // The wake-up exists to deliver a local alert, so it cannot outlive one.
+        #expect(runtime.nativePushEnabledSet == false)
+        #expect(!state.notificationSettings.localNotificationsEnabled)
+        #expect(!state.notificationSettings.nativePushEnabled)
+    }
+
+    @MainActor
+    @Test func turningLocalNotificationsOffLeavesNativePushAloneWhenItIsAlreadyOff() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.setLocalNotificationsEnabled(false)
+
+        #expect(runtime.setNativePushEnabledCallCount == 0)
+    }
+
+    @MainActor
+    @Test func aFailedNativePushCleanupKeepsTheLocalDisableThatSucceeded() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(
+            for: account,
+            localEnabled: true,
+            nativePushEnabled: true
+        )
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        runtime.setNativePushEnabledError = FakeMarmotRuntimeError.nativePushWriteFailed
+
+        await state.setLocalNotificationsEnabled(false)
+
+        // The two flags are separate core writes, so they can fail apart. The one that landed
+        // has to reach the pane anyway — publishing only on the pair's success left local
+        // alerts drawn as on after the core had already turned them off.
+        #expect(runtime.localNotificationsEnabledSet == false)
+        #expect(!state.notificationSettings.localNotificationsEnabled)
+        // …and the flag that did not move still reads as set, because in the core it is.
+        #expect(state.notificationSettings.nativePushEnabled)
+        #expect(state.lastError != nil)
+    }
+
+    @MainActor
+    @Test func failedNativePushWriteSurfacesTheErrorAndLeavesTheSnapshotAlone() async throws {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.notificationSettings = notificationSettings(for: account, localEnabled: true)
+        runtime.setNativePushEnabledError = FakeMarmotRuntimeError.nativePushWriteFailed
+        let notificationCenter = FakeLocalNotificationCenter(status: .authorized)
+        let state = WorkspaceState(
+            localNotificationCenter: notificationCenter,
+            clientFactory: { runtime }
+        )
+
+        await state.bootstrap()
+        await state.setNativePushEnabled(true)
+
+        #expect(!state.notificationSettings.nativePushEnabled)
+        #expect(state.lastError != nil)
+    }
+
+    @MainActor
     @Test func enablingLocalNotificationsShowsSettingsGuidanceWhenMacNotificationsAreNotAllowed() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
@@ -35886,6 +36036,9 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
     var didReachTelemetryInstallIdGate: Bool {
         telemetryInstallIdGate.didReach
     }
+    var setNativePushEnabledError: Error?
+    private(set) var nativePushEnabledSet: Bool?
+    private(set) var setNativePushEnabledCallCount = 0
     /// Issue #228 equivalent gate for the synchronous `setLocalNotificationsEnabled` FFI write.
     private let setLocalNotificationsGate = BlockingFfiGate()
     var setLocalNotificationsGateEnabled: Bool {
@@ -36551,6 +36704,20 @@ private nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sen
             notificationSettings = updated
         }
         passSetLocalNotificationsGateIfArmed()
+        return updated
+    }
+
+    func setNativePushEnabled(accountRef: String, enabled: Bool) async throws -> NotificationSettingsFfi {
+        if let setNativePushEnabledError { throw setNativePushEnabledError }
+        nativePushEnabledSet = enabled
+        setNativePushEnabledCallCount += 1
+        var updated = notificationSettingsByAccountRef[accountRef] ?? notificationSettings
+        updated.nativePushEnabled = enabled
+        if notificationSettingsByAccountRef[accountRef] != nil {
+            notificationSettingsByAccountRef[accountRef] = updated
+        } else {
+            notificationSettings = updated
+        }
         return updated
     }
 
@@ -37760,6 +37927,7 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
     case mediaUploadFailed
     case followListReadFailed
     case profilePublishFailed
+    case nativePushWriteFailed
     case unused
 
     var errorDescription: String? {
@@ -37776,6 +37944,8 @@ private enum FakeMarmotRuntimeError: Error, LocalizedError {
             return "Media upload failed."
         case .followListReadFailed:
             return "Follow list read failed."
+        case .nativePushWriteFailed:
+            return "Native push write failed."
         case .unused:
             return "Unused fake runtime error."
         }
@@ -38767,13 +38937,14 @@ private func waitFor(attempts: Int = 100, _ predicate: @MainActor () -> Bool) as
 
 private func notificationSettings(
     for account: AccountSummaryFfi,
-    localEnabled: Bool
+    localEnabled: Bool,
+    nativePushEnabled: Bool = false
 ) -> NotificationSettingsFfi {
     NotificationSettingsFfi(
         accountRef: account.label,
         accountIdHex: account.accountIdHex,
         localNotificationsEnabled: localEnabled,
-        nativePushEnabled: false
+        nativePushEnabled: nativePushEnabled
     )
 }
 

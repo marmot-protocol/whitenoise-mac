@@ -37,6 +37,7 @@ nonisolated protocol MarmotRuntime: Sendable {
     func setAuditLogSettings(settings: AuditLogSettingsFfi) async throws -> AuditLogSettingsFfi
     func setAuditLogTrackerConfig(config: AuditLogTrackerConfigFfi) throws -> AuditLogTrackerConfigFfi
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi
+    func setNativePushEnabled(accountRef: String, enabled: Bool) async throws -> NotificationSettingsFfi
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws
     func setRelayTelemetrySettings(settings: RelayTelemetrySettingsFfi) async throws -> RelayTelemetrySettingsFfi
     func telemetryInstallId() throws -> String
@@ -285,6 +286,10 @@ nonisolated final class MarmotClient: MarmotRuntime, @unchecked Sendable {
 
     func setLocalNotificationsEnabled(accountRef: String, enabled: Bool) throws -> NotificationSettingsFfi {
         try marmot.setLocalNotificationsEnabled(accountRef: accountRef, enabled: enabled)
+    }
+
+    func setNativePushEnabled(accountRef: String, enabled: Bool) async throws -> NotificationSettingsFfi {
+        try await marmot.setNativePushEnabled(accountRef: accountRef, enabled: enabled)
     }
 
     func setRelayTelemetryRuntimeConfig(config: RelayTelemetryRuntimeConfigFfi) async throws {
