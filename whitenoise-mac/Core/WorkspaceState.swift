@@ -2204,7 +2204,8 @@ nonisolated struct ReadMarker: Equatable, Comparable {
 extension NotificationSettingsSnapshot {
     init(settings: NotificationSettingsFfi) {
         self.init(
-            localNotificationsEnabled: settings.localNotificationsEnabled
+            localNotificationsEnabled: settings.localNotificationsEnabled,
+            nativePushEnabled: settings.nativePushEnabled
         )
     }
 }

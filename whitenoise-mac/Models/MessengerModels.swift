@@ -2986,21 +2986,6 @@ enum LocalNotificationAuthorizationStatus: String, Equatable {
     case provisional
     case ephemeral
 
-    var label: String {
-        switch self {
-        case .notDetermined:
-            L10n.string("Not requested")
-        case .denied:
-            L10n.string("Denied")
-        case .authorized:
-            L10n.string("Allowed")
-        case .provisional:
-            L10n.string("Allowed quietly")
-        case .ephemeral:
-            L10n.string("Allowed for now")
-        }
-    }
-
     var canPostNotifications: Bool {
         switch self {
         case .authorized, .provisional, .ephemeral:
@@ -3013,9 +2998,14 @@ enum LocalNotificationAuthorizationStatus: String, Equatable {
 
 struct NotificationSettingsSnapshot: Equatable {
     var localNotificationsEnabled: Bool
+    /// Whether the account asks the White Noise push service for a generic
+    /// wake-up. It carries no message content — see `NotificationPreviewMode`
+    /// for what a delivered notification is allowed to say.
+    var nativePushEnabled: Bool
 
     static let defaults = NotificationSettingsSnapshot(
-        localNotificationsEnabled: false
+        localNotificationsEnabled: false,
+        nativePushEnabled: false
     )
 }
 
@@ -3054,6 +3044,20 @@ enum NotificationPreviewMode: String, CaseIterable, Identifiable {
             L10n.string("Notifications show who sent the message but not its contents.")
         case .hidden:
             L10n.string("Notifications only say a new message arrived.")
+        }
+    }
+
+    /// The notification this mode would actually post, written out. The choice's
+    /// name says what is withheld; this says what is shown, which is the thing a
+    /// reader is really deciding about.
+    var example: String {
+        switch self {
+        case .full:
+            L10n.string("Alice · Can you send the latest version?")
+        case .senderOnly:
+            L10n.string("Alice · New message")
+        case .hidden:
+            L10n.string("White Noise · New message")
         }
     }
 }

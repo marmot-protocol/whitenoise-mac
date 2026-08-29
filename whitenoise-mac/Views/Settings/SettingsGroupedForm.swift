@@ -3,8 +3,9 @@
 //  whitenoise-mac
 //
 //  The row vocabulary every grouped settings page is written in: a group, the note under
-//  it, a list of choices, a read-only value, and a one-line result. The switch is not
-//  here — it is `WNToggle`, because settings is not the only surface that shows one.
+//  it, a read-only value, and a one-line result. The switch is not here — it is `WNToggle` —
+//  and neither are the rows of a choice, which are `WNSelect`'s: settings is not the only
+//  surface that shows either one.
 //
 //  The one idea here is that a group's explanation belongs *under* the group, not inside
 //  it. Each page used to end a `Section` with a bare `Text` in secondary grey, which put a
@@ -107,8 +108,7 @@ struct SettingsFooterText: View {
     }
 }
 
-/// A choice made from a short list of alternatives, drawn as the list itself rather than as a
-/// pop-up menu.
+/// A `WNSelect` with the group and the note around it, the shape a settings page reaches for.
 ///
 /// A pop-up hides every option but the chosen one, which is the wrong trade for a setting
 /// whose options are the explanation — appearance, or how much of a message a notification
@@ -119,9 +119,14 @@ struct SettingsFooterText: View {
 /// grouped `Form` draws differently from the shape this surface is designed against. An inline
 /// `Picker` on macOS puts a grey radio dot on *every* row, so three options cost three controls
 /// and the reader has to compare their fills to find the live one. The reference design marks
-/// only the selection, with a trailing checkmark in the accent — one mark on the page, in the
-/// column the eye is already scanning for it. `Value` stays `Hashable` and the call sites are
-/// unchanged; only the drawing moved.
+/// only the selection, with a trailing checkmark — one mark on the page, in the column the eye
+/// is already scanning for it.
+///
+/// Writing them out is `WNSelect`'s job, not this type's, for the same reason the switch is
+/// `WNToggle`'s: settings is not the only surface that offers a choice. Reach past this to
+/// `WNSelect` directly only for a group that has something else to say *inside* the card — the
+/// notification preview, whose chosen mode is spelled out as the notification it would post,
+/// under the row that picks it.
 struct SettingsChoiceSection<Value: Hashable>: View {
     var title: String?
     var footer: String?
@@ -131,50 +136,8 @@ struct SettingsChoiceSection<Value: Hashable>: View {
 
     var body: some View {
         SettingsSection(title: title, footer: footer) {
-            ForEach(choices, id: \.self) { choice in
-                SettingsChoiceRow(
-                    title: label(choice),
-                    isSelected: choice == selection
-                ) {
-                    selection = choice
-                }
-            }
+            WNSelect(options: choices, selection: $selection, label: label)
         }
-    }
-}
-
-/// One alternative inside a `SettingsChoiceSection`: the whole row is the control, and the
-/// selected one carries a trailing checkmark.
-///
-/// The checkmark keeps its place in the layout when it is not the selected row — hiding it with
-/// `opacity` rather than an `if` — so the labels do not shift sideways as the selection moves,
-/// and every row reserves the same trailing column.
-private struct SettingsChoiceRow: View {
-    let title: String
-    let isSelected: Bool
-    let select: () -> Void
-
-    var body: some View {
-        Button(action: select) {
-            HStack(spacing: 8) {
-                Text(title)
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "checkmark")
-                    // `.tint` rather than a palette constant: this is the same accent the rest
-                    // of the app's selection state is drawn in, and `ContentView` is the one
-                    // place that decides what it is.
-                    .foregroundStyle(.tint)
-                    .opacity(isSelected ? 1 : 0)
-                    .accessibilityHidden(true)
-            }
-            // Without this the row is only clickable where the label's glyphs are, and the
-            // empty middle of a `Form` row is most of it.
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
