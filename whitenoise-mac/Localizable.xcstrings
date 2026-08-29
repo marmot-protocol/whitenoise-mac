@@ -7969,6 +7969,124 @@
         }
       }
     },
+    "Alice · Can you send the latest version?": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Kannst du die neueste Version schicken?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · ¿Puedes enviar la última versión?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Peux-tu envoyer la dernière version ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Puoi inviare l’ultima versione?"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Podes enviar a versão mais recente?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Можешь прислать последнюю версию?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Son sürümü gönderebilir misin?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · 你能发一下最新版本吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · 你能傳一下最新版本嗎？"
+          }
+        }
+      }
+    },
+    "Alice · New message": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Neue Nachricht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Nuevo mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Nouveau message"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Nuovo messaggio"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Nova mensagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Новое сообщение"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · Yeni mesaj"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · 新消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alice · 新訊息"
+          }
+        }
+      }
+    },
     "All": {
       "extractionState": "manual",
       "localizations": {
@@ -8146,179 +8264,61 @@
         }
       }
     },
-    "Allowed": {
+    "Allow notifications to use these options.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erlaubt"
+            "value": "Erlaube Benachrichtigungen, um diese Optionen zu nutzen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitido"
+            "value": "Permite las notificaciones para usar estas opciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autorisé"
+            "value": "Autorisez les notifications pour utiliser ces options."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Consentito"
+            "value": "Consenti le notifiche per usare queste opzioni."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitido"
+            "value": "Permite as notificações para usar estas opções."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Разрешено"
+            "value": "Разрешите уведомления, чтобы использовать эти параметры."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "İzin verildi"
+            "value": "Bu seçenekleri kullanmak için bildirimlere izin ver."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已允许"
+            "value": "允许通知后即可使用这些选项。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已允許"
-          }
-        }
-      }
-    },
-    "Allowed for now": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vorläufig erlaubt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permitido por ahora"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autorisé pour l’instant"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consentito per ora"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permitido por enquanto"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разрешено пока"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Şimdilik izin verildi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暂时允许"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暫時允許"
-          }
-        }
-      }
-    },
-    "Allowed quietly": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leise erlaubt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permitido en silencio"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autorisé discrètement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Consentito in modo silenzioso"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permitido silenciosamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разрешено тихо"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessizce izin verildi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "静默允许"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "安靜允許"
+            "value": "允許通知後即可使用這些選項。"
           }
         }
       }
@@ -12169,6 +12169,65 @@
         }
       }
     },
+    "Choose when White Noise alerts you and how much of a message it shows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle, wann White Noise dich benachrichtigt und wie viel einer Nachricht dabei zu sehen ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige cuándo White Noise te avisa y cuánto de un mensaje se muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez quand White Noise vous alerte et quelle part d’un message s’affiche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli quando White Noise ti avvisa e quanto di un messaggio viene mostrato."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha quando o White Noise avisa você e quanto de uma mensagem aparece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите, когда White Noise уведомляет вас и какая часть сообщения при этом видна."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise’un sizi ne zaman uyaracağını ve bir mesajın ne kadarını göstereceğini seçin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择 White Noise 何时提醒你，以及通知中显示多少消息内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇 White Noise 何時提醒你，以及通知中顯示多少訊息內容。"
+          }
+        }
+      }
+    },
     "Choose where to save downloads": {
       "comment": "Title of the folder panel shown before the first attachment download.",
       "extractionState": "manual",
@@ -15245,6 +15304,65 @@
         }
       }
     },
+    "Creates message notifications on this Mac. Without native push, delivery may wait until White Noise is running.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellt Nachrichtenbenachrichtigungen auf diesem Mac. Ohne Native Push kann die Zustellung warten, bis White Noise läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea las notificaciones de mensajes en este Mac. Sin push nativo, la entrega puede esperar a que White Noise esté en ejecución."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crée les notifications de messages sur ce Mac. Sans push natif, la remise peut attendre que White Noise soit en cours d'exécution."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea le notifiche dei messaggi su questo Mac. Senza push nativo, la consegna può attendere che White Noise sia in esecuzione."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cria as notificações de mensagens neste Mac. Sem push nativo, a entrega pode esperar até o White Noise estar em execução."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создаёт уведомления о сообщениях на этом Mac. Без нативных push-уведомлений доставка может ждать, пока White Noise не будет запущен."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’te mesaj bildirimleri oluşturur. Yerel push olmadan teslimat, White Noise çalışana kadar bekleyebilir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在这台 Mac 上创建消息通知。若未启用原生推送，通知可能要等到 White Noise 运行时才会送达。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在這台 Mac 上建立訊息通知。若未啟用原生推播，通知可能要等到 White Noise 執行時才會送達。"
+          }
+        }
+      }
+    },
     "Creating...": {
       "extractionState": "manual",
       "localizations": {
@@ -17129,65 +17247,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "離開此群組前，請先取消自己的管理員身分。"
-          }
-        }
-      }
-    },
-    "Denied": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abgelehnt"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Denegado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refusé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Negato"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Negado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запрещено"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reddedildi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已拒绝"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已拒絕"
           }
         }
       }
@@ -27852,65 +27911,6 @@
         }
       }
     },
-    "Local Alerts": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lokale Hinweise"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alertas locales"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alertes locales"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Avvisi locali"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alertas locais"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Локальные уведомления"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yerel uyarılar"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本地提醒"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本機提醒"
-          }
-        }
-      }
-    },
     "Local alerts": {
       "extractionState": "manual",
       "localizations": {
@@ -27966,65 +27966,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "本機提醒"
-          }
-        }
-      }
-    },
-    "Local alerts for this Mac.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lokale Hinweise für diesen Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alertas locales para este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alertes locales pour ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Avvisi locali per questo Mac."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alertas locais para este Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Локальные уведомления для этого Mac."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac için yerel uyarılar."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 Mac 的本地提醒。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 Mac 的本機提醒。"
           }
         }
       }
@@ -31815,6 +31756,65 @@
         }
       }
     },
+    "Native push": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Push"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push nativo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push natif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push nativo"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Push nativo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нативные push-уведомления"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel push"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生推送"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生推播"
+          }
+        }
+      }
+    },
     "Navigate": {
       "extractionState": "manual",
       "localizations": {
@@ -34785,65 +34785,6 @@
         }
       }
     },
-    "Not requested": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht angefordert"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No solicitado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non demandé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non richiesto"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não solicitado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не запрошено"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Talep edilmedi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有要求"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "沒有要求"
-          }
-        }
-      }
-    },
     "Not stored on this Mac": {
       "extractionState": "manual",
       "localizations": {
@@ -35021,61 +34962,61 @@
         }
       }
     },
-    "Notifications are disabled in system settings.": {
+    "Notifications are off": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Benachrichtigungen sind in den Systemeinstellungen deaktiviert."
+            "value": "Benachrichtigungen sind aus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las notificaciones están desactivadas en los Ajustes del Sistema."
+            "value": "Las notificaciones están desactivadas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les notifications sont désactivées dans les paramètres système."
+            "value": "Les notifications sont désactivées"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le notifiche sono disabilitate nelle impostazioni di sistema."
+            "value": "Le notifiche sono disattivate"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "As notificações estão desativadas nas configurações do sistema."
+            "value": "As notificações estão desativadas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Уведомления отключены в настройках системы."
+            "value": "Уведомления отключены"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistem ayarlarında bildirimler devre dışı bırakıldı."
+            "value": "Bildirimler kapalı"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "系统设置中禁用通知。"
+            "value": "通知已关闭"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "系統設定中禁用通知。"
+            "value": "通知已關閉"
           }
         }
       }
@@ -37204,65 +37145,6 @@
         }
       }
     },
-    "Permission": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erlaubnis"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permiso"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autorisation"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Autorizzazione"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Permissão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разрешение"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İzin"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允许"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "允許"
-          }
-        }
-      }
-    },
     "Photo": {
       "extractionState": "manual",
       "localizations": {
@@ -37790,6 +37672,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "偏好設定"
+          }
+        }
+      }
+    },
+    "Preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista previa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anteprima"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pré-visualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предпросмотр"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önizleme"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預覽"
           }
         }
       }
@@ -46372,6 +46313,65 @@
         }
       }
     },
+    "Sends a generic wake-up so White Noise can check for new messages in the background. Message details never leave this Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendet ein generisches Wecksignal, damit White Noise im Hintergrund nach neuen Nachrichten suchen kann. Nachrichteninhalte verlassen diesen Mac nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía una señal de activación genérica para que White Noise pueda buscar mensajes nuevos en segundo plano. Los detalles de los mensajes nunca salen de este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie un signal de réveil générique pour que White Noise puisse rechercher de nouveaux messages en arrière-plan. Le contenu des messages ne quitte jamais ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia un segnale di attivazione generico così White Noise può cercare nuovi messaggi in background. I dettagli dei messaggi non lasciano mai questo Mac."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envia um sinal de ativação genérico para o White Noise poder procurar mensagens novas em segundo plano. Os detalhes das mensagens nunca saem deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляет обычный сигнал пробуждения, чтобы White Noise мог проверить новые сообщения в фоне. Содержимое сообщений никогда не покидает этот Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise’un arka planda yeni mesajları kontrol edebilmesi için genel bir uyandırma sinyali gönderir. Mesaj ayrıntıları bu Mac’ten hiç çıkmaz."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送通用唤醒信号，让 White Noise 可以在后台检查新消息。消息内容绝不会离开这台 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送通用喚醒訊號，讓 White Noise 可以在背景檢查新訊息。訊息內容絕不會離開這台 Mac。"
+          }
+        }
+      }
+    },
     "Sent": {
       "extractionState": "manual",
       "localizations": {
@@ -53315,6 +53315,65 @@
         }
       }
     },
+    "Turn them on in System Settings to use these options.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere sie in den Systemeinstellungen, um diese Optionen zu nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actívalas en Ajustes del Sistema para usar estas opciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez-les dans Réglages Système pour utiliser ces options."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivale in Impostazioni di Sistema per usare queste opzioni."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ativa-as em Ajustes do Sistema para usar estas opções."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите их в Системных настройках, чтобы использовать эти параметры."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu seçenekleri kullanmak için Sistem Ayarları’ndan aç."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在系统设置中开启后即可使用这些选项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在系統設定中開啟後即可使用這些選項。"
+          }
+        }
+      }
+    },
     "Unable to create durable Marmot storage directory at %@: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -55674,6 +55733,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "White Noise 會將下載的附件儲存到此檔案夾。"
+          }
+        }
+      }
+    },
+    "White Noise · New message": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · Neue Nachricht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · Nuevo mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · Nouveau message"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · Nuovo messaggio"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · Nova mensagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · Новое сообщение"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · Yeni mesaj"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · 新消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise · 新訊息"
           }
         }
       }

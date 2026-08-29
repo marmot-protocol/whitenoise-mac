@@ -350,13 +350,64 @@ extension WorkspaceState {
             }
         }
 
+        let localResult: NotificationSettingsFfi
         do {
-            let settings = try await FFIExecutor.run {
+            localResult = try await FFIExecutor.run {
                 try client.setLocalNotificationsEnabled(
                     accountRef: accountRef,
                     enabled: enabled
                 )
             }
+        } catch {
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
+            lastError = error.localizedDescription
+            return
+        }
+
+        // Committed before the clean-up below is even attempted. The core has already changed by
+        // this point, and mdk offers no call that moves both flags at once, so the two writes can
+        // only fail apart — and a clean-up that throws must not take the write that succeeded down
+        // with it. Publishing here is what keeps the pane telling the truth about the core when
+        // that happens; the alternative left local alerts drawn as *on* after the core had turned
+        // them off.
+        guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
+        notificationSettings = NotificationSettingsSnapshot(settings: localResult)
+
+        // Native push only supplements local notifications: it wakes White Noise so it can post
+        // one, so it cannot outlive the alerts it exists to deliver. Turning local alerts off
+        // therefore withdraws the push registration's reason to exist in the core too, rather
+        // than leaving a flag set that the pane draws as off.
+        guard !enabled, localResult.nativePushEnabled else { return }
+
+        do {
+            let cleared = try await client.setNativePushEnabled(accountRef: accountRef, enabled: false)
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
+            notificationSettings = NotificationSettingsSnapshot(settings: cleared)
+        } catch {
+            guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
+            // The snapshot keeps saying native push is on, because in the core it is. The pane
+            // still draws that switch off — it reads local alerts first — so the reader is not
+            // told about a wake-up that can no longer reach them, and the next load reconciles.
+            lastError = error.localizedDescription
+        }
+    }
+
+    /// The generic wake-up White Noise asks the push service for. It carries nothing about the
+    /// message, so it needs no permission of its own beyond the one local alerts already hold —
+    /// which is why this, unlike `setLocalNotificationsEnabled(_:)`, never prompts.
+    func setNativePushEnabled(_ enabled: Bool) async {
+        guard let client, let activeAccount, !isSavingNotifications else { return }
+
+        let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
+        let generation = beginNotificationSettingsOperation()
+
+        lastError = nil
+        isSavingNotifications = true
+        defer { isSavingNotifications = false }
+
+        do {
+            let settings = try await client.setNativePushEnabled(accountRef: accountRef, enabled: enabled)
             guard ownsNotificationSettingsOperation(accountId: accountId, generation: generation) else { return }
             notificationSettings = NotificationSettingsSnapshot(settings: settings)
         } catch {
