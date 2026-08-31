@@ -27443,6 +27443,7 @@ struct whitenoise_macTests {
                 .relays,
                 .keyPackages,
                 .preferences,
+                .donate,
                 .developerMode,
             ]
         )
