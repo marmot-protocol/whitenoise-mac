@@ -3130,6 +3130,58 @@ struct PureValueTests {
         #expect(restored.banner == "https://example.com/banner.jpg")
     }
 
+    /// What gets published is `NIP05Identifier`'s canonical spelling — lowercased local part,
+    /// canonical domain — not what the cursor happened to leave behind. A value that does not
+    /// parse comes back trimmed but otherwise untouched, so the field someone still has to fix
+    /// shows them what they typed.
+    @MainActor
+    @Test func aNostrAddressIsNormalizedOnTheWayOutAndLeftAloneWhenItCannotParse() {
+        #expect(
+            WorkspaceState.normalizedNostrAddress("  MARMOTA@Example.COM  ") == "marmota@example.com")
+        #expect(WorkspaceState.normalizedNostrAddress("marmota@example.com") == "marmota@example.com")
+        #expect(WorkspaceState.normalizedNostrAddress("  marmota  ") == "marmota")
+        #expect(WorkspaceState.normalizedNostrAddress("   ").isEmpty)
+    }
+
+    /// The seal means the domain named *this* account. A well-known document that names a
+    /// perfectly valid key belonging to somebody else earns nothing — which is the whole reason
+    /// the reference is compared rather than merely fetched.
+    @Test func theSealIsOnlyEarnedByThisAccountsOwnKey() {
+        let hex = String(repeating: "ab", count: 32)
+        let npub = "npub1marmota"
+        let stranger = String(repeating: "cd", count: 32)
+
+        #expect(
+            WorkspaceState.nostrAddressVerdict(reference: hex, accountIdHex: hex, npub: npub) == .verified)
+        #expect(
+            WorkspaceState.nostrAddressVerdict(reference: hex.uppercased(), accountIdHex: hex, npub: npub)
+                == .verified)
+        #expect(
+            WorkspaceState.nostrAddressVerdict(reference: " \(npub) ", accountIdHex: hex, npub: npub)
+                == .verified)
+        #expect(
+            WorkspaceState.nostrAddressVerdict(reference: stranger, accountIdHex: hex, npub: npub)
+                == .unverified)
+        #expect(
+            WorkspaceState.nostrAddressVerdict(reference: "", accountIdHex: hex, npub: npub) == .unverified)
+        #expect(
+            WorkspaceState.nostrAddressVerdict(reference: npub, accountIdHex: hex, npub: nil) == .unverified)
+    }
+
+    /// `OnboardingLayout` forwards its field metrics to `WNInput`, which now owns them. Asserted
+    /// because the sign-up pane budgets a 620pt window against these numbers by the *old* names —
+    /// a forward that silently stopped forwarding would be a pane measured against a fiction.
+    @MainActor
+    @Test func theOnboardingFieldMetricsAreTheOnesWNInputDraws() {
+        #expect(OnboardingLayout.fieldLabelSpacing == WNInputMetrics.labelSpacing)
+        #expect(OnboardingLayout.fieldHorizontalPadding == WNInputMetrics.horizontalPadding)
+        #expect(OnboardingLayout.fieldVerticalPadding == WNInputMetrics.verticalPadding)
+        #expect(OnboardingLayout.singleLineFieldHeight == WNInputMetrics.singleLineHeight)
+        #expect(OnboardingLayout.multilineFieldCornerRadius == WNInputMetrics.multilineCornerRadius)
+        #expect(
+            OnboardingLayout.fieldHeight(forLineLimit: 3) == WNInputMetrics.height(forLineLimit: 3))
+    }
+
     @Test func downsampledImageSizingCeilsAndBucketsRequestedPixels() async throws {
         #expect(DownsampledImageSizing.requestedPixelSize(0) == 1)
         #expect(DownsampledImageSizing.requestedPixelSize(63.1) == 64)

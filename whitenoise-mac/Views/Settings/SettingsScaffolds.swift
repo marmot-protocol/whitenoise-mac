@@ -109,7 +109,7 @@ struct SettingsScaffold<Content: View>: View {
 
 /// The scaffold for a settings page that lays its own controls out rather than filling native
 /// grouped `Form` rows: same header, same error surface, but the content sits in a plain
-/// scrolling column. A page built from `WNCallout`, `WNCopyCard` and `SettingsLabeledField` needs
+/// scrolling column. A page built from `WNCallout`, `WNCopyCard` and `WNInput` needs
 /// this — those controls draw their own box, and a grouped `Section` would put a second one
 /// around each.
 struct SettingsStackScaffold<Content: View>: View {

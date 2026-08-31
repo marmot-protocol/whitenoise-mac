@@ -86,6 +86,7 @@ extension WorkspaceState {
             settingsLoadGeneration &+= 1
             isLoadingSettings = false
             profileDraft = ProfileDraft()
+            resetProfileEditingState()
             relaySettings = .defaults
             relayDraft = relaySettings.relays(for: selectedRelaySection)
             keyPackages = []
@@ -161,12 +162,17 @@ extension WorkspaceState {
             }
             guard !Task.isCancelled, activeAccountId == accountId else { return }
             profileDraft = ProfileDraft(profile: profile, fallbackName: fallbackName)
+            publishedProfile = profileDraft
             let displayName = profileDraft.primaryDisplayName(fallback: fallbackName)
             updateActiveAccountProfile(displayName: displayName, pictureURL: profileDraft.picture)
+            beginProfileNostrAddressCheck()
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
             lastError = error.localizedDescription
             profileDraft = ProfileDraft(fallbackName: fallbackName)
+            // A profile that could not be read is not a profile with unsaved edits in it. Without
+            // this the page would open showing Cancel and Save over a form nobody has touched.
+            publishedProfile = profileDraft
             let displayName =
                 (try? await FFIExecutor.run {
                     client.displayName(accountIdHex: accountIdHex)
@@ -558,6 +564,10 @@ extension WorkspaceState {
 
     func saveProfile() async {
         guard let client, let activeAccount, !isSavingProfile else { return }
+        // Normalized on the way out rather than on every keystroke: `NIP05Identifier` lowercases
+        // the local part and canonicalizes the domain, and doing that under the cursor would
+        // rewrite what someone is halfway through typing.
+        profileDraft.nip05 = Self.normalizedNostrAddress(profileDraft.nip05)
         // `publishUserProfile` targets the captured `accountRef`, but on return we write UI state via
         // the live `activeAccountId`. Capture the account id so an A→B switch during the publish
         // can't misattribute A's profile to B (mirroring `performSettingsLoad` / `loadKeyPackages`).
@@ -577,10 +587,181 @@ extension WorkspaceState {
             profileDraft = ProfileDraft(profile: published, fallbackName: activeAccount.displayName)
             let displayName = profileDraft.primaryDisplayName(fallback: activeAccount.displayName)
             updateActiveAccountProfile(displayName: displayName, pictureURL: profileDraft.picture)
+            // Only a publish that landed moves the baseline, which is what puts Cancel and Save
+            // away. A failure leaves the fields as typed against the old baseline, so the actions
+            // stay up and the same Save can be pressed again.
+            publishedProfile = profileDraft
+            beginProfileNostrAddressCheck()
         } catch {
             guard activeAccountId == accountId else { return }
             lastError = error.localizedDescription
         }
+    }
+
+    // MARK: - Editing the profile
+
+    /// Whether the form has been moved off what is published — the question the page's actions are
+    /// the answer to.
+    ///
+    /// **This is what replaced an Edit button.** The page used to open read-only and wake up on a
+    /// press; it is live now, and Cancel and Save appear only once there is something for them to
+    /// do. A whole-value `!=` rather than a per-field audit, which is why `ProfileDraft` is
+    /// `Equatable`: every field on the page is one somebody could have changed, the picture
+    /// included, and a comparison that listed them would silently stop covering the next one added.
+    ///
+    /// `false` while `publishedProfile` is `nil` — before the load lands there is nothing to differ
+    /// from, and an empty form is not an edit.
+    var hasUnsavedProfileEdits: Bool {
+        guard let publishedProfile else { return false }
+        return profileDraft != publishedProfile
+    }
+
+    /// Put back everything that is published — the picture too, which is the field a cancel is most
+    /// likely to be *about*, and the one that has already changed by the time you get here.
+    ///
+    /// The baseline is kept, not cleared: it is the published profile, not a session, so there is
+    /// nothing to end. Restoring it simply makes `hasUnsavedProfileEdits` false again, which is
+    /// what puts the actions away.
+    func discardProfileEdits() {
+        guard let publishedProfile else { return }
+        profileDraft = publishedProfile
+        lastError = nil
+    }
+
+    /// Whether Settings → Profile's fields accept input.
+    ///
+    /// Off mid-publish, which is the obvious half — and off while the settings load is in flight,
+    /// which is not. `performSettingsLoad(accountId:generation:)` *replaces* `profileDraft` with
+    /// what it reads, so anything typed before it lands is discarded without a word. That window
+    /// used to be unreachable: the page opened read-only and its Edit button was disabled while
+    /// loading. With the fields live from the moment the page appears, the window is exactly when
+    /// somebody arrives and starts typing.
+    var isProfileFormEnabled: Bool {
+        !isSavingProfile && !isLoadingSettings
+    }
+
+    /// Whether the form as typed can be published: a name, and an address that is either absent or
+    /// address-shaped. Nothing else on this page is required.
+    var canSaveProfileEdits: Bool {
+        !profileDraft.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && isProfileNostrAddressDraftValid
+    }
+
+    /// An empty address is valid — it is how the field is cleared. Anything else has to parse.
+    var isProfileNostrAddressDraftValid: Bool {
+        let trimmed = profileDraft.nip05.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || NIP05Identifier(trimmed) != nil
+    }
+
+    /// What the seal on the address field should say *right now*.
+    ///
+    /// `publishedNostrAddressVerification` is a statement about the address that was published.
+    /// Typing a different one into the field does not inherit it — the seal drops the moment the
+    /// draft diverges, and comes back if the stored value is typed again, which is
+    /// `wn-ios-prototype`'s rule verbatim. Nothing here touches the network: a keystroke must not
+    /// fire a request at a half-typed domain.
+    var profileNostrAddressSeal: NostrAddressVerification {
+        let draft = profileDraft.nip05.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else { return .none }
+        guard let publishedProfile else { return publishedNostrAddressVerification }
+        let stored = publishedProfile.nip05.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard draft.caseInsensitiveCompare(stored) == .orderedSame else { return .unverified }
+        return publishedNostrAddressVerification
+    }
+
+    /// Ask the published address's own domain whether it names this account, in the background.
+    ///
+    /// Started rather than awaited by its callers — the settings load must not wait on someone
+    /// else's web server — but the handle is kept so a test can await the answer instead of
+    /// polling for it, and so an account switch can cancel it.
+    func beginProfileNostrAddressCheck() {
+        profileNostrAddressCheckTask?.cancel()
+        profileNostrAddressCheckTask = Task { [weak self] in
+            await self?.refreshProfileNostrAddressVerification()
+        }
+    }
+
+    func refreshProfileNostrAddressVerification() async {
+        profileNostrAddressCheckGeneration &+= 1
+        let generation = profileNostrAddressCheckGeneration
+
+        guard let activeAccount else {
+            publishedNostrAddressVerification = .none
+            return
+        }
+        let accountId = activeAccount.id
+        let accountIdHex = activeAccount.accountIdHex
+        let npub = activeAccount.npub
+        // The **published** address, not `profileDraft`'s. What this writes is
+        // `publishedNostrAddressVerification`, a statement about what the profile publishes, and
+        // the two are not the same value for as long as this task exists: `beginProfileNostrAddressCheck()`
+        // schedules it rather than running it, so anything typed into the field between the
+        // scheduling and the first line of this body is what a draft read would pick up. The
+        // verdict then outlives the draft that earned it — `discardProfileEdits()` puts the
+        // published address back and leaves the stale verdict standing, so `profileNostrAddressSeal`
+        // hands the published address a seal (or withholds one) on a different address's evidence.
+        guard let publishedProfile else {
+            publishedNostrAddressVerification = .none
+            return
+        }
+        let address = publishedProfile.nip05.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty, NIP05Identifier(address) != nil else {
+            publishedNostrAddressVerification = .none
+            return
+        }
+
+        publishedNostrAddressVerification = .checking
+        let verdict: NostrAddressVerification
+        do {
+            let reference = try await nip05Resolver.accountReference(for: address)
+            verdict = Self.nostrAddressVerdict(reference: reference, accountIdHex: accountIdHex, npub: npub)
+        } catch {
+            // A domain that cannot be reached has not verified anything. The page says so by
+            // drawing no seal, and never by reporting a network error over a field nobody asked
+            // to publish just now.
+            verdict = .unverified
+        }
+        guard !Task.isCancelled,
+            activeAccountId == accountId,
+            profileNostrAddressCheckGeneration == generation
+        else { return }
+        publishedNostrAddressVerification = verdict
+    }
+
+    /// The well-known document maps a name to a hex public key; some hosts write an npub instead.
+    /// Either spelling of *this* account earns the seal, and anything else — including a perfectly
+    /// valid key belonging to somebody else — does not.
+    nonisolated static func nostrAddressVerdict(
+        reference: String,
+        accountIdHex: String,
+        npub: String?
+    ) -> NostrAddressVerification {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .unverified }
+        if trimmed.caseInsensitiveCompare(accountIdHex) == .orderedSame { return .verified }
+        if let npub, trimmed.caseInsensitiveCompare(npub) == .orderedSame { return .verified }
+        return .unverified
+    }
+
+    /// `NIP05Identifier`'s canonical spelling — lowercased local part, canonical domain — or the
+    /// trimmed input unchanged when it does not parse, so a value the user has to fix is still the
+    /// value they typed.
+    /// Not `nonisolated`, unlike its neighbour above: `NIP05Identifier` inherits the module's
+    /// MainActor default, so parsing from a nonisolated context is a Release-build warning that
+    /// Debug never shows.
+    static func normalizedNostrAddress(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parsed = NIP05Identifier(trimmed) else { return trimmed }
+        return "\(parsed.name)@\(parsed.domain)"
+    }
+
+    /// Drop everything the profile page is holding for the account being torn down.
+    func resetProfileEditingState() {
+        profileNostrAddressCheckTask?.cancel()
+        profileNostrAddressCheckTask = nil
+        profileNostrAddressCheckGeneration &+= 1
+        publishedNostrAddressVerification = .none
+        publishedProfile = nil
     }
 
     func showProfileImagePicker() {

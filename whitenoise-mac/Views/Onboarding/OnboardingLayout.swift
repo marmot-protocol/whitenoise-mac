@@ -175,8 +175,9 @@ enum OnboardingLayout {
     /// two controls, so it sits a step closer than that.
     static let signUpAvatarToPickerSpacing: CGFloat = 10
 
-    /// Between a field's label and the field itself.
-    static let fieldLabelSpacing: CGFloat = 6
+    /// Between a field's label and the field itself. `WNInput`'s, restated under the name the
+    /// pane's own spacing reads it by — the error slot below the fields sits at this gap too.
+    static let fieldLabelSpacing: CGFloat = WNInputMetrics.labelSpacing
 
     /// Between one labelled field and the next.
     static let fieldSpacing: CGFloat = 16
@@ -184,31 +185,30 @@ enum OnboardingLayout {
     /// Between the sign-up pane's title block and the first field.
     static let titleToFieldsSpacing: CGFloat = 20
 
-    /// `OnboardingKeyField`'s inset, so a name field and a key field line their text up.
-    static let fieldHorizontalPadding: CGFloat = 12
-    static let fieldVerticalPadding: CGFloat = 8
+    // The field metrics below belong to `WNInput`, which is what the pane's fields are, and are
+    // forwarded here rather than restated: this pane has to add a field's height to a sum — see
+    // `signUpAvatarSize` and the 620pt window it is measured against — and `OnboardingTests`
+    // reads them by these names. One source, two vocabularies.
 
-    /// A single-line field's height — `OnboardingKeyField.Metrics.height`, restated here because
-    /// that one is `private` to a view that owns an accessory this field does not have.
-    static let singleLineFieldHeight: CGFloat = 40
+    /// `OnboardingKeyField`'s inset, so a name field and a key field line their text up.
+    static let fieldHorizontalPadding: CGFloat = WNInputMetrics.horizontalPadding
+    static let fieldVerticalPadding: CGFloat = WNInputMetrics.verticalPadding
+
+    /// A single-line field's height — `OnboardingKeyField.Metrics.height`.
+    static let singleLineFieldHeight: CGFloat = WNInputMetrics.singleLineHeight
 
     /// How tall a field with `lineLimit` lines of `medium14` draws, chrome included.
-    ///
-    /// The one-line case is pinned to `singleLineFieldHeight` rather than computed, because a
-    /// field that submits the same form as the key field beside it has to be exactly as tall as
-    /// that field, not approximately.
     static func fieldHeight(forLineLimit lineLimit: Int) -> CGFloat {
-        guard lineLimit > 1 else { return singleLineFieldHeight }
-        return CGFloat(lineLimit) * multilineFieldLineHeight + 2 * fieldVerticalPadding
+        WNInputMetrics.height(forLineLimit: lineLimit)
     }
 
     /// One line of `medium14`, rounded up.
-    static let multilineFieldLineHeight: CGFloat = 18
+    static let multilineFieldLineHeight: CGFloat = WNInputMetrics.multilineLineHeight
 
     /// The corner a multi-line field takes: the radius a `singleLineFieldHeight` capsule has, so
     /// the two fields in the sign-up column share a corner without the taller one becoming a
-    /// lozenge. See `OnboardingFormField`.
-    static let multilineFieldCornerRadius: CGFloat = singleLineFieldHeight / 2
+    /// lozenge. See `WNInput`.
+    static let multilineFieldCornerRadius: CGFloat = WNInputMetrics.multilineCornerRadius
 
     /// How many lines the About field shows before it scrolls. Three, the same as the prototype's
     /// `lineLimit(3...6)` floor — a bio is a sentence or two, and every extra line here is a line

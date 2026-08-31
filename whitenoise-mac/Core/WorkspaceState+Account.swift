@@ -216,6 +216,10 @@ extension WorkspaceState {
         // Destructive-action dialogs name a group id, which is only meaningful for the account that
         // opened them; a confirmation surviving the switch would act on the wrong account's chat.
         clearPendingChatDestructiveActions()
+        // Settings → Profile is showing account A's name in an open editor and a seal earned by
+        // account A's address. Neither survives the switch: B's settings load writes the new draft,
+        // and an edit session left open over it would let A's baseline be restored onto B.
+        resetProfileEditingState()
         closeNewChatComposer()
         resetComposeContacts()
         clearFollows()
@@ -626,6 +630,7 @@ extension WorkspaceState {
         // account being torn down.
         clearPendingChatDestructiveActions()
         profileDraft = ProfileDraft()
+        resetProfileEditingState()
         keyPackages = []
         auditLogFiles = []
         auditLogUploadStatus = nil
@@ -1157,6 +1162,7 @@ extension WorkspaceState {
         loginIdentity = ""
         authenticationActivity = nil
         profileDraft = ProfileDraft()
+        resetProfileEditingState()
         relaySettings = .defaults
         selectedRelaySection = .nip65
         relayDraft = MarmotClient.seedRelays

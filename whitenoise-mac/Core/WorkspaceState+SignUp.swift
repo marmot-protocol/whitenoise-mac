@@ -128,6 +128,9 @@ extension WorkspaceState {
             )
 
             profileDraft = ProfileDraft(profile: published, fallbackName: account.displayName)
+            // What sign-up just published is the baseline Settings → Profile compares against, so
+            // the page opens without Cancel and Save over a form the user has not touched yet.
+            publishedProfile = profileDraft
             updateActiveAccountProfile(
                 displayName: profileDraft.primaryDisplayName(fallback: account.displayName),
                 pictureURL: profileDraft.picture

@@ -76,7 +76,7 @@ enum WNCalloutIntent {
 /// It exists for a surface that cannot spend color on a standing notice. The sign-up pane is one:
 /// it is a form with a single primary button on it, and a tinted box above the fields would be
 /// the loudest thing on a pane whose loudest thing has to be the button. See
-/// `OnboardingPublicProfileNote`, which says exactly what Settings → Profile says, in the gray it
+/// `PublicProfileNote`, which says exactly what Settings → Profile says, in the gray it
 /// already said it in.
 enum WNCalloutEmphasis {
     case tinted

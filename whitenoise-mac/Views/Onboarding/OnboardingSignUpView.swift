@@ -35,7 +35,7 @@ import SwiftUI
 ///   the pane reading itself out.
 /// * **The privacy callout is quiet, and it does not fold.** Flutter puts a tap-to-expand
 ///   `WnCallout` here. This pane draws the same box Settings → Profile draws, with the same two
-///   strings, in the neutral gray rather than the info tint — see `OnboardingPublicProfileNote`.
+///   strings, in the neutral gray rather than the info tint — see `PublicProfileNote`.
 ///   The height that buys comes out of the pane's own margins, not out of the form; see
 ///   `OnboardingLayout.signUpEdgePadding`.
 ///
@@ -64,7 +64,7 @@ struct OnboardingSignUpView: View {
             OnboardingSignUpAvatar()
         } content: {
             VStack(alignment: .leading, spacing: OnboardingLayout.titleToFieldsSpacing) {
-                OnboardingPublicProfileNote()
+                PublicProfileNote()
 
                 // The error slot is inside the field block, at the same gap a field's own label
                 // sits at, rather than a third peer of the notice and the fields at
@@ -75,7 +75,7 @@ struct OnboardingSignUpView: View {
                 // 20 it put Create profile 76pt below the About field.
                 VStack(alignment: .leading, spacing: OnboardingLayout.fieldLabelSpacing) {
                     VStack(alignment: .leading, spacing: OnboardingLayout.fieldSpacing) {
-                        OnboardingFormField(
+                        WNInput(
                             label: L10n.string("Name"),
                             prompt: L10n.string("Enter your name"),
                             text: $workspace.signUpDraft.displayName,
@@ -83,7 +83,7 @@ struct OnboardingSignUpView: View {
                         )
                         .accessibilityIdentifier("onboarding.sign-up.name")
 
-                        OnboardingFormField(
+                        WNInput(
                             label: L10n.string("About"),
                             prompt: L10n.string("Introduce yourself"),
                             text: $workspace.signUpDraft.about,
@@ -122,35 +122,5 @@ struct OnboardingSignUpView: View {
     /// `WorkspaceState.cancelSignUp()`, which owns that decision.
     private func cancel() {
         Task { await workspace.cancelSignUp() }
-    }
-}
-
-/// The one thing this pane has to say about publishing, above the fields it publishes.
-///
-/// The same `WNCallout` Settings → Profile draws over the same form, with the same two catalog
-/// strings — a reader who sets a name here and edits it there should not have to work out twice
-/// that they are the same warning about the same thing.
-///
-/// What differs is the volume, not the shape: `.quiet` rather than `.info`, so the box keeps the
-/// glyph and the two-tier title and detail but takes the neutral surface and the gray this line
-/// was already drawn in. A tinted box would be the loudest thing on a pane whose loudest thing
-/// has to be Create profile. Flutter puts the same pair here as a tap-to-expand `WnCallout`; the
-/// detail is short enough to simply show, and a disclosure arrow only teaches the reader to leave
-/// it closed.
-///
-/// Internal rather than `private` so `OnboardingTests` can sample the ground it actually draws
-/// on, instead of asserting against a `WNCallout` it built itself — which would go on passing
-/// with this pane wearing the info tint.
-struct OnboardingPublicProfileNote: View {
-    var body: some View {
-        WNCallout(
-            title: L10n.string("Your profile is public"),
-            message: L10n.string(
-                "Name, photo, and bio are visible on the global Nostr network. Use what you're comfortable sharing."
-            ),
-            intent: .info,
-            emphasis: .quiet
-        )
-        .accessibilityElement(children: .combine)
     }
 }
