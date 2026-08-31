@@ -40,6 +40,8 @@ struct SettingsPanelView: View {
                 NotificationsSettingsView()
             case .storage:
                 StorageSettingsView()
+            case .donate:
+                DonateSettingsView()
             case .developerMode:
                 DeveloperModeSettingsView()
             }
