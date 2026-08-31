@@ -627,7 +627,7 @@ import Testing
     /// Sampled against a swatch rendered the same way rather than against the ramp constant:
     /// `ImageRenderer` does not always hand back the exact token it was given.
     @Test func theSignUpNoticeIsDrawnOnNeutralGround() throws {
-        let quiet = try Self.noticeGround { OnboardingPublicProfileNote() }
+        let quiet = try Self.noticeGround { PublicProfileNote() }
         let tinted = try Self.noticeGround {
             WNCallout(
                 title: Self.publicProfileTitleKey,
@@ -670,7 +670,7 @@ import Testing
     /// control: that one is pinned to `OnboardingKeyField`'s 40pt and must not be computed at all.
     @Test func aFieldIsAsTallAsTheLayoutSaysItIs() throws {
         for lineLimit in [1, OnboardingLayout.aboutFieldLineLimit] {
-            let field = OnboardingFormField(
+            let field = WNInput(
                 label: "About",
                 prompt: "Introduce yourself",
                 text: .constant(""),
@@ -699,7 +699,7 @@ import Testing
     }
 
     /// A capsule field and the rounded box under it agree on their corner. Asserted on the metric
-    /// rather than on pixels because the metric is the whole mechanism: `OnboardingFormField`
+    /// rather than on pixels because the metric is the whole mechanism: `WNInput`
     /// reads the capsule's radius from the single-line height, and the two only look like one
     /// family while that stays true.
     @Test func bothSignUpFieldsShareOneCorner() {
