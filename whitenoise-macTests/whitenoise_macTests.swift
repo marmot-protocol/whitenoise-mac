@@ -1010,7 +1010,7 @@ struct whitenoise_macTests {
         #expect(!store.hasBeenOffered(toOwnerAccountIdHex: Self.improvementsPromptAccountIdHex))
     }
 
-    /// "Delete All Data" resets the Mac to a newly installed state, which has asked nobody.
+    /// "Erase App Data" resets the Mac to a newly installed state, which has asked nobody.
     @MainActor
     @Test func resettingToANewInstallClearsEveryImprovementsPromptRecord() async throws {
         let store = FakeImprovementsPromptStore(

@@ -74,7 +74,7 @@ extension WorkspaceState {
         improvementsPromptStore.forget(ownerAccountIdHex: accountIdHex)
     }
 
-    /// Part of "Delete All Data": a Mac reset to a newly installed state has asked nobody.
+    /// Part of "Erase App Data": a Mac reset to a newly installed state has asked nobody.
     func clearImprovementsPromptRecords() {
         isImprovementsPromptPresented = false
         improvementsPromptStore.clearAll()
