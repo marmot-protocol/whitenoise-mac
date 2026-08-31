@@ -2860,6 +2860,7 @@ enum SettingsPage: Equatable {
     case privacySecurity
     case notifications
     case storage
+    case donate
     case developerMode
 
     /// The drawer's cards, ported from `wn-ios-prototype`'s hub: a group of destinations per
@@ -2868,11 +2869,15 @@ enum SettingsPage: Equatable {
     ///
     /// The split follows the order that was already here rather than reordering to match the
     /// prototype row for row — the order encodes its own decision (see `sidebarPages`), and it
-    /// falls into these three groups without being disturbed:
+    /// falls into these two groups without being disturbed:
     ///
     /// - who you are and how you reach the network,
-    /// - how the app treats you,
-    /// - and what only a developer wants.
+    /// - and everything that is about the app rather than about your account.
+    ///
+    /// Donate belongs to that second card for the same reason `wn-ios-prototype`'s hub keeps it
+    /// on the support card beside Developer Tools: it is a page about the project, not a setting
+    /// that changes anything for the account signed in. It follows Preferences rather than
+    /// leading, because nobody opens settings to donate.
     static let sidebarGroups: [[SettingsPage]] = [
         [
             .profile,
@@ -2886,6 +2891,7 @@ enum SettingsPage: Equatable {
         ],
         [
             .preferences,
+            .donate,
             .developerMode,
         ],
     ]
@@ -2927,6 +2933,8 @@ enum SettingsPage: Equatable {
             "Notifications"
         case .storage:
             "Storage"
+        case .donate:
+            "Donate"
         case .developerMode:
             "Developer mode"
         }
@@ -2954,6 +2962,10 @@ enum SettingsPage: Equatable {
             "bell"
         case .storage:
             "externaldrive"
+        case .donate:
+            // Outline, not `heart.fill`: the prototype's Donate destination uses the outline
+            // symbol, and every other glyph in this drawer is an outline too.
+            "heart"
         case .developerMode:
             "wrench.and.screwdriver"
         }
