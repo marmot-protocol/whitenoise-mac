@@ -16,15 +16,7 @@ import SwiftUI
 /// pick a background that would bleed into the tile rather than the background the screen
 /// wanted, and the tile could not follow the appearance, so a dark square sat on a light pane
 /// in Aqua. The imageset is gone; nothing draws that tile any more.
-///
-/// What draws here instead is `assets/svgs/whitenoise.svg` from the Flutter client — the same
-/// path data `wn-ios-prototype` ships as `WhiteNoiseMark` — as a **template** asset, so the
-/// color comes from `foregroundStyle` rather than from the file. That makes this the same mark
-/// the other clients draw, tinted the same way: Flutter fills it with
-/// `colors.backgroundContentPrimary` through a `srcIn` color filter, and this is that token.
-/// It is also literally the file's own fill — the SVG's `#0A0A0A` *is* `neutral950`, the light
-/// half of `backgroundContentPrimary` — which is the tell that the mark was always meant to be
-/// ink and never a tile.
+
 struct WhiteNoiseMarkView: View {
     /// The mark's drawn width. Its height follows from `Self.aspectRatio`; callers size one edge
     /// and let the other fall out, so the mark can never be squashed.

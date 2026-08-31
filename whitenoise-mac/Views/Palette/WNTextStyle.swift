@@ -2,9 +2,6 @@
 //  WNTextStyle.swift
 //  whitenoise-mac
 //
-//  The type ramp, ported from the Flutter client's `lib/theme/app_typography.dart`
-//  so both clients share one ladder of sizes and one set of weights.
-//
 //  A rung is a size paired with a weight, applied through `View.wnFont(_:)` rather
 //  than as a bare `Font`, so the ladder stays the vocabulary every call site speaks
 //  and can be moved in one place.

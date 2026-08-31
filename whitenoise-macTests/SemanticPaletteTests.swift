@@ -116,15 +116,6 @@ struct SemanticPaletteTests {
             // An intention wash is laid over the app's own surfaces, so it has to be told apart
             // from them too — a badge whose capsule matches the row behind it is not a badge.
             ("intentionInfo/onPrimary", WNNSColor.backgroundPrimary, WNNSColor.intentionInfoContent, 4.5),
-            // The unread pill against the surfaces it is actually drawn on: the chat-list row
-            // (`backgroundSecondary`), the account rail (`backgroundTertiary`) and the selected row
-            // (`fillTertiaryHover`). A badge whose capsule matches the row behind it is not a badge.
-            //
-            // The badge is `fillPrimary` now rather than the blue `fillInfo` it used to be — the
-            // prototype and the Flutter client both draw every unread signal in the one inverted
-            // accent. That token was only ever the unread badge's, and it went with it; the numbers
-            // here are the argument that nothing was lost, since an inverted fill clears all three
-            // surfaces by a wider margin than the blue did.
             ("fillPrimary/onSecondary", WNNSColor.backgroundSecondary, WNNSColor.fillPrimary, 4.5),
             ("fillPrimary/onTertiary", WNNSColor.backgroundTertiary, WNNSColor.fillPrimary, 4.5),
             ("fillPrimary/onSelectedRow", WNNSColor.fillTertiaryHover, WNNSColor.fillPrimary, 4.5),
@@ -218,17 +209,6 @@ struct SemanticPaletteTests {
         }
     }
 
-    /// The unread count, the mention pill, the manual-unread dot and the pending-invite `+` are all
-    /// one fill, and that fill is the inverted `fillPrimary` — the prototype's single accent, and
-    /// the Flutter client's.
-    ///
-    /// They used to be a blue `fillInfo`, a token that existed for them alone and was deleted with
-    /// the decision. What that token bought was separation from the near-black row it sits on; an
-    /// inverted neutral buys more of it (the `fillPrimary/onSecondary` rows in
-    /// `semanticPairsStayLegibleInBothAppearances` measure it), so the property left to pin here is
-    /// that the fill genuinely *crosses over* with the appearance. A badge frozen at one end — the
-    /// mistake a literal `.black` would make — would pass every contrast row in one appearance and
-    /// disappear in the other.
     @Test func everyUnreadSignalTakesTheInvertedPrimaryFill() throws {
         let fills = try Self.appearances().map { try Self.resolvedHex(WNNSColor.fillPrimary, in: $0) }
         #expect(fills == ["0A0A0A", "FFFFFF"], "fillPrimary should invert between the appearances")

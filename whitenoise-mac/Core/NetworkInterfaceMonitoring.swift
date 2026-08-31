@@ -3,8 +3,7 @@
 //  whitenoise-mac
 //
 //  First half of the offline check: whether the OS believes there is a network
-//  interface to send anything over. The macOS twin of `connectivity_plus` on the
-//  Flutter client (`lib/providers/offline_provider.dart`).
+//  interface to send anything over.
 //
 
 import Foundation

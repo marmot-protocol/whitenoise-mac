@@ -10,7 +10,7 @@ import SwiftUI
 
 /// A decrypted attachment rendered to fit, that the pointer can magnify.
 ///
-/// Three gestures, matching the Flutter client: pinch to scale, double-click to jump to
+/// Three gestures: pinch to scale, double-click to jump to
 /// `ImageZoomState.doubleClickScale` at the pointer (and again to return to fit), and drag
 /// to pan once the image is larger than the space it sits in.
 ///

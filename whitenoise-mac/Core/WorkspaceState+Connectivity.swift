@@ -3,10 +3,7 @@
 //  whitenoise-mac
 //
 //  Keeps `isOffline` current so the "Waiting for internet connection" notice can
-//  appear and disappear on its own. Ported from the Flutter client's
-//  `offlineProvider` (`lib/providers/offline_provider.dart`): every interface
-//  change re-asks the cheap question first, and only re-probes the relays when
-//  the answer is "there is an interface".
+//  appear and disappear on its own.
 //
 
 import Foundation
@@ -51,10 +48,6 @@ extension WorkspaceState {
         using probe: any RelayHostReachabilityProbing,
         endpoints: [RelayHostEndpoint]
     ) async -> Bool {
-        // Fail open when there is nothing to probe. The Flutter client reaches the same place
-        // from the opposite direction — it treats an unreadable relay list as reachable — and the
-        // reasoning is the same either way: a banner claiming the user has no internet on the
-        // strength of a relay list we could not parse is a lie about their network.
         guard !endpoints.isEmpty else { return true }
         return await probe.canReachAnyHost(endpoints)
     }

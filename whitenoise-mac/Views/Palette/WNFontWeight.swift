@@ -7,14 +7,6 @@
 //  is `systemFont` — so a weight here is a point on San Francisco's weight axis
 //  rather than a separate file in the bundle.
 //
-//  The vocabulary stays three deep because the ramp is the Flutter client's ladder
-//  and that ladder names three. The mac client typesets its medium rung one step
-//  lighter than the Flutter source, though: where Flutter draws body copy at Medium
-//  (500), San Francisco reads heavy at that point on a desktop display, so this
-//  app's `.medium` resolves to Regular (400). Each case carries both frameworks'
-//  spelling of the same weight, so `WNTextStyle` and `WNNSFont` cannot drift apart
-//  on what "semiBold" means.
-//
 
 import AppKit
 import SwiftUI

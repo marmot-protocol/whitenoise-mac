@@ -5,9 +5,7 @@
 //  The host:port pair a relay URL points at, used by the reachability probe
 //  behind the "Waiting for internet connection" notice.
 //
-//  Ported from the Flutter client's `_relayUrls()` / `_relayPort()` in
-//  `lib/providers/offline_provider.dart`, including the default-port rule: a
-//  relay URL rarely carries a port, so `ws://` falls back to 80 and everything
+//  A relay URL rarely carries a port, so `ws://` falls back to 80 and everything
 //  else (in practice `wss://`) to 443.
 //
 

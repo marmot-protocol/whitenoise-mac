@@ -66,9 +66,6 @@ struct NetworkReachabilityTests {
     // MARK: - Wording
 
     @Test func theOfflineNoticeSharesItsWordingWithTheOtherClients() {
-        // The wording is lifted from the Flutter client's `waitingForInternet` so a user who
-        // moves between clients reads the same sentence. Asserted through a translation rather
-        // than the English key, which a lookup returns even when the catalog entry is missing.
         #expect(
             L10n.string("Waiting for internet connection", locale: Locale(identifier: "es"))
                 == "Esperando conexión a internet"
