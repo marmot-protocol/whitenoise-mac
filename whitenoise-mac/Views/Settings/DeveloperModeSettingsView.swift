@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import MarmotKit
 import SwiftUI
 
 struct DeveloperModeSettingsView: View {
@@ -55,6 +56,100 @@ struct DeveloperModeSettingsView: View {
                 }
             }
 
+            AuditLogFilesSection()
+
         }
+    }
+}
+
+/// The audit-log files themselves: names, sizes, timestamps and paths.
+///
+/// This is here rather than on Privacy & Security because of what the two pages are for.
+/// Privacy & Security answers "how much is stored, and can I get rid of it" — it reports the
+/// combined size and owns the clear action. What each file is called and where it sits on disk
+/// answers a different question, one only somebody about to open a terminal is asking, and
+/// putting it on the privacy page buried the choice under an inventory. Turning logging on and
+/// off, and clearing what it wrote, stay on Privacy & Security; this group only looks.
+struct AuditLogFilesSection: View {
+    @Environment(WorkspaceState.self) private var workspace
+
+    var body: some View {
+        SettingsSection(
+            title: L10n.string("Audit Log Files"),
+            footer: L10n.string("Turn audit logging on or off, and clear these files, in Privacy & Security.")
+        ) {
+            HStack(spacing: 10) {
+                Button {
+                    Task { await workspace.loadAuditLogFiles() }
+                } label: {
+                    SettingsBusyLabel(
+                        title: L10n.string("Refresh"),
+                        systemImage: "arrow.clockwise",
+                        isBusy: workspace.isLoadingAuditLogFiles
+                    )
+                }
+                .buttonStyle(.wnSecondary)
+                .disabled(workspace.isLoadingAuditLogFiles)
+            }
+
+            if workspace.auditLogFiles.isEmpty {
+                Text(L10n.string("There are no logs."))
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+            } else {
+                ForEach(workspace.auditLogFiles, id: \.path) { file in
+                    AuditLogFileRow(file: file)
+                }
+            }
+        }
+        .task {
+            await workspace.loadAuditLogFiles()
+        }
+    }
+}
+
+struct AuditLogFileRow: View {
+    let file: AuditLogFileFfi
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(file.fileName)
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Text(AuditLogByteCount.string(file.sizeBytes))
+                    .wnFont(.medium10.monospacedDigit())
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+            }
+
+            Text(details)
+                .wnFont(.medium10)
+                .foregroundStyle(WNColor.backgroundContentSecondary)
+                .lineLimit(1)
+
+            Text(file.path)
+                .font(.caption2.monospaced())
+                .foregroundStyle(WNColor.backgroundContentTertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var details: String {
+        var parts = [shortAccountRef(file.accountRef)]
+        if let modifiedAtMs = file.modifiedAtMs {
+            let date = Date(timeIntervalSince1970: TimeInterval(modifiedAtMs) / 1_000)
+            parts.append(DisplayText.dateTimeTimestamp(for: date))
+        }
+        return parts.joined(separator: " - ")
+    }
+
+    private func shortAccountRef(_ ref: String) -> String {
+        let capped = String(ref.prefix(64))
+        guard capped.count > 14 else { return capped }
+        return "\(capped.prefix(8))...\(capped.suffix(6))"
     }
 }

@@ -12466,6 +12466,65 @@
         }
       }
     },
+    "Clear Logs": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar registros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer les journaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina i log"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar logs"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить журналы"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıtları temizle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除日誌"
+          }
+        }
+      }
+    },
     "Clear Unread Reminder": {
       "extractionState": "manual",
       "localizations": {
@@ -12521,6 +12580,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "清除未讀提醒"
+          }
+        }
+      }
+    },
+    "Clear diagnostic logs?": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnoseprotokolle löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Borrar los registros de diagnóstico?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer les journaux de diagnostic ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminare i log di diagnostica?"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar os logs de diagnóstico?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить журналы диагностики?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teşhis kayıtları temizlensin mi?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除诊断日志吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除診斷日誌嗎？"
           }
         }
       }
@@ -15658,65 +15776,6 @@
         }
       }
     },
-    "Data Sharing": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Datenweitergabe"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso compartido de datos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Partage de données"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Condivisione dei dati"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartilhamento de dados"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Передача данных"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Veri paylaşımı"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "数据共享"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "資料共享"
-          }
-        }
-      }
-    },
     "Days": {
       "extractionState": "manual",
       "localizations": {
@@ -16012,183 +16071,6 @@
         }
       }
     },
-    "Delete All": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alle löschen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar todo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tout supprimer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elimina tutto"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluir tudo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить все"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tümünü sil"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全部删除"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "全部刪除"
-          }
-        }
-      }
-    },
-    "Delete All Audit Logs": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alle Audit-Logs löschen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar todos los registros de auditoría"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer tous les journaux d’audit"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elimina tutti i log di audit"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluir todos os logs de auditoria"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить все журналы аудита"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tüm denetim kayıtlarını sil"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除所有审计日志"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "刪除所有稽核日誌"
-          }
-        }
-      }
-    },
-    "Delete All Data": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alle Daten löschen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar todos los datos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer toutes les données"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elimina tutti i dati"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluir todos os dados"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить все данные"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tüm verileri sil"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "删除所有数据"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "刪除所有資料"
-          }
-        }
-      }
-    },
     "Delete From This Device": {
       "extractionState": "manual",
       "localizations": {
@@ -16244,124 +16126,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "從此裝置刪除"
-          }
-        }
-      }
-    },
-    "Delete all audit logs?": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alle Audit-Logs löschen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Eliminar todos los registros de auditoría?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer tous les journaux d’audit ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminare tutti i log di audit?"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluir todos os logs de auditoria?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить все журналы аудита?"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tüm denetim kayıtları silinsin mi?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要删除所有审计日志吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要刪除所有稽核日誌嗎？"
-          }
-        }
-      }
-    },
-    "Delete all data?": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alle Daten löschen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Eliminar todos los datos?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer toutes les données ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminare tutti i dati?"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluir todos os dados?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить все данные?"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tüm veriler silinsin mi?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要删除所有数据吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要刪除所有資料嗎？"
           }
         }
       }
@@ -16956,65 +16720,6 @@
         }
       }
     },
-    "Deleting...": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird gelöscht …"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminando..."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suppression…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminazione..."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Excluindo..."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удаление…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Siliniyor..."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在删除…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在刪除…"
-          }
-        }
-      }
-    },
     "Delivered": {
       "extractionState": "manual",
       "localizations": {
@@ -17605,6 +17310,65 @@
         }
       }
     },
+    "Device Data": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerätedaten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datos del dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données de l’appareil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dati del dispositivo"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dados do dispositivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Данные устройства"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cihaz verileri"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝置資料"
+          }
+        }
+      }
+    },
     "Device model": {
       "extractionState": "manual",
       "localizations": {
@@ -17719,6 +17483,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "診斷"
+          }
+        }
+      }
+    },
+    "Diagnostics & Improvements": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose & Verbesserungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnóstico y mejoras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic et améliorations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostica e miglioramenti"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnóstico e melhorias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диагностика и улучшения"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teşhis ve iyileştirmeler"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "诊断与改进"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診斷與改進"
           }
         }
       }
@@ -20210,6 +20033,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "時代"
+          }
+        }
+      }
+    },
+    "Erase App Data": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Daten löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar los datos de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer les données de l’app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancella i dati dell’app"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar os dados do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стереть данные приложения"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulama verilerini sil"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "抹掉 App 数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除 App 資料"
+          }
+        }
+      }
+    },
+    "Erase app data?": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Daten löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Borrar los datos de la app?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer les données de l’app ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancellare i dati dell’app?"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar os dados do app?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стереть данные приложения?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulama verileri silinsin mi?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要抹掉 App 数据吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除 App 資料嗎？"
+          }
+        }
+      }
+    },
+    "Erasing...": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gelöscht..."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrando datos..."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacement..."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancellazione..."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagando..."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стирание..."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siliniyor..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在抹掉..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清除..."
           }
         }
       }
@@ -35552,61 +35552,61 @@
         }
       }
     },
-    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Leave this off unless you trust the senders. Only secure (https) images are ever loaded.": {
+    "Off by default. Profile pictures come from URLs other people control, so loading them reveals your IP address and when you're online to whoever sent them. Only secure (https) images are ever loaded.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Standardmäßig deaktiviert. Profilbilder stammen von URLs, die andere kontrollieren. Beim Laden geben sie dem Absender deine IP-Adresse preis und verraten, wann du online bist. Lass dies deaktiviert, sofern du den Absendern nicht vertraust. Es werden ausschließlich sichere Bilder (https) geladen."
+            "value": "Standardmäßig deaktiviert. Profilbilder stammen von URLs, die andere kontrollieren. Beim Laden geben sie dem Absender deine IP-Adresse preis und verraten, wann du online bist. Es werden ausschließlich sichere Bilder (https) geladen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desactivado de forma predeterminada. Las fotos de perfil provienen de URL que controlan otras personas, por lo que cargarlas revela tu dirección IP y cuándo estás en línea a quien las envió. Déjalo desactivado a menos que confíes en los remitentes. Solo se cargan imágenes seguras (https)."
+            "value": "Desactivado de forma predeterminada. Las fotos de perfil provienen de URL que controlan otras personas, por lo que cargarlas revela tu dirección IP y cuándo estás en línea a quien las envió. Solo se cargan imágenes seguras (https)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désactivé par défaut. Les photos de profil proviennent d'URL contrôlées par d'autres personnes ; les charger révèle donc votre adresse IP et vos heures de connexion à ceux qui les ont envoyées. Laissez cette option désactivée, sauf si vous faites confiance aux expéditeurs. Seules les images sécurisées (https) sont chargées."
+            "value": "Désactivé par défaut. Les photos de profil proviennent d'URL contrôlées par d'autres personnes ; les charger révèle donc votre adresse IP et vos heures de connexion à ceux qui les ont envoyées. Seules les images sécurisées (https) sont chargées."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disattivato per impostazione predefinita. Le immagini del profilo provengono da URL controllati da altri, quindi caricarle rivela il tuo indirizzo IP e quando sei online a chi le ha inviate. Lascia questa opzione disattivata a meno che tu non ti fidi dei mittenti. Vengono caricate solo immagini sicure (https)."
+            "value": "Disattivato per impostazione predefinita. Le immagini del profilo provengono da URL controllati da altri, quindi caricarle rivela il tuo indirizzo IP e quando sei online a chi le ha inviate. Vengono caricate solo immagini sicure (https)."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desativado por padrão. As fotos de perfil vêm de URLs controlados por outras pessoas, então carregá-las revela o seu endereço IP e quando você está on-line a quem as enviou. Deixe isto desativado, a menos que confie nos remetentes. Apenas imagens seguras (https) são carregadas."
+            "value": "Desativado por padrão. As fotos de perfil vêm de URLs controlados por outras pessoas, então carregá-las revela o seu endereço IP e quando você está on-line a quem as enviou. Apenas imagens seguras (https) são carregadas."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "По умолчанию отключено. Изображения профиля загружаются по URL-адресам, которые контролируют другие люди, поэтому их загрузка раскрывает ваш IP-адрес и время, когда вы в сети, тому, кто их отправил. Оставьте этот параметр отключённым, если не доверяете отправителям. Загружаются только безопасные изображения (https)."
+            "value": "По умолчанию отключено. Изображения профиля загружаются по URL-адресам, которые контролируют другие люди, поэтому их загрузка раскрывает ваш IP-адрес и время, когда вы в сети, тому, кто их отправил. Загружаются только безопасные изображения (https)."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Varsayılan olarak kapalı. Profil resimleri başkalarının denetlediği URL'lerden gelir; bu nedenle bunları yüklemek, IP adresinizi ve çevrimiçi olduğunuz zamanları gönderen kişiye açık eder. Göndericilere güvenmiyorsanız bunu kapalı bırakın. Yalnızca güvenli (https) görseller yüklenir."
+            "value": "Varsayılan olarak kapalı. Profil resimleri başkalarının denetlediği URL'lerden gelir; bu nedenle bunları yüklemek, IP adresinizi ve çevrimiçi olduğunuz zamanları gönderen kişiye açık eder. Yalnızca güvenli (https) görseller yüklenir."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "默认关闭。头像来自他人控制的 URL，因此加载头像会向发送者暴露你的 IP 地址以及你在线的时间。除非你信任发送者，否则请保持关闭。仅加载安全（https）图片。"
+            "value": "默认关闭。头像来自他人控制的 URL，因此加载头像会向发送者暴露你的 IP 地址以及你在线的时间。仅加载安全（https）图片。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "預設關閉。個人頭像來自他人控制的 URL，因此載入頭像會向傳送者洩露你的 IP 位址以及你上線的時間。除非你信任傳送者，否則請保持關閉。僅會載入安全（https）的圖片。"
+            "value": "預設關閉。個人頭像來自他人控制的 URL，因此載入頭像會向傳送者洩露你的 IP 位址以及你上線的時間。僅會載入安全（https）的圖片。"
           }
         }
       }
@@ -35666,6 +35666,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "開啟"
+          }
+        }
+      }
+    },
+    "On This Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su questo Mac"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этом Mac"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac’te"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此 Mac 上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此 Mac 上"
           }
         }
       }
@@ -42642,124 +42701,6 @@
         }
       }
     },
-    "Reset": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurücksetzen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restablecer"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réinitialiser"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reimposta"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redefinir"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сбросить"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sıfırla"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重設"
-          }
-        }
-      }
-    },
-    "Reset White Noise to a newly installed state on this Mac.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Setze White Noise auf diesem Mac auf den Zustand einer Neuinstallation zurück."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Restablece White Noise en este dispositivo al estado de una instalación nueva."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réinitialisez White Noise sur ce Mac à l’état d’une nouvelle installation."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reimposta White Noise su questo Mac allo stato di installazione iniziale."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redefina o White Noise neste Mac para o estado de instalação inicial."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сбросьте White Noise на этом Mac до состояния новой установки."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac’teki White Noise’u yeni kurulmuş durumuna sıfırlayın."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将此 Mac 上的 White Noise 重置为新安装状态。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將此 Mac 上的 White Noise 重設為新安裝狀態。"
-          }
-        }
-      }
-    },
     "Resize chat list": {
       "comment": "Accessibility label for the draggable divider that sets the chat list's width.",
       "extractionState": "manual",
@@ -46372,6 +46313,65 @@
         }
       }
     },
+    "Sends sanitized technical activity to White Noise to help troubleshoot problems. Message content is excluded and identifiers are obscured.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendet bereinigte technische Aktivität an White Noise, um bei der Fehlersuche zu helfen. Nachrichteninhalte werden ausgeschlossen und Identifikatoren verschleiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía actividad técnica depurada a White Noise para ayudar a resolver problemas. Se excluye el contenido de los mensajes y se ocultan los identificadores."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie une activité technique expurgée à White Noise pour aider au dépannage. Le contenu des messages est exclu et les identifiants sont masqués."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia attività tecnica depurata a White Noise per aiutare nella risoluzione dei problemi. Il contenuto dei messaggi è escluso e gli identificatori sono offuscati."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envia atividade técnica sanitizada para o White Noise para ajudar na solução de problemas. O conteúdo das mensagens é excluído e os identificadores são ocultados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляет очищенные технические данные в White Noise для диагностики проблем. Содержимое сообщений исключается, а идентификаторы скрываются."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorun gidermeye yardımcı olmak için arındırılmış teknik etkinliği White Noise’a gönderir. Mesaj içeriği hariç tutulur ve tanımlayıcılar gizlenir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向 White Noise 发送经过脱敏的技术活动记录，以帮助排查问题。不包含消息内容，标识符会被模糊处理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向 White Noise 傳送經過去識別化的技術活動記錄，以協助排解問題。不包含訊息內容，識別碼會被模糊處理。"
+          }
+        }
+      }
+    },
     "Sent": {
       "extractionState": "manual",
       "localizations": {
@@ -47082,6 +47082,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "共享媒體無法使用"
+          }
+        }
+      }
+    },
+    "Shares anonymous reliability, performance, and feature-use data to help improve White Noise. Messages, media, contacts, profile details, and keys are never included.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilt anonyme Daten zu Zuverlässigkeit, Leistung und Funktionsnutzung, um White Noise zu verbessern. Nachrichten, Medien, Kontakte, Profildaten und Schlüssel sind niemals enthalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparte datos anónimos de fiabilidad, rendimiento y uso de funciones para ayudar a mejorar White Noise. Nunca se incluyen mensajes, multimedia, contactos, datos de perfil ni llaves."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partage des données anonymes de fiabilité, de performance et d’utilisation des fonctionnalités pour aider à améliorer White Noise. Les messages, les médias, les contacts, les informations de profil et les clés ne sont jamais inclus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condivide dati anonimi su affidabilità, prestazioni e utilizzo delle funzioni per contribuire a migliorare White Noise. Messaggi, media, contatti, dati del profilo e chiavi non sono mai inclusi."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilha dados anônimos de confiabilidade, desempenho e uso de recursos para ajudar a melhorar o White Noise. Mensagens, mídia, contatos, dados de perfil e chaves nunca são incluídos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляет анонимные данные о надёжности, производительности и использовании функций, чтобы помочь улучшить White Noise. Сообщения, медиа, контакты, данные профиля и ключи никогда не включаются."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise’u geliştirmeye yardımcı olmak için güvenilirlik, performans ve özellik kullanımına dair anonim veriler paylaşır. Mesajlar, medya, kişiler, profil bilgileri ve anahtarlar hiçbir zaman dahil edilmez."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享有关可靠性、性能和功能使用情况的匿名数据，以帮助改进 White Noise。绝不包含消息、媒体、联系人、个人资料或密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享有關可靠性、效能和功能使用情況的匿名資料，以協助改進 White Noise。絕不包含訊息、媒體、聯絡人、個人檔案或金鑰。"
           }
         }
       }
@@ -47853,6 +47912,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "註銷只會忘記哪個帳戶處於活動狀態。身分及其密鑰材料保留在裝置鑰匙圈中，以便您可以重新登入。"
+          }
+        }
+      }
+    },
+    "Signs out every account and permanently removes all White Noise data from this Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meldet alle Accounts ab und entfernt alle White-Noise-Daten endgültig von diesem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra la sesión de todas las cuentas y elimina de forma permanente todos los datos de White Noise de este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecte tous les comptes et supprime définitivement toutes les données White Noise de ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnette tutti gli account e rimuove definitivamente tutti i dati di White Noise da questo Mac."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerra a sessão de todas as contas e remove permanentemente todos os dados do White Noise deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выполняет выход из всех аккаунтов и безвозвратно удаляет все данные White Noise с этого Mac."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm hesapların oturumunu kapatır ve bu Mac’teki tüm White Noise verilerini kalıcı olarak kaldırır."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出所有账户，并永久删除此 Mac 上的所有 White Noise 数据。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出所有帳號，並永久刪除此 Mac 上的所有 White Noise 資料。"
           }
         }
       }
@@ -49406,6 +49524,65 @@
         }
       }
     },
+    "Stored Diagnostic Logs": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Diagnoseprotokolle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registros de diagnóstico almacenados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Journaux de diagnostic conservés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log di diagnostica archiviati"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logs de diagnóstico armazenados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранённые журналы диагностики"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saklanan teşhis kayıtları"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已存储的诊断日志"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存的診斷日誌"
+          }
+        }
+      }
+    },
     "Stored in Keychain": {
       "extractionState": "manual",
       "localizations": {
@@ -50169,65 +50346,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "遙測與稽核日誌"
-          }
-        }
-      }
-    },
-    "Telemetry and audit logs stay off until you enable them.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Telemetrie und Audit-Logs bleiben deaktiviert, bis du sie einschaltest."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La telemetría y los registros de auditoría permanecen desactivados hasta que los actives."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La télémétrie et les journaux d’audit restent désactivés jusqu’à ce que vous les activiez."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Telemetria e log di audit restano disattivati fino a quando non li abiliti."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A telemetria e os logs de auditoria ficam desativados até você ativá-los."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Телеметрия и журналы аудита отключены, пока вы их не включите."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Telemetri ve denetim kayıtları siz etkinleştirene kadar kapalı kalır."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "遥测与审计日志在你启用前保持关闭。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "遙測與稽核日誌在你啟用前保持關閉。"
           }
         }
       }
@@ -51770,6 +51888,65 @@
         }
       }
     },
+    "There are no logs.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es sind keine Protokolle vorhanden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay registros."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun journal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ci sono log."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há logs."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Журналов нет."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kayıt yok."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有日志。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有日誌。"
+          }
+        }
+      }
+    },
     "They aren't on White Noise yet. Share the app so you can chat securely.": {
       "comment": "Direct-chat invite prompt when the recipient has no display name.",
       "extractionState": "manual",
@@ -52426,61 +52603,61 @@
         }
       }
     },
-    "This permanently removes every local audit JSONL file on this Mac.": {
+    "This permanently removes all recorded diagnostic activity from this Mac. Your logging preference won't change.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Damit werden alle lokalen Audit-JSONL-Dateien auf diesem Mac endgültig entfernt."
+            "value": "Damit wird die gesamte aufgezeichnete Diagnoseaktivität endgültig von diesem Mac entfernt. Deine Protokollierungseinstellung ändert sich nicht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto elimina de forma permanente todos los archivos JSONL de auditoría locales de este Mac."
+            "value": "Esto elimina de forma permanente toda la actividad de diagnóstico registrada en este Mac. Tu preferencia de registro no cambiará."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette action supprime définitivement tous les fichiers JSONL d’audit locaux de ce Mac."
+            "value": "Cette action supprime définitivement toute l’activité de diagnostic enregistrée sur ce Mac. Votre préférence de journalisation reste inchangée."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questa operazione rimuove definitivamente tutti i file JSONL di audit locali su questo Mac."
+            "value": "Questa operazione rimuove definitivamente da questo Mac tutta l’attività di diagnostica registrata. La tua preferenza di registrazione non cambierà."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Isso remove permanentemente todos os arquivos JSONL de auditoria locais deste Mac."
+            "value": "Isso remove permanentemente toda a atividade de diagnóstico registrada neste Mac. Sua preferência de registro não será alterada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Это безвозвратно удалит все локальные файлы аудита JSONL на этом Mac."
+            "value": "Это безвозвратно удалит с этого Mac все записанные диагностические данные. Ваша настройка журналирования не изменится."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu işlem, bu Mac’teki tüm yerel denetim JSONL dosyalarını kalıcı olarak kaldırır."
+            "value": "Bu işlem, bu Mac’te kaydedilmiş tüm teşhis etkinliğini kalıcı olarak kaldırır. Kayıt tercihiniz değişmez."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此操作将永久删除此 Mac 上所有本地审计 JSONL 文件。"
+            "value": "此操作将永久删除此 Mac 上记录的所有诊断活动。你的日志记录偏好不会改变。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此操作將永久刪除此 Mac 上所有本機稽核 JSONL 檔案。"
+            "value": "此操作將永久刪除此 Mac 上記錄的所有診斷活動。你的日誌記錄偏好不會改變。"
           }
         }
       }
@@ -53315,6 +53492,65 @@
         }
       }
     },
+    "Turn audit logging on or off, and clear these files, in Privacy & Security.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Audit-Protokollierung ein- oder ausschalten und diese Dateien löschen kannst du unter „Datenschutz & Sicherheit“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa o desactiva el registro de auditoría, y borra estos archivos, en Privacidad y seguridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez ou désactivez la journalisation d’audit, et effacez ces fichiers, dans Confidentialité et sécurité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva o disattiva la registrazione di audit, ed elimina questi file, in Privacy e sicurezza."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative ou desative o registro de auditoria, e apague esses arquivos, em Privacidade e segurança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включить или выключить журналирование аудита и очистить эти файлы можно в разделе «Конфиденциальность и безопасность»."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denetim kaydını açıp kapatmayı ve bu dosyaları temizlemeyi Gizlilik ve güvenlik bölümünden yapabilirsiniz."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“隐私与安全”中开启或关闭审计日志记录，并清除这些文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「隱私權與安全性」中開啟或關閉稽核日誌記錄，並清除這些檔案。"
+          }
+        }
+      }
+    },
     "Turn them on in System Settings to use these options.": {
       "extractionState": "manual",
       "localizations": {
@@ -53370,6 +53606,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "在系統設定中開啟後即可使用這些選項。"
+          }
+        }
+      }
+    },
+    "Turning logging off keeps existing logs until you clear them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du die Protokollierung deaktivierst, bleiben vorhandene Protokolle erhalten, bis du sie löschst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si desactivas el registro, los registros existentes se conservan hasta que los borres."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si vous désactivez la journalisation, les journaux existants sont conservés jusqu’à ce que vous les effaciez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivando la registrazione, i log esistenti vengono conservati finché non li elimini."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se você desativar o registro, os logs existentes serão mantidos até que você os apague."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если отключить журналирование, существующие журналы сохранятся, пока вы их не очистите."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydı kapatırsanız mevcut kayıtlar siz temizleyene kadar saklanır."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭日志记录后，现有日志会一直保留，直到你清除它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉日誌記錄後，現有日誌會一直保留，直到你清除它們。"
           }
         }
       }
