@@ -17,10 +17,6 @@ import Testing
 /// were in flight in other suites down with it, which reads as five unrelated failures.
 @Suite(.serialized) @MainActor struct AvatarPaletteTests {
     // MARK: - Seed → accent mapping
-
-    /// The mapping is the Flutter client's, recomputed here from its definition — the value of the
-    /// seed's first hex digit, modulo the accent count — so a drift on either side fails here rather
-    /// than silently giving one person two colors across the two apps.
     @Test(arguments: Array("0123456789abcdef"))
     func accentIndexMatchesTheFlutterClientMapping(digit: Character) {
         let seed = String(digit) + "f2a1c4b9e7d3056a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071"
@@ -56,10 +52,6 @@ import Testing
         #expect(covered.count == AvatarPalette.accentCount)
         #expect(covered == Set(0..<AvatarPalette.accentCount))
     }
-
-    /// Documents an asymmetry inherited from the Flutter client rather than introduced here: a
-    /// nibble spans sixteen values but there are twelve accents, so `c`-`f` wrap onto the first
-    /// four. Matching the other client's assignment is the point, so this is pinned, not fixed.
     @Test func theFirstFourAccentsAreTwiceAsLikelyAsTheRest() {
         var frequency = [Int: Int]()
         for digit in "0123456789abcdef" {

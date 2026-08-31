@@ -27427,9 +27427,6 @@ struct whitenoise_macTests {
         #expect(SettingsPage.sidebarPages.last == .developerMode)
     }
 
-    /// Switching identities is chrome at the top of Settings (`SettingsAccountSwitcherCard`),
-    /// not a page in the sidebar: like the iOS and Flutter clients, Settings shows the current
-    /// account with a switch control under it instead of routing through an Accounts tab.
     @MainActor
     @Test func settingsSidebarHasNoAccountsPage() async throws {
         #expect(

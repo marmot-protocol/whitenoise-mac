@@ -5,18 +5,6 @@
 //  The profile card that sits at the top of Settings: the row naming the active identity, and
 //  the row that adds another one.
 //
-//  This is where the former Accounts settings page went — the iOS and Flutter clients open
-//  Settings on the current profile rather than routing identity work through a separate Accounts
-//  tab, and this mirrors that on macOS.
-//
-//  It no longer raises a switcher popover. Switching identities is the account rail's job in this
-//  window (`AccountRailAvatar`), and a second control for it in Settings was offering, in a
-//  dropdown, a choice the rail already presents as a row of avatars. What the popover also
-//  carried — signing out, removing an account, reactivating a deactivated identity — either has
-//  another home (`SettingsSignOutRow` for the active identity, Identity & Keys for removing it)
-//  or is not offered anywhere by design: a deactivated identity is reached again by signing in
-//  with its key, never by a click that asks for nothing.
-//
 
 import SwiftUI
 

@@ -70,18 +70,6 @@ struct PublicIdentityQRCodeButton: View {
     }
 }
 
-/// The identity you hand to someone else, drawn the way the other clients draw their Share
-/// Profile screen: avatar, name, Nostr address, npub, then the code, then the caption that says
-/// what the code is for. Ordering, spacing and tokens follow the Flutter client's
-/// `share_profile_screen.dart`, which is the design source of truth for this surface; the iOS
-/// prototype's Share/Connect segmented control and its Share toolbar action are deliberately
-/// absent, because neither has a macOS counterpart — there is no camera scanner here, and
-/// handing the npub on is what the copy card already does.
-///
-/// Only ever shown for an account signed in on this Mac, and in practice only for the active
-/// one: all three call sites read `activeAccount`. `nostrAddress` is read from
-/// `profileDraft` for that reason, and returns nil for any other account rather than showing
-/// the active account's address under someone else's name.
 struct PublicIdentityQRCodeSheet: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.dismiss) private var dismiss
@@ -90,8 +78,6 @@ struct PublicIdentityQRCodeSheet: View {
     /// name being typed into its form rather than the last published one.
     let displayName: String
 
-    /// The Flutter client's `WnAvatarSize.large`, and the third-of-the-width the prototype's
-    /// header lands on at an iPhone's width.
     private let avatarSize: CGFloat = 96
     /// `share_profile_screen.dart` caps the matrix at 256 regardless of the width it is given.
     private let codeSize: CGFloat = 256

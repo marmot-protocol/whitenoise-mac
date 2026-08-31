@@ -12,15 +12,6 @@ import AppKit
 import SwiftUI
 
 /// The unread count, and the shape every other unread signal in the app borrows.
-///
-/// `fillPrimary` + `fillContentPrimary`: near-black with a white count in Aqua, white with a
-/// near-black count in Dark Aqua. This used to be a blue pill (`fillInfo`, a token that existed
-/// for it alone and is gone with it), on the argument that `fillPrimary` is already the sent
-/// bubble and the send button, so a badge wearing it would read as chrome. The iOS prototype and
-/// the Flutter client both settle it the other way: one inverted accent for everything the app
-/// wants you to act on, and blue reserved for text that behaves like a link. A badge drawn in it
-/// is not competing with the selected row, which is `fillTertiaryHover`.
-///
 /// Digits are monospaced so a count ticking 9 → 10 does not shift the pill's width mid-scroll.
 struct UnreadCountBadge: View {
     let count: Int
