@@ -104,44 +104,6 @@ struct AvatarChromeModifier: ViewModifier {
     }
 }
 
-/// The avatar fills, ported from the Flutter client's design system (`lib/utils/avatar_color.dart`
-/// + `lib/theme/semantic_colors.dart`): twelve Tailwind accent ramps, selected by the same
-/// arithmetic on the same seed, so a person or group wears one color across both apps. The seeds
-/// already agree — a DM keys on the peer's account id hex, a group on its group id hex, on both
-/// sides.
-///
-/// Each accent contributes three tokens rather than a single hue, and the assignment inverts
-/// between appearances, which is the whole character of the treatment: a **pale fill with deep
-/// tinted initials** in Aqua, a **deep fill with pale tinted initials** in Dark Aqua, ringed in
-/// both by the ramp's `200` step.
-///
-/// | token | Aqua | Dark Aqua |
-/// | --- | --- | --- |
-/// | fill | `50` | `950` |
-/// | content (initials) | `900` | `50` |
-/// | border | `200` | `200` |
-///
-/// Three things worth knowing before touching this, all measured:
-///
-/// 1. **The initials are the most legible part, and that is where identity lives.** Ink over fill
-///    runs 8.4:1 to 14.7:1 across all twelve accents in both appearances, because the two tokens
-///    swap ends of the ramp together. But the *fills alone barely differ* — the `50` steps of
-///    twelve Tailwind ramps are all near-white, with blue and sky only 0.016 apart in summed
-///    channel distance. What tells two people apart is the ink and the ring, not the disc.
-/// 2. **This appearance-dependence is designed, unlike an opacity flip.** Two full token sets are
-///    specified per ramp, so contrast is preserved by construction rather than by luck. That is the
-///    opposite of resolving one translucent color against two different backdrops, the trap
-///    documented on the pairing rule in `WNNSColor`.
-/// 3. **The disc is deliberately soft in Aqua.** These are drawn on the palette's own surfaces
-///    now — `backgroundPrimary`/`Secondary`/`Tertiary` rather than AppKit's `#ECECEC`/`#323232`
-///    window gray — so the app matches what the other clients draw them on. In Dark Aqua the `200`
-///    ring is a crisp outline against those surfaces. In Aqua both fill and ring land close to
-///    them, so the edge is carried by hue plus the drop shadow in `AvatarChromeModifier` rather
-///    than by luminance. That shadow, which the other clients have no equivalent of, is doing real
-///    work here — do not drop it.
-///
-/// `AvatarChromeModifier` therefore takes the `200` step as its `ringColor` for initials avatars,
-/// keeping the neutral hairline for the ones showing a picture.
 nonisolated enum AvatarPalette {
     /// The twelve accents in the other clients' `AvatarColor` declaration order.
     /// `accentIndex(for:)` indexes into this array with that client's arithmetic, so reordering
@@ -412,9 +374,7 @@ enum MessagesLayout {
 }
 
 /// Semantic type ramp for the messenger chrome, naming the roles the shell uses so a view
-/// asks for "the row title" rather than for a size. Each role resolves to a rung of the
-/// shared ramp (`WNTextStyle`), which is the Flutter client's ladder, so the two clients
-/// agree on sizes and weights.
+/// asks for "the row title" rather than for a size.
 enum MessagesType {
     static let paneTitle = WNTextStyle.semiBold18
     static let rowTitle = WNTextStyle.semiBold14

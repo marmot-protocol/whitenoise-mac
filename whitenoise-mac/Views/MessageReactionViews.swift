@@ -12,34 +12,6 @@ import SwiftUI
 /// Tapping a pill opens the viewer filtered to that emoji; the trailing overflow pill opens it on
 /// "All". Chips are view-only — adding/removing is done from the hover React control.
 ///
-/// This replaced a single merged pill that ran every reacted emoji together in one capsule
-/// (`👍❤️😂`) over the *total* count. That shape is what iOS draws, and on a phone-width bubble it
-/// is a reasonable compression, but it destroys the only thing a reaction row is read for: it says
-/// three people reacted without saying that two of them agreed. Per-emoji pills are what the
-/// Flutter client draws (`WnMessageReactions`), and they restore the tally — including which of
-/// the emojis is *yours*, which the merged pill could only state for the whole cluster at once.
-///
-/// The pill is the iOS prototype's: a 22pt capsule on the app's own surface inside the palette's
-/// hairline, one step off whichever bubble it overlaps rather than a tint of it.
-///
-/// It replaced `WNReactionColors`, a direction-keyed set that chose its fill from the bubble
-/// underneath. That set had a hole the border closes: its dark incoming fill was `neutral800`,
-/// which is `backgroundMessageIncoming` exactly, so a chip on a received bubble in Dark Aqua was
-/// drawn in the bubble's own color and vanished. `backgroundPrimary` steps away from *both*
-/// bubbles in both appearances — the received bubble is a neutral step off the surface, the sent
-/// one is inverted against it — so one fill serves both directions and the chip no longer needs to
-/// be told which bubble it is on at all.
-///
-/// The separation is deliberately quiet in Aqua (a white pill on the near-white received bubble),
-/// which is what the hairline is for: a resting reaction should read as an emoji rather than as a
-/// button. Against the *sent* bubble the same pill is at full contrast in both appearances, since
-/// `backgroundPrimary` and `fillPrimary` are each other's inverse — the fill and the border take
-/// turns carrying the shape depending on which bubble is underneath.
-///
-/// A pill carrying the local account's own reaction steps to `fillSecondaryActive` and swaps its
-/// hairline for `borderPrimary`, the palette's selected outline. The fill step alone would not
-/// carry it: one neutral rung off the surface measures about 1.2:1, where the outline swap is
-/// better than 15:1.
 struct MessageReactionChips: View {
     let reactions: [MessageReaction]
     /// emoji to focus the viewer on, or nil for the "All" tab.
@@ -146,10 +118,6 @@ nonisolated struct MessageReactionChipRow: Equatable {
     let hiddenGroupCount: Int
 
     /// How many distinct emojis get a pill before the rest collapse into `+N`.
-    ///
-    /// One more than the Flutter client's three: a desktop bubble is wider than a phone's, and
-    /// four pills come to about 160pt, which still sits inside a typical bubble. Past that the row
-    /// would start outgrowing the message it hangs off.
     static let maxVisibleGroups = 4
 
     static func value(
@@ -165,8 +133,6 @@ nonisolated struct MessageReactionChipRow: Equatable {
         )
     }
 
-    /// A pill's count, clamped so a runaway tally cannot widen the row without bound — the same
-    /// ceiling the Flutter client uses.
     static func countLabel(for count: Int) -> String {
         count > 99 ? "99+" : "\(count)"
     }

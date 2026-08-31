@@ -2,12 +2,6 @@
 //  RelayHostReachabilityProbing.swift
 //  whitenoise-mac
 //
-//  Second half of the offline check: a network interface exists, but does
-//  anything actually answer at the other end? Ported from the Flutter client's
-//  `_reachAnyRelayHost` (`lib/providers/offline_provider.dart`), which races a
-//  three-second TCP connect against every default relay and takes the first
-//  host that answers.
-//
 
 import Foundation
 import Network
@@ -29,8 +23,6 @@ nonisolated protocol RelayHostReachabilityProbing: Sendable {
 /// question being asked is "can packets leave this machine and come back", which a captive
 /// portal or a dead Wi-Fi association fails even though the OS still reports an interface.
 nonisolated struct TCPRelayHostProbe: RelayHostReachabilityProbing {
-    /// The Flutter client's `Socket.connect` timeout, kept verbatim so both clients decide
-    /// they are offline after the same wait.
     static let defaultTimeout: Duration = .seconds(3)
 
     let timeout: Duration

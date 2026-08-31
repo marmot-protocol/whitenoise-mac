@@ -234,11 +234,6 @@ struct GroupDetailsSheet: View {
                                 accountIdHex: contactAccountIdHex,
                                 publishedName: chat.publishedTitle
                             )
-
-                            // Chat info is the profile a 1:1 conversation actually opens, and the
-                            // Flutter client puts follow on that same screen. Without it here,
-                            // following someone you already message means hunting for their
-                            // avatar in the transcript first.
                             ContactFollowControl(accountIdHex: contactAccountIdHex)
                         }
                     }

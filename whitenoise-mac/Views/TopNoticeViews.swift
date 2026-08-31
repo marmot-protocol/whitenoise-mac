@@ -16,8 +16,7 @@
 
 import SwiftUI
 
-/// "Waiting for internet connection" — the macOS twin of the Flutter client's
-/// `OfflineSystemNotice`, down to the wording.
+/// "Waiting for internet connection"
 ///
 /// It carries the warning intent's palette and its filled triangle, like the `WnSystemNotice`
 /// it is ported from, and like Flutter it is a flush full-width band rather than a card: it is

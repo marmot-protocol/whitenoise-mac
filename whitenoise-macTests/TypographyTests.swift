@@ -18,9 +18,6 @@ import Testing
 /// already tracked optically per size. Re-adding them would apply them twice, so a test below
 /// pins their absence rather than leaving it to a comment.
 
-/// Sizes read off the Flutter client's `lib/theme/app_typography.dart`. Spelled out here rather
-/// than read from `WNTextStyle.ladder` so a drift in the ladder fails against the other client
-/// instead of agreeing with itself.
 private let flutterLadder: [CGFloat] = [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60, 72, 96]
 
 /// Every named rung, so a token added off the ladder fails here.

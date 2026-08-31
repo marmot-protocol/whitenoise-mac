@@ -106,8 +106,7 @@ nonisolated struct StartChatInvitePrompt: Equatable {
     }
 }
 
-/// Invite copy shared by the direct-chat prompt and the group-draft notice. Deliberately worded
-/// like the iOS and Flutter clients so someone who has seen one recognizes the other.
+/// Invite copy shared by the direct-chat prompt and the group-draft notice.
 nonisolated enum WhiteNoiseInvite {
     static var message: String {
         L10n.string("Let's chat on White Noise — private, secure messaging. Get it at https://whitenoise.chat")

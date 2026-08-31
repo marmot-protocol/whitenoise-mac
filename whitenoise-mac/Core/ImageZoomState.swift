@@ -11,12 +11,7 @@ import Foundation
 
 /// How far a full-screen image may be magnified, and where it is allowed to sit
 /// once it is.
-///
-/// The numbers match the Flutter client (`lib/widgets/media_image.dart`) so the same
-/// photo behaves the same way on both: a 1x–4x range, and a double-click that jumps
-/// to 2.5x rather than all the way out, which is the magnification that reads a
-/// screenshot's body text without losing the surrounding context.
-///
+
 /// Positions are held as a *centred* transform — the rendered position of a content
 /// point `u` is `offset + scale * u`, with the origin at the middle of the viewport.
 /// That is exactly what `.scaleEffect(scale).offset(offset)` produces in SwiftUI, so

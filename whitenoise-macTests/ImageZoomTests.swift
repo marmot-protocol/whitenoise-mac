@@ -2,9 +2,7 @@
 //  ImageZoomTests.swift
 //  whitenoise-macTests
 //
-//  The zoom/pan contract for the full-screen image viewers. These mirror the
-//  Flutter client's `InteractiveViewer` tests, which likewise assert against the
-//  transformation state rather than rendered pixels.
+//  The zoom/pan contract for the full-screen image viewers.
 //
 
 import CoreGraphics
