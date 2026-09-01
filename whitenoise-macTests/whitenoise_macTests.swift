@@ -17279,7 +17279,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func savingRelaySettingsRebuildsThePeerProfileLookupUnion() async throws {
+    @Test func editingRelaysRebuildsThePeerProfileLookupUnion() async throws {
         // `peerProfileLookupRelays(for:)` memoizes the seed + NIP-65 union for the session, so
         // editing relays in Settings would otherwise keep searching the pre-edit set for peer
         // kind:0 until the next account switch.
@@ -17304,10 +17304,9 @@ struct whitenoise_macTests {
         await state.settlePeerProfileRefreshQueueForTesting()
         #expect(runtime.lastProfileRefreshRelays.contains("wss://old.relay.example"))
 
-        // The user edits their NIP-65 set in Settings.
-        state.selectedRelaySection = .nip65
-        state.relayDraft = ["wss://new.relay.example"]
-        await state.saveRelaySettings()
+        // The user edits their profile relay set in Settings: adds one, drops the old one.
+        await state.addRelay("wss://new.relay.example", roles: [.profile])
+        await state.setRelayRole(.profile, isEnabled: false, forRelay: "wss://old.relay.example")
 
         state.requestPeerProfileRefresh([carolId])
         await state.settlePeerProfileRefreshQueueForTesting()
@@ -28483,7 +28482,7 @@ struct whitenoise_macTests {
         #expect(RelaySettingsSnapshot.defaults.inbox == defaults)
         #expect(RelaySettingsSnapshot.defaults.defaultRelays == defaults)
         #expect(RelaySettingsSnapshot.defaults.bootstrapRelays == defaults)
-        #expect(RelaySettingsSection.allCases == [.nip65, .inbox])
+        #expect(RelayRole.allCases == [.profile, .inbox])
     }
 
     @MainActor
@@ -34890,7 +34889,7 @@ struct whitenoise_macTests {
     }
 
     @MainActor
-    @Test func savingRelaySettingsUsesExistingBootstrapRelays() async throws {
+    @Test func publishingRelayListsUsesExistingBootstrapRelays() async throws {
         let account = AccountSummaryFfi(
             label: "Desktop Account",
             accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
@@ -34911,9 +34910,8 @@ struct whitenoise_macTests {
 
         await state.bootstrap()
         await state.loadSettingsData()
-        state.selectRelaySection(.inbox)
-        state.relayDraft = ["wss://new-inbox.example"]
-        await state.saveRelaySettings()
+        await state.addRelay("wss://new-inbox.example", roles: [.inbox])
+        await state.setRelayRole(.inbox, isEnabled: false, forRelay: "wss://old-inbox.example")
 
         #expect(runtime.lastSetInboxBootstrapRelays == bootstrapRelays)
         #expect(state.relaySettings.inbox == ["wss://new-inbox.example"])
@@ -34991,8 +34989,8 @@ struct whitenoise_macTests {
 
     @MainActor
     @Test func staleRelaySaveDoesNotClobberSwitchedAccount() async throws {
-        // Issue #287: `saveRelaySettings` writes `relaySettings` / `relayDraft` via the live active
-        // account after its FFI await. On an A→B switch while the save is in flight, account A's
+        // Issue #287: the relay writer behind Add Relay writes `relaySettings` via the live active
+        // account after its FFI await. On an A→B switch while the write is in flight, account A's
         // just-saved relays must not be misattributed to B.
         let accountA = AccountSummaryFfi(
             label: "Desktop Account",
@@ -35026,9 +35024,7 @@ struct whitenoise_macTests {
 
         // Arm the gate so account A's relay save suspends in-flight.
         runtime.setAccountRelaysGateEnabled = true
-        state.selectRelaySection(.inbox)
-        state.relayDraft = ["wss://saved-by-a.example"]
-        async let staleSave: Void = state.saveRelaySettings()
+        async let staleSave: Void = state.addRelay("wss://saved-by-a.example", roles: [.inbox])
         while !runtime.didReachSetAccountRelaysGate {
             await Task.yield()
         }
@@ -35044,7 +35040,6 @@ struct whitenoise_macTests {
             inbox: ["wss://inbox-b.example"]
         )
         await state.loadSettingsData()
-        state.selectRelaySection(.inbox)
         #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
 
         // Release account A's stale save; its post-await write must not touch account B's state.
@@ -35052,7 +35047,6 @@ struct whitenoise_macTests {
         _ = await staleSave
 
         #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
-        #expect(state.relayDraft == ["wss://inbox-b.example"])
     }
 
     @MainActor
@@ -35140,7 +35134,7 @@ struct whitenoise_macTests {
     @MainActor
     @Test func staleSettingsRelayLoadDoesNotClobberSwitchedAccount() async throws {
         // Issue #283: `performSettingsLoad` reads `accountRelayLists` over the non-cancellation-aware
-        // FFI boundary, then writes `relaySettings` / `relayDraft`. On an A→B switch while account A's
+        // FFI boundary, then writes `relaySettings`. On an A→B switch while account A's
         // read is in flight, A's relays must not overwrite B's freshly-loaded relay state.
         let accountA = AccountSummaryFfi(
             label: "Desktop Account",
@@ -35189,7 +35183,6 @@ struct whitenoise_macTests {
             inbox: ["wss://inbox-b.example"]
         )
         await state.loadSettingsData()
-        state.selectRelaySection(.inbox)
         #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
 
         // Release account A's stale read; its post-await writes must not touch account B's state.
@@ -35197,7 +35190,6 @@ struct whitenoise_macTests {
         _ = await staleLoad
 
         #expect(state.relaySettings.inbox == ["wss://inbox-b.example"])
-        #expect(state.relayDraft == ["wss://inbox-b.example"])
     }
 
     @MainActor
@@ -35212,59 +35204,162 @@ struct whitenoise_macTests {
         #expect(state.selection == .chat("chat-nvk"))
     }
 
-    // MARK: - Relay URL validation (issue #18)
+    // MARK: - Relay editing (issues #18, #287; prototype Relays flows)
 
+    /// The account + relay lists every relay-editing test below starts from: one relay in each
+    /// list, so a role can be turned off without being the last of its kind.
     @MainActor
-    @Test func selectingAddRelayTargetPreservesPendingURL() {
-        let state = WorkspaceState.preview()
-        state.relaySettings = RelaySettingsSnapshot(
-            nip65: ["wss://nip65.example"],
-            inbox: ["wss://inbox.example"],
-            defaultRelays: MarmotClient.seedRelays,
-            bootstrapRelays: MarmotClient.seedRelays,
-            publishedNip65: ["wss://nip65.example"],
-            publishedInbox: ["wss://inbox.example"],
-            missing: [],
-            isComplete: true
+    private func relayEditingState() async -> (WorkspaceState, FakeMarmotRuntime) {
+        let account = AccountSummaryFfi(
+            label: "Desktop Account",
+            accountIdHex: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
         )
-        state.newRelayURL = "wss://pending.example"
-
-        state.selectRelaySection(.inbox)
-
-        #expect(state.selectedRelaySection == .inbox)
-        #expect(state.relayDraft == ["wss://inbox.example"])
-        #expect(state.newRelayURL == "wss://pending.example")
+        let runtime = FakeMarmotRuntime(accounts: [account])
+        runtime.installRelayLists(
+            defaultRelays: ["wss://published.example"],
+            bootstrapRelays: ["wss://bootstrap.example"],
+            nip65: ["wss://profile.example", "wss://both.example"],
+            inbox: ["wss://inbox.example", "wss://both.example"]
+        )
+        let state = WorkspaceState(clientFactory: { runtime })
+        await state.bootstrap()
+        await state.loadSettingsData()
+        return (state, runtime)
     }
 
     @MainActor
-    @Test func addRelayDraftRejectsCleartextPublicWsRelay() async throws {
-        let runtime = FakeMarmotRuntime(accounts: [])
-        let state = WorkspaceState(clientFactory: { runtime })
-        await state.bootstrap()
+    @Test func addRelayRejectsCleartextPublicWsRelay() async throws {
+        let (state, runtime) = await relayEditingState()
+        let before = state.relaySettings
 
-        let before = state.relayDraft
-        state.newRelayURL = "ws://relay.example.com"
-        state.addRelayDraftURL()
+        await state.addRelay("ws://relay.example.com", roles: [.profile])
 
-        #expect(state.relayDraft == before)
+        #expect(state.relaySettings == before)
+        #expect(runtime.lastSetNip65BootstrapRelays.isEmpty)
         #expect(state.lastError != nil)
     }
 
     @MainActor
-    @Test func addRelayDraftAcceptsSecureAndLoopbackRelays() async throws {
-        let runtime = FakeMarmotRuntime(accounts: [])
-        let state = WorkspaceState(clientFactory: { runtime })
-        await state.bootstrap()
-        state.relayDraft = []
+    @Test func addRelayAcceptsSecureAndLoopbackRelays() async throws {
+        let (state, _) = await relayEditingState()
 
-        state.newRelayURL = "wss://relay.example.com"
-        state.addRelayDraftURL()
-        state.newRelayURL = "ws://127.0.0.1:7000"
-        state.addRelayDraftURL()
+        await state.addRelay("wss://relay.example.com", roles: [.profile])
+        await state.addRelay("ws://127.0.0.1:7000", roles: [.profile])
 
-        #expect(state.relayDraft == ["wss://relay.example.com", "ws://127.0.0.1:7000"])
+        #expect(
+            state.relaySettings.nip65 == [
+                "wss://profile.example", "wss://both.example", "wss://relay.example.com", "ws://127.0.0.1:7000",
+            ])
         #expect(!state.isInsecureRelay("wss://relay.example.com"))
         #expect(state.isInsecureRelay("ws://127.0.0.1:7000"))
+    }
+
+    /// A trailing slash is not a different relay, so adding `wss://both.example/` must be seen as
+    /// the duplicate it is rather than appended beside the entry it matches.
+    @MainActor
+    @Test func addRelayTreatsATrailingSlashAsTheSameRelay() async throws {
+        let (state, _) = await relayEditingState()
+        let before = state.relaySettings
+
+        await state.addRelay("wss://both.example/", roles: [.profile, .inbox])
+
+        #expect(state.relaySettings == before)
+    }
+
+    /// The prototype's Add Relay sheet activates every selected role in one action, which here is
+    /// two published lists from one press.
+    @MainActor
+    @Test func addRelayAssignsEverySelectedRoleInOneAction() async throws {
+        let (state, _) = await relayEditingState()
+
+        await state.addRelay("wss://new.example", roles: [.profile, .inbox])
+
+        #expect(state.relaySettings.nip65.contains("wss://new.example"))
+        #expect(state.relaySettings.inbox.contains("wss://new.example"))
+        let endpoint = try #require(state.relayEndpoints.first { $0.id == "wss://new.example" })
+        #expect(endpoint.roles == [.profile, .inbox])
+    }
+
+    @MainActor
+    @Test func setRelayRoleTurnsOneListOffWithoutTouchingTheOther() async throws {
+        let (state, _) = await relayEditingState()
+
+        await state.setRelayRole(.inbox, isEnabled: false, forRelay: "wss://both.example")
+
+        #expect(state.relaySettings.inbox == ["wss://inbox.example"])
+        #expect(state.relaySettings.nip65 == ["wss://profile.example", "wss://both.example"])
+    }
+
+    /// The core refuses to publish an empty relay list, so the last relay of a role cannot be
+    /// unassigned — and the refusal has to happen here, not only in the disabled toggle.
+    @MainActor
+    @Test func turningOffARolesOnlyRelayIsRefused() async throws {
+        let (state, _) = await relayEditingState()
+        await state.setRelayRole(.inbox, isEnabled: false, forRelay: "wss://both.example")
+        let before = state.relaySettings
+
+        await state.setRelayRole(.inbox, isEnabled: false, forRelay: "wss://inbox.example")
+
+        #expect(state.relaySettings == before)
+        #expect(state.lastError != nil)
+        #expect(state.relaySettings.isOnlyRelay("wss://inbox.example", for: .inbox))
+        #expect(state.relaySettings.rolesDependingOnly(on: "wss://inbox.example") == [.inbox])
+    }
+
+    @MainActor
+    @Test func removingARelayARoleDependsOnIsRefused() async throws {
+        let (state, _) = await relayEditingState()
+        let before = state.relaySettings
+
+        await state.removeRelay("wss://profile.example")
+        #expect(state.relaySettings != before)
+
+        // `wss://both.example` is now the only profile relay, so it cannot go.
+        let afterFirstRemoval = state.relaySettings
+        await state.removeRelay("wss://both.example")
+        #expect(state.relaySettings == afterFirstRemoval)
+        #expect(state.lastError != nil)
+    }
+
+    @MainActor
+    @Test func removeRelayDropsItFromEveryListItIsIn() async throws {
+        let (state, _) = await relayEditingState()
+
+        await state.removeRelay("wss://both.example")
+
+        #expect(state.relaySettings.nip65 == ["wss://profile.example"])
+        #expect(state.relaySettings.inbox == ["wss://inbox.example"])
+        #expect(!state.relayEndpoints.contains { $0.id == "wss://both.example" })
+    }
+
+    @MainActor
+    @Test func restoreDefaultRelaysRewritesBothLists() async throws {
+        let (state, _) = await relayEditingState()
+        #expect(!state.relaySettings.isDefaultRelayConfiguration)
+
+        await state.restoreDefaultRelays()
+
+        #expect(state.relaySettings.nip65 == MarmotClient.seedRelays)
+        #expect(state.relaySettings.inbox == MarmotClient.seedRelays)
+        #expect(state.relaySettings.isDefaultRelayConfiguration)
+    }
+
+    /// One union list, the prototype's overview: a relay in both lists is one row carrying both
+    /// roles, not two rows.
+    @MainActor
+    @Test func relayEndpointsUnionBothListsWithoutDuplicating() async throws {
+        let (state, _) = await relayEditingState()
+
+        let endpoints = state.relayEndpoints
+
+        #expect(endpoints.map(\.id) == ["wss://profile.example", "wss://both.example", "wss://inbox.example"])
+        #expect(endpoints[0].roles == [.profile])
+        #expect(endpoints[1].roles == [.profile, .inbox])
+        #expect(endpoints[2].roles == [.inbox])
     }
 
     // MARK: - User discovery (web-of-trust people search)

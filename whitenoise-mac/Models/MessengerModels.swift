@@ -3100,31 +3100,6 @@ struct DiagnosticsInfoItem: Identifiable, Equatable {
     var id: String { title }
 }
 
-enum RelaySettingsSection: String, CaseIterable, Identifiable {
-    case nip65 = "NIP-65"
-    case inbox = "Inbox"
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .nip65:
-            rawValue
-        case .inbox:
-            L10n.string("Inbox")
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .nip65:
-            L10n.string("Profile relay list")
-        case .inbox:
-            L10n.string("Message delivery relays")
-        }
-    }
-}
-
 struct ProfileDraft: Equatable {
     var name: String
     var displayName: String
@@ -3181,16 +3156,19 @@ struct RelaySettingsSnapshot: Equatable {
         isComplete: true
     )
 
-    func relays(for section: RelaySettingsSection) -> [String] {
-        switch section {
-        case .nip65: nip65
+    /// The relays declared for a role — the published list, or the defaults the core
+    /// substitutes for a list it has never seen. See `publishedRelays(for:)` in
+    /// `RelayConfiguration.swift` for the set that has actually reached the network.
+    func relays(for role: RelayRole) -> [String] {
+        switch role {
+        case .profile: nip65
         case .inbox: inbox
         }
     }
 
-    mutating func setRelays(_ relays: [String], for section: RelaySettingsSection) {
-        switch section {
-        case .nip65:
+    mutating func setRelays(_ relays: [String], for role: RelayRole) {
+        switch role {
+        case .profile:
             nip65 = relays
         case .inbox:
             inbox = relays

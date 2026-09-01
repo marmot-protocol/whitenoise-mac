@@ -359,9 +359,6 @@ final class WorkspaceState {
     /// Bumped per check so a slow fetch resuming after a newer one cannot write a stale verdict.
     var profileNostrAddressCheckGeneration = 0
     var relaySettings = RelaySettingsSnapshot.defaults
-    var selectedRelaySection: RelaySettingsSection = .nip65
-    var relayDraft = MarmotClient.seedRelays
-    var newRelayURL = ""
     var keyPackages: [KeyPackageItem] = []
     var notificationSettings = NotificationSettingsSnapshot.defaults
     var notificationAuthorizationStatus: LocalNotificationAuthorizationStatus = .notDetermined
@@ -2284,11 +2281,13 @@ extension RelaySettingsSnapshot {
 }
 
 extension MissingRelayListKindFfi {
-    /// User-facing name for a relay list the account hasn't published yet.
+    /// User-facing name for a relay list the account hasn't published yet, in the same
+    /// vocabulary the Relays page names the list's role in — `NIP-65` is the kind number, not
+    /// something a reader of that page has been shown.
     var displayLabel: String {
         switch self {
-        case .nip65: return "NIP-65"
-        case .inbox: return L10n.string("Inbox")
+        case .nip65: return RelayRole.profile.label
+        case .inbox: return RelayRole.inbox.label
         @unknown default: return L10n.string("Unknown")
         }
     }

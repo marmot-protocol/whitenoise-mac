@@ -1164,9 +1164,6 @@ extension WorkspaceState {
         profileDraft = ProfileDraft()
         resetProfileEditingState()
         relaySettings = .defaults
-        selectedRelaySection = .nip65
-        relayDraft = MarmotClient.seedRelays
-        newRelayURL = ""
         keyPackages = []
         notificationSettings = .defaults
         notificationAuthorizationStatus = .notDetermined

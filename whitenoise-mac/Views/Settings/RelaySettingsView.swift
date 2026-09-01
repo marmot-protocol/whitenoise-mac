@@ -2,229 +2,265 @@
 //  RelaySettingsView.swift
 //  whitenoise-mac
 //
-//  The Relays page: the relay lists this account publishes, the rows that edit them,
-//  and what the relays actually report back.
+//  The Relays page: one list of every relay this account uses, a step into any of them, and
+//  the two actions that change the set — add one, or go back to the defaults.
+//
+//  Ported from `wn-ios-prototype`'s `RelaysPrototypeView` (`docs/screens/settings.md` §Relays),
+//  which settles four things this page used to do differently:
+//
+//  * **One union list, not a list per kind.** The page opened on a `Picker` that swapped the
+//    rows between the NIP-65 list and the inbox list, so half the account's relays were always
+//    invisible and a relay in both lists looked like two relays. The prototype's rule: "A
+//    native `Form` presents one union list of configured relay endpoints. The main list is the
+//    complete overview."
+//  * **Roles live in the detail.** "Every collapsed relay row uses the same restrained two-line
+//    hierarchy: relay name, then the complete URL" — role assignment stays out of the overview
+//    and `RelayDetailSettingsView` is the only place it is edited.
+//  * **No Save button.** Adding, removing and role changes apply immediately, each publishing
+//    the list it touches. The old draft-plus-Save flow could not survive its own edit window:
+//    see the comment it needed about an edit made while a save was in flight.
+//  * **Consequences up front.** Removal and Restore Defaults both confirm, and both say what
+//    they cost.
+//
+//  Where this page departs from the prototype, it is because the core cannot back it: there is
+//  no per-relay connection state and no read-only relay here (see `RelayConfiguration.swift`),
+//  and an empty relay list is refused, so the last relay of a role is not something the reader
+//  is offered a confirmation for — the affordance is disabled and the reason is given.
 //
 
 import SwiftUI
 
 struct RelaySettingsView: View {
     @Environment(WorkspaceState.self) private var workspace
+    /// The relay whose detail is open, as `RelayEndpointItem.id`. Held as an id rather than as
+    /// the item so the detail always re-reads the live snapshot after a role change, and falls
+    /// back to the list when the relay it was showing is gone.
+    @State private var openRelayID: String?
+
+    private var openRelay: RelayEndpointItem? {
+        guard let openRelayID else { return nil }
+        return workspace.relayEndpoints.first { $0.id == openRelayID }
+    }
 
     var body: some View {
-        @Bindable var workspace = workspace
+        if let openRelay {
+            RelayDetailSettingsView(relay: openRelay) {
+                openRelayID = nil
+            }
+        } else {
+            RelayListSettingsView { relay in
+                openRelayID = relay.id
+            }
+        }
+    }
+}
 
+/// The overview: what needs attention, every endpoint, and the two set-level actions.
+struct RelayListSettingsView: View {
+    @Environment(WorkspaceState.self) private var workspace
+    @State private var isAddRelayPresented = false
+    @State private var isRestoreDefaultsPresented = false
+    let openRelay: (RelayEndpointItem) -> Void
+
+    private var endpoints: [RelayEndpointItem] {
+        workspace.relayEndpoints
+    }
+
+    var body: some View {
         SettingsScaffold(
             title: L10n.string("Relays"),
             subtitle: L10n.string("Manage the relay lists published for this account.")
         ) {
-            SettingsSection {
-                RelayDiagnosticsView(settings: workspace.relaySettings)
+            if workspace.relaySettings.relaysNeedAttention {
+                SettingsSection {
+                    RelayAttentionRow(summary: workspace.relaySettings.relayAttentionSummary)
+                }
             }
 
-            SettingsSection(title: L10n.string("Relays")) {
-                if workspace.relayDraft.isEmpty {
-                    ContentUnavailableView("No relays", systemImage: "antenna.radiowaves.left.and.right")
-                        .frame(minHeight: 160)
+            SettingsSection(
+                footer: L10n.string(
+                    "Relays let this account publish its profile and receive invitations to new chats.")
+            ) {
+                if endpoints.isEmpty {
+                    Text(L10n.string("No relays configured."))
+                        .wnFont(.medium12)
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 } else {
-                    ForEach(workspace.relayDraft, id: \.self) { relay in
-                        RelayRow(url: relay, isInsecure: workspace.isInsecureRelay(relay)) {
-                            workspace.removeRelayDraftURL(relay)
-                        }
-                        // `saveRelaySettings` snapshots the draft before its first `await` and
-                        // overwrites it with what the relays echo back, so an edit made while the
-                        // save is in flight is published by nobody and then silently discarded.
-                        // Save and Restore defaults are already closed for the same window.
-                        .disabled(workspace.isSavingRelays)
-                    }
-                }
-            }
-
-            SettingsSection(title: L10n.string("Add Relay")) {
-                HStack(spacing: 8) {
-                    TextField(
-                        L10n.string(""), text: $workspace.newRelayURL, prompt: Text(L10n.string("wss://relay.example"))
-                    )
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit {
-                        workspace.addRelayDraftURL()
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    Picker(L10n.string("Relay list"), selection: $workspace.selectedRelaySection) {
-                        ForEach(RelaySettingsSection.allCases) { section in
-                            Text(section.label).tag(section)
+                    ForEach(endpoints) { relay in
+                        RelayEndpointRow(relay: relay) {
+                            openRelay(relay)
                         }
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 96)
-                    .onChange(of: workspace.selectedRelaySection) { _, section in
-                        workspace.selectRelaySection(section)
-                    }
-
-                    Button {
-                        workspace.addRelayDraftURL()
-                    } label: {
-                        Label(L10n.string("Add"), systemImage: "plus")
-                    }
-                    .buttonStyle(.wnSecondary)
-                    .help(L10n.string("Add relay"))
                 }
-                .disabled(workspace.isSavingRelays)
+
+                Button {
+                    isAddRelayPresented = true
+                } label: {
+                    Label(L10n.string("Add relay"), systemImage: "plus.circle")
+                }
+                .disabled(workspace.isSavingRelays || workspace.activeAccount == nil)
             }
 
-            SettingsSection {
-                HStack(spacing: 10) {
-                    Button {
-                        Task { await workspace.saveRelaySettings() }
-                    } label: {
-                        Label(
-                            workspace.isSavingRelays ? L10n.string("Saving...") : L10n.string("Save relays"),
-                            systemImage: "checkmark.circle")
-                    }
-                    .nativeGlassProminentButtonStyle()
-                    .disabled(workspace.isSavingRelays || workspace.activeAccount == nil)
+            SettingsSection(footer: L10n.string("Restores the relays a new account starts on.")) {
+                Button(role: .destructive) {
+                    isRestoreDefaultsPresented = true
+                } label: {
+                    Text(L10n.string("Restore default relays"))
+                }
+                .disabled(
+                    workspace.isSavingRelays
+                        || workspace.activeAccount == nil
+                        || workspace.relaySettings.isDefaultRelayConfiguration
+                )
 
-                    Button {
-                        workspace.restoreRelayDraftDefaults()
-                    } label: {
-                        Label(L10n.string("Restore defaults"), systemImage: "arrow.counterclockwise")
-                    }
-                    .buttonStyle(.wnSecondary)
-                    .disabled(workspace.isSavingRelays)
-
-                    if workspace.isLoadingSettings {
+                if workspace.isSavingRelays {
+                    HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
+                        Text(L10n.string("Publishing relay lists..."))
+                            .wnFont(.medium12)
+                            .foregroundStyle(WNColor.backgroundContentSecondary)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $isAddRelayPresented) {
+            AddRelaySheet()
+        }
+        .confirmationDialog(
+            L10n.string("Restore default relays?"),
+            isPresented: $isRestoreDefaultsPresented,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("Restore defaults"), role: .destructive) {
+                Task { await workspace.restoreDefaultRelays() }
+            }
+            Button(L10n.string("Cancel"), role: .cancel) {}
+        } message: {
+            Text(
+                L10n.string(
+                    "This replaces both relay lists for this account with the defaults. Relays you added "
+                        + "will be removed."
+                )
+            )
+        }
+    }
+}
+
+/// The orange notice above the list when a role has no usable relay.
+///
+/// The prototype's inline callout, drawn as a row rather than as a `WNCallout`: it sits inside
+/// the same grouped `Form` the relays do, and a callout brings its own box — a second card
+/// inside the first. A tinted glyph, a title, and the detail underneath is what the prototype's
+/// `Label` is, and it is what this is.
+struct RelayAttentionRow: View {
+    let summary: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.string("Relays need attention"))
+
+                Text(summary)
+                    .wnFont(.medium10)
+                    .foregroundStyle(WNColor.backgroundContentSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(WNColor.intentionWarningContent)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One relay in the overview: its name, its complete URL, and how the lists it belongs to are
+/// doing. Pressing it opens the relay's detail.
+///
+/// The prototype's `relayRow`, with the chevron a macOS row needs to read as a way in — the
+/// drawer has no navigation stack to draw one for us. Two lines and nothing else: the roles are
+/// deliberately absent here (see this file's header).
+struct RelayEndpointRow: View {
+    let relay: RelayEndpointItem
+    let action: () -> Void
+
+    /// The row's only hover feedback. A grouped `Form` row cannot be given a hover fill without
+    /// fighting its own insets, and the chevron is the part that says "this goes somewhere" —
+    /// so the chevron is what answers the pointer.
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(relay.displayName)
+
+                        if relay.isInsecure {
+                            Image(systemName: "lock.open.trianglebadge.exclamationmark")
+                                .wnFont(.semiBold10)
+                                .foregroundStyle(WNColor.intentionWarningContent)
+                        }
                     }
 
-                    Spacer()
-                }
-            }
-
-        }
-    }
-}
-
-struct RelayDiagnosticsView: View {
-    let settings: RelaySettingsSnapshot
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: settings.isComplete ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(settings.isComplete ? .green : .orange)
-                Text(L10n.string("Published Relay Lists"))
-                    .wnFont(.semiBold12)
-                Spacer()
-                Text(settings.isComplete ? L10n.string("Complete") : L10n.string("Missing"))
-                    .wnFont(.semiBold10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            }
-
-            RelayDiagnosticsRow(
-                title: L10n.string("NIP-65"), systemImage: "list.bullet", relays: settings.publishedNip65)
-            RelayDiagnosticsRow(
-                title: L10n.string("Inbox"), systemImage: "tray.and.arrow.down", relays: settings.publishedInbox)
-
-            if !settings.missing.isEmpty {
-                Text(String(format: L10n.string("Missing: %@"), settings.missing.joined(separator: ", ")))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.intentionWarningContent)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-struct RelayDiagnosticsRow: View {
-    let title: String
-    let systemImage: String
-    let relays: [String]
-
-    var body: some View {
-        DisclosureGroup {
-            if relays.isEmpty {
-                Text(L10n.string("Not published"))
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-            } else {
-                ForEach(relays, id: \.self) { relay in
-                    Text(relay)
+                    Text(relay.url)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(WNColor.backgroundContentSecondary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
+
+                Spacer(minLength: 8)
+
+                RelayPublishStateBadge(state: relay.publishState)
+
+                Image(systemName: "chevron.right")
+                    .wnFont(.semiBold10)
+                    .foregroundStyle(
+                        isHovering ? WNColor.backgroundContentSecondary : WNColor.backgroundContentTertiary)
             }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.backgroundContentSecondary)
-                    .frame(width: 18)
-                Text(title)
-                Spacer()
-                // Drawn on `fillSecondary`, so it takes a `fillContent*` token rather than a
-                // `backgroundContent*` one. `fillContentTertiary` is the de-emphasized step of that
-                // family — the right weight for a count beside its own row title, and the same
-                // `500`/`400` ramp steps this already rendered at.
-                Text(verbatim: "\(relays.count)")
-                    .wnFont(.medium10.monospacedDigit())
-                    .foregroundStyle(WNColor.fillContentTertiary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(WNColor.fillSecondary, in: Capsule())
-                    .overlay(Capsule().strokeBorder(WNColor.borderTertiary, lineWidth: 1))
-            }
-            .wnFont(.medium12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
         }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(relay.displayName), \(relay.url)"))
+        .accessibilityValue(Text(accessibilityValue))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Text(L10n.string("Opens this relay's details.")))
+    }
+
+    private var accessibilityValue: String {
+        var values = [relay.publishState.label]
+        if relay.isInsecure {
+            values.append(L10n.string("Insecure"))
+        }
+        return ListFormatter.localizedString(byJoining: values)
     }
 }
 
-struct RelayRow: View {
-    let url: String
-    var isInsecure: Bool = false
-    let remove: () -> Void
+/// Whether the lists a relay belongs to have reached the network, as a glyph and a word.
+///
+/// This is the honest replacement for the prototype's Connected / Reconnecting / Disconnected
+/// dot: nothing here can see a socket, but the core does say which relay lists it has managed
+/// to publish. Everything normal is one quiet green check; the state worth reading is named.
+struct RelayPublishStateBadge: View {
+    let state: RelayPublishState
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: isInsecure ? "lock.open.trianglebadge.exclamationmark" : "network")
-                .wnFont(.semiBold10)
-                .foregroundStyle(isInsecure ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                .frame(width: 20)
-                .help(
-                    isInsecure
-                        ? L10n.string("Insecure cleartext relay (ws://). Relay metadata is not encrypted in transit.")
-                        : "")
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(url)
-                    .font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled)
-
-                if isInsecure {
-                    Text(
-                        RelayURLValidator.classify(url) == .insecureLoopback
-                            ? "Insecure — cleartext ws:// (loopback only)"
-                            : "Insecure — cleartext ws:// (public host)"
-                    )
-                    .wnFont(.medium10)
-                    .foregroundStyle(WNColor.intentionWarningContent)
-                }
-            }
-
-            Spacer()
-
-            Button(action: remove) {
-                Image(systemName: "minus.circle")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(WNColor.backgroundContentSecondary)
-            .help(L10n.string("Remove relay"))
+        switch state {
+        case .published:
+            Image(systemName: state.symbol)
+                .foregroundStyle(WNColor.intentionSuccessContent)
+                .help(state.label)
+                .accessibilityHidden(true)
+        case .notPublished:
+            Label(state.label, systemImage: state.symbol)
+                .wnFont(.medium10)
+                .foregroundStyle(WNColor.intentionWarningContent)
+                .accessibilityHidden(true)
         }
-        .padding(.vertical, 4)
     }
 }
