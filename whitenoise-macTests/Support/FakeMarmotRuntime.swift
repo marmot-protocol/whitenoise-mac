@@ -24,7 +24,11 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// the runtime failing to come online (e.g. shutting down). Used to exercise the
     /// add-account failure path that must not commit the active-account switch (#333).
     var startError: Error?
-    let storageRootPath = "/tmp/whitenoise-mac-tests"
+    /// Where the app writes the files it keeps beside the core — the hidden-message,
+    /// pinned-chat, contact-nickname and direct-peer stores `WorkspaceState` builds for
+    /// itself whenever a test does not inject one. Defaulted per test by
+    /// `TestStorageRoot.isolated`; see that type for why it is not one shared constant.
+    let storageRootPath: String
     private var profile = UserProfileMetadataFfi(
         name: "desktop",
         displayName: "Desktop Account",
@@ -668,9 +672,22 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
     /// use it to advance an injected clock and model a slow batch (whitenoise-mac#181).
     var onUserProfileLookup: (@Sendable (String) -> Void)?
 
-    init(accounts: [AccountSummaryFfi], createdAccount: AccountSummaryFfi? = nil) {
+    /// - Parameters:
+    ///   - storageRoot: Where this fake reports its storage root. Isolated per test by
+    ///     default, so a test that forgets to inject a file store still cannot read
+    ///     another test's records; pass `.explicit` only to share a directory on purpose.
+    ///   - function: Do not pass these. They default at the call site, which is how the
+    ///     isolated root falls back to naming the caller when there is no running test.
+    init(
+        accounts: [AccountSummaryFfi],
+        createdAccount: AccountSummaryFfi? = nil,
+        storageRoot: TestStorageRoot = .isolated,
+        function: StaticString = #function,
+        fileID: StaticString = #fileID
+    ) {
         self.storedAccounts = accounts
         self.createdAccount = createdAccount
+        self.storageRootPath = storageRoot.resolvedPath(function: function, fileID: fileID)
     }
 
     func start() async throws {

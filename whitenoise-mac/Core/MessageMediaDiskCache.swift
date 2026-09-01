@@ -195,7 +195,51 @@ nonisolated final class MessageMediaDiskCache: @unchecked Sendable {
         }
     }
 
-    static let shared = MessageMediaDiskCache()
+    #if DEBUG
+        /// The app-wide cache.
+        ///
+        /// Under a test run this deliberately resolves somewhere other than the real
+        /// Application Support directory and the real Keychain. `WorkspaceState`'s
+        /// `mediaDiskCache` parameter defaults to this instance, and the overwhelming
+        /// majority of tests never think about media, so a single test that stored one
+        /// payload used to leave an encrypted record in the installed app's cache —
+        /// where a later run would read it back and pass, or fail, for reasons that had
+        /// nothing to do with the test.
+        static let shared = isRunningUnderTest ? testProcessScoped() : MessageMediaDiskCache()
+
+        /// XCTest is only linked into the host process when the host is running tests,
+        /// so its presence is the signal. Swift Testing runs inside that same host here.
+        private static var isRunningUnderTest: Bool {
+            NSClassFromString("XCTestCase") != nil
+                || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        }
+
+        /// A cache scoped to this test process: a fresh temporary directory that no
+        /// later run can name, and a fixed in-memory key so nothing prompts for
+        /// Keychain access mid-suite.
+        ///
+        /// This is the floor, not per-test isolation — a test that asserts on cache
+        /// contents should still build its own with `makeIsolated`.
+        private static func testProcessScoped() -> MessageMediaDiskCache {
+            let root = FileManager.default.temporaryDirectory
+                .appending(path: "whitenoise-mac-tests", directoryHint: .isDirectory)
+                .appending(
+                    path: "shared-media-cache-\(ProcessInfo.processInfo.processIdentifier)-\(UUID().uuidString)",
+                    directoryHint: .isDirectory
+                )
+            return MessageMediaDiskCache(
+                directoryResolver: { root },
+                keyProvider: { SymmetricKey(data: Data(repeating: 0x5A, count: 32)) },
+                keyDeleter: {}
+            )
+        }
+
+        /// The directory this cache reads and writes. Test-only, so a test can prove
+        /// `shared` is not pointed at the user's real Application Support directory.
+        var testingResolvedDirectoryURL: URL? { try? directoryResolver() }
+    #else
+        static let shared = MessageMediaDiskCache()
+    #endif
 
     private static let directoryName = "WhiteNoiseMediaCache"
     private static let versionDirectoryName = "v1"
