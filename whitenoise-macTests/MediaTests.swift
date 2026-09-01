@@ -5176,18 +5176,7 @@ struct MediaTests: WorkspaceTestSupport {
         // directly here. Guard the wiring shape so a failed-tile retry action remains
         // connected to the explicit download entry point, while the pure decision helper
         // above guards that failed video tiles choose that action.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let tileStart = try #require(source.range(of: "struct MessageVisualMediaTile: View {"))
-        let rest = source[tileStart.upperBound...]
-        let tileEnd = try #require(rest.range(of: "\nstruct MessageMediaAttachmentView: View {")?.lowerBound)
-        let tileSource = String(source[tileStart.lowerBound..<tileEnd])
+        let tileSource = try SourceContract.declaration("MessageVisualMediaTile")
 
         #expect(tileSource.contains("MessageVisualMediaTileInteraction.tapAction"))
         #expect(tileSource.contains("case .retryDownload:"))
@@ -5236,19 +5225,8 @@ struct MediaTests: WorkspaceTestSupport {
         // Button controls with explicit labels instead of bare tap gestures. Once playback
         // starts, the live VideoPlayer must sit outside that button so AVKit controls stay
         // interactive and exposed to assistive technologies.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
 
-        let tileStart = try #require(source.range(of: "struct MessageVisualMediaTile: View {"))
-        let tileRest = source[tileStart.upperBound...]
-        let tileEnd = try #require(tileRest.range(of: "\nstruct MessageMediaAttachmentView: View {")?.lowerBound)
-        let tileSource = String(source[tileStart.lowerBound..<tileEnd])
+        let tileSource = try SourceContract.declaration("MessageVisualMediaTile")
         let normalizedTileSource = tileSource.components(separatedBy: .whitespacesAndNewlines).joined()
 
         #expect(tileSource.contains("Button(action: performPrimaryAction)"))
@@ -5260,10 +5238,7 @@ struct MediaTests: WorkspaceTestSupport {
         )
         #expect(!tileSource.contains(".onTapGesture"))
 
-        let playerStart = try #require(source.range(of: "struct MessageVideoAttachmentPlayer: View {"))
-        let playerRest = source[playerStart.upperBound...]
-        let playerEnd = try #require(playerRest.range(of: "\nenum MessageMediaPlaybackFileStore {")?.lowerBound)
-        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+        let playerSource = try SourceContract.declaration("MessageVideoAttachmentPlayer")
         let normalizedPlayerSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
 
         #expect(playerSource.contains("if let player {"))
@@ -5302,18 +5277,7 @@ struct MediaTests: WorkspaceTestSupport {
         // MessageImageGalleryOverlay is SwiftUI event wiring, so guard its source contract:
         // pointer and keyboard users can dismiss it, keyboard users can page through images,
         // and VoiceOver receives explicit labels for every icon-only control.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let overlayStart = try #require(source.range(of: "struct MessageImageGalleryOverlay: View {"))
-        let rest = source[overlayStart.upperBound...]
-        let overlayEnd = try #require(rest.range(of: "\nstruct MessageImageGalleryContent: View {")?.lowerBound)
-        let overlaySource = String(source[overlayStart.lowerBound..<overlayEnd])
+        let overlaySource = try SourceContract.declaration("MessageImageGalleryOverlay")
         let normalizedSource = overlaySource.components(separatedBy: .whitespacesAndNewlines).joined()
 
         #expect(normalizedSource.contains(".onTapGesture(perform:onClose)"))
@@ -5332,23 +5296,7 @@ struct MediaTests: WorkspaceTestSupport {
         // AutomaticMediaDownloadModifier is SwiftUI lifecycle wiring, so exercise its source
         // contract directly: the task must be retained and cancelled both on scroll-out and
         // when SwiftUI removes the tile entirely.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let modifierStart = try #require(
-            source.range(of: "private struct AutomaticMediaDownloadModifier: ViewModifier {")
-        )
-        let rest = source[modifierStart.upperBound...]
-        // Anchored on the next declaration rather than on the prose above it, the way the other
-        // source contracts in this suite are: rewording a doc comment must not fail a test about
-        // download lifecycle wiring.
-        let modifierEnd = try #require(rest.range(of: "\nprivate struct BubbleBackground: View {")?.lowerBound)
-        let modifierSource = String(source[modifierStart.lowerBound..<modifierEnd])
+        let modifierSource = try SourceContract.declaration("AutomaticMediaDownloadModifier")
 
         #expect(modifierSource.contains("@State private var automaticDownloadTask: Task<Void, Never>?"))
         #expect(
@@ -5369,18 +5317,7 @@ struct MediaTests: WorkspaceTestSupport {
         // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
         // must cancel any in-flight materialization and run the same teardown that removes the
         // decrypted playback scratch file.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let playerStart = try #require(source.range(of: "struct MessageVideoAttachmentPlayer: View {"))
-        let rest = source[playerStart.upperBound...]
-        let playerEnd = try #require(rest.range(of: "\nenum MessageMediaPlaybackFileStore {")?.lowerBound)
-        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+        let playerSource = try SourceContract.declaration("MessageVideoAttachmentPlayer")
 
         let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
 
@@ -5401,18 +5338,7 @@ struct MediaTests: WorkspaceTestSupport {
         // MessageAudioAttachmentPlayer lives inside the deliberately eager transcript VStack,
         // where scrolling a row away does not trigger onDisappear. Its scroll-visibility hook
         // must stop playback and cancel the progress monitor through the same stopPlayback path.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let playerStart = try #require(source.range(of: "struct MessageAudioAttachmentPlayer: View {"))
-        let rest = source[playerStart.upperBound...]
-        let playerEnd = try #require(rest.range(of: "\nstruct MessageVideoAttachmentPlayer: View {")?.lowerBound)
-        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+        let playerSource = try SourceContract.declaration("MessageAudioAttachmentPlayer")
 
         let normalizedSource = playerSource.components(separatedBy: .whitespacesAndNewlines).joined()
 
@@ -5439,20 +5365,9 @@ struct MediaTests: WorkspaceTestSupport {
         // also has to occupy exactly the player's space so a finished download swaps the control
         // glyph instead of reflowing the bubble, which is only guaranteed while both render
         // through `MessageAudioRow`. Inlining either one's layout would break that silently.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
 
         for typeName in ["MessageAudioAttachmentPlaceholder", "MessageAudioAttachmentPlayer"] {
-            let start = try #require(source.range(of: "struct \(typeName): View {"))
-            let rest = source[start.upperBound...]
-            let end = try #require(rest.range(of: "\n}\n\n")?.upperBound)
-            let body = String(rest[..<end])
+            let body = try SourceContract.declaration(typeName)
 
             #expect(body.contains("MessageAudioRow("), "\(typeName) must render through MessageAudioRow")
             #expect(!body.contains("fileName"), "\(typeName) must not show the attachment file name")
@@ -5472,18 +5387,8 @@ struct MediaTests: WorkspaceTestSupport {
         // on `.center` therefore hangs the play control and the speed badge low against the
         // waveform they belong to. Nothing observable from a unit test reports a stack's alignment,
         // so the guide is pinned against the source, like the player's rate ordering below.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let start = try #require(source.range(of: "struct MessageAudioRow<"))
-        let rest = source[start.upperBound...]
-        let end = try #require(rest.range(of: "\n}\n\n")?.upperBound)
-        let normalizedBody = String(rest[..<end]).components(separatedBy: .whitespacesAndNewlines).joined()
+        let normalizedBody = try SourceContract.declaration("MessageAudioRow")
+            .components(separatedBy: .whitespacesAndNewlines).joined()
 
         #expect(normalizedBody.contains("HStack(alignment:.audioRowWaveformCenter"))
         // Half the waveform's own height, not a literal: the guide has to follow the band it names.
@@ -5497,14 +5402,7 @@ struct MediaTests: WorkspaceTestSupport {
         // that a guarantee instead of two hand-matched layouts — and the message-wide dimmer has to
         // stand down for it, or the send announces itself twice and the inline spinner fades along
         // with the row it sits in.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("PendingOutgoingMessageViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let source = try SourceContract.source(of: .pendingOutgoingMessage)
 
         #expect(
             source.contains("MessageAudioAttachmentPlaceholder("),
@@ -5524,18 +5422,7 @@ struct MediaTests: WorkspaceTestSupport {
         //   2. `play()` can reset `rate`, so the selected speed has to be applied after it too.
         // Neither is observable from a unit test — nothing reports the audible rate back — so the
         // ordering is pinned against the source, the same way the teardown paths above are.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let playerStart = try #require(source.range(of: "struct MessageAudioAttachmentPlayer: View {"))
-        let rest = source[playerStart.upperBound...]
-        let playerEnd = try #require(rest.range(of: "\nstruct MessageVideoAttachmentPlayer: View {")?.lowerBound)
-        let playerSource = String(source[playerStart.lowerBound..<playerEnd])
+        let playerSource = try SourceContract.declaration("MessageAudioAttachmentPlayer")
 
         let enableRate = try #require(playerSource.range(of: "audioPlayer.enableRate = true"))
         let prepareToPlay = try #require(playerSource.range(of: "audioPlayer.prepareToPlay()"))
