@@ -88,7 +88,6 @@ extension WorkspaceState {
             profileDraft = ProfileDraft()
             resetProfileEditingState()
             relaySettings = .defaults
-            relayDraft = relaySettings.relays(for: selectedRelaySection)
             keyPackages = []
             notificationSettings = .defaults
             privacySecuritySettings = .defaults
@@ -192,12 +191,10 @@ extension WorkspaceState {
             }
             guard !Task.isCancelled, activeAccountId == accountId else { return }
             relaySettings = RelaySettingsSnapshot(lists: lists)
-            relayDraft = relaySettings.relays(for: selectedRelaySection)
         } catch {
             guard !Task.isCancelled, activeAccountId == accountId else { return }
             lastError = error.localizedDescription
             relaySettings = .defaults
-            relayDraft = relaySettings.relays(for: selectedRelaySection)
         }
 
         await refreshNotificationAuthorizationStatus()
@@ -484,73 +481,178 @@ extension WorkspaceState {
         }
     }
 
-    func selectRelaySection(_ section: RelaySettingsSection) {
-        selectedRelaySection = section
-        relayDraft = relaySettings.relays(for: section)
+    /// Every endpoint the account has configured, in one list — what the Relays page draws.
+    var relayEndpoints: [RelayEndpointItem] {
+        relaySettings.endpoints
     }
 
-    func addRelayDraftURL() {
-        let url = newRelayURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        guard isRelayURL(url) else {
+    /// Adds a relay and assigns it to `roles`, publishing each affected list.
+    ///
+    /// The prototype's Add Relay sheet: the endpoint is appended and activated in one action
+    /// rather than staged in a draft. `roles` is never empty — its sheet keeps Add disabled
+    /// until at least one is selected — but an empty set is treated as "nothing to do" rather
+    /// than as an endpoint nobody publishes.
+    func addRelay(_ url: String, roles: Set<RelayRole>) async {
+        let relay = RelayURLValidator.normalized(url)
+        guard !relay.isEmpty, !roles.isEmpty else { return }
+        guard isRelayURL(relay) else {
             lastError = L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
             return
         }
-        if !relayDraft.contains(url) {
-            relayDraft.append(url)
+
+        let key = RelayURLValidator.identity(relay)
+        var lists: [RelayRole: [String]] = [:]
+        for role in roles {
+            var relays = relaySettings.relays(for: role)
+            guard !relays.contains(where: { RelayURLValidator.identity($0) == key }) else { continue }
+            relays.append(relay)
+            lists[role] = relays
         }
-        newRelayURL = ""
+        await publishRelayLists(lists)
     }
 
-    func removeRelayDraftURL(_ url: String) {
-        relayDraft.removeAll { $0 == url }
+    /// Removes a relay from every list it is in.
+    ///
+    /// Refused while any role has no other relay: the core rejects an empty relay list
+    /// (`AppError::MissingDefaultRelays`), so the confirmation the prototype offers — remove it
+    /// and accept the degraded state — could not be honoured. `RelayDetailSettingsView` disables
+    /// the button and says so; this guard is the same rule where the write happens.
+    func removeRelay(_ url: String) async {
+        let key = RelayURLValidator.identity(url)
+        guard relaySettings.rolesDependingOnly(on: url).isEmpty else {
+            lastError = L10n.string("Add another relay before removing this one.")
+            return
+        }
+
+        var lists: [RelayRole: [String]] = [:]
+        for role in RelayRole.allCases {
+            let relays = relaySettings.relays(for: role)
+            let remaining = relays.filter { RelayURLValidator.identity($0) != key }
+            guard remaining.count != relays.count, !remaining.isEmpty else { continue }
+            lists[role] = remaining
+        }
+        await publishRelayLists(lists)
     }
 
-    func restoreRelayDraftDefaults() {
-        relayDraft = MarmotClient.seedRelays
-        newRelayURL = ""
+    /// Turns one of a relay's roles on or off, publishing that list immediately.
+    ///
+    /// "Relay-detail role changes apply immediately" — the prototype's rule, and the reason
+    /// this page has no Save button any more. Turning off the last relay of a role is refused
+    /// for the same reason as `removeRelay`.
+    func setRelayRole(_ role: RelayRole, isEnabled: Bool, forRelay url: String) async {
+        let relay = RelayURLValidator.normalized(url)
+        let key = RelayURLValidator.identity(relay)
+        var relays = relaySettings.relays(for: role)
+        let isAssigned = relays.contains { RelayURLValidator.identity($0) == key }
+        guard isAssigned != isEnabled else { return }
+
+        if isEnabled {
+            guard isRelayURL(relay) else {
+                lastError = L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
+                return
+            }
+            relays.append(relay)
+        } else {
+            guard !relaySettings.isOnlyRelay(relay, for: role) else {
+                lastError = String(
+                    format: L10n.string("%@ needs at least one relay. Add another relay before turning this one off."),
+                    role.label
+                )
+                return
+            }
+            relays.removeAll { RelayURLValidator.identity($0) == key }
+        }
+        await publishRelayLists([role: relays])
     }
 
-    func saveRelaySettings() async {
+    /// Replaces both lists with the relays a fresh account starts on.
+    ///
+    /// The prototype's Restore Default Relays, confirmed at the call site.
+    func restoreDefaultRelays() async {
+        let defaults = MarmotClient.seedRelays
+        var lists: [RelayRole: [String]] = [:]
+        for role in RelayRole.allCases
+        where relaySettings.relays(for: role).map(RelayURLValidator.identity)
+            != defaults.map(RelayURLValidator.identity)
+        {
+            lists[role] = defaults
+        }
+        await publishRelayLists(lists)
+    }
+
+    /// Publishes the given relay lists, one core call per role, and adopts what comes back.
+    ///
+    /// The single writer behind every mutation on the Relays page, so the account-switch rule
+    /// and the peer-lookup invalidation below are stated once. Roles are written in
+    /// `RelayRole.allCases` order rather than dictionary order: an add that touches both lists
+    /// would otherwise publish them in a different order run to run.
+    private func publishRelayLists(_ lists: [RelayRole: [String]]) async {
+        guard !lists.isEmpty else { return }
         guard let client, let activeAccount, !isSavingRelays else { return }
-        let relays = normalizedRelays(relayDraft)
-        guard !relays.isEmpty else {
-            lastError = L10n.string("Add at least one relay before saving.")
-            return
-        }
-        guard relays.allSatisfy(isRelayURL) else {
-            lastError = L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
-            return
+
+        for relays in lists.values {
+            // Defensive: no caller can reach here with an empty list — `removeRelay` and
+            // `setRelayRole` both refuse a role's last relay first — but the core answers an
+            // empty list with `MissingDefaultRelays`, so the rule is stated where the write is.
+            guard !relays.isEmpty else {
+                lastError = L10n.string("Keep at least one relay.")
+                return
+            }
+            guard relays.allSatisfy(isRelayURL) else {
+                lastError = L10n.string("Relay URLs must use wss:// (cleartext ws:// is allowed only for localhost).")
+                return
+            }
         }
 
-        // The relay write targets the captured `accountRef`, but on return we write `relaySettings` /
-        // `relayDraft` via the live active account. Capture the account id so an A→B switch during the
-        // save can't misattribute A's relays to B (mirroring `performSettingsLoad` / `loadKeyPackages`).
+        // The relay write targets the captured `accountRef`, but on return we write
+        // `relaySettings` via the live active account. Capture the account id so an A→B switch
+        // during the write can't misattribute A's relays to B (mirroring `performSettingsLoad`
+        // / `loadKeyPackages`).
         let accountId = activeAccount.id
+        let accountRef = activeAccount.accountRef
+        let bootstrapRelays = relaySettings.networkBootstrapRelays
         lastError = nil
         isSavingRelays = true
         defer { isSavingRelays = false }
 
+        // Applied before the round trip and rolled back if it fails, the way
+        // `setRelayTelemetryEnabled` treats its switch. Without this a role toggle springs back
+        // under the pointer and sits on its old value for the length of a publish — which reads
+        // as a control that refused the press. The published sets are *not* touched here, so a
+        // relay added this way honestly reports `Not published` until the core says otherwise.
+        let previousRelaySettings = relaySettings
+        var optimistic = relaySettings
+        for role in RelayRole.allCases {
+            guard let relays = lists[role] else { continue }
+            optimistic.setRelays(relays, for: role)
+        }
+        relaySettings = optimistic
+
+        var published: AccountRelayListsFfi?
         do {
-            let lists: AccountRelayListsFfi
-            let bootstrapRelays = relaySettings.networkBootstrapRelays
-            switch selectedRelaySection {
-            case .nip65:
-                lists = try await client.setAccountNip65Relays(
-                    accountRef: activeAccount.accountRef,
-                    relays: relays,
-                    bootstrapRelays: bootstrapRelays
-                )
-            case .inbox:
-                lists = try await client.setAccountInboxRelays(
-                    accountRef: activeAccount.accountRef,
-                    relays: relays,
-                    bootstrapRelays: bootstrapRelays
-                )
+            for role in RelayRole.allCases {
+                guard let relays = lists[role].map(normalizedRelays) else { continue }
+                switch role {
+                case .profile:
+                    published = try await client.setAccountNip65Relays(
+                        accountRef: accountRef,
+                        relays: relays,
+                        bootstrapRelays: bootstrapRelays
+                    )
+                case .inbox:
+                    published = try await client.setAccountInboxRelays(
+                        accountRef: accountRef,
+                        relays: relays,
+                        bootstrapRelays: bootstrapRelays
+                    )
+                }
+                // Both calls return the account's whole relay state, so a second write in the
+                // same action must not resume against a stale snapshot — and must not write UI
+                // state for an account that is no longer the active one.
+                guard activeAccountId == accountId else { return }
             }
-            guard activeAccountId == accountId else { return }
-            relaySettings = RelaySettingsSnapshot(lists: lists)
-            relayDraft = relaySettings.relays(for: selectedRelaySection)
+            guard let published else { return }
+            relaySettings = RelaySettingsSnapshot(lists: published)
             // `peerProfileLookupRelays(for:)` memoizes the seed + NIP-65 union for the whole
             // session, so without this a user who edits their relays here keeps searching the
             // pre-edit set for peer kind:0 until they switch accounts. Drop just this
@@ -558,6 +660,11 @@ extension WorkspaceState {
             peerProfileLookupRelaysByAccountId[accountId] = nil
         } catch {
             guard activeAccountId == accountId else { return }
+            // An action that writes both lists can fail on the second one, and the first has
+            // already been published — so the rollback target is the last state the core
+            // confirmed, not the state before the action. Rolling all the way back would leave
+            // the page showing a list the network no longer has.
+            relaySettings = published.map(RelaySettingsSnapshot.init(lists:)) ?? previousRelaySettings
             lastError = error.localizedDescription
         }
     }
