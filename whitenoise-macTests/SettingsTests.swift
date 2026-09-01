@@ -25,30 +25,8 @@ import UserNotifications
 @testable import whitenoise_mac
 
 struct SettingsTests: WorkspaceTestSupport {
-    /// A source slice with its comment-only lines dropped.
-    ///
-    /// A contract that forbids a token cannot read the comments: these files explain at length
-    /// precisely which branch they no longer carry, and naming it in the explanation is not the
-    /// same as reintroducing it. Dropping the prose is what lets the assertion stay a literal
-    /// token search rather than a pattern that has to out-guess English.
-    private static func strippingCommentLines(_ source: some StringProtocol) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
-
     private static func accountSwitcherSource() throws -> String {
-        try String(
-            contentsOf:
-                URL(filePath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appending(path: "whitenoise-mac")
-                .appending(path: "Views")
-                .appending(path: "Settings")
-                .appending(path: "SettingsAccountSwitcherViews.swift"),
-            encoding: .utf8
-        )
+        try SourceContract.source(of: .settingsAccountSwitcher)
     }
 
     /// Settings' profile card carries exactly one action: add a profile. Only a source contract
@@ -64,7 +42,7 @@ struct SettingsTests: WorkspaceTestSupport {
     /// branch. A deleted view needs none of them; what needs guarding is that it stays deleted.
     @MainActor
     @Test func settingsProfileCardOffersAddProfileUnconditionallyAndNoSwitcher() throws {
-        let code = Self.strippingCommentLines(try Self.accountSwitcherSource())
+        let code = SourceContract.strippingCommentLines(try Self.accountSwitcherSource())
 
         #expect(code.contains("L10n.string(\"Add Profile\", locale: locale)"))
         #expect(code.contains("person.crop.circle.badge.plus"))
@@ -280,22 +258,11 @@ struct SettingsTests: WorkspaceTestSupport {
     /// the *single* tint: two colours in `SettingsSidebarRowLabel` would be the old split
     /// reintroduced one level down, where every row inherits it.
     @Test func settingsDrawerRowGlyphTakesTheSameTintAsItsTitle() throws {
-        let cardURL =
-            URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "whitenoise-mac")
-            .appending(path: "Views")
-            .appending(path: "Settings")
-            .appending(path: "SettingsSidebarGroupCard.swift")
-        let cardSource = try String(contentsOf: cardURL, encoding: .utf8)
+        let cardSource = try SourceContract.source(of: .settingsSidebarGroupCard)
 
-        let labelStart = try #require(cardSource.range(of: "struct SettingsSidebarRowLabel<Accessory: View>: View {"))
-        let labelRest = cardSource[labelStart.upperBound...]
-        let labelEnd = try #require(labelRest.range(of: "\nextension ")?.lowerBound)
         // Comments dropped before the whitespace is joined out, so the absence check below reads
         // the declaration rather than the paragraph explaining it.
-        let label = Self.strippingCommentLines(String(cardSource[labelStart.lowerBound..<labelEnd]))
+        let label = SourceContract.strippingCommentLines(try SourceContract.declaration("SettingsSidebarRowLabel"))
             .components(separatedBy: .whitespacesAndNewlines).joined()
 
         // One tint, applied to both the glyph and the title.
@@ -308,21 +275,10 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(cardSource.contains("var tint: Color = WNColor.backgroundContentPrimary"))
 
         // And the rows go through the atom rather than keeping their own copies of the HStack.
-        let sidebarURL =
-            URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "whitenoise-mac")
-            .appending(path: "Views")
-            .appending(path: "SidebarViews.swift")
-        let sidebarSource = try String(contentsOf: sidebarURL, encoding: .utf8)
-        let rowStart = try #require(sidebarSource.range(of: "struct SettingsSidebarRow: View {"))
-        let rowRest = sidebarSource[rowStart.upperBound...]
-        let rowEnd = try #require(rowRest.range(of: "\nstruct ")?.lowerBound)
-        let rowSource = String(sidebarSource[rowStart.lowerBound..<rowEnd])
+        let rowSource = try SourceContract.declaration("SettingsSidebarRow")
 
         #expect(rowSource.contains("SettingsSidebarRowLabel(systemImage: page.systemImage"))
-        #expect(!Self.strippingCommentLines(rowSource).contains("backgroundContentSecondary"))
+        #expect(!SourceContract.strippingCommentLines(rowSource).contains("backgroundContentSecondary"))
         // The selection signal that replaced the tint split has to still be there.
         #expect(rowSource.contains("SettingsSidebarRowBackground(isSelected: isSelected)"))
     }
@@ -331,21 +287,8 @@ struct SettingsTests: WorkspaceTestSupport {
         // The re-render on a language switch comes from a SwiftUI dependency, which only a
         // source contract can guard: both the drawer and its rows must read `\.locale` and
         // localize through it. Dropping either read reintroduces the stale-label bug.
-        let sidebarViewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("SidebarViews.swift")
-        let source = try String(contentsOf: sidebarViewsURL, encoding: .utf8)
-
-        let drawerStart = try #require(source.range(of: "struct SettingsListDrawerView: View {"))
-        let rowStart = try #require(source.range(of: "struct SettingsSidebarRow: View {"))
-        let drawerSource = String(source[drawerStart.lowerBound..<rowStart.lowerBound])
-        let rowRest = source[rowStart.upperBound...]
-        let rowEnd = try #require(rowRest.range(of: "\nstruct ")?.lowerBound)
-        let rowSource = String(source[rowStart.lowerBound..<rowEnd])
+        let drawerSource = try SourceContract.declaration("SettingsListDrawerView")
+        let rowSource = try SourceContract.declaration("SettingsSidebarRow")
 
         for viewSource in [drawerSource, rowSource] {
             let normalized = viewSource.components(separatedBy: .whitespacesAndNewlines).joined()

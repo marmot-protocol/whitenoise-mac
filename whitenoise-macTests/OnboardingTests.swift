@@ -142,19 +142,11 @@ import Testing
     /// Both onboarding panes set the shape, and they set it on the *pane*. A pane that set it on
     /// one of two stacked buttons would ship a pill above a rounded rectangle.
     @Test func bothOnboardingPanesCutTheirButtonsToAPill() throws {
-        let onboardingDirectory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac/Views/Onboarding")
-
-        for fileName in [
-            "OnboardingWelcomeView.swift", "OnboardingSignInView.swift", "OnboardingSignUpView.swift",
-        ] {
-            let source = try String(
-                contentsOf: onboardingDirectory.appendingPathComponent(fileName), encoding: .utf8)
+        for pane: SourceContract.ViewUnit in [.onboardingWelcome, .onboardingSignIn, .onboardingSignUp] {
+            let source = try SourceContract.source(of: pane)
             #expect(
                 source.contains(".wnButtonShape(.capsule)"),
-                "\(fileName) no longer asks for the prototype's pill")
+                "\(pane) no longer asks for the prototype's pill")
         }
     }
 
