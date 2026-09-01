@@ -3,9 +3,9 @@
 //  whitenoise-mac
 //
 //  The row vocabulary every grouped settings page is written in: a group, the note under
-//  it, a read-only value, and a one-line result. The switch is not here — it is `WNToggle` —
-//  and neither are the rows of a choice, which are `WNSelect`'s: settings is not the only
-//  surface that shows either one.
+//  it, a read-only value, a row that opens another page, and a one-line result. The switch
+//  is not here — it is `WNToggle` — and neither are the rows of a choice, which are
+//  `WNSelect`'s: settings is not the only surface that shows either one.
 //
 //  The one idea here is that a group's explanation belongs *under* the group, not inside
 //  it. Each page used to end a `Section` with a bare `Text` in secondary grey, which put a
@@ -105,6 +105,40 @@ struct SettingsFooterText: View {
         } else {
             note
         }
+    }
+}
+
+/// A row that opens another settings page, drawn as the disclosure row it is.
+///
+/// Rare on purpose: the drawer lists every page but one, so this exists for a page that
+/// belongs *inside* another — Key Packages inside Developer mode, which is how
+/// `wn-ios-prototype` reaches it, by a `NavigationLink` in Developer Tools rather than by a
+/// row in the settings hub.
+struct SettingsNavigationRow: View {
+    @Environment(WorkspaceState.self) private var workspace
+    // Same reason as `SettingsSidebarRow`: the title is the only language-dependent thing in
+    // the body, so reading the locale here is what re-renders it on a language switch.
+    @Environment(\.locale) private var locale
+    let page: SettingsPage
+
+    var body: some View {
+        Button {
+            workspace.showSettingsPage(page)
+        } label: {
+            HStack(spacing: 8) {
+                Label(page.title(in: locale), systemImage: page.systemImage)
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .wnFont(.semiBold10)
+                    .foregroundStyle(WNColor.backgroundContentTertiary)
+            }
+            // The whole row is the target, not just the words in it — the shape the account
+            // switcher's rows and the group panel's rows already take.
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

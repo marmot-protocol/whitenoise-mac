@@ -41,7 +41,7 @@ struct RelayDetailSettingsView: View {
         // details section.
         SettingsScaffold(
             title: relay.displayName,
-            backAction: onBack
+            back: .dismissing(onBack)
         ) {
             SettingsSection(
                 footer: relay.isInsecure

@@ -27437,12 +27437,48 @@ struct whitenoise_macTests {
                 .privacySecurity,
                 .storage,
                 .relays,
-                .keyPackages,
                 .preferences,
                 .donate,
                 .developerMode,
             ]
         )
+    }
+
+    /// Key Packages is not a hub row at all: `wn-ios-prototype` reaches it from an isolated
+    /// navigation row inside Developer Tools rather than as a peer of Profile and Relays, so
+    /// the drawer keeps Developer mode lit while its destination is the open page. Every other
+    /// page is its own row.
+    @MainActor
+    @Test func keyPackagesIsADeveloperModeDestinationRatherThanADrawerRow() async throws {
+        #expect(!SettingsPage.sidebarPages.contains(.keyPackages))
+        #expect(SettingsPage.keyPackages.drawerPage == .developerMode)
+
+        for page in SettingsPage.sidebarPages {
+            #expect(page.drawerPage == page)
+        }
+    }
+
+    /// The row that reaches Key Packages disappears with the master toggle — the prototype's
+    /// technical sections are hidden, not disabled, while Developer Tools is off. Turning it
+    /// off from a second window would otherwise leave a reader on a page nothing routes to.
+    @MainActor
+    @Test func turningDeveloperModeOffLeavesTheKeyPackagesPage() async throws {
+        let defaults = UserDefaults.standard
+        let previousDeveloperMode = defaults.object(forKey: "whitenoise.mac.developerMode")
+        defer { restoreDefault(previousDeveloperMode, forKey: "whitenoise.mac.developerMode") }
+
+        let state = WorkspaceState.preview()
+        state.developerMode = true
+        state.showSettings(.keyPackages)
+
+        state.developerMode = false
+        #expect(state.selection == .settings(.developerMode))
+
+        // Every other page is unaffected: the toggle only owns its own destination.
+        state.showSettings(.relays)
+        state.developerMode = true
+        state.developerMode = false
+        #expect(state.selection == .settings(.relays))
     }
 
     /// Account mutations that hand the app a different active identity stay on the settings page
