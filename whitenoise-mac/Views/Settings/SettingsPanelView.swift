@@ -27,7 +27,7 @@ struct SettingsPanelView: View {
             case .profile:
                 ProfileSettingsView()
             case .identityKeys:
-                IdentityKeysSettingsView()
+                ProfileKeysSettingsView()
             case .relays:
                 RelaySettingsView()
             case .keyPackages:

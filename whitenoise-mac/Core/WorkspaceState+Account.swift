@@ -12,6 +12,7 @@ import Foundation
 import MarmotKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 import UserNotifications
 
 @MainActor
@@ -481,6 +482,89 @@ extension WorkspaceState {
             lastError = error.localizedDescription
             return nil
         }
+    }
+
+    /// Write the active account's private key to a file the reader picks.
+    ///
+    /// The destination is asked for *before* the key is fetched, and that order is the point:
+    /// `revealNsec` is an audited call that downgrades the core's audit data mode for this
+    /// account, so a save panel the reader cancels must not have cost them that. Nothing is
+    /// fetched, and nothing is logged, until there is somewhere to put it.
+    ///
+    /// `passphrase` is required for `.encrypted` and ignored for `.raw`. Returns true when a file
+    /// was written; false when the reader cancelled, when the account has no local key, or when
+    /// the write failed — `lastError` carries the reason in the last case.
+    @discardableResult
+    func exportActiveAccountPrivateKey(
+        _ kind: PrivateKeyExportKind,
+        passphrase: String = ""
+    ) async -> Bool {
+        guard !isExportingPrivateKey, let exportingAccount = activeAccount, exportingAccount.localSigning else {
+            return false
+        }
+        let suggestedFilename = L10n.string(kind.suggestedFilenameKey)
+        guard let destinationURL = privateKeyExportDestinationPicker(suggestedFilename, kind.contentType) else {
+            return false
+        }
+        // The identity is pinned across the panel. `NSSavePanel.runModal()` spins a nested run
+        // loop, which drains the main queue, so main-actor work queued before the panel opened can
+        // resume while it is up — and the key material below is fetched from `activeAccount`, not
+        // from whatever was active when the reader asked. Bailing here costs nothing: the panel is
+        // answered but nothing has been fetched, so no audited call has happened yet.
+        guard activeAccount?.id == exportingAccount.id else { return false }
+
+        isExportingPrivateKey = true
+        defer { isExportingPrivateKey = false }
+
+        let keyMaterial: String?
+        switch kind {
+        case .encrypted:
+            keyMaterial = await exportActiveAccountEncryptedKey(passphrase: passphrase)
+        case .raw:
+            keyMaterial = await revealActiveAccountNsec()
+        }
+        // Both helpers already set `lastError` on failure, so a nil here is reported.
+        guard let keyMaterial else { return false }
+        // Checked again after the fetch, because the helpers read `activeAccount` themselves and
+        // an `await` is a suspension point. This is the check that keeps the *file* honest: one
+        // account's key must never land in a file the reader asked for while another was active.
+        guard activeAccount?.id == exportingAccount.id else { return false }
+
+        do {
+            // `.atomic` so a failed write cannot leave a truncated key behind under a name that
+            // claims to be a backup, and `.completeFileProtection` so the file is not readable
+            // while the volume is locked. The sandbox grants write access to exactly the URL the
+            // panel returned — see `App Sandbox` in the entitlements.
+            try kind.fileContents(forKeyMaterial: keyMaterial).write(
+                to: destinationURL,
+                options: [.atomic, .completeFileProtection]
+            )
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// The production save panel for a private-key export.
+    ///
+    /// A panel rather than a fixed location because the sandbox has no other way to grant a write
+    /// outside the container: this app holds `files.user-selected.read-write` and nothing wider, so
+    /// a path assembled in code fails even when it resolves (see the container-symlink case).
+    static func choosePrivateKeyExportDestination(
+        suggestedFilename: String,
+        contentType: UTType
+    ) -> URL? {
+        let panel = NSSavePanel()
+        panel.title = L10n.string("Export Private Key")
+        panel.prompt = L10n.string("Export")
+        panel.nameFieldStringValue = suggestedFilename
+        panel.allowedContentTypes = [contentType]
+        panel.allowsOtherFileTypes = false
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
     }
 
     /// Removes a single identity (any account, not just the active one) from this Mac.

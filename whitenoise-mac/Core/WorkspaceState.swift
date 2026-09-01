@@ -5,6 +5,7 @@ import Foundation
 import MarmotKit
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -421,6 +422,10 @@ final class WorkspaceState {
     var isSavingProfile = false
     var isRemovingAccount = false
     var isSigningOutAccount = false
+    /// True while the active account's private key is being written to a file the reader chose.
+    /// Not part of `isAccountMutationInProgress`: an export changes nothing about the account, and
+    /// folding it in there would disable Sign Out while a save panel was up.
+    var isExportingPrivateKey = false
     /// True while an account remove, sign-out, sign-in, or full local-data wipe is in flight.
     var isAccountMutationInProgress: Bool {
         isRemovingAccount || isSigningOutAccount || isDeletingAllData
@@ -734,6 +739,10 @@ final class WorkspaceState {
     let conversationWindowVisibilityProvider: @MainActor () -> Bool
     let copyTextHandler: @MainActor (String, Bool) -> Void
     let transcriptExportDestinationPicker: @MainActor (String) -> URL?
+    /// Save panel for a private-key export. Injected for the same reason the two above are: the
+    /// panel is both the destination prompt and the sandbox's only grant of write access outside
+    /// the container, and a test cannot dismiss a modal.
+    let privateKeyExportDestinationPicker: @MainActor (String, UTType) -> URL?
     /// Folder picker for attachment downloads. The panel is how the sandbox grants write access at
     /// all, so this is the permission prompt as much as it is a preference; injected so tests can
     /// answer it with a temporary directory instead of showing a modal.
@@ -1237,6 +1246,8 @@ final class WorkspaceState {
         copyTextHandler: @escaping @MainActor (String, Bool) -> Void = WorkspaceState.copyToGeneralPasteboard,
         transcriptExportDestinationPicker: @escaping @MainActor (String) -> URL? =
             WorkspaceState.chooseTranscriptExportDestination,
+        privateKeyExportDestinationPicker: @escaping @MainActor (String, UTType) -> URL? =
+            WorkspaceState.choosePrivateKeyExportDestination,
         mediaDownloadDestinationPicker: @escaping @MainActor () -> URL? =
             WorkspaceState.chooseMediaDownloadDestination,
         telemetryBuildConfigProvider: @escaping @MainActor () -> TelemetryBuildConfig = {
@@ -1275,6 +1286,7 @@ final class WorkspaceState {
         self.conversationWindowVisibilityProvider = conversationWindowVisibilityProvider
         self.copyTextHandler = copyTextHandler
         self.transcriptExportDestinationPicker = transcriptExportDestinationPicker
+        self.privateKeyExportDestinationPicker = privateKeyExportDestinationPicker
         self.mediaDownloadDestinationPicker = mediaDownloadDestinationPicker
         self.telemetryBuildConfigProvider = telemetryBuildConfigProvider
         self.groupImageSearchClient = groupImageSearchClient ?? OpenverseGroupImageSearchClient()
