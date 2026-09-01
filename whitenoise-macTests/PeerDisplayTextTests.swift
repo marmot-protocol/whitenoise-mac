@@ -17,9 +17,9 @@ private let leftToRightMark = "\u{200E}"
 private let rightToLeftMark = "\u{200F}"
 private let arabicLetterMark = "\u{061C}"
 
-private func isolated(_ text: String) -> String {
-    fsi + text + pdi
-}
+// `isolated(_:)` lives in `Support/TestFixtures.swift` — it wraps the same FSI/PDI pair and
+// is shared with the suites split out of `whitenoise_macTests.swift`. A file-private twin here
+// would be a redeclaration of it.
 
 @Suite(.serialized)
 struct PeerDisplayTextTests {
