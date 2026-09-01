@@ -100,6 +100,30 @@ pass `--strict`. Keys with no words in them (`"%lld / %lld"`, `"99+"`) are
 skipped automatically — `just locales --verbose` lists them — and marking a key
 "Don't Translate" in Xcode (`shouldTranslate: false`) also excludes it.
 
+## Test coverage
+
+`just coverage` (CI job "Coverage", part of `just precommit`) reports Swift line
+coverage for the app target, read out of the `TestResults.xcresult` bundle that
+`just test` leaves behind. Only first-party source under `whitenoise-mac/`
+counts; the MarmotKit bindings and the test bundle are separate targets and are
+filtered out. A file whose header carries `// coverage:ignore-file` is excluded
+entirely — reach for that only when a file genuinely cannot be exercised from a
+test, not to make a number go up.
+
+CI does one thing more than the local recipe: it compares the run's coverage
+against the number from master's most recent green run and **fails the PR when
+coverage drops by more than 0.10 percentage points**. There is no baseline file
+in the repo to update — every green run publishes its own coverage as the
+`mac-coverage` artifact, and pull requests read master's. When no baseline is
+reachable (nothing green on master inside the 90-day retention window) the
+check reports the bare number and passes.
+
+Two things the number will not tell you. Files xccov never reports are *not*
+counted as 0%: they are compiled into no instrumented target, which is a target
+membership problem rather than a testing one, so `just coverage` warns about
+them separately. And coverage says nothing about whether a test asserts on
+behavior — see the note on source-scraping tests above.
+
 ## Project structure is filesystem-synchronized
 
 `whitenoise-mac.xcodeproj` uses `PBXFileSystemSynchronizedRootGroup`, so source

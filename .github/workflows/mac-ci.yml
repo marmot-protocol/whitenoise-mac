@@ -21,11 +21,18 @@ env:
   SCHEME: whitenoise-mac
   DESTINATION: platform=macOS
 
-# The four jobs below are independent by construction, so they run in parallel
-# and the PR's wall clock is the slowest one rather than their sum. Nothing is
-# shared between them to lose: `test` compiles Debug, `build` compiles Release
-# and `analyze` compiles Debug under the analyzer, so even when these steps sat
-# in one job they never reused a single object file.
+# The first four jobs below are independent by construction, so they run in
+# parallel and the PR's wall clock is the slowest one rather than their sum.
+# Nothing is shared between them to lose: `test` compiles Debug, `build`
+# compiles Release and `analyze` compiles Debug under the analyzer, so even when
+# these steps sat in one job they never reused a single object file.
+#
+# `coverage` is the one job that waits on another. It is deliberately thin: the
+# number is measured inside `test`, where the result bundle already sits on a
+# machine that has Xcode, and only the comparison against master runs here --
+# on a Linux runner, in seconds. Re-measuring in its own job would mean either
+# a second 20-minute test run or shipping a multi-gigabyte .xcresult between
+# runners, and both buy nothing.
 #
 # `PR Checks` at the bottom is the aggregate gate. Keep that name: it is what
 # branch protection requires, and it is the only status that has to be green.
@@ -101,6 +108,26 @@ jobs:
             -enableCodeCoverage YES \
             CODE_SIGNING_ALLOWED=NO
 
+      # No `if:` on purpose. Coverage from a run whose tests failed measures a
+      # partial suite, and publishing that number would quietly lower the
+      # baseline for every PR that follows.
+      - name: Measure code coverage
+        run: |
+          scripts/ci/coverage.sh \
+            --output coverage/coverage.txt \
+            --warnings-file coverage/uncovered-files.txt
+
+      # This artifact is read twice: by the `coverage` job of this same run, and
+      # -- when this run is a green push to master -- by the `coverage` job of
+      # every later pull request, as the baseline. Retention is therefore the
+      # window in which master is still comparable, not a debugging window.
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-coverage
+          path: coverage/
+          retention-days: 90
+
       - name: Upload unit test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -156,6 +183,70 @@ jobs:
             -destination "$DESTINATION" \
             CODE_SIGNING_ALLOWED=NO
 
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: test
+
+    permissions:
+      contents: read
+      # `gh run download` reads another workflow run's artifacts.
+      actions: read
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Download this run's coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-coverage
+          path: pr-coverage
+
+      # Every green run publishes its own coverage, so master's most recent one
+      # is already the baseline -- there is no separate "save baseline" step to
+      # keep in sync, and no third-party coverage service in the loop. A missing
+      # artifact is an ordinary state (the first run after this check lands, or
+      # a master run older than the retention window above), so the download is
+      # allowed to fail and the comparison reports the bare number instead.
+      #
+      # `--event push` is not redundant with `--branch master`: a pull request
+      # opened from a fork's own `master` also reports `master` as its head
+      # branch, and that fork's coverage is not this repository's baseline.
+      - name: Download master's coverage baseline
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id="$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow mac-ci.yml \
+            --branch master \
+            --event push \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "No successful master run to take a baseline from."
+            exit 0
+          fi
+          gh run download "$run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name mac-coverage \
+            --dir master-coverage
+
+      # On a push to master there is no `master-coverage/` directory and none is
+      # wanted: that run is the baseline, so this reports the number and passes.
+      - name: Compare against master
+        run: |
+          scripts/ci/compare-coverage.sh \
+            --current pr-coverage/coverage.txt \
+            --baseline master-coverage/coverage.txt \
+            --uncovered-file pr-coverage/uncovered-files.txt
+
   # Single required status for branch protection. Without this, splitting the
   # old `PR Checks` job would leave the branch gated on a check that no longer
   # reports, which reads as "waiting" forever rather than as a failure.
@@ -164,7 +255,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: ${{ always() }}
-    needs: [checks, test, build, analyze]
+    needs: [checks, test, build, analyze, coverage]
 
     steps:
       - name: Report job results
@@ -173,6 +264,7 @@ jobs:
           printf 'unit tests      : %s\n' "${{ needs.test.result }}"
           printf 'release build   : %s\n' "${{ needs.build.result }}"
           printf 'static analysis : %s\n' "${{ needs.analyze.result }}"
+          printf 'coverage        : %s\n' "${{ needs.coverage.result }}"
 
       # `success()` is not enough on its own: with `if: always()` a skipped or
       # cancelled dependency would otherwise let the gate pass.
@@ -181,7 +273,8 @@ jobs:
           ${{ needs.checks.result != 'success'
            || needs.test.result != 'success'
            || needs.build.result != 'success'
-           || needs.analyze.result != 'success' }}
+           || needs.analyze.result != 'success'
+           || needs.coverage.result != 'success' }}
         run: |
           echo "::error::One or more Mac CI jobs did not succeed."
           exit 1
