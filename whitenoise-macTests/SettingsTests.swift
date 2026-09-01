@@ -1686,7 +1686,7 @@ struct SettingsTests: WorkspaceTestSupport {
             exportEnabled: true,
             exportIntervalSeconds: 120
         )
-        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .obfuscatedSensitiveData)
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
         runtime.storedAuditLogFiles = [
             AuditLogFileFfi(
                 accountRef: account.label,
@@ -1735,17 +1735,15 @@ struct SettingsTests: WorkspaceTestSupport {
         #expect(runtime.storedAuditLogSettings.enabled)
         #expect(!state.privacySecuritySettings.relayTelemetryEnabled)
         #expect(state.privacySecuritySettings.auditLoggingEnabled)
-        // macOS never requests sensitive capture: the persisted posture stays obfuscated.
-        #expect(runtime.storedAuditLogSettings.dataMode == .obfuscatedSensitiveData)
     }
 
+    /// The enable path is covered above; this pins the *disable* path, which is the only
+    /// place a stale `true` can survive in the core after the user turns audit logging off.
     @MainActor
-    @Test func enablingAuditLoggingDowngradesAFullDataPostureToObfuscated() async throws {
+    @Test func auditLoggingTogglePersistsBothOnAndOffThroughTheRuntime() async throws {
         let account = desktopAccount()
         let runtime = FakeMarmotRuntime(accounts: [account])
-        // A core that already carries the sensitive posture -- set by another client,
-        // or left behind by an older build of this app.
-        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .fullData)
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
         let state = WorkspaceState(
             telemetryBuildConfigProvider: {
                 telemetryBuildConfig(telemetryToken: "otlp-token", auditToken: "audit-token")
@@ -1757,13 +1755,11 @@ struct SettingsTests: WorkspaceTestSupport {
         await state.setAuditLoggingEnabled(true)
 
         #expect(runtime.storedAuditLogSettings.enabled)
-        #expect(runtime.storedAuditLogSettings.dataMode == .obfuscatedSensitiveData)
         #expect(state.privacySecuritySettings.auditLoggingEnabled)
 
         await state.setAuditLoggingEnabled(false)
 
         #expect(!runtime.storedAuditLogSettings.enabled)
-        #expect(runtime.storedAuditLogSettings.dataMode == .obfuscatedSensitiveData)
         #expect(!state.privacySecuritySettings.auditLoggingEnabled)
     }
 
@@ -1955,7 +1951,7 @@ struct SettingsTests: WorkspaceTestSupport {
             exportEnabled: true,
             exportIntervalSeconds: 120
         )
-        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true, dataMode: .fullData)
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true)
         runtime.storedAuditLogFiles = [
             AuditLogFileFfi(
                 accountRef: account.label,
@@ -2302,7 +2298,7 @@ struct SettingsTests: WorkspaceTestSupport {
             running: true
         )
         let runtime = FakeMarmotRuntime(accounts: [account])
-        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true, dataMode: .obfuscatedSensitiveData)
+        runtime.storedAuditLogSettings = AuditLogSettingsFfi(enabled: true)
         runtime.storedAuditLogFiles = [
             AuditLogFileFfi(
                 accountRef: account.label,
