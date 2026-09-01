@@ -26,6 +26,10 @@ Config/AppSecrets.xcconfig
 # guards against an XCFramework left behind by an older local build.
 Vendored/MarmotKit/MarmotKit.xcframework/
 
+# Written by `just coverage --output/--warnings-file` and by the CI job of the
+# same name; the numbers live in the run's artifact, never in the repo.
+coverage/
+
 # Misc
 *.log
 *.swp

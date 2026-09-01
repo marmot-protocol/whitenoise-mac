@@ -10,8 +10,14 @@
 #   CI job "Unit tests"      -> just test
 #   CI job "Release build"   -> just build-release
 #   CI job "Static analysis" -> just analyze
+#   CI job "Coverage"        -> just coverage
 #
-# CI's "PR Checks" is only an aggregate gate over those four; it has no local
+# `just coverage` mirrors only the measuring half of that job. CI additionally
+# compares the number against master's, which needs a baseline that lives in a
+# GitHub Actions artifact -- so a green `just precommit` predicts the coverage
+# figure CI will print, not the verdict it will reach on the delta.
+#
+# CI's "PR Checks" is only an aggregate gate over the five; it has no local
 # counterpart beyond `just precommit` itself.
 
 PROJECT := "whitenoise-mac.xcodeproj"
@@ -27,8 +33,8 @@ default: precommit
 help:
     @just --list
 
-# Run everything CI runs on a PR — all four jobs, serially
-precommit: checks test build-release analyze
+# Run everything CI runs on a PR — all five jobs, serially
+precommit: checks test build-release analyze coverage
     @echo ""
     @echo "✅ precommit passed — mac-ci.yml should be green."
 
@@ -94,6 +100,13 @@ analyze:
         -configuration Debug \
         -destination "{{DESTINATION}}" \
         CODE_SIGNING_ALLOWED=NO
+
+# Reads the TestResults.xcresult bundle `just test` leaves behind, so run that
+# first. Pass --min N to gate on an absolute floor locally; CI gates on the
+# delta against master instead.
+# CI job: Coverage — line coverage of the app target
+coverage *ARGS:
+    scripts/ci/coverage.sh {{ARGS}}
 
 # Repin MarmotKit to a published mdk release (version or full master SHA).
 # Not part of precommit — run it deliberately when moving the core.
