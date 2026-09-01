@@ -1267,6 +1267,124 @@
         }
       }
     },
+    "%@ needs at least one relay, and this is the only one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ benötigt mindestens ein Relay, und dies ist das einzige."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ necesita al menos un relé, y este es el único."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite au moins un relais, et c’est le seul."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ richiede almeno un relay e questo è l’unico."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ precisa de pelo menos um relay, e este é o único."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для «%@» нужен хотя бы один релей, и это единственный."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için en az bir relay gerekir ve bu tek relay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 至少需要一个中继，而这是唯一的一个。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 至少需要一個中繼，而這是唯一的一個。"
+          }
+        }
+      }
+    },
+    "%@ needs at least one relay. Add another relay before turning this one off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ benötigt mindestens ein Relay. Füge ein weiteres Relay hinzu, bevor du dieses deaktivierst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ necesita al menos un relé. Añade otro relé antes de desactivar este."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite au moins un relais. Ajoutez un autre relais avant de désactiver celui-ci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ richiede almeno un relay. Aggiungi un altro relay prima di disattivare questo."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ precisa de pelo menos um relay. Adicione outro relay antes de desativar este."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для «%@» нужен хотя бы один релей. Добавьте другой релей, прежде чем отключать этот."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için en az bir relay gerekir. Bunu kapatmadan önce başka bir relay ekleyin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 至少需要一个中继。请先添加其他中继，再关闭此中继。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 至少需要一個中繼。請先新增其他中繼，再關閉此中繼。"
+          }
+        }
+      }
+    },
     "%@ npub": {
       "extractionState": "manual",
       "localizations": {
@@ -7201,61 +7319,61 @@
         }
       }
     },
-    "Add at least one relay before saving.": {
+    "Add another relay before removing this one.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge vor dem Speichern mindestens ein Relay hinzu."
+            "value": "Füge ein weiteres Relay hinzu, bevor du dieses entfernst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade al menos un relé antes de guardar."
+            "value": "Añade otro relé antes de quitar este."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez au moins un relais avant d’enregistrer."
+            "value": "Ajoutez un autre relais avant de supprimer celui-ci."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi almeno un relay prima di salvare."
+            "value": "Aggiungi un altro relay prima di rimuovere questo."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicione pelo menos um relay antes de salvar."
+            "value": "Adicione outro relay antes de remover este."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавьте хотя бы один релей перед сохранением."
+            "value": "Добавьте другой релей, прежде чем удалять этот."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kaydetmeden önce en az bir relay ekleyin."
+            "value": "Bunu kaldırmadan önce başka bir relay ekleyin."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存前请至少添加一个中继。"
+            "value": "请先添加其他中继，再移除此中继。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "儲存前請至少新增一個中繼。"
+            "value": "請先新增其他中繼，再移除此中繼。"
           }
         }
       }
@@ -12044,6 +12162,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "選擇新管理員"
+          }
+        }
+      }
+    },
+    "Choose a relay for %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle ein Relay für %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un relé para %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un relais pour %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli un relay per %@."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha um relay para %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите релей для: %@."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için bir relay seçin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请为%@选择一个中继。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請為%@選擇一個中繼。"
           }
         }
       }
@@ -20036,6 +20213,65 @@
         }
       }
     },
+    "Enter a relay URL beginning with wss://.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib eine Relay-URL ein, die mit wss:// beginnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce una URL de relé que empiece por wss://."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez une URL de relais commençant par wss://."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci un URL di relay che inizi con wss://."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite uma URL de relay que comece com wss://."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите URL релея, начинающийся с wss://."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "wss:// ile başlayan bir relay URL’si girin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入以 wss:// 开头的中继 URL。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入以 wss:// 開頭的中繼 URL。"
+          }
+        }
+      }
+    },
     "Enter a search to find an image.": {
       "comment": "The description of the web image picker's empty state, before any search has been run.",
       "extractionState": "manual",
@@ -25059,61 +25295,61 @@
         }
       }
     },
-    "Insecure cleartext relay (ws://). Relay metadata is not encrypted in transit.": {
+    "Insecure": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsicheres Klartext-Relay (ws://). Relay-Metadaten werden bei der Übertragung nicht verschlüsselt."
+            "value": "Unsicher"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relé en texto plano no seguro (ws://). Los metadatos del relé no se cifran en tránsito."
+            "value": "No seguro"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relais en clair non sécurisé (ws://). Les métadonnées du relais ne sont pas chiffrées en transit."
+            "value": "Non sécurisé"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relay in chiaro non sicuro (ws://). I metadati del relay non sono cifrati durante il transito."
+            "value": "Non sicuro"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relay em texto simples não seguro (ws://). Os metadados do relay não são criptografados em trânsito."
+            "value": "Não seguro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Небезопасный релей без шифрования (ws://). Метаданные релея не шифруются при передаче."
+            "value": "Небезопасный"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Güvensiz düz metin relay (ws://). Relay meta verileri aktarım sırasında şifrelenmez."
+            "value": "Güvensiz"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不安全的明文中继（ws://）。中继的元数据在传输过程中不会被加密。"
+            "value": "不安全"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "不安全的明文中繼（ws://）。中繼的元資料在傳輸過程中不會加密。"
+            "value": "不安全"
           }
         }
       }
@@ -30928,65 +31164,6 @@
         }
       }
     },
-    "Message delivery relays": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relays für Nachrichtenzustellung"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relés de entrega de mensajes"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relais de distribution des messages"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relay per la consegna dei messaggi"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relays de entrega de mensagens"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Релеи доставки сообщений"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mesaj teslim relayleri"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "消息投递中继"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "訊息傳遞中繼"
-          }
-        }
-      }
-    },
     "Message preview": {
       "extractionState": "manual",
       "localizations": {
@@ -35299,19 +35476,19 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yayınlanmadı"
+            "value": "Yayımlanmadı"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未发表"
+            "value": "未发布"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未發表"
+            "value": "未發布"
           }
         }
       }
@@ -37141,6 +37318,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "登入 Mac 時自動開啟 White Noise 視窗。"
+          }
+        }
+      }
+    },
+    "Opens this relay's details.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet die Details dieses Relays."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre los detalles de este relé."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvre les détails de ce relais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apre i dettagli di questo relay."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre os detalhes deste relay."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывает сведения об этом релее."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu relay’in ayrıntılarını açar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开此中继的详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟此中繼的詳細資訊。"
           }
         }
       }
@@ -38976,65 +39212,6 @@
         }
       }
     },
-    "Profile relay list": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil-Relay-Liste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lista de relés del perfil"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liste de relais du profil"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elenco di relay del profilo"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lista de relays do perfil"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Список релеев профиля"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Profil relay listesi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "个人资料中继列表"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "個人資料中繼列表"
-          }
-        }
-      }
-    },
     "Protect your key with a passphrase. You'll need it to restore the backup.": {
       "extractionState": "manual",
       "localizations": {
@@ -39684,6 +39861,65 @@
         }
       }
     },
+    "Published": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veröffentlicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pubblicato"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опубликовано"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yayımlandı"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发布"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已發布"
+          }
+        }
+      }
+    },
     "Published %@": {
       "extractionState": "manual",
       "localizations": {
@@ -39981,65 +40217,6 @@
         }
       }
     },
-    "Published Relay Lists": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Veröffentlichte Relay-Listen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listas de relés publicadas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listes de relais publiées"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elenchi di relay pubblicati"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Listas de relays publicadas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Опубликованные списки релеев"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yayımlanan relay listeleri"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已发布的中继列表"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已發布的中繼列表"
-          }
-        }
-      }
-    },
     "Published from this device": {
       "extractionState": "manual",
       "localizations": {
@@ -40099,6 +40276,65 @@
         }
       }
     },
+    "Publishes this account's profile and relay list.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veröffentlicht das Profil und die Relay-Liste dieses Accounts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publica el perfil y la lista de relés de esta cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publie le profil et la liste de relais de ce compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pubblica il profilo e l’elenco di relay di questo account."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publica o perfil e a lista de relays desta conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикует профиль и список релеев этого аккаунта."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesabın profilini ve relay listesini yayımlar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发布此账户的个人资料和中继列表。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發布此帳號的個人檔案和中繼列表。"
+          }
+        }
+      }
+    },
     "Publishing group update.": {
       "extractionState": "manual",
       "localizations": {
@@ -40154,6 +40390,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "出版組更新。"
+          }
+        }
+      }
+    },
+    "Publishing relay lists...": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-Listen werden veröffentlicht..."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicando las listas de relés..."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publication des listes de relais..."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pubblicazione degli elenchi di relay..."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicando as listas de relays..."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикация списков релеев..."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay listeleri yayımlanıyor..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在发布中继列表..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在發布中繼列表..."
           }
         }
       }
@@ -40809,6 +41104,65 @@
         }
       }
     },
+    "Receives invitations to new chats and groups.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfängt Einladungen zu neuen Chats und Gruppen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recibe invitaciones a nuevos chats y grupos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reçoit les invitations aux nouvelles conversations et aux groupes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riceve gli inviti a nuove chat e gruppi."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recebe convites para novos chats e grupos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Получает приглашения в новые чаты и группы."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni sohbetlere ve gruplara gelen davetleri alır."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接收新聊天和群组的邀请。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接收新聊天和群組的邀請。"
+          }
+        }
+      }
+    },
     "Recently used": {
       "extractionState": "manual",
       "localizations": {
@@ -40982,6 +41336,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新整理"
+          }
+        }
+      }
+    },
+    "Relay URL": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL del relé"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL du relais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL del relay"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL do relay"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL релея"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay URL’si"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继 URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中繼 URL"
           }
         }
       }
@@ -41161,65 +41574,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "中繼提示"
-          }
-        }
-      }
-    },
-    "Relay list": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relay-Liste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lista de relés"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Liste de relais"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elenco di relay"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lista de relays"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Список релеев"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relay listesi"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中继列表"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中繼列表"
           }
         }
       }
@@ -41515,6 +41869,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "中繼"
+          }
+        }
+      }
+    },
+    "Relays let this account publish its profile and receive invitations to new chats.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relays ermöglichen es diesem Account, sein Profil zu veröffentlichen und Einladungen zu neuen Chats zu erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los relés permiten que esta cuenta publique su perfil y reciba invitaciones a nuevos chats."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les relais permettent à ce compte de publier son profil et de recevoir des invitations aux nouvelles conversations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I relay permettono a questo account di pubblicare il proprio profilo e di ricevere inviti a nuove chat."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os relays permitem que esta conta publique seu perfil e receba convites para novos chats."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Релеи позволяют этому аккаунту публиковать профиль и получать приглашения в новые чаты."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relayler bu hesabın profilini yayımlamasını ve yeni sohbet davetleri almasını sağlar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继让此账户可以发布个人资料并接收新聊天的邀请。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中繼讓此帳號可以發布個人檔案並接收新聊天的邀請。"
+          }
+        }
+      }
+    },
+    "Relays need attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relays brauchen Aufmerksamkeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los relés necesitan atención"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les relais nécessitent votre attention"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I relay richiedono attenzione"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os relays precisam de atenção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Релеи требуют внимания"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaylerin ilgiye ihtiyacı var"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继需要注意"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中繼需要注意"
           }
         }
       }
@@ -43469,6 +43941,124 @@
         }
       }
     },
+    "Restore default relays": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Relays wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar los relés predeterminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les relais par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina i relay predefiniti"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar os relays padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановить релеи по умолчанию"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan relayleri geri yükle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复默认中继"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原預設中繼"
+          }
+        }
+      }
+    },
+    "Restore default relays?": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Relays wiederherstellen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Restaurar los relés predeterminados?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer les relais par défaut ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristinare i relay predefiniti?"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar os relays padrão?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановить релеи по умолчанию?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılan relayler geri yüklensin mi?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要恢复默认中继吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要還原預設中繼嗎？"
+          }
+        }
+      }
+    },
     "Restore defaults": {
       "extractionState": "manual",
       "localizations": {
@@ -43583,6 +44173,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "還原上次選擇的聊天"
+          }
+        }
+      }
+    },
+    "Restores the relays a new account starts on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stellt die Relays wieder her, mit denen ein neuer Account startet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaura los relés con los que empieza una cuenta nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaure les relais avec lesquels un nouveau compte démarre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina i relay con cui parte un nuovo account."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaura os relays com os quais uma nova conta começa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстанавливает релеи, с которых начинает новый аккаунт."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni bir hesabın başladığı relayleri geri yükler."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复新账户初始使用的中继。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還原新帳號初始使用的中繼。"
           }
         }
       }
@@ -44412,65 +45061,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "儲存個人資料"
-          }
-        }
-      }
-    },
-    "Save relays": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relays speichern"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Guardar relés"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enregistrer les relais"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salva relay"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salvar relays"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сохранить релеи"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Relayleri kaydet"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存中继"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "儲存中繼"
           }
         }
       }
@@ -52780,6 +53370,65 @@
         }
       }
     },
+    "This account already uses this relay.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Account verwendet dieses Relay bereits."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta cuenta ya usa este relé."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce compte utilise déjà ce relais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo account usa già questo relay."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conta já usa este relay."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот аккаунт уже использует этот релей."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesap bu relay’i zaten kullanıyor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户已在使用该中继。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號已在使用該中繼。"
+          }
+        }
+      }
+    },
     "This account has no private key stored on this Mac": {
       "extractionState": "manual",
       "localizations": {
@@ -52835,6 +53484,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "此帳號在此 Mac 上未儲存私密金鑰"
+          }
+        }
+      }
+    },
+    "This account will stop using this relay.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Account wird dieses Relay nicht mehr verwenden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta cuenta dejará de usar este relé."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce compte cessera d’utiliser ce relais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo account non userà più questo relay."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conta deixará de usar este relay."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот аккаунт перестанет использовать этот релей."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesap bu relay’i kullanmayı bırakacak."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户将停止使用该中继。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號將停止使用該中繼。"
           }
         }
       }
@@ -53012,6 +53720,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "這會從此 Mac 刪除此身分的私密金鑰和本機訊息記錄。此操作無法復原。"
+          }
+        }
+      }
+    },
+    "This is the only relay for %@. Add another relay before removing this one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies ist das einzige Relay für %@. Füge ein weiteres Relay hinzu, bevor du dieses entfernst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este es el único relé para %@. Añade otro relé antes de quitar este."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C’est le seul relais pour %@. Ajoutez un autre relais avant de supprimer celui-ci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo è l’unico relay per %@. Aggiungi un altro relay prima di rimuovere questo."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este é o único relay para %@. Adicione outro relay antes de remover este."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это единственный релей для: %@. Добавьте другой релей, прежде чем удалять этот."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu, %@ için tek relay. Bunu kaldırmadan önce başka bir relay ekleyin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这是%@的唯一中继。请先添加其他中继，再移除此中继。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這是%@的唯一中繼。請先新增其他中繼，再移除此中繼。"
           }
         }
       }
@@ -53311,6 +54078,65 @@
         }
       }
     },
+    "This relay uses cleartext ws://, so the metadata this account sends it is not encrypted in transit.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Relay verwendet Klartext-ws://, daher werden die Metadaten, die dieser Account an es sendet, bei der Übertragung nicht verschlüsselt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este relé usa ws:// en texto plano, así que los metadatos que esta cuenta le envía no se cifran en tránsito."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce relais utilise ws:// en clair, donc les métadonnées que ce compte lui envoie ne sont pas chiffrées en transit."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo relay usa ws:// in chiaro, quindi i metadati che questo account gli invia non sono cifrati durante il transito."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este relay usa ws:// em texto simples, então os metadados que esta conta envia a ele não são criptografados em trânsito."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот релей использует незашифрованный ws://, поэтому метаданные, которые этот аккаунт ему отправляет, не шифруются при передаче."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu relay şifresiz ws:// kullanıyor, bu yüzden bu hesabın ona gönderdiği meta veriler aktarım sırasında şifrelenmez."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此中继使用明文 ws://，因此此账户发送给它的元数据在传输过程中不会被加密。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此中繼使用明文 ws://，因此此帳號傳送給它的元資料在傳輸過程中不會加密。"
+          }
+        }
+      }
+    },
     "This removes %@ from the group.": {
       "extractionState": "manual",
       "localizations": {
@@ -53425,6 +54251,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "此操作將移除 %@ 的加密快取附件。可見媒體會在需要時重新下載。"
+          }
+        }
+      }
+    },
+    "This replaces both relay lists for this account with the defaults. Relays you added will be removed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies ersetzt beide Relay-Listen dieses Accounts durch die Standardwerte. Von dir hinzugefügte Relays werden entfernt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esto reemplaza las dos listas de relés de esta cuenta por las predeterminadas. Los relés que añadiste se quitarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cela remplace les deux listes de relais de ce compte par celles par défaut. Les relais que vous avez ajoutés seront supprimés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo sostituisce entrambi gli elenchi di relay di questo account con quelli predefiniti. I relay che hai aggiunto verranno rimossi."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isso substitui as duas listas de relays desta conta pelas padrão. Os relays que você adicionou serão removidos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оба списка релеев этого аккаунта будут заменены значениями по умолчанию. Добавленные вами релеи будут удалены."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu, bu hesabın iki relay listesini de varsayılanlarla değiştirir. Eklediğiniz relayler kaldırılır."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会将此账户的两个中继列表都替换为默认值。你添加的中继将被移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會將此帳號的兩個中繼列表都替換為預設值。你新增的中繼將被移除。"
           }
         }
       }
@@ -54314,6 +55199,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉日誌記錄後，現有日誌會一直保留，直到你清除它們。"
+          }
+        }
+      }
+    },
+    "URL": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL"
           }
         }
       }
@@ -55673,6 +56617,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在上傳…"
+          }
+        }
+      }
+    },
+    "Use for": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden für"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar para"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser pour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa per"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar para"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать для"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şunun için kullan"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用于"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用於"
           }
         }
       }
@@ -58628,6 +59631,65 @@
         }
       }
     },
+    "Your inbox relay list hasn't been published yet, so invitations to new chats may not arrive.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Posteingang-Relay-Liste ist noch nicht veröffentlicht, daher kommen Einladungen zu neuen Chats möglicherweise nicht an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu lista de relés de la bandeja de entrada aún no se ha publicado, así que las invitaciones a nuevos chats podrían no llegar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre liste de relais de boîte de réception n’est pas encore publiée, les invitations aux nouvelles conversations risquent donc de ne pas arriver."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo elenco di relay per la posta in arrivo non è ancora stato pubblicato, quindi gli inviti a nuove chat potrebbero non arrivare."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua lista de relays da caixa de entrada ainda não foi publicada, então convites para novos chats podem não chegar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш список релеев для входящих ещё не опубликован, поэтому приглашения в новые чаты могут не приходить."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gelen kutusu relay listeniz henüz yayımlanmadı, bu yüzden yeni sohbet davetleri gelmeyebilir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的收件箱中继列表尚未发布，因此新聊天的邀请可能无法送达。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的收件匣中繼列表尚未發布，因此新聊天的邀請可能無法送達。"
+          }
+        }
+      }
+    },
     "Your kind:0 metadata is live on %lld relays.": {
       "extractionState": "manual",
       "localizations": {
@@ -58860,6 +59922,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "您的個人檔案是公開的"
+          }
+        }
+      }
+    },
+    "Your profile relay list hasn't been published yet, so other people may not find you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Profil-Relay-Liste ist noch nicht veröffentlicht, daher finden andere Personen dich möglicherweise nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu lista de relés del perfil aún no se ha publicado, así que puede que otras personas no te encuentren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre liste de relais de profil n’est pas encore publiée, d’autres personnes risquent donc de ne pas vous trouver."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo elenco di relay del profilo non è ancora stato pubblicato, quindi altre persone potrebbero non trovarti."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua lista de relays do perfil ainda não foi publicada, então outras pessoas podem não te encontrar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш список релеев профиля ещё не опубликован, поэтому другие люди могут вас не найти."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil relay listeniz henüz yayımlanmadı, bu yüzden diğer kişiler sizi bulamayabilir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的个人资料中继列表尚未发布，因此其他人可能找不到你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的個人檔案中繼列表尚未發布，因此其他人可能找不到你。"
+          }
+        }
+      }
+    },
+    "Your relay lists haven't been published yet, so other people may not find you and invitations to new chats may not arrive.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Relay-Listen sind noch nicht veröffentlicht, daher finden andere Personen dich möglicherweise nicht und Einladungen zu neuen Chats kommen möglicherweise nicht an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus listas de relés aún no se han publicado, así que puede que otras personas no te encuentren y que las invitaciones a nuevos chats no lleguen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos listes de relais ne sont pas encore publiées : d’autres personnes risquent de ne pas vous trouver et les invitations aux nouvelles conversations de ne pas arriver."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi elenchi di relay non sono ancora stati pubblicati, quindi altre persone potrebbero non trovarti e gli inviti a nuove chat potrebbero non arrivare."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas listas de relays ainda não foram publicadas, então outras pessoas podem não te encontrar e convites para novos chats podem não chegar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши списки релеев ещё не опубликованы, поэтому другие люди могут вас не найти, а приглашения в новые чаты — не приходить."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay listeleriniz henüz yayımlanmadı, bu yüzden diğer kişiler sizi bulamayabilir ve yeni sohbet davetleri gelmeyebilir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的中继列表尚未发布，因此其他人可能找不到你，新聊天的邀请也可能无法送达。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的中繼列表尚未發布，因此其他人可能找不到你，新聊天的邀請也可能無法送達。"
           }
         }
       }

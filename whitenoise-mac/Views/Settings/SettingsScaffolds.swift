@@ -16,15 +16,21 @@ struct SettingsHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
+            // The app's one back control, not a second one built here. `GroupViews` and the
+            // compose pane already answer "how do I get back" with this circle, and the drawer's
+            // sub-page is the same question a third time; a ringed 28pt rect beside them was a
+            // fourth affordance for one idea. The prototype reaches Relay Details through a
+            // native `NavigationLink`, so what ports is the *bare* system chevron — unboxed —
+            // and this is that chevron's mac form. `help:` takes a catalog key: the component
+            // localizes it.
+            HStack(spacing: 12) {
                 if let backAction {
-                    Button(action: backAction) {
-                        Image(systemName: "chevron.left")
-                            .wnFont(.semiBold14)
-                            .frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.wnSecondary)
-                    .help(L10n.string("Back to settings"))
+                    GlassCircleCloseButton(
+                        symbol: "chevron.backward",
+                        help: "Back to settings",
+                        appearance: .outline,
+                        action: backAction
+                    )
                 }
 
                 Text(title)
@@ -70,23 +76,30 @@ struct SettingsScaffold<Content: View>: View {
     let title: String
     var subtitle: String?
     var errorSectionTitle: String?
+    /// Shown as a chevron before the title, for a page that is a step inside another page
+    /// rather than a destination in the drawer — Relays' relay detail is the one of these.
+    /// The drawer has no navigation stack, so a sub-page is the parent page swapping its own
+    /// body and this is the way back.
+    var backAction: (() -> Void)?
     let content: Content
 
     init(
         title: String,
         subtitle: String? = nil,
         errorSectionTitle: String? = nil,
+        backAction: (() -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.subtitle = subtitle
         self.errorSectionTitle = errorSectionTitle
+        self.backAction = backAction
         self.content = content()
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsHeader(title: title, subtitle: subtitle)
+            SettingsHeader(title: title, subtitle: subtitle, backAction: backAction)
             Divider()
 
             SettingsNativeForm {

@@ -21,10 +21,12 @@ import SwiftUI
 /// two OS versions would make "shadowed, not outlined" true on one of them.
 ///
 /// It is a third tier and not a replacement for `WNSecondaryButtonStyle`: the outlined tier is
-/// still what a `Cancel` in a sheet or a `Decline` beside an `Accept` wants, because those sit
-/// *inside* chrome that is already layered and one more elevation would fight it. Reach for this
-/// one where the button stands on a bare pane with nothing between it and the window — the
-/// onboarding actions.
+/// still what a `Decline` beside an `Accept` wants, because that pair sits *inside* chrome that
+/// is already layered and one more elevation would fight it. Reach for this one where the button
+/// stands on a bare pane — the onboarding actions — **and for a sheet's `Cancel` beside a
+/// primary**, which this comment used to send the other way. Pepi changed that on 2026-08-31:
+/// paired with a capsule primary, the ringed rect read as a different kind of control rather
+/// than the quiet half of one choice. `AddRelaySheet` is the first of these.
 ///
 /// Three notes on the drawing:
 ///
