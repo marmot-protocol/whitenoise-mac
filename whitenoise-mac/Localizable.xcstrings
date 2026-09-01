@@ -6906,65 +6906,6 @@
         }
       }
     },
-    "Account Removal": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account entfernen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminación de la cuenta"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suppression du compte"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rimozione account"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remoção da conta"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удаление аккаунта"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hesap kaldırma"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除账户"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除帳號"
-          }
-        }
-      }
-    },
     "Account ref": {
       "extractionState": "manual",
       "localizations": {
@@ -8736,65 +8677,6 @@
         }
       }
     },
-    "Anyone with your nsec controls this account. Never share it.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wer deinen nsec besitzt, kontrolliert diesen Account. Teile ihn niemals."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cualquiera que tenga tu nsec controla esta cuenta. Nunca lo compartas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quiconque possède votre nsec contrôle ce compte. Ne le partagez jamais."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiunque possieda il tuo nsec controlla questo account. Non condividerlo mai."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Qualquer pessoa com o seu nsec controla esta conta. Nunca o compartilhe."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Любой, у кого есть ваш nsec, контролирует этот аккаунт. Никогда не передавайте его."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec’inize sahip olan herkes bu hesabı denetler. Asla paylaşmayın."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任何拥有你 nsec 的人都能控制此账户。请勿分享。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任何擁有你 nsec 的人都能控制此帳號。請勿分享。"
-          }
-        }
-      }
-    },
     "Appearance": {
       "extractionState": "manual",
       "localizations": {
@@ -10270,124 +10152,6 @@
         }
       }
     },
-    "Back Up Private Key": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privaten Schlüssel sichern"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Respaldar llave privada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sauvegarder la clé privée"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esegui backup della chiave privata"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fazer backup da chave privada"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Резервная копия закрытого ключа"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Özel anahtarı yedekle"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "备份私钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "備份私密金鑰"
-          }
-        }
-      }
-    },
-    "Back Up Private Key…": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privaten Schlüssel sichern …"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Respaldar llave privada…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sauvegarder la clé privée…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esegui backup della chiave privata…"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fazer backup da chave privada…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Резервная копия закрытого ключа…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Özel anahtarı yedekle…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "备份私钥…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "備份私密金鑰…"
-          }
-        }
-      }
-    },
     "Back to Developer mode": {
       "comment": "A label for a button that returns to the Developer mode settings page.",
       "extractionState": "manual",
@@ -10565,65 +10329,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "返回設定"
-          }
-        }
-      }
-    },
-    "Backup type": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Backup-Typ"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tipo de respaldo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Type de sauvegarde"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tipo di backup"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tipo de backup"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Тип резервной копии"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yedek türü"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "备份类型"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "備份類型"
           }
         }
       }
@@ -13528,6 +13233,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "已設定"
+          }
+        }
+      }
+    },
+    "Confirm Password": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwort bestätigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmar la contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmer le mot de passe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conferma la password"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmar a senha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подтвердите пароль"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parolayı doğrula"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認密碼"
           }
         }
       }
@@ -20038,61 +19802,61 @@
         }
       }
     },
-    "Encrypted (NIP-49)": {
+    "Encrypted Private Key": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verschlüsselt (NIP-49)"
+            "value": "Verschlüsselter privater Schlüssel"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cifrado (NIP-49)"
+            "value": "Llave privada cifrada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chiffré (NIP-49)"
+            "value": "Clé privée chiffrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Crittografato (NIP-49)"
+            "value": "Chiave privata crittografata"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Criptografado (NIP-49)"
+            "value": "Chave privada criptografada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Зашифровано (NIP-49)"
+            "value": "Зашифрованный закрытый ключ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Şifreli (NIP-49)"
+            "value": "Şifreli özel anahtar"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已加密 (NIP-49)"
+            "value": "加密私钥"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已加密 (NIP-49)"
+            "value": "加密私密金鑰"
           }
         }
       }
@@ -21219,61 +20983,120 @@
         }
       }
     },
-    "Export Backup": {
+    "Export Encrypted Private Key": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Backup exportieren"
+            "value": "Verschlüsselten privaten Schlüssel exportieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exportar respaldo"
+            "value": "Exportar la llave privada cifrada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exporter la sauvegarde"
+            "value": "Exporter la clé privée chiffrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esporta backup"
+            "value": "Esporta la chiave privata crittografata"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exportar backup"
+            "value": "Exportar a chave privada criptografada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Экспортировать резервную копию"
+            "value": "Экспортировать зашифрованный закрытый ключ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yedeği dışa aktar"
+            "value": "Şifreli özel anahtarı dışa aktar"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "导出备份"
+            "value": "导出加密私钥"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "匯出備份"
+            "value": "匯出加密私密金鑰"
+          }
+        }
+      }
+    },
+    "Export Private Key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privaten Schlüssel exportieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar la llave privada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporter la clé privée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esporta la chiave privata"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar a chave privada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Экспортировать закрытый ключ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel anahtarı dışa aktar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出私钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出私密金鑰"
           }
         }
       }
@@ -21573,61 +21396,61 @@
         }
       }
     },
-    "External signing account": {
+    "Fair": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Account mit externer Signatur"
+            "value": "Mittel"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuenta con firma externa"
+            "value": "Media"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compte à signature externe"
+            "value": "Moyenne"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Account con firma esterna"
+            "value": "Media"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conta com assinatura externa"
+            "value": "Média"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аккаунт с внешней подписью"
+            "value": "Средняя"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harici imzalama hesabı"
+            "value": "Orta"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "外部签名账户"
+            "value": "中"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "外部簽署帳號"
+            "value": "中"
           }
         }
       }
@@ -24351,6 +24174,65 @@
         }
       }
     },
+    "Hide private key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privaten Schlüssel verbergen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar la llave privada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer la clé privée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi la chiave privata"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar a chave privada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть закрытый ключ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel anahtarı gizle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏私钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏私密金鑰"
+          }
+        }
+      }
+    },
     "Hours": {
       "extractionState": "manual",
       "localizations": {
@@ -24524,65 +24406,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "身分"
-          }
-        }
-      }
-    },
-    "Identity & Keys": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Identität & Schlüssel"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Identidad y llaves"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Identité et clés"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Identità e chiavi"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Identidade e chaves"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Идентификатор и ключи"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kimlik ve anahtarlar"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "身份和密钥"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "身分和金鑰"
           }
         }
       }
@@ -26539,6 +26362,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "請至少保留一個中繼。"
+          }
+        }
+      }
+    },
+    "Keep this key private. Anyone with it can use your profile, and White Noise can't recover it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halte diesen Schlüssel geheim. Wer ihn hat, kann dein Profil nutzen, und White Noise kann ihn nicht wiederherstellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén esta llave en privado. Quien la tenga puede usar tu perfil, y White Noise no puede recuperarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gardez cette clé privée. Quiconque la possède peut utiliser votre profil, et White Noise ne peut pas la récupérer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni privata questa chiave. Chi la possiede può usare il tuo profilo e White Noise non può recuperarla."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenha esta chave em sigilo. Quem a tiver pode usar seu perfil, e o White Noise não pode recuperá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Храните этот ключ в тайне. Любой, у кого он есть, может использовать ваш профиль, а White Noise не сможет его восстановить."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu anahtarı gizli tutun. Ona sahip olan herkes profilinizi kullanabilir ve White Noise onu kurtaramaz."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请保管好此私钥。任何持有它的人都能使用你的个人资料，而 White Noise 无法找回它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請保管好此私密金鑰。任何持有它的人都能使用你的個人檔案，而 White Noise 無法找回它。"
+          }
+        }
+      }
+    },
+    "Keep your private key safe": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halte deinen privaten Schlüssel sicher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén tu llave privada segura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gardez votre clé privée en sécurité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni la tua chiave privata al sicuro"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenha sua chave privada segura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Храните закрытый ключ в безопасности"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel anahtarınızı güvende tutun"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请保管好你的私钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請妥善保管你的私密金鑰"
           }
         }
       }
@@ -29097,65 +29038,6 @@
         }
       }
     },
-    "Local signing account": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account mit lokalem Signieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cuenta con firma local"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compte à signature locale"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account con firma locale"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conta com assinatura local"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Аккаунт с локальной подписью"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yerel imzalama hesabı"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本地签名账户"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本機簽署帳號"
-          }
-        }
-      }
-    },
     "Location": {
       "extractionState": "manual",
       "localizations": {
@@ -29388,6 +29270,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在查找個人檔案..."
+          }
+        }
+      }
+    },
+    "Low": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedrig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baja"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bassa"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Низкая"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Düşük"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低"
           }
         }
       }
@@ -37737,61 +37678,120 @@
         }
       }
     },
-    "Passphrase": {
+    "Password": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passphrase"
+            "value": "Passwort"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frase de contraseña"
+            "value": "Contraseña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Phrase secrète"
+            "value": "Mot de passe"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Passphrase"
+            "value": "Password"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Frase-senha"
+            "value": "Senha"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Парольная фраза"
+            "value": "Пароль"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parola öbeği"
+            "value": "Parola"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "口令短语"
+            "value": "密码"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "密碼短語"
+            "value": "密碼"
+          }
+        }
+      }
+    },
+    "Passwords don't match.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Passwörter stimmen nicht überein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las contraseñas no coinciden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les mots de passe ne correspondent pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le password non corrispondono."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As senhas não coincidem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пароли не совпадают."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parolalar eşleşmiyor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "两次输入的密码不一致。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兩次輸入的密碼不一致。"
           }
         }
       }
@@ -39273,65 +39273,6 @@
         }
       }
     },
-    "Protect your key with a passphrase. You'll need it to restore the backup.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Schütze deinen Schlüssel mit einer Passphrase. Du brauchst sie, um das Backup wiederherzustellen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Protege tu llave con una frase de contraseña. La necesitarás para restaurar el respaldo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Protégez votre clé avec une phrase secrète. Elle sera nécessaire pour restaurer la sauvegarde."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proteggi la chiave con una passphrase. Ti servirà per ripristinare il backup."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Proteja sua chave com uma frase-senha. Você precisará dela para restaurar o backup."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Защитите ключ парольной фразой. Она понадобится для восстановления резервной копии."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anahtarınızı bir parola öbeğiyle koruyun. Yedeği geri yüklemek için gerekecek."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用口令短语保护你的密钥。恢复备份时需要它。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用密碼短語保護你的金鑰。還原備份時需要它。"
-          }
-        }
-      }
-    },
     "Provisional": {
       "extractionState": "manual",
       "localizations": {
@@ -39391,61 +39332,61 @@
         }
       }
     },
-    "Public Identity": {
+    "Public Key": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Öffentliche Identität"
+            "value": "Öffentlicher Schlüssel"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Identidad pública"
+            "value": "Llave pública"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Identité publique"
+            "value": "Clé publique"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Identità pubblica"
+            "value": "Chiave pubblica"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Identidade pública"
+            "value": "Chave pública"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Публичная личность"
+            "value": "Публичный ключ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Genel kimlik"
+            "value": "Açık anahtar"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "公开身份"
+            "value": "公钥"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "公開身分"
+            "value": "公鑰"
           }
         }
       }
@@ -39564,65 +39505,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "公開顯示資訊"
-          }
-        }
-      }
-    },
-    "Public identity details and local signing state.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Öffentliche Identitätsdetails und lokaler Signierstatus."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detalles de identidad pública y estado de firma local."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Détails d’identité publique et état de signature locale."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dettagli identità pubblica e stato firma locale."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detalhes da identidade pública e estado de assinatura local."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Публичные данные личности и состояние локальной подписи."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Açık kimlik ayrıntıları ve yerel imzalama durumu."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公开身份详情和本地签名状态。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "公開身分詳細資料與本機簽署狀態。"
           }
         }
       }
@@ -40807,65 +40689,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "快捷回應"
-          }
-        }
-      }
-    },
-    "Raw nsec": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unverschlüsselter nsec"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec sin cifrar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec brut"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec non crittografato"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec sem criptografia"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Незашифрованный nsec"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Şifrelenmemiş nsec"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "原始 nsec"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "原始 nsec"
           }
         }
       }
@@ -42347,65 +42170,6 @@
         }
       }
     },
-    "Remove Account": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account entfernen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar cuenta"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer le compte"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rimuovi account"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remover conta"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить аккаунт"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hesabı kaldır"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除账户"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除帳號"
-          }
-        }
-      }
-    },
     "Remove Admin": {
       "extractionState": "manual",
       "localizations": {
@@ -42579,65 +42343,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "移除成員"
-          }
-        }
-      }
-    },
-    "Remove account?": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Account entfernen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Eliminar la cuenta?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Supprimer le compte ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rimuovere l’account?"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remover a conta?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить аккаунт?"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hesap kaldırılsın mı?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要移除账户吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要移除帳號嗎？"
           }
         }
       }
@@ -42994,65 +42699,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "要將此對話從此裝置移除嗎？"
-          }
-        }
-      }
-    },
-    "Remove this identity from this Mac. Messages and keys managed by Marmot for this account will no longer be available locally.": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entferne diese Identität von diesem Mac. Von Marmot für diesen Account verwaltete Nachrichten und Schlüssel sind lokal nicht mehr verfügbar."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elimina esta identidad de este dispositivo. Los mensajes y llaves que Marmot gestiona para esta cuenta ya no estarán disponibles localmente."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retirez cette identité de ce Mac. Les messages et les clés gérés par Marmot pour ce compte ne seront plus disponibles localement."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rimuovi questa identità da questo Mac. I messaggi e le chiavi gestiti da Marmot per questo account non saranno più disponibili in locale."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remova esta identidade deste Mac. As mensagens e chaves gerenciadas pelo Marmot para esta conta não estarão mais disponíveis localmente."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалите эту личность с этого Mac. Сообщения и ключи, управляемые Marmot для этого аккаунта, больше не будут доступны локально."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu kimliği bu Mac’ten kaldırın. Marmot’un bu hesap için yönettiği mesajlar ve anahtarlar artık yerel olarak kullanılamaz."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从此 Mac 移除该身份。Marmot 为此账户管理的消息和密钥将不再在本地可用。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "從此 Mac 移除該身分。Marmot 為此帳號管理的訊息和金鑰將不再於本機可用。"
           }
         }
       }
@@ -44706,124 +44352,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "啟動時以及切換帳號時，都回到此帳號上次選擇的對話。"
-          }
-        }
-      }
-    },
-    "Reveal nsec": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar nsec"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher le nsec"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra nsec"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar nsec"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показать nsec"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec’i göster"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示 nsec"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示 nsec"
-          }
-        }
-      }
-    },
-    "Reveal your nsec or export an encrypted NIP-49 backup": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeige deinen nsec an oder exportiere ein verschlüsseltes NIP-49-Backup"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra tu nsec o exporta un respaldo cifrado NIP-49"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affichez votre nsec ou exportez une sauvegarde chiffrée NIP-49"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra il tuo nsec o esporta un backup crittografato NIP-49"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostre seu nsec ou exporte um backup criptografado NIP-49"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показать ваш nsec или экспортировать зашифрованную резервную копию NIP-49"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "nsec’inizi gösterin veya şifreli bir NIP-49 yedeği dışa aktarın"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示你的 nsec 或导出加密的 NIP-49 备份"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示你的 nsec 或匯出加密的 NIP-49 備份"
           }
         }
       }
@@ -48205,6 +47733,65 @@
         }
       }
     },
+    "Share this key so people can find and connect with you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teile diesen Schlüssel, damit andere dich finden und sich mit dir verbinden können."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparte esta llave para que otras personas puedan encontrarte y conectar contigo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partagez cette clé pour que d’autres puissent vous trouver et se connecter avec vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividi questa chiave così le altre persone possono trovarti e connettersi con te."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhe esta chave para que as pessoas possam encontrá-lo e se conectar com você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделитесь этим ключом, чтобы вас могли найти и связаться с вами."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu anahtarı paylaşın, böylece diğer kişiler sizi bulup bağlantı kurabilir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享此公钥，让其他人能找到你并与你建立联系。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享此公鑰，讓其他人能找到你並與你建立聯繫。"
+          }
+        }
+      }
+    },
     "Shared Media": {
       "comment": "A label for the \"Shared Media\" section in the group details view.",
       "extractionState": "manual",
@@ -48618,6 +48205,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "顯示 npub QR 碼"
+          }
+        }
+      }
+    },
+    "Show private key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privaten Schlüssel anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la llave privada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la clé privée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la chiave privata"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar a chave privada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать закрытый ключ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel anahtarı göster"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示私钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示私密金鑰"
           }
         }
       }
@@ -49096,63 +48742,61 @@
         }
       }
     },
-    "Sign out of this account?": {
-      "comment": "A confirmation dialog that asks the user to sign out of an account.",
+    "Signing out and wiping data…": {
       "extractionState": "manual",
-      "isCommentAutoGenerated": true,
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Von diesem Account abmelden?"
+            "value": "Abmelden und Daten löschen …"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Cerrar sesión en esta cuenta?"
+            "value": "Cerrando sesión y borrando los datos…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se déconnecter de ce compte ?"
+            "value": "Déconnexion et effacement des données…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uscire da questo account?"
+            "value": "Disconnessione e cancellazione dei dati…"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sair desta conta?"
+            "value": "Saindo e apagando os dados…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Выйти из этого аккаунта?"
+            "value": "Выход и удаление данных…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu hesaptan çıkılsın mı?"
+            "value": "Oturum kapatılıyor ve veriler siliniyor…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "要退出此账户吗？"
+            "value": "正在退出登录并清除数据…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "要登出此帳號嗎？"
+            "value": "正在登出並清除資料…"
           }
         }
       }
@@ -49212,6 +48856,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "註銷只會忘記哪個帳戶處於活動狀態。身分及其密鑰材料保留在裝置鑰匙圈中，以便您可以重新登入。"
+          }
+        }
+      }
+    },
+    "Signing out…": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abmelden …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrando sesión…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnexion…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnessione…"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saindo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выход…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum kapatılıyor…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在退出登录…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在登出…"
           }
         }
       }
@@ -50883,65 +50586,6 @@
         }
       }
     },
-    "Stored in Keychain": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Im Schlüsselbund gespeichert"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Guardada en el Llavero"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stockée dans le trousseau"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archiviata nel Portachiavi"
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Armazenada no Chaves"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сохранено в Связке ключей"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anahtar Zinciri’nde saklanıyor"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已存储在钥匙串中"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已儲存在鑰匙圈中"
-          }
-        }
-      }
-    },
     "Streaming debug": {
       "extractionState": "manual",
       "localizations": {
@@ -51056,6 +50700,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "串流媒體…"
+          }
+        }
+      }
+    },
+    "Strength": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stärke"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Robustesse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Robustezza"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Força"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надёжность"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güç"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強度"
+          }
+        }
+      }
+    },
+    "Strong": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stark"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Élevée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alta"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Высокая"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güçlü"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高"
           }
         }
       }
@@ -53490,61 +53252,61 @@
         }
       }
     },
-    "This account has no private key stored on this Mac": {
+    "This account and all of its local data will be permanently removed from this Mac. Previous chats won't return.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Für diesen Account ist auf diesem Mac kein privater Schlüssel gespeichert"
+            "value": "Dieser Account und alle seine lokalen Daten werden dauerhaft von diesem Mac entfernt. Frühere Chats kommen nicht zurück."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta cuenta no tiene una llave privada guardada en este dispositivo"
+            "value": "Esta cuenta y todos sus datos locales se eliminarán de forma permanente de este dispositivo. Los chats anteriores no volverán."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune clé privée n’est enregistrée sur ce Mac pour ce compte"
+            "value": "Ce compte et toutes ses données locales seront définitivement supprimés de ce Mac. Les conversations précédentes ne reviendront pas."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questo account non ha una chiave privata salvata su questo Mac"
+            "value": "Questo account e tutti i suoi dati locali verranno rimossi definitivamente da questo Mac. Le chat precedenti non torneranno."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta conta não tem chave privada armazenada neste Mac"
+            "value": "Esta conta e todos os seus dados locais serão removidos permanentemente deste Mac. Os chats anteriores não voltarão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "У этого аккаунта нет закрытого ключа на этом Mac"
+            "value": "Этот аккаунт и все его локальные данные будут безвозвратно удалены с этого Mac. Прежние чаты не вернутся."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu hesabın bu Mac’te kayıtlı özel anahtarı yok"
+            "value": "Bu hesap ve tüm yerel verileri bu Mac’ten kalıcı olarak kaldırılacak. Önceki sohbetler geri gelmez."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此账户在此 Mac 上未存储私钥"
+            "value": "此账户及其全部本地数据将从这台 Mac 上永久删除。以往的聊天不会恢复。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此帳號在此 Mac 上未儲存私密金鑰"
+            "value": "此帳號及其全部本機資料將從這台 Mac 上永久刪除。以往的聊天不會復原。"
           }
         }
       }
@@ -53726,61 +53488,61 @@
         }
       }
     },
-    "This deletes the private key and local message history for this identity from this Mac. This cannot be undone.": {
+    "This file holds your key in plain text. Anyone who opens it controls this account. The encrypted export or a trusted password manager is safer.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dadurch werden der private Schlüssel und der lokale Nachrichtenverlauf dieser Identität von diesem Mac gelöscht. Dies kann nicht rückgängig gemacht werden."
+            "value": "Diese Datei enthält deinen Schlüssel im Klartext. Wer sie öffnet, kontrolliert diesen Account. Der verschlüsselte Export oder ein vertrauenswürdiger Passwortmanager ist sicherer."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto borra la llave privada y el historial de mensajes local de esta identidad de este Mac. Esta acción no se puede deshacer."
+            "value": "Este archivo contiene tu llave en texto plano. Quien lo abra controla esta cuenta. La exportación cifrada o un gestor de contraseñas de confianza es más seguro."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cela supprime la clé privée et l'historique local des messages de cette identité de ce Mac. Cette action est irréversible."
+            "value": "Ce fichier contient votre clé en clair. Quiconque l’ouvre contrôle ce compte. L’export chiffré ou un gestionnaire de mots de passe fiable est plus sûr."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questa operazione elimina la chiave privata e la cronologia locale dei messaggi di questa identità da questo Mac. L'operazione non può essere annullata."
+            "value": "Questo file contiene la tua chiave in chiaro. Chi lo apre controlla questo account. L’esportazione crittografata o un gestore di password affidabile è più sicuro."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Isto exclui a chave privada e o histórico de mensagens local desta identidade deste Mac. Esta ação não pode ser desfeita."
+            "value": "Este arquivo contém sua chave em texto simples. Quem o abrir controla esta conta. A exportação criptografada ou um gerenciador de senhas confiável é mais seguro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Это удалит закрытый ключ и локальную историю сообщений этой идентичности с этого Mac. Это действие нельзя отменить."
+            "value": "Этот файл содержит ваш ключ в открытом виде. Любой, кто его откроет, получит контроль над аккаунтом. Зашифрованный экспорт или надёжный менеджер паролей безопаснее."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu işlem, bu kimliğe ait özel anahtarı ve yerel mesaj geçmişini bu Mac'ten siler. Bu işlem geri alınamaz."
+            "value": "Bu dosya anahtarınızı düz metin olarak içerir. Dosyayı açan herkes bu hesabı denetler. Şifreli dışa aktarma ya da güvendiğiniz bir parola yöneticisi daha güvenlidir."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这会从此 Mac 删除此身份的私钥和本地消息历史。此操作无法撤销。"
+            "value": "该文件以明文保存你的私钥。任何打开它的人都能控制此账户。加密导出或可信的密码管理器更安全。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這會從此 Mac 刪除此身分的私密金鑰和本機訊息記錄。此操作無法復原。"
+            "value": "該檔案以明文保存你的私密金鑰。任何打開它的人都能控制此帳號。加密匯出或可信任的密碼管理器更安全。"
           }
         }
       }
@@ -55264,6 +55026,65 @@
         }
       }
     },
+    "Type “%@” to confirm permanent removal of this account and its local data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib „%@“ ein, um das dauerhafte Entfernen dieses Accounts und seiner lokalen Daten zu bestätigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribe «%@» para confirmar la eliminación permanente de esta cuenta y sus datos locales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez « %@ » pour confirmer la suppression définitive de ce compte et de ses données locales."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digita «%@» per confermare la rimozione definitiva di questo account e dei suoi dati locali."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite “%@” para confirmar a remoção permanente desta conta e dos seus dados locais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите «%@», чтобы подтвердить безвозвратное удаление этого аккаунта и его локальных данных."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu hesabın ve yerel verilerinin kalıcı olarak kaldırılmasını onaylamak için “%@” yazın."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入“%@”以确认永久删除此账户及其本地数据。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入「%@」以確認永久刪除此帳號及其本機資料。"
+          }
+        }
+      }
+    },
     "URL": {
       "extractionState": "manual",
       "localizations": {
@@ -56682,6 +56503,65 @@
         }
       }
     },
+    "Use a long, unique password. You'll need it to open the encrypted file.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende ein langes, einmaliges Passwort. Du brauchst es, um die verschlüsselte Datei zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa una contraseña larga y única. La necesitarás para abrir el archivo cifrado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez un mot de passe long et unique. Il sera nécessaire pour ouvrir le fichier chiffré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa una password lunga e unica. Ti servirà per aprire il file crittografato."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use uma senha longa e única. Você precisará dela para abrir o arquivo criptografado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте длинный уникальный пароль. Он понадобится, чтобы открыть зашифрованный файл."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uzun ve size özel bir parola kullanın. Şifreli dosyayı açmak için gerekecek."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用长而独特的密码。打开加密文件时需要它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用長而獨特的密碼。開啟加密檔案時需要它。"
+          }
+        }
+      }
+    },
     "Use for": {
       "extractionState": "manual",
       "localizations": {
@@ -57331,6 +57211,65 @@
         }
       }
     },
+    "WIPE": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WIPE"
+          }
+        }
+      }
+    },
     "Waiting for internet connection": {
       "extractionState": "manual",
       "localizations": {
@@ -57626,6 +57565,124 @@
         }
       }
     },
+    "White Noise Encrypted Private Key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Verschlüsselter privater Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Llave privada cifrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Clé privée chiffrée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Chiave privata crittografata"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Chave privada criptografada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise — зашифрованный закрытый ключ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Şifreli özel anahtar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise 加密私钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise 加密私密金鑰"
+          }
+        }
+      }
+    },
+    "White Noise Private Key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Privater Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Llave privada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Clé privée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Chiave privata"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Chave privada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise — закрытый ключ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise – Özel anahtar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise 私钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "White Noise 私密金鑰"
+          }
+        }
+      }
+    },
     "White Noise encrypts cached attachment data on this Mac. Clearing it does not remove accounts, messages, drafts, or settings.": {
       "extractionState": "manual",
       "localizations": {
@@ -57744,61 +57801,61 @@
         }
       }
     },
-    "White Noise notes the date and time of each reveal in this account's audit log, kept on this Mac, so you can spot a reveal you didn't make. Your nsec is never written to the log.": {
+    "White Noise notes the date and time of each reveal, copy or export in this account's audit log, kept on this Mac. Your private key is never written to the log.": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise vermerkt Datum und Uhrzeit jeder Anzeige im Audit-Log dieses Accounts, das auf diesem Mac bleibt, damit du eine Anzeige erkennst, die nicht von dir stammt. Dein nsec wird nie in das Log geschrieben."
+            "value": "White Noise vermerkt Datum und Uhrzeit jeder Anzeige, Kopie und jedes Exports im Audit-Log dieses Accounts, das auf diesem Mac bleibt. Dein privater Schlüssel wird nie in das Log geschrieben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise anota la fecha y la hora de cada visualización en el registro de auditoría de esta cuenta, que se guarda en este Mac, para que detectes una visualización que no hiciste. Tu nsec nunca se escribe en el registro."
+            "value": "White Noise anota la fecha y la hora de cada visualización, copia o exportación en el registro de auditoría de esta cuenta, que se guarda en este dispositivo. Tu llave privada nunca se escribe en el registro."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise note la date et l’heure de chaque affichage dans le journal d’audit de ce compte, conservé sur ce Mac, pour que vous repériez un affichage que vous n’avez pas fait. Votre nsec n’est jamais écrit dans le journal."
+            "value": "White Noise note la date et l’heure de chaque affichage, copie ou exportation dans le journal d’audit de ce compte, conservé sur ce Mac. Votre clé privée n’est jamais écrite dans le journal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise annota data e ora di ogni visualizzazione nel log di audit di questo account, conservato su questo Mac, così puoi accorgerti di una visualizzazione che non hai fatto. Il tuo nsec non viene mai scritto nel log."
+            "value": "White Noise annota data e ora di ogni visualizzazione, copia o esportazione nel log di audit di questo account, conservato su questo Mac. La tua chiave privata non viene mai scritta nel log."
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "O White Noise anota a data e a hora de cada exibição no log de auditoria desta conta, mantido neste Mac, para que você perceba uma exibição que não fez. Seu nsec nunca é escrito no log."
+            "value": "O White Noise anota a data e a hora de cada exibição, cópia ou exportação no log de auditoria desta conta, mantido neste Mac. Sua chave privada nunca é escrita no log."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise записывает дату и время каждого раскрытия в журнал аудита этого аккаунта, который хранится на этом Mac, чтобы вы заметили раскрытие, которого не делали. Ваш nsec никогда не записывается в журнал."
+            "value": "White Noise записывает дату и время каждого раскрытия, копирования и экспорта в журнал аудита этого аккаунта, который хранится на этом Mac. Ваш закрытый ключ никогда не записывается в журнал."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise her görüntülemenin tarih ve saatini, bu Mac’te tutulan bu hesabın denetim kaydına işler; böylece sizin yapmadığınız bir görüntülemeyi fark edebilirsiniz. nsec’iniz kayda hiçbir zaman yazılmaz."
+            "value": "White Noise her görüntüleme, kopyalama ve dışa aktarmanın tarih ve saatini, bu Mac’te tutulan bu hesabın denetim kaydına işler. Özel anahtarınız kayda hiçbir zaman yazılmaz."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise 会把每次显示的日期和时间记入此账户的审计日志，该日志保存在这台 Mac 上，方便你发现并非你本人的显示操作。你的 nsec 绝不会写入日志。"
+            "value": "White Noise 会把每次显示、复制和导出的日期和时间记入此账户的审计日志，该日志保存在这台 Mac 上。你的私钥绝不会写入日志。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "White Noise 會把每次顯示的日期和時間記入此帳號的稽核日誌，該日誌保存在這台 Mac 上，方便你發現並非你本人的顯示操作。你的 nsec 絕不會寫入日誌。"
+            "value": "White Noise 會把每次顯示、複製和匯出的日期和時間記入此帳號的稽核日誌，該日誌保存在這台 Mac 上。你的私密金鑰絕不會寫入日誌。"
           }
         }
       }
@@ -57918,6 +57975,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "White Noise · 新訊息"
+          }
+        }
+      }
+    },
+    "Wipe Data From This Device": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daten von diesem Gerät löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar los datos de este dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer les données de cet appareil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancella i dati da questo dispositivo"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar os dados deste dispositivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить данные с этого устройства"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verileri bu cihazdan sil"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此设备清除数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從此裝置清除資料"
           }
         }
       }

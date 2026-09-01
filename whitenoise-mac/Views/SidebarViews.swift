@@ -94,9 +94,9 @@ struct AccountRailView: View {
 /// so an accidental click dropped that identity's relay key packages. It also used to
 /// draw deactivated identities, dimmed to 0.4 behind a pause glyph, where one tap signed
 /// one back in. Every one of those is account management, and none of it belongs on the
-/// control the user hits all day: signing the active identity out is `SettingsSignOutRow`
-/// behind a confirmation, removing it is Identity & Keys, and a deactivated identity is
-/// reached again by signing in with its key — no surface offers to reactivate one without it.
+/// control the user hits all day: leaving the active identity — with or without wiping it off this
+/// Mac — is `SettingsSignOutRow`'s sheet, and a deactivated identity is reached again by signing in
+/// with its key — no surface offers to reactivate one without it.
 ///
 /// The rail is fed `signedInAccounts`, so `account.signedOut` is false here by
 /// construction. Reintroducing a branch on it would be dead code describing a row that
@@ -711,23 +711,27 @@ struct SettingsSidebarRow: View {
     }
 }
 
-/// The drawer's last row: sign out of the active account, on its own away from the
-/// destinations above it.
+/// The drawer's last row: leave the active account, on its own away from the destinations above it.
 ///
 /// Isolated by the same argument the prototype's hub makes — a row that ends a session does not
 /// belong in a card of rows that open a page. It was once reachable only from inside the account
 /// switcher popover, where you had to open a list of identities to act on the one already active;
-/// with that popover gone this row is the only way to sign out.
+/// with that popover gone this row is the only way out of an account.
+///
+/// It opens `SignOutSheet` rather than a `confirmationDialog`, and that sheet now owns removal too
+/// — a dialog cannot hold the wipe toggle, the note that rewrites itself, or the type-to-confirm
+/// field the destructive half needs. This is why the Profile Keys page no longer carries an
+/// Account Removal group: leaving an account and erasing it are one task with one switch in it.
 struct SettingsSignOutRow: View {
     @Environment(WorkspaceState.self) private var workspace
     @Environment(\.locale) private var locale
-    @State private var isConfirming = false
+    @State private var isSigningOut = false
 
     var body: some View {
         if let account = workspace.activeAccount {
             SettingsSidebarGroupCard {
                 Button {
-                    isConfirming = true
+                    isSigningOut = true
                 } label: {
                     SettingsSidebarRowLabel(
                         systemImage: "rectangle.portrait.and.arrow.right",
@@ -738,8 +742,8 @@ struct SettingsSignOutRow: View {
                 .buttonStyle(.plain)
                 .disabled(workspace.isAccountMutationInProgress)
             }
-            .signOutConfirmation(account: account, isPresented: $isConfirming) {
-                Task { await workspace.signOutAccount(account) }
+            .sheet(isPresented: $isSigningOut) {
+                SignOutSheet(account: account)
             }
         }
     }

@@ -4,7 +4,7 @@
 //
 //  The ways an account's public identity is shown: as a scannable QR code, as a
 //  truncated, copyable `npub`, and as a NIP-05 Nostr address. Shared by the Profile
-//  and Identity & Keys pages and by Settings' profile card, so none of them owns them.
+//  and Profile Keys pages and by Settings' profile card, so none of them owns them.
 //
 
 import AppKit
