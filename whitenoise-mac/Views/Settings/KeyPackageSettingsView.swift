@@ -5,6 +5,12 @@
 //  The Key Packages page: the KeyPackages this identity has published so other people
 //  can invite it.
 //
+//  A destination of Developer mode, not a drawer row: `wn-ios-prototype` reaches Key Packages
+//  from an isolated row inside Developer Tools and from nowhere else, so the chevron in the
+//  header is the way back and every row here can speak plainly to a developer — the detail
+//  that used to be gated on `developerMode` is unconditional, because the page cannot be
+//  opened with the toggle off.
+//
 
 import SwiftUI
 
@@ -14,7 +20,8 @@ struct KeyPackageSettingsView: View {
     var body: some View {
         SettingsScaffold(
             title: L10n.string("Key Packages"),
-            subtitle: L10n.string("Manage the KeyPackages this identity has published for invites.")
+            subtitle: L10n.string("Manage the KeyPackages this identity has published for invites."),
+            back: .developerMode
         ) {
             SettingsSection {
                 HStack(spacing: 10) {
@@ -114,14 +121,11 @@ struct KeyPackageRow: View {
                     }
 
                     keyValue(L10n.string("Event"), package.eventIdHex)
-
-                    if workspace.developerMode {
-                        keyValue("KeyPackageRef", package.keyPackageRefHex)
-                        keyValue(L10n.string("Slot"), package.keyPackageId)
-                        Text(L10n.plural("%llu bytes", package.keyPackageBytes))
-                            .wnFont(.medium10.monospacedDigit())
-                            .foregroundStyle(WNColor.backgroundContentSecondary)
-                    }
+                    keyValue("KeyPackageRef", package.keyPackageRefHex)
+                    keyValue(L10n.string("Slot"), package.keyPackageId)
+                    Text(L10n.plural("%llu bytes", package.keyPackageBytes))
+                        .wnFont(.medium10.monospacedDigit())
+                        .foregroundStyle(WNColor.backgroundContentSecondary)
                 }
 
                 Spacer()
@@ -135,7 +139,7 @@ struct KeyPackageRow: View {
                 .disabled(package.eventIdHex.isEmpty || workspace.deletingKeyPackageId != nil)
             }
 
-            if workspace.developerMode && !package.sourceRelays.isEmpty {
+            if !package.sourceRelays.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.string("Source relays"))
                         .wnFont(.semiBold10)

@@ -2878,6 +2878,11 @@ enum SettingsPage: Equatable {
     /// on the support card beside Developer Tools: it is a page about the project, not a setting
     /// that changes anything for the account signed in. It follows Preferences rather than
     /// leading, because nobody opens settings to donate.
+    ///
+    /// `.keyPackages` is deliberately absent from both: it is a destination *of* Developer mode
+    /// rather than a peer of Profile and Relays, which is where `wn-ios-prototype` puts it — an
+    /// isolated row inside Developer Tools, revealed only once the master toggle is on. See
+    /// `drawerPage`.
     static let sidebarGroups: [[SettingsPage]] = [
         [
             .profile,
@@ -2887,7 +2892,6 @@ enum SettingsPage: Equatable {
             .privacySecurity,
             .storage,
             .relays,
-            .keyPackages,
         ],
         [
             .preferences,
@@ -2902,6 +2906,21 @@ enum SettingsPage: Equatable {
     /// choices about how the app treats you, and neither is what someone opens settings for.
     /// Leading with the startup toggles made a rarely-touched page read as the main one.
     static let sidebarPages: [SettingsPage] = sidebarGroups.flatMap { $0 }
+
+    /// The drawer row this page is represented by.
+    ///
+    /// Every page is its own row except Key Packages, which has none: it is reached from the
+    /// Developer mode page, so Developer mode is the row that stays lit while it is open.
+    /// Without this the drawer shows no selection at all on that page, which reads as though
+    /// settings had been left behind.
+    var drawerPage: SettingsPage {
+        switch self {
+        case .keyPackages:
+            .developerMode
+        default:
+            self
+        }
+    }
 
     /// Localized against an explicit locale rather than the stored language preference, so
     /// the settings sidebar can localize with the `\.locale` environment value and be

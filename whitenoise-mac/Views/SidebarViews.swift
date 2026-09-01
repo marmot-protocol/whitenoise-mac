@@ -689,7 +689,10 @@ struct SettingsSidebarRow: View {
     let page: SettingsPage
 
     private var isSelected: Bool {
-        workspace.selection == .settings(page)
+        // Compared through `drawerPage`, so Developer mode stays lit while its Key Packages
+        // destination is the open page — that page has no row of its own.
+        guard case .settings(let open) = workspace.selection else { return false }
+        return open.drawerPage == page
     }
 
     var body: some View {
