@@ -118,28 +118,8 @@ struct TimelineTests: WorkspaceTestSupport {
     }
 
     @Test func quickReactionMenuAndPopoverUseSameComponentAndPreference() throws {
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-
-        let popoverStart = try #require(source.range(of: "struct MessageEmojiPickerPopover: View {"))
-        let popoverRest = source[popoverStart.upperBound...]
-        let popoverEnd = try #require(
-            popoverRest.range(of: "\n/// The actions available on a message row")?.lowerBound
-        )
-        let popoverSource = String(source[popoverStart.lowerBound..<popoverEnd])
-
-        let menuStart = try #require(source.range(of: "struct MessageContextMenuItems: View {"))
-        let menuRest = source[menuStart.upperBound...]
-        let menuEnd = try #require(
-            menuRest.range(of: "\nstruct MessageReplyContextView: View {")?.lowerBound
-        )
-        let menuSource = String(source[menuStart.lowerBound..<menuEnd])
+        let popoverSource = try SourceContract.declaration("MessageEmojiPickerPopover")
+        let menuSource = try SourceContract.declaration("MessageContextMenuItems")
 
         for actionSource in [popoverSource, menuSource] {
             #expect(actionSource.contains("QuickReactionButtons("))
@@ -228,18 +208,7 @@ struct TimelineTests: WorkspaceTestSupport {
         // last element used to be the compact timestamp, so the pill was pulled up over the time
         // itself. Guard the order: the standalone metadata row is emitted after the chips, which
         // leaves the pill riding the media card's bottom edge instead.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("MessageMediaViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
-        let bubbleStart = try #require(source.range(of: "struct MessageBubble: View {"))
-        let rest = source[bubbleStart.upperBound...]
-        let bubbleEnd = try #require(rest.range(of: "\nprivate extension View {")?.lowerBound)
-        let bubbleSource = String(source[bubbleStart.lowerBound..<bubbleEnd])
+        let bubbleSource = try SourceContract.declaration("MessageBubble")
 
         let chips = try #require(bubbleSource.range(of: "MessageReactionChips(reactions: message.reactions)"))
         let standaloneMetadata = try #require(bubbleSource.range(of: "if !message.hasBubbleContent {"))
@@ -6922,14 +6891,7 @@ struct TimelineTests: WorkspaceTestSupport {
         // Source contract: the pending bubble's recovery is offered twice on purpose — the link row
         // under the bubble, where the failure already is, and the ⋯ menu every other row uses. This
         // guards both, since the bubble had only the first for as long as it existed.
-        let viewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("PendingOutgoingMessageViews.swift")
-        let source = try String(contentsOf: viewsURL, encoding: .utf8)
+        let source = try SourceContract.source(of: .pendingOutgoingMessage)
 
         #expect(source.contains("MessageInlineActionIcon(systemName: \"ellipsis\""))
         #expect(source.contains("MessageOverflowMenu("))

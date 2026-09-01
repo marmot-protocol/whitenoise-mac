@@ -136,21 +136,9 @@ struct PublicIdentitySheetTests {
     }
 
     private static func sheetDeclaration() throws -> String {
-        let sourceURL =
-            URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "whitenoise-mac")
-            .appending(path: "Views")
-            .appending(path: "Settings")
-            .appending(path: "PublicIdentityViews.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        let start = try #require(source.range(of: "struct PublicIdentityQRCodeSheet: View {"))
-        let end = try #require(source.range(of: "struct NostrAddressLabel: View {"))
         // Comments are stripped: the sheet's doc comment names the prototype controls it
         // deliberately omits, which would satisfy an absence check that read the whole slice.
-        return String(source[start.lowerBound..<end.lowerBound])
+        return try SourceContract.declaration("PublicIdentityQRCodeSheet")
             .split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")

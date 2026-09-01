@@ -58,23 +58,7 @@ struct WindowTopNoticeLayoutTests {
         // The regression is a layout relationship between private SwiftUI views, which only a
         // source contract can hold: the notice must be a sibling the shell stacks above its
         // content. Hanging it back off the top edge as an overlay is what put it on the title.
-        let shellSource = try String(
-            contentsOf:
-                URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("whitenoise-mac")
-                .appendingPathComponent("Views")
-                .appendingPathComponent("MessengerShellView.swift"),
-            encoding: .utf8
-        )
-
-        let bodyStart = try #require(
-            shellSource.range(of: "struct MessengerShellView: View {")?.upperBound
-        )
-        let rest = shellSource[bodyStart...]
-        let bodyEnd = try #require(rest.range(of: "\nprivate struct ")?.lowerBound)
-        let body = String(shellSource[bodyStart..<bodyEnd])
+        let body = try SourceContract.declaration("MessengerShellView")
 
         let bandIndex = try #require(body.range(of: "OfflineNoticeBand()")?.lowerBound)
         let stackIndex = try #require(body.range(of: "VStack(spacing: 0) {")?.lowerBound)

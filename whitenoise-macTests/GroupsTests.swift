@@ -373,34 +373,9 @@ struct GroupsTests: WorkspaceTestSupport {
         // header's avatar/title button (works for direct chats too), and the
         // details screen slides in over the transcript from ConversationView
         // rather than presenting as a header sheet.
-        let viewsDirURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-        // ConversationHeader lives in the composer views after the shell-view
-        // split; fall back to the shell file so the guard survives further
-        // extraction. Bound the snippet by the next top-level declaration so it
-        // does not depend on which sibling struct happens to follow it.
-        let candidateFiles = ["ComposerViews.swift", "MessengerShellView.swift"]
-        var extractedHeader: String?
-        for fileName in candidateFiles {
-            let url = viewsDirURL.appendingPathComponent(fileName)
-            guard let source = try? String(contentsOf: url, encoding: .utf8),
-                let headerStart = source.range(of: "struct ConversationHeader: View {")
-            else { continue }
-            let rest = source[headerStart.upperBound...]
-            let nextDeclIndex =
-                [
-                    rest.range(of: "\nprivate struct ")?.lowerBound,
-                    rest.range(of: "\nstruct ")?.lowerBound,
-                ]
-                .compactMap { $0 }.min() ?? source.endIndex
-            extractedHeader = String(source[headerStart.lowerBound..<nextDeclIndex])
-            break
-        }
-        let headerSource = try #require(extractedHeader)
+        // ConversationHeader moved to the composer views in the shell-view split, so it is looked
+        // up by name across the view tree rather than in a file this test names.
+        let headerSource = try SourceContract.declaration("ConversationHeader")
 
         // Tapping the header avatar/title opens the chat info screen.
         #expect(headerSource.contains("Task { await workspace.showGroupDetails(for: chat) }"))
@@ -409,8 +384,7 @@ struct GroupsTests: WorkspaceTestSupport {
 
         // ConversationView presents the details panel inline as a slide-in,
         // gated on the same flag, so it replaces the transcript in place.
-        let shellURL = viewsDirURL.appendingPathComponent("MessengerShellView.swift")
-        let shellSource = try String(contentsOf: shellURL, encoding: .utf8)
+        let shellSource = try SourceContract.source(of: .messengerShell)
         #expect(shellSource.contains("if workspace.isGroupDetailsPresented"))
         #expect(shellSource.contains("GroupDetailsSheet(chat: chat)"))
         #expect(shellSource.contains(".move(edge: .trailing)"))
@@ -421,31 +395,10 @@ struct GroupsTests: WorkspaceTestSupport {
         // chevron is a *back* control and belongs on the leading edge — where the
         // compose pane and the settings header already put theirs — not trailing next
         // to the add-members button, which reads as an unrelated right-hand action.
-        let viewsDirURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-        let groupViewsSource = try String(
-            contentsOf: viewsDirURL.appendingPathComponent("GroupViews.swift"),
-            encoding: .utf8
-        )
-
-        for declaration in ["struct GroupDetailsSheet: View {", "struct ContactDetailsView: View {"] {
-            let start = try #require(groupViewsSource.range(of: declaration)?.upperBound)
-            let rest = groupViewsSource[start...]
-            let end =
-                [
-                    rest.range(of: "\nprivate struct ")?.lowerBound,
-                    rest.range(of: "\nstruct ")?.lowerBound,
-                ]
-                .compactMap { $0 }.min() ?? groupViewsSource.endIndex
-            let declarationBody = groupViewsSource[start..<end]
-            // Scope to `body` so helper views declared above it (the custom-duration
+        for declaration in ["GroupDetailsSheet", "ContactDetailsView"] {
+            // Scoped to `body` so helper views declared above it (the custom-duration
             // popover has its own trailing `Spacer()`) can't stand in for the header's.
-            let bodyStart = try #require(declarationBody.range(of: "var body: some View {")?.upperBound)
-            let header = String(declarationBody[bodyStart...])
+            let header = try SourceContract.viewBody(declaration)
 
             let backIndex = try #require(header.range(of: #"symbol: "chevron.backward""#)?.lowerBound)
             let avatarIndex = try #require(header.range(of: "ProfileImageAvatarView(")?.lowerBound)
@@ -828,26 +781,17 @@ struct GroupsTests: WorkspaceTestSupport {
         // user-facing wiring directly. Follow used to sit inside the same form row as "Copy
         // Public Key", which is why it could not be found; it now leads the profile's action
         // row above the form, and chat info carries the same control for a direct chat.
-        let groupViewsURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-            .appendingPathComponent("GroupViews.swift")
-        let source = try String(contentsOf: groupViewsURL, encoding: .utf8)
+        let source = try SourceContract.source(of: .group)
 
         // The profile's action row is above the form, and carries Follow before Message.
-        let detailsStart = try #require(source.range(of: "struct ContactDetailsView: View {"))
-        let detailsBody = source[detailsStart.upperBound...]
+        let detailsBody = try SourceContract.declaration("ContactDetailsView")
         let actionsRowIndex = try #require(
             detailsBody.range(of: "ContactProfileActionsRow(contact: contact)")?.lowerBound
         )
         let formIndex = try #require(detailsBody.range(of: "\n            Form {")?.lowerBound)
         #expect(actionsRowIndex < formIndex)
 
-        let rowStart = try #require(source.range(of: "private struct ContactProfileActionsRow: View {"))
-        let rowBody = source[rowStart.upperBound...]
+        let rowBody = try SourceContract.declaration("ContactProfileActionsRow")
         let followIndex = try #require(
             rowBody.range(of: "ContactFollowControl(accountIdHex: contact.accountIdHex)")?.lowerBound
         )
@@ -866,55 +810,36 @@ struct GroupsTests: WorkspaceTestSupport {
         // written out twice — which is how the two came to disagree about the icon, the label and,
         // visibly, the shape: `Accept` named no border shape at all and drew as the platform's
         // capsule beside an 8pt rounded-rectangle `Decline`.
-        let viewsDirURL =
-            URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("whitenoise-mac")
-            .appendingPathComponent("Views")
-
-        for (fileName, acceptCall) in [
-            ("ComposerViews.swift", "await workspace.acceptGroupInvite(for: chat)"),
-            ("GroupViews.swift", "await workspace.acceptSelectedGroupInvite()"),
+        for (unit, acceptCall) in [
+            (SourceContract.ViewUnit.composer, "await workspace.acceptGroupInvite(for: chat)"),
+            (SourceContract.ViewUnit.group, "await workspace.acceptSelectedGroupInvite()"),
         ] {
-            let source = try String(
-                contentsOf: viewsDirURL.appendingPathComponent(fileName),
-                encoding: .utf8
-            )
+            let source = try SourceContract.source(of: unit)
             #expect(source.contains("PendingInviteActionButtons("))
             #expect(source.contains(acceptCall))
         }
 
         // The pair is one tier each, and the primary half carries the shape modifier rather than the
         // bare glass style — without it the capsule comes back.
-        let pairSource = try String(
-            contentsOf: viewsDirURL.appendingPathComponent("PendingInviteActionButtons.swift"),
-            encoding: .utf8
-        )
+        let pairSource = try SourceContract.source(of: .pendingInviteActionButtons)
         #expect(pairSource.contains(".wnPrimaryButtonStyle()"))
         #expect(pairSource.contains(".buttonStyle(.wnSecondary)"))
 
         // Neither tier names a shape of its own any more: one table, or they drift apart again.
         // The primary size still asks the table for a radius; the tiers that draw their own ground
         // ask it for the whole outline, so that a pane can switch both to a capsule at once.
-        for (fileName, call) in [
-            ("WNPrimaryButton.swift", "WNButtonMetrics.borderShape("),
-            ("WNSecondaryButtonStyle.swift", "WNButtonMetrics.backgroundShape("),
-            ("WNDestructiveButtonStyle.swift", "WNButtonMetrics.backgroundShape("),
+        for (unit, call) in [
+            (SourceContract.ViewUnit.primaryButton, "WNButtonMetrics.borderShape("),
+            (SourceContract.ViewUnit.secondaryButtonStyle, "WNButtonMetrics.backgroundShape("),
+            (SourceContract.ViewUnit.destructiveButtonStyle, "WNButtonMetrics.backgroundShape("),
         ] {
-            let source = try String(
-                contentsOf: viewsDirURL.appendingPathComponent(fileName),
-                encoding: .utf8
-            )
-            #expect(source.contains(call), "\(fileName) no longer reads the shared table")
+            let source = try SourceContract.source(of: unit)
+            #expect(source.contains(call), "\(unit) no longer reads the shared table")
             #expect(!source.contains("cornerRadius: CGFloat = "))
         }
 
         // And no tier keeps a radius of its own to drift back to.
-        let sizeSource = try String(
-            contentsOf: viewsDirURL.appendingPathComponent("WNPrimaryButtonSize.swift"),
-            encoding: .utf8
-        )
+        let sizeSource = try SourceContract.source(of: .primaryButtonSize)
         #expect(!sizeSource.contains("cornerRadius"), "a size is naming a radius again")
     }
 

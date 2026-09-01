@@ -161,33 +161,10 @@ struct PrivateKeyExportTests {
 
 @Suite
 struct ProfileKeysSourceContractTests {
-    private static func viewsDirectory() -> URL {
-        URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appending(path: "whitenoise-mac")
-            .appending(path: "Views")
-    }
-
-    private static func source(_ relativePath: String...) throws -> String {
-        var url = viewsDirectory()
-        for component in relativePath { url = url.appending(path: component) }
-        return try String(contentsOf: url, encoding: .utf8)
-    }
-
-    /// Comment lines dropped, so an absence check reads the declarations rather than the paragraph
-    /// explaining what the file no longer carries. Naming a removed group in the prose above the
-    /// code is not the same as reintroducing it — the same helper the drawer's contracts use.
-    private static func strippingCommentLines(_ source: some StringProtocol) -> String {
-        source.split(separator: "\n", omittingEmptySubsequences: false)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-    }
-
     /// Only a source contract can guard absent chrome: no behavior test can observe a page header
     /// that is never built, or a group that is no longer there.
     @Test func theProfileKeysPageCarriesNoSubtitleAccountRowOrRemovalGroup() throws {
-        let page = Self.strippingCommentLines(try Self.source("Settings", "ProfileKeysSettingsView.swift"))
+        let page = SourceContract.strippingCommentLines(try SourceContract.source(of: .profileKeysSettings))
 
         #expect(page.contains("SettingsScaffold(title: L10n.string(\"Profile Keys\"))"))
         // A subtitle is passed as an argument, so its absence is the absence of the argument.
@@ -213,7 +190,7 @@ struct ProfileKeysSourceContractTests {
     /// an audit line and downgrades that account's audit data mode — so the page has to say so.
     /// A test comment cannot defend dropping it; the shipped string is the promise.
     @Test func thePrivateKeyGroupDisclosesTheAuditLog() throws {
-        let page = try Self.source("Settings", "ProfileKeysSettingsView.swift")
+        let page = try SourceContract.source(of: .profileKeysSettings)
 
         #expect(
             page.contains(
@@ -231,7 +208,7 @@ struct ProfileKeysSourceContractTests {
     /// save, a relay write — would render under the password fields as though this sheet had
     /// produced it. Only a source contract can guard the absence of a stale read.
     @Test func theEncryptedExportSheetClearsTheSharedErrorBeforeShowingOne() throws {
-        let sheet = try Self.source("Settings", "EncryptedPrivateKeyExportSheet.swift")
+        let sheet = try SourceContract.source(of: .encryptedPrivateKeyExportSheet)
 
         #expect(sheet.contains("workspace.lastError = nil"))
         // It still shows one: the export flow sets its own, and the sheet is where it is read.
@@ -243,7 +220,7 @@ struct ProfileKeysSourceContractTests {
     /// The sheet is the whole confirmation task. A second alert on top of it would ask the same
     /// question twice and give the reader two places to look for what is about to happen.
     @Test func theSignOutSheetOwnsBothExitsAndStacksNoAlert() throws {
-        let sheet = try Self.source("Settings", "SignOutSheet.swift")
+        let sheet = try SourceContract.source(of: .signOutSheet)
 
         #expect(sheet.contains("workspace.signOutAccount(account)"))
         #expect(sheet.contains("workspace.removeAccount(account)"))
@@ -271,22 +248,17 @@ struct ProfileKeysSourceContractTests {
         #expect(sheet.contains("workspace.lastError = nil"))
 
         // And the two confirmations it replaced are gone rather than merely unreferenced.
-        let settings = Self.viewsDirectory().appending(path: "Settings")
-        for removed in ["SignOutConfirmation.swift", "RemoveAccountConfirmation.swift"] {
-            #expect(
-                !FileManager.default.fileExists(atPath: settings.appending(path: removed).path),
-                "\(removed) is back")
+        // These two have no `ViewUnit` entry precisely because they must not exist; a deleted file
+        // is the one filename a test still has to spell out.
+        for removed in ["Settings/SignOutConfirmation.swift", "Settings/RemoveAccountConfirmation.swift"] {
+            #expect(!SourceContract.viewFileExists(removed), "\(removed) is back")
         }
     }
 
     /// The drawer's Sign Out row is the only way out of an account, and it opens the sheet rather
     /// than the dialog it used to raise.
     @Test func theDrawerSignOutRowOpensTheSheet() throws {
-        let sidebar = try Self.source("SidebarViews.swift")
-        let start = try #require(sidebar.range(of: "struct SettingsSignOutRow: View {")?.upperBound)
-        let rest = sidebar[start...]
-        let end = rest.range(of: "\nstruct ")?.lowerBound ?? sidebar.endIndex
-        let row = String(sidebar[start..<end])
+        let row = try SourceContract.declaration("SettingsSignOutRow")
 
         #expect(row.contains("SignOutSheet(account: account)"))
         #expect(!row.contains("signOutConfirmation"))
@@ -296,7 +268,7 @@ struct ProfileKeysSourceContractTests {
     /// The destructive tier is a ground, not a quiet button with red text — the thing
     /// `WNSecondaryButtonStyle`'s own documentation says a genuinely destructive action wants.
     @Test func theDestructiveTierDrawsAFillDestructiveGroundFromTheSharedShapeTable() throws {
-        let style = try Self.source("WNDestructiveButtonStyle.swift")
+        let style = try SourceContract.source(of: .destructiveButtonStyle)
 
         #expect(style.contains("WNColor.fillDestructive"))
         #expect(style.contains("WNColor.fillDestructiveHover"))

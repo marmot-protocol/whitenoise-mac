@@ -3497,34 +3497,11 @@ struct AccountTests: WorkspaceTestSupport {
         // `!account.signedOut` this used to carry has nothing left to exclude. The switcher's
         // rows are fed the same filtered list and are unconditional for the same reason; the chat
         // rows next to it are peers and must keep the default.
-        let sidebarSource = try String(
-            contentsOf:
-                URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("whitenoise-mac")
-                .appendingPathComponent("Views")
-                .appendingPathComponent("SidebarViews.swift"),
-            encoding: .utf8
-        )
-
-        func declarationSource(of declaration: String) throws -> String {
-            let start = try #require(sidebarSource.range(of: declaration)?.upperBound)
-            let rest = sidebarSource[start...]
-            let end =
-                [
-                    rest.range(of: "\nprivate struct ")?.lowerBound,
-                    rest.range(of: "\nstruct ")?.lowerBound,
-                ]
-                .compactMap { $0 }.min() ?? sidebarSource.endIndex
-            return String(sidebarSource[start..<end])
-        }
-
-        let railSource = try declarationSource(of: "private struct AccountRailAvatar: View {")
+        let railSource = try SourceContract.declaration("AccountRailAvatar")
         #expect(railSource.contains("isOwnAccountImage: true"))
 
-        for row in ["struct ChatRowContent: View {", "struct CollapsedChatRowContent: View {"] {
-            let rowSource = try declarationSource(of: row)
+        for row in ["ChatRowContent", "CollapsedChatRowContent"] {
+            let rowSource = try SourceContract.declaration(row)
             #expect(!rowSource.contains("isOwnAccountImage"), "\(row) draws peers and must stay gated")
         }
     }
@@ -3540,26 +3517,8 @@ struct AccountTests: WorkspaceTestSupport {
         // that. Only a source contract can guard *absent* chrome: no behavior test can
         // observe a menu or a branch that is never built. The chat rows beside it keep their own
         // menu, which is why this asserts on the rail's declaration rather than on the file.
-        let sidebarSource = try String(
-            contentsOf:
-                URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("whitenoise-mac")
-                .appendingPathComponent("Views")
-                .appendingPathComponent("SidebarViews.swift"),
-            encoding: .utf8
-        )
-
-        let start = try #require(sidebarSource.range(of: "private struct AccountRailAvatar: View {")?.upperBound)
-        let rest = sidebarSource[start...]
-        let end =
-            [
-                rest.range(of: "\nprivate struct ")?.lowerBound,
-                rest.range(of: "\nstruct ")?.lowerBound,
-            ]
-            .compactMap { $0 }.min() ?? sidebarSource.endIndex
-        let railSource = String(sidebarSource[start..<end])
+        let sidebarSource = try SourceContract.source(of: .sidebar)
+        let railSource = try SourceContract.declaration("AccountRailAvatar")
 
         #expect(!railSource.contains(".contextMenu"))
         #expect(!railSource.contains("signOutAccount"), "destructive sign out belongs to the confirmed Settings path")
@@ -3586,28 +3545,11 @@ struct AccountTests: WorkspaceTestSupport {
         // this branch now route to `.onboarding` themselves, so no behavior test can observe a
         // view that is never built. Asserting on the pane's own declaration rather than on the
         // file keeps the offline band and the transcript chrome above it out of scope.
-        let shellSource = try String(
-            contentsOf:
-                URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("whitenoise-mac")
-                .appendingPathComponent("Views")
-                .appendingPathComponent("MessengerShellView.swift"),
-            encoding: .utf8
-        )
+        let shellSource = try SourceContract.source(of: .messengerShell)
 
         #expect(!shellSource.contains("struct SignedOutAccountsView"))
 
-        let start = try #require(shellSource.range(of: "private struct DetailPaneView: View {")?.upperBound)
-        let rest = shellSource[start...]
-        let end =
-            [
-                rest.range(of: "\nprivate struct ")?.lowerBound,
-                rest.range(of: "\nstruct ")?.lowerBound,
-            ]
-            .compactMap { $0 }.min() ?? shellSource.endIndex
-        let paneSource = String(shellSource[start..<end])
+        let paneSource = try SourceContract.declaration("DetailPaneView")
 
         #expect(!paneSource.contains("signInAccount"), "reactivating an identity belongs to Settings' switcher")
         #expect(!paneSource.contains("showAccountOnboarding"))
