@@ -39,6 +39,26 @@ are isolated in the `UIPerformance` test plan, and launch the app with the
 DEBUG-only `-uiFixture heavy-chat` argument for deterministic chat/search/media
 data.
 
+## Test isolation on disk
+
+Tests write real files, so every on-disk root a test double hands out is isolated
+per test and per process by default — see `whitenoise-macTests/Support/TestStorageRoot.swift`.
+
+- `FakeMarmotRuntime(accounts:)` reports a `storageRootPath` unique to the running
+  test. `WorkspaceState` builds a `HiddenMessageFileStore`, `PinnedChatFileStore`,
+  `ContactNicknameFileStore` and `DirectPeerMemoryFileStore` under it for every store
+  the test did not inject, so a test that forgets to inject one now reads an empty
+  directory instead of another test's records. Two doubles built during the *same*
+  test still share a root, which is what a relaunch test needs. Pass
+  `storageRoot: .explicit(path)` only to share a directory on purpose.
+- `MessageMediaDiskCache.shared` — the default for `WorkspaceState`'s `mediaDiskCache`
+  parameter, which almost no test overrides — resolves to a per-process temporary
+  directory and a fixed in-memory key under a test run, never to the user's real
+  Application Support directory or Keychain. A test that asserts on cache contents
+  should still build its own with `MessageMediaDiskCache.makeIsolated()`.
+- Do not reintroduce a fixed shared path. Isolation that has to be remembered is
+  isolation that gets forgotten; `StorageRootIsolationTests` guards these properties.
+
 ## Localization
 
 All user-facing strings live in the single String Catalog

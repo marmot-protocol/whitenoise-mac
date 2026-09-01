@@ -1019,7 +1019,7 @@ struct whitenoise_macTests {
         let (state, _) = Self.improvementsPromptWorkspace(store: store)
 
         state.isImprovementsPromptPresented = true
-        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-mac-tests")
+        state.resetToNewInstallState(storageRootPath: TestStorageRoot.isolated.resolvedPath())
 
         #expect(store.clearAllCallCount == 1)
         #expect(store.offered.isEmpty)
@@ -14528,7 +14528,7 @@ struct whitenoise_macTests {
 
         state.setRestoreLastSelectedChat(true)
         #expect(store.targetsByAccount[account.accountIdHex] == chat.id)
-        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-chat-restoration-reset-test")
+        state.resetToNewInstallState(storageRootPath: TestStorageRoot.isolated.resolvedPath())
         #expect(store.targetsByAccount.isEmpty)
     }
 
@@ -22597,8 +22597,8 @@ struct whitenoise_macTests {
                 lud16: nil
             )
         )
-        // `FakeMarmotRuntime.storageRootPath` is a fixed shared path, so an injected store is what
-        // guarantees this starts with nothing recorded rather than reading another test's file.
+        // `FakeMarmotRuntime.storageRootPath` is already isolated per test, so this injection is
+        // about naming the directory the assertions below reason over, not about isolation.
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("whitenoise-direct-peer-\(UUID().uuidString)", isDirectory: true)
@@ -29562,7 +29562,7 @@ struct whitenoise_macTests {
         let state = WorkspaceState.preview()
         let url = try armInProgressVoiceRecording(on: state)
 
-        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+        state.resetToNewInstallState(storageRootPath: TestStorageRoot.isolated.resolvedPath())
 
         #expect(!state.isRecordingVoiceMessage)
         #expect(state.voiceRecordingMeterTask == nil)
@@ -29584,7 +29584,7 @@ struct whitenoise_macTests {
         state.isLoadingComposeContacts = true
         state.composeContactsGeneration = 41
 
-        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+        state.resetToNewInstallState(storageRootPath: TestStorageRoot.isolated.resolvedPath())
 
         #expect(state.composeContacts.isEmpty)
         #expect(!state.isLoadingComposeContacts)
@@ -29601,7 +29601,7 @@ struct whitenoise_macTests {
         )
         state.conversationMetadataGenerationByChat["shared-group"] = 41
 
-        state.resetToNewInstallState(storageRootPath: "/tmp/whitenoise-reset-test")
+        state.resetToNewInstallState(storageRootPath: TestStorageRoot.isolated.resolvedPath())
 
         // A full local-data wipe must not retain metadata describing the departed identity's
         // group role, membership, or disappearing-message timer. See #628.
