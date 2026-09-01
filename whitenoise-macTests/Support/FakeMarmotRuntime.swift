@@ -624,7 +624,7 @@ nonisolated final class FakeMarmotRuntime: MarmotRuntime, @unchecked Sendable {
         nativePushEnabled: false
     )
     private var notificationSettingsByAccountRef: [String: NotificationSettingsFfi] = [:]
-    var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false, dataMode: .obfuscatedSensitiveData)
+    var storedAuditLogSettings = AuditLogSettingsFfi(enabled: false)
     var storedAuditLogFiles: [AuditLogFileFfi] = []
     var auditLogDeleteFailurePaths: Set<String> = []
     var nextAuditLogTrackerUpdate = AuditLogTrackerUpdateResultFfi(

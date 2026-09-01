@@ -3096,9 +3096,9 @@ enum NotificationPreviewMode: String, CaseIterable, Identifiable {
 struct PrivacySecuritySettingsSnapshot: Equatable {
     var relayTelemetryEnabled: Bool
     var relayTelemetryIntervalSeconds: UInt64
-    /// Audit logging is a single on/off choice on macOS. Records are always written
-    /// with `AuditDataModeFfi.obfuscatedSensitiveData`; this client never asks the
-    /// core for the full-data posture.
+    /// Audit logging is a single on/off choice. The core records the obfuscated,
+    /// privacy-safe set unconditionally — marmotkit v0.9.16 removed the selectable
+    /// data mode, so there is no full-data posture to opt into.
     var auditLoggingEnabled: Bool
     var telemetryCredentialsAvailable: Bool
     var auditLogCredentialsAvailable: Bool

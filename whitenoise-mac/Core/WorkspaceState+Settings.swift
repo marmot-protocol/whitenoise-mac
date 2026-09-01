@@ -1277,11 +1277,11 @@ extension WorkspaceState {
 
         do {
             try await configureObservabilityRuntime()
-            // Audit logging is a single on/off choice here. Every write pins the data mode to
-            // the minimum privacy-safe record set, which also downgrades a `.fullData` posture
-            // left behind by another client or an older build.
+            // Audit logging is a single on/off choice: the core dropped the selectable data
+            // mode in marmotkit v0.9.16 and now records the obfuscated, privacy-safe set
+            // unconditionally, so there is no longer a posture for this write to pin.
             let stored = try await client.setAuditLogSettings(
-                settings: AuditLogSettingsFfi(enabled: enabled, dataMode: .obfuscatedSensitiveData)
+                settings: AuditLogSettingsFfi(enabled: enabled)
             )
             guard ownsPrivacySecuritySave(accountId: accountId, generation: generation) else { return }
             privacySecuritySettings.auditLoggingEnabled = stored.enabled
