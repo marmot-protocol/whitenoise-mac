@@ -29,7 +29,7 @@ import Foundation
 ///
 /// So: your own avatar always draws, everyone else's waits for the preference. Pass
 /// `isOwnAccountImage: true` only where the URL provably belongs to an account **signed in** on
-/// this Mac — the profile editor, its picker, Identity & Keys, Settings' profile card, the account
+/// this Mac — the profile editor, its picker, Profile Keys, Settings' profile card, the account
 /// rail, and the public-identity QR sheet those last two open. Peer avatars (chat rows, message
 /// senders, member lists, search results) must keep the default.
 ///

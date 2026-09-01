@@ -1839,6 +1839,152 @@ struct whitenoise_macTests {
     }
 
     @MainActor
+    @Test func privateKeyExportAsksForADestinationBeforeItRevealsAnything() async throws {
+        // The order is the contract. `revealNsec` is an audited call that downgrades the core's
+        // audit data mode for the account, so a save panel the reader cancels must not have cost
+        // them that. Cancelling is modelled as a nil from the picker; the assertion is that the
+        // runtime was never asked for the key.
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        let state = WorkspaceState(
+            privateKeyExportDestinationPicker: { _, _ in nil },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        let didExport = await state.exportActiveAccountPrivateKey(.raw)
+
+        #expect(!didExport)
+        #expect(runtime.revealNsecCallCount == 0)
+        #expect(state.lastError == nil)
+        #expect(!state.isExportingPrivateKey)
+    }
+
+    @MainActor
+    @Test func privateKeyExportWritesTheChosenKindToTheChosenFile() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-key-export-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount()])
+        var requestedFilenames: [String] = []
+        var requestedTypes: [UTType] = []
+        var nextDestination = root.appendingPathComponent("encrypted.txt")
+        let state = WorkspaceState(
+            privateKeyExportDestinationPicker: { filename, contentType in
+                requestedFilenames.append(filename)
+                requestedTypes.append(contentType)
+                return nextDestination
+            },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        #expect(await state.exportActiveAccountPrivateKey(.encrypted, passphrase: "a long passphrase"))
+        #expect(runtime.exportEncryptedSecretKeyCallCount == 1)
+        #expect(runtime.revealNsecCallCount == 0)
+        #expect(try String(contentsOf: nextDestination, encoding: .utf8) == "ncryptsec1fake\n")
+
+        nextDestination = root.appendingPathComponent("raw.txt")
+        #expect(await state.exportActiveAccountPrivateKey(.raw))
+        #expect(runtime.revealNsecCallCount == 1)
+        #expect(try String(contentsOf: nextDestination, encoding: .utf8) == "nsec1fake\n")
+
+        // The panel is offered the localized name for the kind being written, not one name for
+        // both — a raw key and an encrypted one landing in the same folder must not collide.
+        #expect(
+            requestedFilenames == [
+                L10n.string("White Noise Encrypted Private Key"), L10n.string("White Noise Private Key"),
+            ])
+        #expect(requestedTypes == [.plainText, .plainText])
+        #expect(!state.isExportingPrivateKey)
+    }
+
+    @MainActor
+    @Test func privateKeyExportRefusesAnAccountWithNoLocalKey() async throws {
+        // A watch-only or external-signer account has nothing here to write, and the Profile Keys
+        // page hides the Export group for it. This is the same rule one level down, so a future
+        // call site cannot reach the save panel for a key that does not exist.
+        let watchOnly = AccountSummaryFfi(
+            label: "Watch Only",
+            accountIdHex: String(repeating: "c", count: 64),
+            localSigning: false,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [watchOnly])
+        var didAskForDestination = false
+        let state = WorkspaceState(
+            privateKeyExportDestinationPicker: { _, _ in
+                didAskForDestination = true
+                return nil
+            },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        #expect(!(await state.exportActiveAccountPrivateKey(.raw)))
+        #expect(!didAskForDestination)
+        #expect(runtime.revealNsecCallCount == 0)
+    }
+
+    @MainActor
+    @Test func privateKeyExportRefusesToWriteWhenTheActiveAccountMovedUnderThePanel() async throws {
+        // The injected picker stands exactly where `NSSavePanel.runModal()` would, and a modal
+        // panel spins a nested run loop that drains the main queue — so main-actor work queued
+        // before it opened can resume while it is up and reselect the active identity. Switching
+        // the account from inside the picker reproduces that window precisely.
+        //
+        // What must not happen is the export continuing against whoever is active *now*: the key
+        // material is fetched from `activeAccount`, so a moved identity would write the wrong
+        // account's private key into a file the reader asked for while looking at another. The
+        // guard sits before the fetch, so nothing is revealed and no audited call is made either.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whitenoise-key-export-identity-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let destination = root.appendingPathComponent("key.txt")
+
+        let other = AccountSummaryFfi(
+            label: "Second Account",
+            accountIdHex: String(repeating: "d", count: 64),
+            localSigning: true,
+            externalSigning: false,
+            signedOut: false,
+            running: true
+        )
+        let runtime = FakeMarmotRuntime(accounts: [desktopAccount(), other])
+        var state: WorkspaceState!
+        var switchedTo: String?
+        state = WorkspaceState(
+            privateKeyExportDestinationPicker: { _, _ in
+                // Answer the panel *and* move the identity, in that order.
+                if let next = state.accounts.first(where: { $0.id != state.activeAccountId })?.id {
+                    state.activeAccountId = next
+                    switchedTo = next
+                }
+                return destination
+            },
+            clientFactory: { runtime }
+        )
+        await state.bootstrap()
+
+        let didExport = await state.exportActiveAccountPrivateKey(.raw)
+
+        #expect(switchedTo != nil, "the picker must actually have moved the active account")
+        #expect(!didExport)
+        // Nothing fetched: the guard is ahead of both key helpers, so `revealNsec` — the audited
+        // call that downgrades the account's audit data mode — never ran.
+        #expect(runtime.revealNsecCallCount == 0)
+        #expect(runtime.exportEncryptedSecretKeyCallCount == 0)
+        // And nothing written, which is the part that would have been a key on disk under the
+        // wrong identity.
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+        #expect(!state.isExportingPrivateKey)
+    }
+
+    @MainActor
     @Test func removeActiveAccountCallsRuntimeAndSelectsNextAccount() async throws {
         let primary = AccountSummaryFfi(
             label: "Desktop Account",
