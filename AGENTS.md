@@ -31,13 +31,38 @@ xcodebuild test -scheme whitenoise-mac -configuration Debug -testPlan UIPerforma
   -destination 'platform=macOS,arch=arm64'
 ```
 
-Unit tests live in `whitenoise-macTests/` and use Swift Testing in a single
-`@Suite(.serialized)` struct; the runner's per-test `-only-testing:` filter does
-not reliably match individual functions in that serialized suite, so prefer
-running the whole suite. UI performance tests live in `whitenoise-macUITests/`,
-are isolated in the `UIPerformance` test plan, and launch the app with the
-DEBUG-only `-uiFixture heavy-chat` argument for deterministic chat/search/media
-data.
+Unit tests live in `whitenoise-macTests/`, split by domain across `TimelineTests`,
+`ChatListTests`, `GroupsTests`, `MediaTests`, `SettingsTests`, `AccountTests` and
+smaller focused suites, with shared fakes and helpers in
+`whitenoise-macTests/Support/`. `-only-testing:` **does** select an individual
+test function, which is how you iterate without paying for the full suite:
+
+```sh
+xcodebuild test-without-building -scheme whitenoise-mac -configuration Debug \
+  -destination 'platform=macOS,arch=arm64' -testPlan PR CODE_SIGNING_ALLOWED=NO \
+  -only-testing:'whitenoise-macTests/TimelineTests/someTestName()'
+```
+
+Three details decide whether that filter matches anything, and only one of them
+is loud when it is wrong:
+
+- The **target** is hyphenated — `whitenoise-macTests`. The underscored spelling
+  fails the build outright.
+- The **suite** is the Swift type — `TimelineTests`, or `whitenoise_macTests`
+  (underscored) for what remains of the original serialized suite. A wrong suite
+  name exits **0** with `Executed 0 tests`, which looks exactly like a pass.
+- The function name **keeps its trailing `()`**, quoted so the shell does not
+  glob it. Without the parentheses the filter selects nothing, silently.
+
+`-testPlan PR` is required: the scheme's default plan does not contain the test
+target. Never trust the exit code of a filtered run — grep the log for
+`Executed [0-9]* test` and confirm the count is what you asked for. Run the whole
+suite once before handing work off; the remaining serialized tests share global
+state, and order-dependent breakage only shows up in a full pass.
+
+UI performance tests live in `whitenoise-macUITests/`, are isolated in the
+`UIPerformance` test plan, and launch the app with the DEBUG-only
+`-uiFixture heavy-chat` argument for deterministic chat/search/media data.
 
 ## Test isolation on disk
 
@@ -111,5 +136,59 @@ build.
   `Core/MarmotConcurrency.swift` is gone. If a new FFI type is rejected as
   non-`Sendable`, check the generated `MarmotKit.swift` before adding a
   retroactive conformance here — a duplicate is a build warning, not a fix.
-  Conversions from FFI types into app view models live in
-  `Core/MarmotMapping.swift`.
+  Conversions from FFI types into the app's own value types live in
+  `Core/MarmotMapping.swift` — those projections are `struct`s, not view models.
+
+## Architecture
+
+The app is mid-refactor out of a `WorkspaceState` god object. Everything below is a contract for
+**new** code — existing code is migrated one feature at a time, never swept — and none of it is
+gated. The migration order is: break the test monolith open, then `AccountScope`, then delete
+`lastError` as a global channel, then Settings as the first feature/view-model/service slice, then
+the view layer.
+
+**The layer direction is `App → Session → Features → Core`, and nothing below reaches up.** `App` is
+the shell that composes everything (`whitenoise_macApp`, `ContentView`). `Session` owns per-launch
+and per-account lifetime. `Features` are self-contained panes that own their own state. `Core` is
+view-agnostic services and value types. A `Core` type never imports a feature, and no layer reads
+the layer above it.
+
+Where the tree actually stands, measured at `04cf5e0` — quote these numbers rather than guessing,
+and never write a rule's target as though it were already true:
+
+| | Today |
+| --- | --- |
+| `WorkspaceState` family | 17,424 lines across 33 files (`WorkspaceState.swift` + 32 `WorkspaceState+*.swift`) |
+| `@Environment(WorkspaceState.self)` reads | 121, spread over 51 files |
+| computed `var …: some View` | 351 |
+| `#Preview` blocks | 5, against 280 `View` structs |
+| `…Generation` stored properties | 38 |
+| view models | 0 |
+| `Session/`, `Features/`, `AccountScope` | do not exist yet |
+
+The rules, in the order they are most often broken:
+
+- **`WorkspaceState` is frozen.** Never add a stored property to it, never add a feature method to
+  it, and never add a 34th `WorkspaceState+*.swift` file — 33 is a ceiling, not a running total.
+  New feature state goes on a `@MainActor @Observable final class <Feature>ViewModel` in its own
+  file. *(No example in the tree yet; the Settings slice writes the first one.)*
+- **Account-scoped state goes on `AccountScope`**, an object whose lifetime is one signed-in
+  account, so switching accounts destroys the state instead of running a reset checklist against
+  it. *(No example in the tree yet. Until there is one, do not grow
+  `resetActiveAccountUIState()` and its private helper — 51 statements between them, and both are
+  scheduled for deletion.)*
+- **A new `…Generation` counter needs a written reason, at the declaration, why cancelling the
+  owning scope's task cannot do the job.** Hand-rolled staleness tokens are a failure mode this
+  refactor exists to remove: a trailing fire-and-forget task steals the counter, the test passes
+  locally, and it flakes only in CI. There are 38 of them; the 39th without that comment is a
+  review rejection.
+- **A feature view takes its model through `init`** — `let model: RelaySettingsViewModel`, not
+  `@Environment`. `@Environment(WorkspaceState.self)` is reserved for the app shell. A dependency
+  that is invisible in the initialiser is one nobody can substitute, which is why views are
+  currently untestable and unpreviewable.
+- **Every new view gets a `#Preview`.** If you cannot write one, the view depends on something it
+  should not; fix the dependency rather than skip the preview. This is the cheapest possible check
+  that the rule above was actually followed.
+- **No new computed `var …: some View`.** Extract a `View` struct instead. A computed property
+  shares its parent's observation set, so it re-renders whenever anything the parent reads changes;
+  a struct observes only what it is given.
