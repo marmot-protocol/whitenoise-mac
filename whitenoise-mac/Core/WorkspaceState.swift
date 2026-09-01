@@ -368,6 +368,13 @@ final class WorkspaceState {
     var developerMode: Bool {
         didSet {
             UserDefaults.standard.set(developerMode, forKey: Self.developerModeKey)
+            // Key Packages hangs off the Developer mode page and appears there only while this
+            // is on, so turning it off — from a second window, since the toggle itself lives on
+            // the parent page — would strand a reader on a page nothing routes to any more. The
+            // page hands itself back to the one that owns it.
+            if !developerMode, selection == .settings(.keyPackages) {
+                selection = .settings(.developerMode)
+            }
         }
     }
     var streamingDebugMode: Bool {

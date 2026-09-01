@@ -2,7 +2,7 @@
 //  DeveloperModeSettingsView.swift
 //  whitenoise-mac
 //
-//  The Developer mode page: the storage and diagnostics only a developer needs.
+//  The Developer mode page: the storage, diagnostics and KeyPackages only a developer needs.
 //
 
 import AppKit
@@ -32,6 +32,17 @@ struct DeveloperModeSettingsView: View {
                     isOn: $workspace.streamingDebugMode
                 )
                 .disabled(!workspace.developerMode)
+            }
+
+            // Key Packages is a destination of this page rather than a drawer row beside
+            // Profile and Relays, and it is hidden rather than disabled while the master
+            // toggle is off. Both are `wn-ios-prototype`'s: it keeps Key Packages as an
+            // isolated navigation row inside Developer Tools, and its technical sections do
+            // not appear at all until Developer Tools is enabled for the profile.
+            if workspace.developerMode {
+                SettingsSection {
+                    SettingsNavigationRow(page: .keyPackages)
+                }
             }
 
             // The path sits under the button that opens it rather than in a row of its own: it
