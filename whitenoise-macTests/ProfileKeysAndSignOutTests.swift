@@ -293,7 +293,7 @@ struct ProfileKeysSourceContractTests {
         #expect(!row.contains("workspace.signOutAccount"), "the sheet decides which teardown runs")
     }
 
-    /// The destructive tier is a ground, not an outline with red text — the thing
+    /// The destructive tier is a ground, not a quiet button with red text — the thing
     /// `WNSecondaryButtonStyle`'s own documentation says a genuinely destructive action wants.
     @Test func theDestructiveTierDrawsAFillDestructiveGroundFromTheSharedShapeTable() throws {
         let style = try Self.source("WNDestructiveButtonStyle.swift")

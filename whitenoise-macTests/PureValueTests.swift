@@ -61,7 +61,7 @@ struct PureValueTests {
             #expect(smaller.horizontalPadding < larger.horizontalPadding)
         }
 
-        // The outlined tier already had a `.small` rung keyed off `controlSize`; the primary one
+        // The secondary tier already had a `.small` rung keyed off `controlSize`; the primary one
         // has to land on the same `ControlSize` or the two tiers cannot be paired at that end.
         #expect(WNPrimaryButtonSize.small.controlSize == .small)
     }

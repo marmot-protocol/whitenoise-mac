@@ -315,7 +315,7 @@ enum ProfileActionMetrics {
     static let primaryChromeHeight: CGFloat = OnboardingLayout.primaryActionChromeHeight
 
     /// What `.wnSecondary` draws around its label at `.large` — twice `WNSecondaryButtonStyle`'s
-    /// own vertical padding, the ring being an inset stroke that adds nothing to the height.
+    /// own vertical padding, its shadow falling outside the layout and adding nothing.
     ///
     /// **4pt more than the glass tier's, which is why neither number can be reasoned about from
     /// the other.** The two styles step their interiors on different tables — `controlSize` for
@@ -385,7 +385,7 @@ struct ProfileIdentityHeaderView: View {
                 Text(L10n.string(hasPhoto ? "Change photo" : "Add photo"))
                     .wnFont(.medium12)
             }
-            .buttonStyle(.wnElevated)
+            .buttonStyle(.wnSecondary)
             .controlSize(.small)
             .accessibilityIdentifier("settings.profile.photo")
 

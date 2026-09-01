@@ -100,9 +100,9 @@ import Testing
     /// two tiers can agree on a height is for their labels to carry the difference — which means
     /// the difference has to be *measured*, and re-measured whenever either style's padding moves.
     /// That is what this does. Left alone, the glass primary comes out 4pt shorter than the
-    /// elevated tier at `.large`.
+    /// secondary tier at `.large`.
     @Test func bothActionTiersDrawTheSameHeight() throws {
-        for tier in [OnboardingActionTier.primary, .elevated] {
+        for tier in [OnboardingActionTier.primary, .secondary] {
             let button = OnboardingActionButton(title: "Sign Up", tier: tier) {}
                 .controlSize(.large)
                 .frame(width: OnboardingLayout.contentWidth)
@@ -176,28 +176,35 @@ import Testing
         #expect(OnboardingLayout.markToActionsMaximumSpacing > OnboardingLayout.edgePadding)
     }
 
-    // MARK: - The elevated tier is lifted, not ringed
+    // MARK: - The one secondary tier is raised, not ringed
 
-    /// The onboarding secondary is shadowed and has no outline. Both halves of that are asserted,
-    /// and `WNSecondaryButtonStyle` stands in as the positive control — without it a test that
-    /// merely finds no ring would pass just as happily against a button that drew nothing.
-    @Test func theElevatedTierIsShadowedAndTheRingedTierIsNot() throws {
-        let elevated = try Self.edgeScanline(WNElevatedButtonStyle())
-        let ringed = try Self.edgeScanline(WNSecondaryButtonStyle())
+    /// The app's secondary push button is shadowed and has no outline — the whole of what was
+    /// decided when the ringed tier was folded into this one. Both halves are asserted, because a
+    /// regression could come from either end: a ring is what the app's other ground-drawing
+    /// components still stroke (`WNInput`, `MessagesCircleControlBackground`), and the shadow is
+    /// the only thing lifting a `backgroundSlate` ground off the pane it sits on.
+    ///
+    /// A ringed copy of the same button stands in as the positive control — without one, a test
+    /// that merely finds no outline would pass just as happily against a button that drew nothing
+    /// at all. The copy is the real style with a stroke laid over it rather than a second style
+    /// written out here, so the control cannot disagree with the button under test about where its
+    /// edge is or how tall it stands.
+    @Test func theSecondaryTierIsRaisedRatherThanRinged() throws {
+        let raised = try Self.edgeScanline(ringed: false)
+        let ringed = try Self.edgeScanline(ringed: true)
 
-        // `borderSecondary` is `neutral500`, ~0.45 luminance, against the elevated tier's resting
-        // `backgroundSlate` ground at ~0.98, the ringed tier's `fillSecondary` at ~0.96, and a
-        // `backgroundPrimary` pane at 1.0. Anything below 0.75 on this scanline is a stroke;
-        // nothing else on it comes close.
+        // `borderSecondary` is `neutral500`, ~0.45 luminance, against the tier's resting
+        // `backgroundSlate` ground at ~0.98 and a `backgroundPrimary` pane at 1.0. Anything below
+        // 0.75 on this scanline is a stroke; nothing else on it comes close.
         #expect(
             ringed.contains(where: { $0 < 0.75 }),
-            "the ringed control drew no outline — this test can no longer tell the two apart")
+            "the ringed control drew no outline — this test can no longer see a ring at all")
         #expect(
-            !elevated.contains(where: { $0 < 0.75 }),
-            "the elevated tier drew an outline")
+            !raised.contains(where: { $0 < 0.75 }),
+            "the secondary tier drew an outline")
 
         // The shadow: pixels in the pane's margin, outside the button's fill, that are darker than
-        // the bare pane. The ringed tier casts none, so its margin is flat.
+        // the bare pane.
         // Resolved *inside* `.aqua`, because that is the appearance `edgeScanline` rasterizes in
         // and `NSColor(SwiftUI.Color)` resolves a dynamic token against whatever appearance is
         // current when it is called — the **system's**, here, since nothing else has set one. Read
@@ -211,11 +218,8 @@ import Testing
         }
         let paneLuminance = try #require(paneColor?.brightnessComponent)
         #expect(
-            elevated.contains(where: { $0 < paneLuminance - 0.02 && $0 > 0.75 }),
-            "the elevated tier cast no shadow")
-        #expect(
-            !ringed.prefix(3).contains(where: { $0 < paneLuminance - 0.02 }),
-            "the ringed tier is casting a shadow it should not have")
+            raised.contains(where: { $0 < paneLuminance - 0.02 && $0 > 0.75 }),
+            "the secondary tier cast no shadow")
     }
 
     // MARK: - What the sign-in field makes of what is in it
@@ -359,38 +363,42 @@ import Testing
         #expect(L10n.string("Add photo") != L10n.string("Change photo"))
     }
 
-    /// And it is the *pane's* secondary tier — the raised one `Sign In` wears — not the ringed
-    /// secondary the rest of the app uses inside its own chrome.
+    /// And it is the pane's own secondary tier — the raised one `Sign In` wears — rather than a
+    /// bordered style of its own.
     ///
-    /// The two tiers differ by exactly one thing, an outline (see
-    /// `theElevatedTierIsShadowedAndTheRingedTierIsNot`), so the ring is what tells them apart
-    /// here too. A ringed copy of the same control stands in as the positive control: without it a
-    /// probe that merely finds no outline would pass just as happily against a pill that drew
-    /// nothing, or against a row the probe was reading in the wrong place.
+    /// `ProfileImageSourceMenu.Appearance.pushButton` names no `buttonStyle`, so what this pill
+    /// wears is whatever the pane hands down; the probe checks what actually arrived. A ring is
+    /// what any other push style would bring with it (`.bordered`, and the ringed secondary this
+    /// app used to ship), so the ring is what is looked for, with a ringed copy of the same
+    /// control standing in as the positive control: without it a probe that merely finds no
+    /// outline would pass just as happily against a pill that drew nothing, or against a row the
+    /// probe was reading in the wrong place.
     ///
     /// This is the regression that cannot be seen by looking at the pane on its own — a ringed
     /// pill under the avatar looks perfectly deliberate until it is put next to the `Sign In`
     /// button one pane back.
-    @Test func thePhotoPillWearsThePanesElevatedTier() throws {
+    @Test func thePhotoPillWearsThePanesSecondaryTier() throws {
         let hero = try Self.pickerEdgeColumns(of: OnboardingSignUpAvatar())
         let ringed = try Self.pickerEdgeColumns(of: Self.ringedPickerStandIn)
 
-        // `borderSecondary` is `neutral500`, ~0.45, against either tier's resting ground at ~0.96
-        // and up. The same 0.75 the tier test uses.
+        // `borderSecondary` is `neutral500`, ~0.45, against the tier's resting ground at ~0.96 and
+        // up. The same 0.75 the tier test uses.
         #expect(
             ringed.contains(where: { $0 < 0.75 }),
-            "the ringed stand-in drew no outline — this probe can no longer tell the two apart")
+            "the ringed stand-in drew no outline — this probe can no longer see a ring at all")
         #expect(
             !hero.contains(where: { $0 < 0.75 }),
-            "the sign-up hero's photo control is ringed, so it is not the pane's elevated tier")
+            "the sign-up hero's photo control is ringed, so it is not the pane's secondary tier")
     }
 
-    /// The hero's picker, drawn as the *ringed* tier and nothing else changed.
+    /// The hero's picker with a ring laid over it and nothing else changed.
     ///
     /// A deliberate copy of `OnboardingSignUpAvatar`'s stack rather than the view itself, because
-    /// the view now hands its own tier over from the inside and an outer `.buttonStyle` cannot
-    /// reach past that — which is the property being relied on. Geometry has to match the real one
-    /// point for point, since the probe finds the control by walking a row of the render.
+    /// the view hands its own tier over from the inside and an outer `.buttonStyle` cannot reach
+    /// past that — which is the property being relied on. Geometry has to match the real one point
+    /// for point, since the probe finds the control by walking a row of the render, which is why
+    /// the ring is an overlay on the same tier rather than a second style with a padding table of
+    /// its own.
     private static var ringedPickerStandIn: some View {
         VStack(spacing: OnboardingLayout.signUpAvatarToPickerSpacing) {
             SignUpAvatarView(size: OnboardingLayout.signUpAvatarSize)
@@ -401,10 +409,24 @@ import Testing
                 Text(L10n.string("Add photo"))
                     .wnFont(.medium12)
             }
-            .buttonStyle(.wnSecondary)
+            .onboardingActionTier(.secondary)
+            // `.capsule` because `pickerEdgeColumns` sets that on the container, the way the pane
+            // does; the shape decides where the edge the probe reads is.
+            .overlay { ringOverlay(.capsule, for: .small) }
             .controlSize(.small)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The ring the app no longer draws on a push button, for use as a positive control.
+    ///
+    /// `borderSecondary` at 1pt on the shared shape table: what the ringed secondary tier stroked
+    /// before it was folded into the raised one. It lives here, in the tests, because that is the
+    /// only thing it is still for — a probe looking for the absence of an outline needs one
+    /// outline to prove it can see one.
+    private static func ringOverlay(_ shape: WNButtonShape, for controlSize: ControlSize) -> some View {
+        WNButtonMetrics.backgroundShape(shape, for: controlSize)
+            .stroke(WNColor.borderSecondary, lineWidth: 1)
     }
 
     /// The luminance of the avatar's ground, and of the pixel on it that is furthest from it.
@@ -788,13 +810,16 @@ import Testing
     ///
     /// The vertical centre is the one row where a rounded rectangle's edge is a straight vertical
     /// line, so a stroke there is a solid column of pixels rather than an antialiased curve.
-    private static func edgeScanline<Style: ButtonStyle>(_ style: Style) throws -> [CGFloat] {
+    private static func edgeScanline(ringed: Bool) throws -> [CGFloat] {
         let pane = Button {
         } label: {
             OnboardingActionLabel(title: "Sign In", isLoading: false)
-                .frame(minHeight: OnboardingLayout.actionLabelHeight(for: .elevated))
+                .frame(minHeight: OnboardingLayout.actionLabelHeight(for: .secondary))
         }
-        .buttonStyle(style)
+        .buttonStyle(.wnSecondary)
+        .overlay {
+            if ringed { Self.ringOverlay(.rounded, for: .large) }
+        }
         .controlSize(.large)
         .frame(width: 360)
         .frame(width: 400, height: 84)
@@ -813,12 +838,12 @@ import Testing
 
     /// How far in from the left edge, in points, a button's ground starts 6pt below its top edge.
     ///
-    /// The elevated tier is the one probed because it draws its own background and therefore its
+    /// The secondary tier is the one probed because it draws its own background and therefore its
     /// own outline — the glass primary's ground is the platform's, and `ImageRenderer` will not
     /// give it back. Rendered on nothing, so `alphaComponent` reads the shape directly; the
     /// half-alpha threshold steps over the shadow, which is faint and offset downward anyway.
     private static func leftEdgeOnset(shape: WNButtonShape) throws -> CGFloat {
-        let button = OnboardingActionButton(title: "Sign In", tier: .elevated) {}
+        let button = OnboardingActionButton(title: "Sign In", tier: .secondary) {}
             .controlSize(.large)
             .wnButtonShape(shape)
             .frame(width: OnboardingLayout.contentWidth)
