@@ -46,12 +46,12 @@ struct OnboardingSignUpAvatar: View {
             }
             // The same tier the welcome pane's `Sign In` wears, handed over rather than named
             // again here: this is a secondary action standing on a bare onboarding pane, which is
-            // what `OnboardingActionTier.elevated` is for. It is also what the prototype does —
+            // what `OnboardingActionTier.secondary` is for. It is also what the prototype does —
             // `WelcomeView`'s Sign In and `SignUpView`'s `Add Photo` are both
-            // `.buttonStyle(.glass)`, the same button at two sizes — where this pill was the
-            // *ringed* tier, `.wnSecondary`, so the flow offered two different-looking secondary
-            // buttons one pane apart.
-            .onboardingActionTier(.elevated)
+            // `.buttonStyle(.glass)`, the same button at two sizes — where this pill used to be
+            // drawn by a second, ringed secondary style, so the flow offered two
+            // different-looking secondary buttons one pane apart.
+            .onboardingActionTier(.secondary)
             // The size is the only thing that differs from the pane's own buttons, and it differs
             // for the same reason the prototype leaves this control at its default size while its
             // CTA is `.extraLarge`. The pane sets `.large` on the whole scaffold for its 44pt CTA,

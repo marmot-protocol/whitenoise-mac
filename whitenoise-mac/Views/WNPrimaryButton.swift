@@ -3,9 +3,10 @@
 //  whitenoise-mac
 //
 //  The app's primary push button — the other clients' `WnButton.primary`. Its
-//  companion is `WNSecondaryButtonStyle` (`.wnSecondary`), the port of
-//  `WnButton.outline`; between them they cover the two push-button tiers. The
-//  sizes it draws at live in `WNPrimaryButtonSize.swift`.
+//  companion is `WNSecondaryButtonStyle` (`.wnSecondary`), the raised tier every
+//  lesser action wears; between them they cover the two push-button tiers a
+//  screen normally offers. The sizes it draws at live in
+//  `WNPrimaryButtonSize.swift`.
 //
 
 import SwiftUI

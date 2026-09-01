@@ -22,8 +22,8 @@ import SwiftUI
 /// underneath it as a `.plain` button — which is to say as a link, a third tier below both push
 /// buttons, for one of the two things this screen exists to do.
 ///
-/// Both actions are now push buttons, one tier apart: the raised `WNElevatedButtonStyle` for
-/// signing in, and the glass primary for signing up.
+/// Both actions are now push buttons, one tier apart: the raised secondary
+/// (`WNSecondaryButtonStyle`) for signing in, and the glass primary for signing up.
 ///
 /// `Sign Up` no longer creates anything. It opens `OnboardingSignUpView`, which is where the
 /// identity is made — the button that minted one outright, in the time it took to press it, is
@@ -59,7 +59,7 @@ struct OnboardingWelcomeView: View {
         } actions: {
             OnboardingActionButton(
                 title: L10n.string("Sign In"),
-                tier: .elevated
+                tier: .secondary
             ) {
                 workspace.showLogin()
             }
